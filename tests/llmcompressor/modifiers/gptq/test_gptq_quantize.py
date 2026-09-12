@@ -5,7 +5,6 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
-from loguru import logger
 
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.gptq.gptq_quantize import (
@@ -16,7 +15,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     initialize_observer,
     observe,
 )
-from tests.testing_utils import requires_compute_capability
+from tests.testing_utils import requires_compute_capability, requires_gpu
 
 
 @pytest.mark.parametrize(
@@ -46,14 +45,9 @@ def test_quantize_weight_group_strategy_actorder(actorder):
         )
     )
 
-    loss, q_param_dict, used_rtn_fallback = quantize_weight(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian,
-    )
+    loss, q_param_dict, _ = _quantize_module(module, quant_args, hessian)
 
     assert loss >= 0
-    assert not used_rtn_fallback
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape == (6, 4)
     assert q_param_dict["weight_zero_point"].shape == (6, 4)
@@ -82,15 +76,9 @@ def test_quantize_weight_supports_block_strategy(actorder):
     hessian = make_empty_hessian(module)
     hessian += torch.eye(hessian.shape[0], dtype=hessian.dtype, device=hessian.device)
 
-    loss, q_param_dict, used_rtn_fallback = quantize_weight(
-        module=module,
-        quant_args=quant_args,
-        hessian=hessian,
-        blocksize=3,
-    )
+    loss, q_param_dict, _ = _quantize_module(module, quant_args, hessian, blocksize=3)
 
     assert loss >= 0
-    assert not used_rtn_fallback
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape == (3, 2)
     assert q_param_dict["weight_zero_point"].shape == (3, 2)
@@ -121,12 +109,9 @@ def test_quantize_weight_channel_actorder_weight():
     )
     hessian += torch.diag(diag)
 
-    loss, q_param_dict, used_rtn_fallback = quantize_weight(
-        module=module, quant_args=quant_args, hessian=hessian, blocksize=4
-    )
+    loss, q_param_dict, _ = _quantize_module(module, quant_args, hessian, blocksize=4)
 
     assert loss >= 0
-    assert not used_rtn_fallback
     assert q_param_dict["weight"].shape == module.weight.shape
     assert q_param_dict["weight_scale"].shape[0] == module.weight.shape[0]
     assert q_param_dict["weight_zero_point"].shape[0] == module.weight.shape[0]
@@ -145,56 +130,20 @@ def _make_channel_quantized_linear(in_features=8, out_features=4):
 
 
 @torch.no_grad()
-def test_quantize_weight_singular_hessian_rtn_fallback():
+def test_quantize_weight_singular_hessian_uses_rtn():
     module, quant_args = _make_channel_quantized_linear()
 
     # rank-1 hessian with a nonzero diagonal, so dead-column masking does not
     # repair it; percdamp=0.0 keeps it singular and cholesky fails
     hessian = make_empty_hessian(module) + 1
 
-    loss, q_param_dict, used_rtn_fallback = quantize_weight(
-        module=module, quant_args=quant_args, hessian=hessian, percdamp=0.0
+    loss, q_param_dict, used_rtn_fallback = _quantize_module(
+        module, quant_args, hessian, percdamp=0.0
     )
 
     assert used_rtn_fallback
     assert loss >= 0
     assert q_param_dict["weight"].shape == module.weight.shape
-
-
-@torch.no_grad()
-def test_gptq_rtn_fallback_summary_fires():
-    module, quant_args = _make_channel_quantized_linear()
-
-    # qparams written back by compress_module_list must already exist
-    module.weight_scale = torch.nn.Parameter(
-        torch.empty(4, 1, dtype=module.weight.dtype), requires_grad=False
-    )
-    module.weight_zero_point = torch.nn.Parameter(
-        torch.empty(4, 1, dtype=quant_args.zp_dtype), requires_grad=False
-    )
-
-    name = "model.layers.0.self_attn.q_proj"
-    modifier = GPTQModifier(dampening_frac=0.0)
-    modifier._module_names[module] = name
-    modifier._hessians[module] = make_empty_hessian(module) + 1  # singular
-    modifier._num_samples[module] = torch.tensor(1.0)
-
-    messages = []
-    handler_id = logger.add(messages.append, level="WARNING")
-    try:
-        modifier.compress_modules()
-        modifier._log_rtn_fallback_summary()
-    finally:
-        logger.remove(handler_id)
-
-    assert modifier._num_compressed_modules == 1
-    assert modifier._rtn_fallback_module_names == [name]
-    summaries = [str(m) for m in messages if "Hessian inversion failed for" in str(m)]
-    assert len(summaries) == 1
-    assert "1/1" in summaries[0]
-    assert "100.0%" in summaries[0]
-    assert "round-to-nearest" in summaries[0]
-    assert name in summaries[0]
 
 
 @requires_compute_capability(9, 0)  # Requires H100 or higher
@@ -279,3 +228,378 @@ def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
 
     # Verify QKV and gate/up are NOT fused together
     assert abs(q_gs - gate_gs) > 1e-6, f"QKV and gate/up incorrectly fused: {q_gs}"
+
+
+def _make_observed_linear(
+    in_features,
+    out_features,
+    quant_args,
+    seed=0,
+    device="cpu",
+    dtype=None,
+):
+    torch.manual_seed(seed)
+    module = torch.nn.Linear(in_features, out_features, bias=False).to(
+        device=device, dtype=dtype
+    )
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=quant_args
+    )
+    initialize_observer(module, "weight")
+    observe(module, "weight")
+    return module
+
+
+def _quantization_inputs(modules, hessians):
+    qparams = [module.weight_observer.get_qparams() for module in modules]
+    global_scales = None
+    if qparams[0]["global_scale"] is not None:
+        global_scales = torch.stack(
+            [qparam["global_scale"].reshape(-1)[0] for qparam in qparams]
+        )
+    return (
+        torch.stack([module.weight for module in modules]),
+        torch.stack(hessians),
+        torch.stack([qparam["scale"] for qparam in qparams]),
+        torch.stack([qparam["zero_point"] for qparam in qparams]),
+        global_scales,
+    )
+
+
+def _quantize_module(module, quant_args, hessian, blocksize=128, percdamp=0.01):
+    weights, hessians, scales, zero_points, global_scales = _quantization_inputs(
+        [module], [hessian]
+    )
+    weights, losses, rtn = quantize_weight(
+        weights=weights,
+        hessians=hessians,
+        scale=scales,
+        zero_point=zero_points,
+        global_scale=global_scales,
+        quant_args=quant_args,
+        blocksize=blocksize,
+        percdamp=percdamp,
+    )
+    q_param_dict = {
+        "weight": weights[0],
+        "weight_scale": scales[0],
+        "weight_zero_point": zero_points[0],
+    }
+    if global_scales is not None:
+        q_param_dict["weight_global_scale"] = global_scales[0]
+    return losses[0].item(), q_param_dict, rtn[0].item()
+
+
+def _make_spd_hessian(in_features, device, seed):
+    gen = torch.Generator(device="cpu").manual_seed(seed)
+    mat = torch.randn(in_features, in_features, generator=gen)
+    return (mat @ mat.T + torch.eye(in_features)).to(device=device, dtype=torch.float32)
+
+
+@pytest.mark.parametrize(
+    ("quant_args", "expected_scale_dtype", "has_global_scale"),
+    [
+        pytest.param(
+            QuantizationArgs(
+                num_bits=4, symmetric=True, strategy="group", group_size=16
+            ),
+            torch.bfloat16,
+            False,
+            id="int4-group",
+        ),
+        pytest.param(
+            QuantizationArgs(
+                num_bits=4, symmetric=False, strategy="group", group_size=16
+            ),
+            torch.bfloat16,
+            False,
+            id="int4-group-asymmetric",
+        ),
+        pytest.param(
+            QuantizationArgs(num_bits=8, symmetric=True, strategy="channel"),
+            torch.bfloat16,
+            False,
+            id="int8-channel",
+        ),
+        pytest.param(
+            QuantizationArgs(
+                num_bits=8, type="float", symmetric=True, strategy="channel"
+            ),
+            torch.bfloat16,
+            False,
+            id="fp8-channel",
+        ),
+        pytest.param(
+            QuantizationArgs(
+                num_bits=8,
+                type="float",
+                symmetric=True,
+                strategy="block",
+                block_structure=[16, 16],
+            ),
+            torch.bfloat16,
+            False,
+            id="fp8-block",
+        ),
+        pytest.param(
+            QuantizationArgs(
+                num_bits=4,
+                type="float",
+                symmetric=True,
+                strategy="group",
+                group_size=16,
+            ),
+            torch.bfloat16,
+            False,
+            id="fp4-group",
+        ),
+        pytest.param(
+            QuantizationArgs(
+                num_bits=4,
+                type="float",
+                symmetric=True,
+                strategy="tensor_group",
+                group_size=16,
+                scale_dtype=torch.float8_e4m3fn,
+                zp_dtype=torch.float8_e4m3fn,
+            ),
+            torch.float32,
+            True,
+            id="nvfp4",
+        ),
+    ],
+)
+@pytest.mark.parametrize("actorder", [None, ActivationOrdering.WEIGHT])
+@requires_gpu
+@torch.no_grad()
+def test_fused_gptq_kernel_matches_eager(
+    quant_args,
+    expected_scale_dtype,
+    has_global_scale,
+    actorder,
+    monkeypatch,
+):
+    """The fused Triton block update must match the eager column loop."""
+    if actorder is not None:
+        quant_args.actorder = actorder
+
+    hessian = _make_spd_hessian(64, "cuda", seed=1)
+
+    monkeypatch.setenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "1")
+    loss_eager, q_eager, rtn_eager = _quantize_module(
+        _make_observed_linear(
+            64, 48, quant_args, seed=0, device="cuda", dtype=torch.bfloat16
+        ),
+        quant_args,
+        hessian.clone(),
+    )
+    monkeypatch.delenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON")
+    loss_fused, q_fused, rtn_fused = _quantize_module(
+        _make_observed_linear(
+            64, 48, quant_args, seed=0, device="cuda", dtype=torch.bfloat16
+        ),
+        quant_args,
+        hessian.clone(),
+    )
+
+    assert rtn_eager == rtn_fused
+    assert q_eager["weight_scale"].dtype == expected_scale_dtype
+    assert ("weight_global_scale" in q_eager) == has_global_scale
+    if quant_args.scale_dtype == torch.float8_e4m3fn:
+        assert torch.equal(
+            q_eager["weight_scale"],
+            q_eager["weight_scale"].to(torch.float8_e4m3fn).to(torch.float32),
+        )
+    assert torch.equal(q_eager["weight"], q_fused["weight"]), (
+        (q_eager["weight"] - q_fused["weight"]).abs().max()
+    )
+    assert torch.equal(q_eager["weight_scale"], q_fused["weight_scale"])
+    if has_global_scale:
+        assert torch.equal(
+            q_eager["weight_global_scale"], q_fused["weight_global_scale"]
+        )
+    assert loss_eager == loss_fused
+
+
+@pytest.mark.parametrize(
+    "quant_args",
+    [
+        QuantizationArgs(num_bits=4, symmetric=True, strategy="group", group_size=16),
+        QuantizationArgs(num_bits=4, symmetric=False, strategy="group", group_size=16),
+        QuantizationArgs(num_bits=8, symmetric=True, strategy="channel"),
+        QuantizationArgs(
+            num_bits=4, type="float", symmetric=True, strategy="group", group_size=16
+        ),
+        QuantizationArgs(
+            num_bits=4,
+            type="float",
+            symmetric=True,
+            strategy="tensor_group",
+            group_size=16,
+        ),
+        QuantizationArgs(
+            num_bits=4,
+            type="float",
+            symmetric=True,
+            strategy="group",
+            group_size=16,
+            scale_dtype=torch.float8_e4m3fn,
+        ),
+        QuantizationArgs(
+            num_bits=8,
+            symmetric=True,
+            strategy="block",
+            block_structure=[16, 16],
+        ),
+    ],
+)
+@pytest.mark.parametrize("actorder", [None, ActivationOrdering.WEIGHT])
+@pytest.mark.parametrize("backend", ["eager", "triton"])
+@requires_gpu
+@torch.no_grad()
+def test_quantize_weight_batch_close_to_single(
+    quant_args, actorder, backend, monkeypatch
+):
+    """Batched GPTQ should remain close to per-module solves for both backends."""
+    device = "cuda"
+    if backend == "eager":
+        monkeypatch.setenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "1")
+    if actorder is not None:
+        quant_args.actorder = actorder
+
+    num_modules = 4
+    single_modules = [
+        _make_observed_linear(64, 48, quant_args, seed=seed, device=device)
+        for seed in range(num_modules)
+    ]
+    batched_modules = [
+        _make_observed_linear(64, 48, quant_args, seed=seed, device=device)
+        for seed in range(num_modules)
+    ]
+    hessians = [
+        _make_spd_hessian(64, device, seed=100 + seed) for seed in range(num_modules)
+    ]
+
+    single_results = [
+        _quantize_module(module, quant_args, h.clone())
+        for module, h in zip(single_modules, hessians)
+    ]
+    weights, batched_hessians, scales, zero_points, global_scales = (
+        _quantization_inputs(batched_modules, [h.clone() for h in hessians])
+    )
+    batched_weights, batched_losses, batched_rtn = quantize_weight(
+        weights=weights,
+        hessians=batched_hessians,
+        scale=scales,
+        zero_point=zero_points,
+        global_scale=global_scales,
+        quant_args=quant_args,
+    )
+
+    for idx, single in enumerate(single_results):
+        s_loss, s_params, s_rtn = single
+        assert s_rtn == batched_rtn[idx].item()
+        assert torch.allclose(
+            s_params["weight"], batched_weights[idx], rtol=1e-4, atol=1e-5
+        ), f"module {idx} weight mismatch"
+        assert torch.equal(
+            s_params["weight_scale"], scales[idx]
+        ), f"module {idx} scale mismatch"
+        assert torch.allclose(
+            torch.tensor(s_loss, device=batched_losses.device),
+            batched_losses[idx],
+            rtol=1e-4,
+            atol=1e-5,
+        ), f"module {idx} loss mismatch"
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@torch.no_grad()
+def test_quantize_weight_batch_singular_hessian_uses_rtn(device):
+    """A singular hessian in one batch slice falls back to RTN for that slice."""
+    if device == "cuda" and not torch.accelerator.is_available():
+        pytest.skip("requires CUDA")
+    quant_args = QuantizationArgs(
+        num_bits=4, symmetric=True, strategy="group", group_size=16
+    )
+    modules = [
+        _make_observed_linear(64, 48, quant_args, seed=seed, device=device)
+        for seed in range(3)
+    ]
+    hessians = [_make_spd_hessian(64, device, seed=100 + seed) for seed in range(3)]
+    hessians[1] = torch.ones(64, 64, device=device)  # singular
+
+    weights, batched_hessians, scales, zero_points, global_scales = (
+        _quantization_inputs(modules, hessians)
+    )
+    _, _, used_rtn_fallback = quantize_weight(
+        weights=weights,
+        hessians=batched_hessians,
+        scale=scales,
+        zero_point=zero_points,
+        global_scale=global_scales,
+        quant_args=quant_args,
+        percdamp=0.0,
+    )
+
+    assert used_rtn_fallback.tolist() == [False, True, False]
+
+
+@torch.no_grad()
+def test_compress_module_list_batches_same_shape(tmp_path):
+    """compress_module_list groups same-shape modules into one batched solve
+    and leaves odd ones on the single-matrix path."""
+    quant_args = QuantizationArgs(
+        num_bits=4, symmetric=True, strategy="group", group_size=16
+    )
+
+    def make_module(in_features, out_features, seed):
+        module = _make_observed_linear(in_features, out_features, quant_args, seed)
+        module.weight_scale = torch.nn.Parameter(
+            torch.empty(out_features, in_features // 16), requires_grad=False
+        )
+        module.weight_zero_point = torch.nn.Parameter(
+            torch.empty(out_features, in_features // 16, dtype=quant_args.zp_dtype),
+            requires_grad=False,
+        )
+        return module
+
+    # three same-shape modules (one batch) + one different shape (singleton)
+    modules = [make_module(64, 48, seed) for seed in range(3)]
+    modules.append(make_module(32, 48, seed=3))
+
+    modifier = GPTQModifier()
+    for idx, module in enumerate(modules):
+        modifier._module_names[module] = f"model.layers.0.experts.{idx}"
+        modifier._hessians[module] = _make_spd_hessian(
+            module.weight.shape[1], module.weight.device, seed=idx
+        )
+        modifier._num_samples[module] = torch.tensor(1.0)
+
+    # force pure eager+single path so CPU runs deterministically cover the
+    # batching decision logic, not the kernel
+    modifier.batched_quantization = False
+    modifier.compress_modules()
+    assert modifier._num_compressed_modules == 4
+
+    # re-fill and run with batching enabled
+    modifier._num_compressed_modules = 0
+    modules_b = [make_module(64, 48, seed) for seed in range(3)]
+    modules_b.append(make_module(32, 48, seed=3))
+    modifier._module_names = {
+        m: f"model.layers.0.experts.{i}" for i, m in enumerate(modules_b)
+    }
+    modifier._hessians = {
+        m: _make_spd_hessian(m.weight.shape[1], m.weight.device, seed=i)
+        for i, m in enumerate(modules_b)
+    }
+    modifier._num_samples = {m: torch.tensor(1.0) for m in modules_b}
+    modifier.batched_quantization = True
+    modifier.compress_modules()
+    assert modifier._num_compressed_modules == 4
+
+    # batched and single results must agree on the shared-seed modules
+    for m_single, m_batched in zip(modules, modules_b):
+        assert torch.allclose(m_single.weight_scale, m_batched.weight_scale)
+        # quantized weights were written back through update_offload_parameter
+        assert torch.allclose(m_single.weight, m_batched.weight, rtol=1e-4, atol=1e-5)

@@ -58,7 +58,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         GPTQModifier:
           block_size: 128
           dampening_frac: 0.001
-          offload_hessians: False
           actorder: static
           config_groups:
             group_0:
@@ -93,8 +92,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param actorder: order in which weight columns are quantized. Defaults to "static"
         activation ordering, which achieves best accuracy recovery with no runtime cost.
         For more information, see https://github.com/vllm-project/vllm/pull/8135.
-    :param offload_hessians: Set to True for decreased memory usage but increased
-        runtime.
+    :param batched_quantization: Set to False to disable batched quantization of
+        same-shape modules (e.g. linearized MoE experts). When enabled, groups of
+        modules sharing weight shape and quantization scheme are quantized with
+        batched Cholesky solves and a fused Triton column-update kernel when
+        available.
+    :param batch_memory_fraction: Fraction of currently free CUDA memory that may be
+        used for new allocations while processing a GPTQ batch. Defaults to 0.75.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -126,7 +130,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
     block_size: int = 128
     dampening_frac: float | None = 0.01
     actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
-    offload_hessians: bool = False
+    batched_quantization: bool = True
+    batch_memory_fraction: float = 0.75
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -252,22 +257,19 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Initialize hessian if not present
         if module not in self._num_samples:
-            init_device = (
-                "cpu" if self.offload_hessians else get_execution_device(module)
+            self._hessians[module] = make_empty_hessian(
+                module, device=get_execution_device(module)
             )
-            self._hessians[module] = make_empty_hessian(module, device=init_device)
             self._num_samples[module] = torch.zeros(
                 tuple(), device=get_execution_device(module)
             )
 
-        # Accumulate hessian with input with optional offloading
-        with self._maybe_onload_hessian(module):
-            self._hessians[module], self._num_samples[module] = accumulate_hessian(
-                inp,
-                module,
-                self._hessians[module],
-                self._num_samples[module],
-            )
+        self._hessians[module], self._num_samples[module] = accumulate_hessian(
+            inp,
+            module,
+            self._hessians[module],
+            self._num_samples[module],
+        )
 
     def compress_modules(self):
         """
@@ -297,70 +299,207 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # broadcast compressed modules to each rank
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
-    def compress_module_list(self, module_list):
-        for module in module_list:
-            name = self._module_names[module]
-            num_samples = self._num_samples[module]
-            quant_args = getattr_chain(module, "quantization_scheme.weights")
+    def compress_module_list(self, module_list, qparams=None):
+        if qparams is None:
+            qparams = {
+                module: module.weight_observer.get_qparams() for module in module_list
+            }
 
-            logger.info(f"Quantizing {name} using {int(num_samples)} samples")
+        for batch in self._make_batches(module_list):
+            quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
+            batch_qparams = [qparams[module] for module in batch]
             with (
                 torch.no_grad(),
-                align_module_device(module),
-                self._maybe_onload_hessian(module),
-                CompressionLogger(module) as comp_logger,
+                contextlib.ExitStack() as ctx_stack,
             ):
-                loss, q_param_dict, used_rtn_fallback = quantize_weight(
-                    module=module,
+                for module in batch:
+                    ctx_stack.enter_context(align_module_device(module))
+
+                hessian_list = []
+                for module in batch:
+                    hessian = self._hessians.pop(module)
+                    num_samples = self._num_samples.pop(module).to(
+                        device=hessian.device
+                    )
+                    hessian_list.append(hessian / num_samples)
+                    del hessian, num_samples
+
+                hessians = torch.stack(hessian_list)
+                del hessian_list
+                weights = torch.empty(
+                    (len(batch), *batch[0].weight.shape),
+                    device=batch[0].weight.device,
+                    dtype=torch.float32,
+                )
+                torch.stack([module.weight for module in batch], out=weights)
+                scales = torch.stack([qparam["scale"] for qparam in batch_qparams])
+                zero_points = torch.stack(
+                    [qparam["zero_point"] for qparam in batch_qparams]
+                )
+                global_scales = None
+                if batch_qparams[0]["global_scale"] is not None:
+                    global_scales = torch.stack(
+                        [
+                            qparam["global_scale"].reshape(-1)[0]
+                            for qparam in batch_qparams
+                        ]
+                    )
+
+                self._compress_batch(
+                    batch,
+                    quant_args,
+                    weights,
+                    hessians,
+                    scales,
+                    zero_points,
+                    global_scales,
+                )
+
+    def _compress_batch(
+        self,
+        modules: list[torch.nn.Module],
+        quant_args,
+        weights: torch.Tensor,
+        hessians: torch.Tensor,
+        scales: torch.Tensor,
+        zero_points: torch.Tensor,
+        global_scales: torch.Tensor | None,
+    ):
+        names = [self._module_names[module] for module in modules]
+        logger.info(f"Quantizing {len(modules)} module(s): {names}")
+
+        try:
+            with contextlib.ExitStack() as ctx_stack:
+                comp_loggers = [
+                    ctx_stack.enter_context(CompressionLogger(module))
+                    for module in modules
+                ]
+                quantized, losses, used_rtn_fallback = quantize_weight(
+                    weights=weights,
+                    hessians=hessians,
+                    scale=scales,
+                    zero_point=zero_points,
+                    global_scale=global_scales,
                     quant_args=quant_args,
-                    hessian=self._hessians.pop(module) / self._num_samples.pop(module),
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
-                comp_logger.set_results(name="GPTQ", loss=loss)
 
+                for index, comp_logger in enumerate(comp_loggers):
+                    comp_logger.set_results(name="GPTQ", loss=losses[index].item())
+                    if used_rtn_fallback[index].item():
+                        self._rtn_fallback_module_names.append(names[index])
+        except Exception as error:
+            raise RuntimeError(f"GPTQ failed for modules: {names}") from error
+
+        for index, module in enumerate(modules):
             self._num_compressed_modules += 1
-            if used_rtn_fallback:
-                self._rtn_fallback_module_names.append(name)
-
+            q_param_dict = {
+                "weight": quantized[index].to(dtype=module.weight.dtype),
+                "weight_scale": scales[index].to(dtype=module.weight.dtype),
+                "weight_zero_point": zero_points[index].to(dtype=quant_args.zp_dtype),
+            }
+            if global_scales is not None:
+                q_param_dict["weight_global_scale"] = global_scales[index].to(
+                    dtype=module.weight.dtype
+                )
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
+
+    def _make_batches(
+        self, module_list: list[torch.nn.Module]
+    ) -> list[list[torch.nn.Module]]:
+        """Partition modules into execution batches."""
+        if not self.batched_quantization:
+            return [[module] for module in module_list]
+
+        batches: list[list[torch.nn.Module]] = []
+        pending: dict[tuple, list[torch.nn.Module]] = {}
+        for module in module_list:
+            key = self._batch_key(module)
+            if key is None:
+                batches.append([module])
+            else:
+                pending.setdefault(key, []).append(module)
+
+        for members in pending.values():
+            max_batch = self._max_batch_size(members[0])
+            for start in range(0, len(members), max_batch):
+                batches.append(members[start : start + max_batch])
+        return batches
+
+    def _batch_key(self, module: torch.nn.Module) -> tuple | None:
+        weight = getattr(module, "weight", None)
+        if weight is None or weight.dim() != 2:
+            return None
+        quant_args = getattr_chain(module, "quantization_scheme.weights", None)
+        if quant_args is None:
+            return None
+        try:
+            args_repr = quant_args.model_dump_json()
+        except Exception:
+            return None
+        return (
+            tuple(weight.shape),
+            str(weight.dtype),
+            str(get_execution_device(module)),
+            args_repr,
+        )
+
+    def _max_batch_size(self, module: torch.nn.Module) -> int:
+        out_features, in_features = module.weight.shape
+        device = get_execution_device(module)
+        weight_size = out_features * in_features
+        hessian_size = in_features * in_features
+        block_matrix_size = out_features * self.block_size
+
+        quantization_peak = (
+            hessian_size  # stacked Hessian, reused in place as its inverse
+            + 3 * weight_size  # module weight, stacked working weight, and w_err
+            + 4 * block_matrix_size  # W1, Q1, Err1, and losses1
+        )
+        actorder_peak = (
+            3 * hessian_size  # original Hessian and both gather outputs
+            + 2 * weight_size  # module weight and stacked working weight
+        )
+        per_module_bytes = max(quantization_peak, actorder_peak) * 4
+
+        if not 0.0 < self.batch_memory_fraction <= 1.0:
+            raise ValueError("batch_memory_fraction must be in (0, 1]")
+        if torch.device(device).type != "cuda" or not torch.accelerator.is_available():
+            return 1
+        free_bytes, _ = torch.get_device_module().mem_get_info(device)
+        budget = int(free_bytes * self.batch_memory_fraction)
+        return max(1, budget // per_module_bytes)
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
         rank = dist.get_rank()
         pending_comms = []
         for module in module_list:
             target_rank = module_to_rank[module]
-            with self._maybe_onload_hessian(module):
-                pending_comms.append(
-                    dist.reduce(
-                        self._hessians[module],
-                        op=dist.ReduceOp.SUM,
-                        dst=target_rank,
-                        async_op=True,
-                    )
+            pending_comms.append(
+                dist.reduce(
+                    self._hessians[module],
+                    op=dist.ReduceOp.SUM,
+                    dst=target_rank,
+                    async_op=True,
                 )
-                pending_comms.append(
-                    dist.reduce(
-                        self._num_samples[module],
-                        op=dist.ReduceOp.SUM,
-                        dst=target_rank,
-                        async_op=True,
-                    )
+            )
+            pending_comms.append(
+                dist.reduce(
+                    self._num_samples[module],
+                    op=dist.ReduceOp.SUM,
+                    dst=target_rank,
+                    async_op=True,
                 )
-                if rank != target_rank:
-                    self._hessians.pop(module, None)
-                    self._num_samples.pop(module, None)
+            )
+            if rank != target_rank:
+                self._hessians.pop(module, None)
+                self._num_samples.pop(module, None)
         wait_for_comms(pending_comms)
 
     def _log_rtn_fallback_summary(self):
-        """
-        Emit a single end-of-run warning if any modules fell back to
-        round-to-nearest because hessian inversion failed. Without a summary,
-        per-module fallback warnings are easy to miss and a run where every
-        module fell back looks like a successful GPTQ run (#2952). In the
-        distributed case, each rank reports the modules it compressed.
-        """
+        """Log a summary when modules used RTN because GPTQ failed."""
         num_fallback = len(self._rtn_fallback_module_names)
         if num_fallback == 0:
             return
@@ -402,15 +541,3 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self._rtn_fallback_module_names = []
 
         return True
-
-    @contextlib.contextmanager
-    def _maybe_onload_hessian(self, module: torch.nn.Module):
-        if self.offload_hessians:
-            device = get_execution_device(module)
-            self._hessians[module] = self._hessians[module].to(device=device)
-
-        yield
-
-        if self.offload_hessians:
-            if module in self._hessians:  # may have been deleted in context
-                self._hessians[module] = self._hessians[module].to(device="cpu")
