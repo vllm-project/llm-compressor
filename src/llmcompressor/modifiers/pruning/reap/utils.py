@@ -49,7 +49,7 @@ class MoeModelAttrs:
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
 NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
-TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
+TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k", "top_k_experts"]
 N_GROUP_CONFIG_KEYS = ["n_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
 NUM_EXPERTS_MODULE_KEYS = ["num_experts", "n_experts", "n_routed_experts"]
@@ -426,12 +426,21 @@ def prune_moe_layer(
 def _prune_router(router: nn.Module, retained: list[int]):
     retained_t = torch.tensor(retained, dtype=torch.long)
 
+    # For composite routers (e.g., Gemma4TextRouter) the Linear projection
+    # lives in a `proj` submodule rather than on the router itself.
+    linear = router if hasattr(router, "weight") else getattr(router, "proj", None)
+    if linear is None:
+        raise ValueError(
+            f"Cannot find router weights in {type(router).__name__}; "
+            "expected a `weight` attribute or a `proj` submodule"
+        )
+
     with align_module_device(router):
-        retained_t = retained_t.to(router.weight.device)
-        new_weight = router.weight.detach()[retained_t].contiguous()
+        retained_t = retained_t.to(linear.weight.device)
+        new_weight = linear.weight.detach()[retained_t].contiguous()
         new_bias = None
-        if getattr(router, "bias", None) is not None:
-            new_bias = router.bias.detach()[retained_t].contiguous()
+        if getattr(linear, "bias", None) is not None:
+            new_bias = linear.bias.detach()[retained_t].contiguous()
         # group-limited routers (DeepSeek-V3 / GLM4 / GLM-DSA) carry a per-expert
         # score-correction bias buffer that must be shrunk in lockstep
         correction = getattr(router, "e_score_correction_bias", None)
@@ -440,18 +449,26 @@ def _prune_router(router: nn.Module, retained: list[int]):
             if correction is not None
             else None
         )
+        # Gemma4-style routers carry a per-expert scale parameter
+        per_expert_scale = getattr(router, "per_expert_scale", None)
+        new_per_expert_scale = (
+            per_expert_scale.detach()[retained_t].contiguous()
+            if per_expert_scale is not None
+            else None
+        )
 
-    # Direct attribute assignment replaces a parameter/buffer with a different
-    # shape and is correct for both offloaded modules (routed through the
-    # OffloadCache, which re-offloads the new shape) and ordinary modules.
-    router.weight = nn.Parameter(new_weight, requires_grad=router.weight.requires_grad)
+    linear.weight = nn.Parameter(new_weight, requires_grad=linear.weight.requires_grad)
     if new_bias is not None:
-        router.bias = nn.Parameter(new_bias, requires_grad=router.bias.requires_grad)
+        linear.bias = nn.Parameter(new_bias, requires_grad=linear.bias.requires_grad)
     if new_correction is not None:
         router.e_score_correction_bias = new_correction
+    if new_per_expert_scale is not None:
+        router.per_expert_scale = nn.Parameter(
+            new_per_expert_scale, requires_grad=per_expert_scale.requires_grad
+        )
 
-    if isinstance(getattr(router, "out_features", None), int):
-        router.out_features = len(retained)
+    if isinstance(getattr(linear, "out_features", None), int):
+        linear.out_features = len(retained)
 
 
 def update_model_config(
