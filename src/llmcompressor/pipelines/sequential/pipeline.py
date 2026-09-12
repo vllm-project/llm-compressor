@@ -1,5 +1,5 @@
 import contextlib
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import disable_offloading, set_onload_device
@@ -11,6 +11,11 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines.sequential.error_logging import (
+    accumulate_batch_power,
+    cache_pre_compression_output,
+    compute_sqnr,
+)
 from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     trace_subgraphs,
@@ -47,96 +52,6 @@ def _get_batches(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
         yield batch_idx, inputs
-
-
-def _get_largest_tensor(outputs: dict[str, Any]) -> torch.Tensor | None:
-    """
-    Select the largest tensor (by number of elements) from a subgraph output dict.
-    This is used as a heuristic to identify the "main activation" (e.g. hidden
-    states) among a subgraph's outputs, which may also include pass-through values
-    such as attention masks or position ids.
-
-    :param outputs: dictionary of subgraph output values
-    :return: the largest tensor value, or None if no tensor values are present
-    """
-    largest = None
-    largest_numel = 0
-    for value in outputs.values():
-        if isinstance(value, torch.Tensor) and value.numel() > largest_numel:
-            largest = value
-            largest_numel = value.numel()
-    return largest
-
-
-def _compute_kl_divergence(
-    pre_tensor: torch.Tensor, post_tensor: torch.Tensor
-) -> float:
-    """
-    Compute the KL divergence between pre-compression and post-compression
-    activation tensors. Both tensors are cast to float32 and converted to
-    log-probability distributions via ``log_softmax`` along the last dimension
-    before computing the divergence.
-
-    :param pre_tensor: activation tensor captured before compression
-    :param post_tensor: activation tensor captured after compression
-    :return: scalar KL divergence value
-    """
-    pre_log_probs = torch.nn.functional.log_softmax(pre_tensor.float(), dim=-1)
-    post_log_probs = torch.nn.functional.log_softmax(post_tensor.float(), dim=-1)
-    return torch.nn.functional.kl_div(
-        post_log_probs, pre_log_probs, log_target=True, reduction="batchmean"
-    ).item()
-
-
-_PRE_KL_KEY = "__pre_kl__"
-
-
-def _cache_pre_compression_output(
-    activations: IntermediatesCache,
-    batch_idx: int,
-    outputs: dict[str, Any],
-) -> None:
-    """
-    Save the main activation tensor from a subgraph's pre-compression output
-    into the intermediates cache for later KL divergence comparison.
-
-    :param activations: intermediates cache shared across the pipeline
-    :param batch_idx: index of the current calibration batch
-    :param outputs: subgraph output dict from the calibration (pre-compression) pass
-    """
-    main_tensor = _get_largest_tensor(outputs)
-    if main_tensor is not None:
-        activations.update(batch_idx, {_PRE_KL_KEY: main_tensor})
-
-
-def _compute_batch_kl_divergence(
-    activations: IntermediatesCache,
-    batch_idx: int,
-    output: dict[str, Any],
-) -> float | None:
-    """
-    Compute the KL divergence for a single batch by comparing the saved
-    pre-compression activation against the post-compression output, then
-    remove the cached pre-compression tensor to free memory.
-
-    :param activations: intermediates cache holding the pre-compression tensor
-    :param batch_idx: index of the current propagation batch
-    :param output: subgraph output dict from the propagation (post-compression) pass
-    :return: scalar KL divergence, or None if either tensor is unavailable
-    """
-    pre_data = activations.fetch(batch_idx, [_PRE_KL_KEY])
-    pre_tensor = pre_data.get(_PRE_KL_KEY)
-    if pre_tensor is None:
-        return None
-    # clean up cached tensor; delete only after confirming the key exists,
-    # since IntermediatesCache.delete raises KeyError for missing keys
-    activations.delete(batch_idx, [_PRE_KL_KEY])
-
-    post_tensor = _get_largest_tensor(output)
-    if post_tensor is None:
-        return None
-
-    return _compute_kl_divergence(pre_tensor, post_tensor)
 
 
 @CalibrationPipeline.register("sequential")
@@ -260,7 +175,7 @@ class SequentialPipeline(CalibrationPipeline):
                             dataset_args.log_sequential_error
                             and subgraph_index < num_subgraphs - 1
                         ):
-                            _cache_pre_compression_output(
+                            cache_pre_compression_output(
                                 activations, batch_idx, outputs
                             )
 
@@ -269,7 +184,12 @@ class SequentialPipeline(CalibrationPipeline):
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
                         # and is only used for capturing outputs of compressed modules
-                        batch_kls: list[float] = []
+                        # signal/noise power sums are accumulated across all batches
+                        # (rather than averaging a per-batch SQNR) so that the final
+                        # ratio correctly weights each batch by its element count
+                        signal_power_sum = 0.0
+                        noise_power_sum = 0.0
+                        num_batches_measured = 0
                         with HooksMixin.disable_hooks():
                             for batch_idx, inputs in _get_batches(
                                 activations,
@@ -290,18 +210,20 @@ class SequentialPipeline(CalibrationPipeline):
                                     dataset_args.log_sequential_error
                                     and subgraph_index < num_subgraphs - 1
                                 ):
-                                    kl = _compute_batch_kl_divergence(
+                                    batch_power = accumulate_batch_power(
                                         activations, batch_idx, output
                                     )
-                                    if kl is not None:
-                                        batch_kls.append(kl)
+                                    if batch_power is not None:
+                                        signal_power_sum += batch_power[0]
+                                        noise_power_sum += batch_power[1]
+                                        num_batches_measured += 1
 
-                        if dataset_args.log_sequential_error and batch_kls:
-                            avg_kl = sum(batch_kls) / len(batch_kls)
+                        if dataset_args.log_sequential_error and num_batches_measured:
+                            sqnr = compute_sqnr(signal_power_sum, noise_power_sum)
                             _logger.log(
                                 "METRIC",
                                 f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
-                                f"sequential error (KL): {avg_kl:.6f}",
+                                f"sequential error (SQNR dB): {sqnr:.2f}",
                             )
 
             # redundant, finish any remaining compression

@@ -462,7 +462,7 @@ def oneshot(
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.
     :param log_sequential_error: Only relevant for the sequential pipeline. If True,
-        compute and log the KL divergence between each subgraph's pre-compression
+        compute and log the SQNR between each subgraph's pre-compression
         and post-compression outputs. Automatically enables propagate_error.
         Default is False.
     # Miscellaneous arguments

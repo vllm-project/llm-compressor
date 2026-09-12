@@ -276,7 +276,7 @@ class DatasetArguments(CustomDatasetArguments):
         default=False,
         metadata={
             "help": "Only relevant for the sequential pipeline. If True, compute and "
-            "log the KL divergence between each subgraph's pre-compression and "
+            "log the SQNR between each subgraph's pre-compression and "
             "post-compression outputs. Automatically enables propagate_error. "
             "Default is False."
         },
