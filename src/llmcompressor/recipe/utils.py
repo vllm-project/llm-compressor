@@ -119,6 +119,13 @@ def append_recipe_dict(d1: dict, d2: dict) -> dict:
     Always starts numbering from 0 even for the first occurrence.
     """
     result = dict(d1)
+
+    def next_stage_key(base_key: str, start: int = 0) -> str:
+        index = start
+        while f"{base_key}_{index}" in result:
+            index += 1
+        return f"{base_key}_{index}"
+
     for key, val in d2.items():
         if key not in result:
             result[key] = val
@@ -128,12 +135,15 @@ def append_recipe_dict(d1: dict, d2: dict) -> dict:
 
             # Rename original if not yet renamed
             if key == base_key:
-                result[f"{base_key}_0"] = result.pop(key)
-                result[f"{base_key}_1"] = val
+                original_key = next_stage_key(base_key)
+                result = {
+                    (
+                        original_key if existing_key == key else existing_key
+                    ): existing_val
+                    for existing_key, existing_val in result.items()
+                }
+                result[next_stage_key(base_key)] = val
             else:
                 # Key was already suffixed, find next free index
-                i = 1
-                while f"{base_key}_{i}" in result:
-                    i += 1
-                result[f"{base_key}_{i}"] = val
+                result[next_stage_key(base_key, start=1)] = val
     return result
