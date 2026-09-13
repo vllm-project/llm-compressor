@@ -4,7 +4,12 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.offload import get_cache_init_kwargs
+from compressed_tensors.offload import (
+    disable_offloading,
+    get_cache_init_kwargs,
+    offload_module,
+    set_onload_device,
+)
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.module import remove_module_offload
 from compressed_tensors.utils import patch_attr
@@ -112,13 +117,13 @@ def linearize_moe(model: PreTrainedModel):
     if hasattr(model, "_moe_lookup"):
         delattr(model, "_moe_lookup")
 
-    all_moes = get_non_linearized_moes(model)
-    non_linearized_moes = {
-        module: name for module, name in all_moes.items()
-        if not isinstance(module, LinearExperts2D)
-    }
+    moe_lookup = get_non_linearized_moes(model)
+    non_linearized = [
+        (moe_lookup[module], module) for module in model.modules()
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
+    ]
 
-    if len(non_linearized_moes) <= 0:
+    if len(non_linearized) <= 0:
         return model
 
     logger.warning(
@@ -129,26 +134,21 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    # If model has active offload caches, remove them and onload tensors
-    # to avoid OOM when accessing offloaded parameters during linearization
-    has_offload_caches = any(
-        isinstance(module._parameters, OffloadCache) for module in non_linearized_moes.keys()
-    )
-    if has_offload_caches:
-        for module in model.modules():
-            if isinstance(module._parameters, OffloadCache):
-                remove_module_offload(module, onload_tensors=True)
+    linearized = []
+    with disable_offloading():
+        for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
+            offload_kwargs = get_cache_init_kwargs(module)
+            config = getattr(module, "config", model.config)
+            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
+            linear_moe = linear_experts_cls.from_experts_module(
+                module, config, setup_offloading=False
+            )
+            model.set_submodule(name, linear_moe)
+            linearized.append((linear_moe, offload_kwargs))
 
-    for module, name in tqdm.tqdm(
-        non_linearized_moes.items(), desc="Linearizing experts"
-    ):
-        config = getattr(module, "config", model.config)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        # Never setup offloading here - it will be re-applied by the pipeline
-        linear_moe = linear_experts_cls.from_experts_module(
-            module, config, setup_offloading=False
-        )
-        model.set_submodule(name, linear_moe)
+    for module, offload_kwargs in linearized:
+        for submodule in module.modules():
+            offload_module(submodule, **offload_kwargs)
 
 
 def get_non_linearized_moes(

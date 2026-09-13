@@ -91,10 +91,6 @@ class SequentialPipeline(CalibrationPipeline):
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
 
-        # linearize MoE layers upfront if not using layer-wise linearization
-        if not dataset_args.sequential_linearize_moe:
-            linearize_moe(model)
-
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
         # layers during the calibration stage
@@ -124,6 +120,11 @@ class SequentialPipeline(CalibrationPipeline):
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
+
+            # linearize MoE layers upfront if not using layer-wise linearization
+            if not dataset_args.sequential_linearize_moe:
+                linearize_moe(model)
+            
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
