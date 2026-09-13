@@ -19,10 +19,7 @@ with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        max_memory={
-            0: 0,
-            "cpu": 16e9,
-        },  # remove this line to use as much cpu as possible
+        max_memory={0: 0, "cpu": 16e9},  # remove this line to use as much cpu as possible
         offload_folder="./offload_folder",  # folder to store offloaded weights
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -52,7 +49,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=MAX_SEQUENCE_LENGTH,
     num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    sequential_linearize_moe=False,  # Test with True
+    sequential_linearize_moe=False,  # True or False
 )
 
 print(f"Quantization completed in {time.time() - start_time:.2f} seconds.")

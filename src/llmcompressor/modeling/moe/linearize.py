@@ -133,9 +133,9 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    linearized = []
-    with disable_offloading():
-        for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
+    # This is also sequential
+    for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
+        with disable_offloading():
             offload_kwargs = get_cache_init_kwargs(module)
             config = getattr(module, "config", model.config)
             linear_experts_cls = LinearExperts2D.get_linear_experts_cls(
@@ -145,16 +145,14 @@ def linearize_moe(model: PreTrainedModel):
                 module, config, setup_offloading=False
             )
             model.set_submodule(name, linear_moe)
-            linearized.append((linear_moe, offload_kwargs))
 
-    for module, offload_kwargs in linearized:
-        for submodule in module.modules():
+        for submodule in linear_moe.modules():
             offload_module(submodule, **offload_kwargs)
 
-    # The caching allocator does not return its reserved pool
-    # to the driver on its own. We need to manually release
-    if torch.accelerator.is_available():
-        torch.accelerator.empty_cache()
+        # The caching allocator does not return its reserved pool
+        # to the driver on its own. We need to manually release
+        if torch.accelerator.is_available():
+            torch.accelerator.empty_cache()
 
 
 def get_non_linearized_moes(
