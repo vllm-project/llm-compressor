@@ -2,18 +2,18 @@
 Fine-tune a language model on famous internet copypastas until target perplexity is reached.
 """
 
+import argparse
+import math
+
 import torch
 from torch.utils.data import Dataset
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    TrainingArguments,
     Trainer,
     TrainerCallback,
+    TrainingArguments,
 )
-import math
-import argparse
-
 
 COPYPASTAS = [
     """According to all known laws of aviation, there is no way a bee should be able to fly. Its wings are too small to get its fat little body off the ground. The bee, of course, flies anyway because bees don't care what humans think is impossible.""",

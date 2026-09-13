@@ -8,10 +8,7 @@ from compressed_tensors.offload import (
     disable_offloading,
     get_cache_init_kwargs,
     offload_module,
-    set_onload_device,
 )
-from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import remove_module_offload
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -43,13 +40,14 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
     to handle both 3D and 2D (linearized) MoE checkpoint formats.
 
     For 3D checkpoints (model type without linearize mappings):
-      The model is loaded in original 3D format. Linearization is deferred to the
-      sequential pipeline for efficient per-subgraph conversion via `linearize_moe_layer`.
+      The model is loaded in original 3D format. Linearization is deferred
+      to the sequential pipeline for efficient per-subgraph conversion via
+      `linearize_moe_layer`.
 
     For 2D checkpoints (model type with linearize mappings):
-      The checkpoint is loaded directly in linearized format by registering patch mappings.
-      Save conversion mappings are registered so the model can be saved in the correct
-      format after pipeline operations.
+      The checkpoint is loaded directly in linearized format by registering patch
+      mappings. Save conversion mappings are registered so the model can be saved
+      in the correct format after pipeline operations.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -119,7 +117,8 @@ def linearize_moe(model: PreTrainedModel):
 
     moe_lookup = get_non_linearized_moes(model)
     non_linearized = [
-        (moe_lookup[module], module) for module in model.modules()
+        (moe_lookup[module], module)
+        for module in model.modules()
         if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
@@ -139,7 +138,9 @@ def linearize_moe(model: PreTrainedModel):
         for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
             offload_kwargs = get_cache_init_kwargs(module)
             config = getattr(module, "config", model.config)
-            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
+            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(
+                module.__class__
+            )
             linear_moe = linear_experts_cls.from_experts_module(
                 module, config, setup_offloading=False
             )
@@ -150,10 +151,10 @@ def linearize_moe(model: PreTrainedModel):
         for submodule in module.modules():
             offload_module(submodule, **offload_kwargs)
 
-    # The caching allocator does not return its reserved pool 
+    # The caching allocator does not return its reserved pool
     # to the driver on its own. We need to manually release
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    if torch.accelerator.is_available():
+        torch.accelerator.empty_cache()
 
 
 def get_non_linearized_moes(
@@ -201,12 +202,15 @@ def linearize_moe_layer(
     moe_lookup = get_non_linearized_moes(model)
 
     non_linearized = [
-        (moe_lookup[module], module) for module in subgraph_set
+        (moe_lookup[module], module)
+        for module in subgraph_set
         if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
     linearized = []
-    for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts in subgraph"):
+    for name, module in tqdm.tqdm(
+        non_linearized, desc="Linearizing experts in subgraph"
+    ):
         offload_kwargs = get_cache_init_kwargs(module)
         config = getattr(module, "config", model.config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
@@ -219,7 +223,7 @@ def linearize_moe_layer(
     for _name, module in non_linearized:
         del moe_lookup[module]
 
-    # Note: Already-linearized 2D modules (from 2D checkpoints loaded via patch mappings)
+    # Already-linearized 2D modules (from 2D checkpoints loaded via patch mappings)
     # are left as-is. They have their offloading set up during loading and don't need
     # deferred offloading setup like the 3D->2D converted modules.
 

@@ -1,6 +1,6 @@
+import time
+
 from compressed_tensors.offload import (
-    load_offloaded_model,
-    dispatch_model,
     get_device_map,
 )
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -9,7 +9,6 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
-import time
 start_time = time.time()
 
 # Select model and load it in the `load_context` context
@@ -20,7 +19,10 @@ with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         device_map="auto_offload",  # fit as much as possible on cpu, rest goes on disk
-        max_memory={0: 0, "cpu": 16e9},  # remove this line to use as much cpu as possible
+        max_memory={
+            0: 0,
+            "cpu": 16e9,
+        },  # remove this line to use as much cpu as possible
         offload_folder="./offload_folder",  # folder to store offloaded weights
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)

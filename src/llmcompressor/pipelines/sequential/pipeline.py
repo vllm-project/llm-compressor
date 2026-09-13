@@ -124,7 +124,7 @@ class SequentialPipeline(CalibrationPipeline):
             # linearize MoE layers upfront if not using layer-wise linearization
             if not dataset_args.sequential_linearize_moe:
                 linearize_moe(model)
-            
+
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
@@ -154,7 +154,9 @@ class SequentialPipeline(CalibrationPipeline):
                     # linearize moe layers just before calibration,
                     # deferring offloading setup until after calibration
                     if dataset_args.sequential_linearize_moe:
-                        linearized = linearize_moe_layer(model, subgraph.submodules(model))
+                        linearized = linearize_moe_layer(
+                            model, subgraph.submodules(model)
+                        )
                     else:
                         linearized = []  # already linearized upfront
                     # do a preliminary pass to trigger modifier hooks
