@@ -4,7 +4,7 @@ from collections import UserDict, deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Generator
 
 import torch
 from compressed_tensors.offload import disable_onloading
@@ -79,6 +79,19 @@ class Subgraph:
                         seen.add(submodule)
 
         return modules
+
+    def get_modules(
+        self, model: Module, recurse: bool = True
+    ) -> Generator[Module, None, None]:
+        memo = set()
+        for node in self.graph.find_nodes(op="call_module"):
+            submodule = model.get_submodule(node.target)
+
+            modules = submodule.modules() if recurse else (submodule,)
+            for m in modules:
+                if m not in memo:
+                    memo.add(m)
+                    yield m
 
 
 def trace_subgraphs(
