@@ -130,7 +130,7 @@ class MoEConfig:
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok", "num_experts_per_token"]
             ),
-            hidden_dim=_getattr_fallbacks(config, ["moe_hidden_size", "hidden_size", "hidden_dim"]),
+            hidden_dim=_getattr_fallbacks(config, ["moe_latent_size", "moe_hidden_size", "hidden_size", "hidden_dim"]),
             intermediate_size=_getattr_fallbacks(
                 config,
                 ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],

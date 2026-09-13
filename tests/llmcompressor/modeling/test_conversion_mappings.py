@@ -57,6 +57,45 @@ def test_patch_moe_mappings_removes_targets(restore_mappings):
     assert load_mappings[-len(RENAMINGS) :] == RENAMINGS
 
 
+def test_nemotron_h_has_linearize_load_mappings():
+    assert has_linearize_load_mappings("nemotron_h")
+
+
+def test_nemotron_h_load_mappings():
+    # nemotron_h experts are non-gated: only up_proj and down_proj, no gate_proj
+    fused_targets = {"mixer.experts.up_proj", "mixer.experts.down_proj"}
+
+    _experts_cls, load_mappings, save_mappings = get_linearize_load_mappings(
+        "nemotron_h"
+    )
+
+    # the fused 3D expert targets from the default conversion mapping are dropped
+    assert all(
+        target not in fused_targets
+        for mapping in load_mappings
+        for target in mapping.target_patterns
+    )
+
+    # per-expert 2D up_proj/down_proj renamings are appended (and nothing gated)
+    appended = load_mappings[-2:]
+    assert appended == ARCH_TO_2D_MAPPINGS["nemotron_h"][1]
+    appended_sources = {source for m in appended for source in m.source_patterns}
+    assert appended_sources == {
+        r"\.experts\.(\d+)\.up_proj\.",
+        r"\.experts\.(\d+)\.down_proj\.",
+    }
+    assert not any(
+        "gate_proj" in target
+        for mapping in load_mappings
+        for target in mapping.target_patterns
+    )
+
+    # the non-expert `backbone.` -> `model.` renaming from the default mapping survives
+    assert any("model." in mapping.target_patterns for mapping in load_mappings)
+
+    assert save_mappings == load_mappings
+
+
 def test_patch_moe_mappings_rejects_unregistered_model_type(restore_mappings):
     with pytest.raises(ValueError, match="no_such_moe"):
         patch_moe_mappings("no_such_moe", RENAMINGS)

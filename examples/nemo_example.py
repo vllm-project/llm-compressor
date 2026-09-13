@@ -1,37 +1,22 @@
 # requires: einops, fla-core, tiktoken
 from compressed_tensors.distributed import init_dist
-from transformers import AutoConfig, AutoProcessor, CompressedTensorsConfig
+from transformers import AutoConfig, AutoProcessor, AutoModelForCausalLM
 
 from llmcompressor import oneshot
-from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.utils import load_context
 
 # Small representative model with same MXFP4 quantization
-MODEL_ID = "moonshotai/Kimi-K3"  # "inference-optimization/Kimi-K3-0.40B-MXFP4"
-
-# Patch quantization config to
-# 1. Fix an incomplete ignore list provided by the base checkpoint
-# 2. Unfront dequantize modules for subsequent calibration/compression
-config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
-qconfig = CompressedTensorsConfig(**config.quantization_config, dequantize=True)
-qconfig.quantization_config.ignore += [
-    "re:.*mlp_res_proj.*",
-    "re:.*self_attention_res_proj.*",
-    "re:.*routed_expert.*",
-    "re:.*output_attn_res_proj.*",
-]
+MODEL_ID = "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16"
 
 # Load model with the modified quantization config
 init_dist()
-with load_context(KimiK3ForConditionalGeneration):
-    model = KimiK3ForConditionalGeneration.from_pretrained(
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        quantization_config=qconfig,
         device_map="auto_offload",
         max_memory={},
-        trust_remote_code=True,
         offload_folder="/data/kylesayrs/hub/offload_folder",
     )
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -42,9 +27,13 @@ recipe = [
         targets="Linear",
         scheme="NVFP4",
         ignore=[
+            r"re:.*conv1d.*",
+            r"backbone\.embeddings",
+            r"re:.*_latent_proj.*",
+            r"re:.*mixer.gate\..*",
+            r"re:mtp.layers.*",
+            "backbone.norm_f",
             "lm_head",
-            r"re:.*block_sparse_moe\.gate",
-            "re:.*vision_tower.*",
         ],
     )
 ]

@@ -37,7 +37,6 @@ from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
-from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
