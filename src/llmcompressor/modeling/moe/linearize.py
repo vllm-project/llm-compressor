@@ -150,6 +150,11 @@ def linearize_moe(model: PreTrainedModel):
         for submodule in module.modules():
             offload_module(submodule, **offload_kwargs)
 
+    # The caching allocator does not return its reserved pool 
+    # to the driver on its own. We need to manually release
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 
 def get_non_linearized_moes(
     model: torch.nn.Module,
