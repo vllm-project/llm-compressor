@@ -6,12 +6,12 @@ This linter scans Python files for direct torch.cuda API calls and recommends
 using the torch.accelerator API for better device abstraction and portability.
 """
 
-import ast
 import argparse
+import ast
 import sys
 import warnings
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
 
 class TorchCudaLinter(ast.NodeVisitor):
@@ -242,7 +242,7 @@ def print_issues(all_issues: dict, verbose: bool = False) -> int:
             print(f"  Line {line}, Col {col}: {usage}")
             print(f"    → Suggestion: Use '{suggestion}' instead")
             if verbose:
-                print(f"    → Reason: torch.accelerator provides better device abstraction")
+                print("    → Reason: torch.accelerator provides better device abstraction")
 
     return total_issues
 

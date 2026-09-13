@@ -298,6 +298,13 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
+    sequential_linearize_moe: bool = field(
+        default=True,
+        metadata={
+            "help": "When using the sequential pipeline, linearize MoE layers to 2D "
+            "before calibration. Default True. Set False to linearize upfront. "
+        },
+    )
     enable_compile: bool = field(
         default=False,
         metadata={

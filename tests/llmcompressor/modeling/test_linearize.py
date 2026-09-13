@@ -104,6 +104,9 @@ def test_load_quantizable_moe(
     with load_quantizable_moe():
         model2 = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
 
+    # linearization is now deferred — apply it before testing forward pass
+    linearize_moe(model2)
+
     select_exp_outputs = model2(input_ids=input_ids).logits
 
     with moe_calibration_context():
