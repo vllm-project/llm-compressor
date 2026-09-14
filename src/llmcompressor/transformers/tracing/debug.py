@@ -1,74 +1,33 @@
+from typing import Type, Tuple, Any
+
 import argparse
 from contextlib import nullcontext
-from typing import Any, Tuple, Type
 
 import torch
 import transformers
-from transformers import AutoProcessor, AutoTokenizer, PreTrainedModel
+from transformers import AutoProcessor, PreTrainedModel, AutoTokenizer
 
-from llmcompressor.args import DatasetArguments
-from llmcompressor.pipelines.sequential.helpers import Subgraph, trace_subgraphs
-from llmcompressor.transformers import TextGenerationDataset
-from llmcompressor.utils.dev import skip_weights_download
 from llmcompressor.utils.pytorch.module import get_no_split_params
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
+from llmcompressor.transformers import TextGenerationDataset
+from llmcompressor.args import DatasetArguments
+
+from llmcompressor.utils.dev import skip_weights_download
 
 __all__ = ["trace"]
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Trace a model into subgraphs")
-    parser.add_argument(
-        "--model_id", type=str, required=True, help="The stub of the model to load"
-    )  # noqa: E501
-    parser.add_argument(
-        "--model_class", type=str, required=True, help="The class name of the model"
-    )  # noqa: E501
-    parser.add_argument(
-        "--sequential_targets",
-        type=str,
-        nargs="*",
-        default=None,
-        metavar="TARGET",
-        help="List of targets for sequential tracing",
-    )  # noqa: E501
-    parser.add_argument(
-        "--ignore",
-        type=str,
-        nargs="*",
-        default=DatasetArguments().tracing_ignore,
-        metavar="PATTERN",
-        help="List of patterns to ignore during tracing",
-    )  # noqa: E501
-    parser.add_argument(
-        "--modality",
-        type=str,
-        default="text",
-        help="Modality of calibration dataset, defaults to text",
-    )  # noqa: E501
-    parser.add_argument(
-        "--trust_remote_code",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Whether to trust model remote code",
-    )  # noqa: E501
-    parser.add_argument(
-        "--skip_weights",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Whether to load the model with dummy weights",
-    )  # noqa: E501
-    parser.add_argument(
-        "--device_map",
-        type=str,
-        default="cpu",
-        help="Device to load model and inputs onto",
-    )  # noqa: E501
-    parser.add_argument(
-        "--targets_per_subgraph",
-        type=int,
-        default=1,
-        help="Number of sequential targets to include per subgraph",
-    )  # noqa: E501
+    parser.add_argument("--model_id", type=str, required=True, help="The stub of the model to load")  # noqa: E501
+    parser.add_argument("--model_class", type=str, required=True, help="The class name of the model")  # noqa: E501
+    parser.add_argument("--sequential_targets", type=str, nargs="*", default=None, metavar="TARGET", help="List of targets for sequential tracing")  # noqa: E501
+    parser.add_argument("--ignore", type=str, nargs="*", default=DatasetArguments().tracing_ignore, metavar="PATTERN", help="List of patterns to ignore during tracing")  # noqa: E501
+    parser.add_argument("--modality", type=str, default="text", help="Modality of calibration dataset, defaults to text")  # noqa: E501
+    parser.add_argument("--trust_remote_code", action=argparse.BooleanOptionalAction, default=False, help="Whether to trust model remote code")  # noqa: E501
+    parser.add_argument("--skip_weights", action=argparse.BooleanOptionalAction, default=True, help="Whether to load the model with dummy weights")  # noqa: E501
+    parser.add_argument("--device_map", type=str, default="cpu", help="Device to load model and inputs onto")  # noqa: E501
+    parser.add_argument("--targets_per_subgraph", type=int, default=1, help="Number of sequential targets to include per subgraph")  # noqa: E501
     return parser.parse_args()
 
 
@@ -78,10 +37,10 @@ def trace(
     sequential_targets: list[str] | str | None = None,
     ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
-    trust_remote_code: bool = True,
+    trust_remote_code: bool = False,
     skip_weights: bool = True,
     device_map: str | dict = "cpu",
-    targets_per_subgraph: int = 1,
+    targets_per_subgraph: int = 1
 ) -> Tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
@@ -111,22 +70,14 @@ def trace(
             device_map=device_map,
             trust_remote_code=trust_remote_code,
         )
-    try:
-        if modality == "text":
-            processor = AutoTokenizer.from_pretrained(
-                model_id, trust_remote_code=trust_remote_code
-            )
-        else:
-            processor = AutoProcessor.from_pretrained(
-                model_id, trust_remote_code=trust_remote_code
-            )
-    except Exception:
-        try:
-            processor = AutoTokenizer.from_pretrained(
-                model_id, trust_remote_code=trust_remote_code
-            )
-        except Exception:
-            processor = AutoTokenizer.from_pretrained("gpt2")
+    if modality == "text":
+        processor = AutoTokenizer.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
+    else:
+        processor = AutoProcessor.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
     print("Loaded model")
 
     # Prepare sample data
@@ -163,7 +114,7 @@ def trace(
         sample,
         sequential_targets,
         dataset_args.tracing_ignore,
-        targets_per_subgraph,
+        targets_per_subgraph
     )
     print(f"Successfully traced model into {len(subgraphs)} subgraphs!\n")
 
@@ -225,7 +176,7 @@ def main():
         trust_remote_code=args.trust_remote_code,
         skip_weights=args.skip_weights,
         device_map=args.device_map,
-        targets_per_subgraph=args.targets_per_subgraph,
+        targets_per_subgraph=args.targets_per_subgraph
     )
 
 

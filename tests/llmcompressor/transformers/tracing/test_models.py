@@ -105,13 +105,6 @@ from tests.testing_utils import requires_hf_token
             [],
         ),
         (
-            "inference-optimization/Nemotron-3.5-Lightning-1.4B-A0.1B-MTP",
-            AutoModelForCausalLM,
-            None,
-            "text",
-            [],
-        ),
-        (
             "inference-optimization/NemotronH-0.3B-A0.3B",
             AutoModelForCausalLM,
             None,
