@@ -311,35 +311,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 torch.no_grad(),
                 disable_offloading(),
             ):
-                hessian_list = []
-                for module in batch:
-                    hessian = self._hessians.pop(module)
-                    num_samples = self._num_samples.pop(module).to(
-                        device=hessian.device
-                    )
-                    hessian_list.append(hessian / num_samples)
-                    del hessian, num_samples
-
-                hessians = torch.stack(hessian_list)
-                del hessian_list
-                weights = torch.empty(
-                    (len(batch), *batch[0].weight.shape),
-                    device=batch[0].weight.device,
-                    dtype=torch.float32,
-                )
-                torch.stack([module.weight for module in batch], out=weights)
-                scales = torch.stack([qparam["scale"] for qparam in batch_qparams])
-                zero_points = torch.stack(
-                    [qparam["zero_point"] for qparam in batch_qparams]
-                )
-                global_scales = None
-                if batch_qparams[0]["global_scale"] is not None:
-                    global_scales = torch.stack(
-                        [
-                            qparam["global_scale"].reshape(-1)[0]
-                            for qparam in batch_qparams
-                        ]
-                    )
+                (
+                    weights,
+                    hessians,
+                    scales,
+                    zero_points,
+                    global_scales,
+                ) = self._prepare_batch(batch, batch_qparams)
 
                 self._compress_batch(
                     batch,
@@ -350,6 +328,31 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     zero_points,
                     global_scales,
                 )
+
+    def _prepare_batch(self, batch, batch_qparams):
+        hessian_list = []
+        for module in batch:
+            hessian = self._hessians.pop(module)
+            num_samples = self._num_samples.pop(module).to(device=hessian.device)
+            hessian_list.append(hessian / num_samples)
+        hessians = torch.stack(hessian_list)
+        del hessian_list
+        weights = torch.empty(
+            (len(batch), *batch[0].weight.shape),
+            device=batch[0].weight.device,
+            dtype=torch.float32,
+        )
+        torch.stack([module.weight for module in batch], out=weights)
+        scales = torch.stack([qparam["scale"] for qparam in batch_qparams])
+        zero_points = torch.stack([qparam["zero_point"] for qparam in batch_qparams])
+        global_scales = (
+            torch.stack(
+                [qparam["global_scale"].reshape(-1)[0] for qparam in batch_qparams]
+            )
+            if batch_qparams[0]["global_scale"] is not None
+            else None
+        )
+        return weights, hessians, scales, zero_points, global_scales
 
     def _compress_batch(
         self,
