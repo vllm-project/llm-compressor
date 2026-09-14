@@ -38,7 +38,7 @@ This is the most common pathway for FP8 quantization and provides good accuracy 
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments documented in `.agents/skills/shared_quantization.md`.
+Apply the model-type adjustments documented in examples/.agents/skills/shared_quantization.md.
 
 ## Step 4 — `model_free_ptq` (no transformers model definition, or very large models ~1TB+)
 
