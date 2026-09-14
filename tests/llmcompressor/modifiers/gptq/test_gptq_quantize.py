@@ -7,10 +7,8 @@ from compressed_tensors.quantization import (
 )
 
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.modifiers.gptq.gptq_quantize import (
-    make_empty_hessian,
-    quantize_weight,
-)
+from llmcompressor.modifiers.gptq.gptq_quantize import quantize_weight
+from llmcompressor.modifiers.gptq.helpers import make_empty_hessian
 from llmcompressor.modifiers.quantization.calibration import (
     initialize_observer,
     observe,

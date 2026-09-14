@@ -16,17 +16,13 @@ from llmcompressor.modifiers.gptq.gptq_triton import (
 )
 from llmcompressor.modifiers.gptq.helpers import (
     GPTQ_PRECISION,
-    accumulate_hessian,
     apply_activation_ordering,
     column_scale_window,
     factorize_hessian,
     get_triton_gptq_config,
-    make_empty_hessian,
 )
 
 __all__ = [
-    "make_empty_hessian",
-    "accumulate_hessian",
     "quantize_weight",
 ]
 
