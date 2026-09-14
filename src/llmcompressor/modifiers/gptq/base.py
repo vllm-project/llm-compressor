@@ -304,7 +304,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
     def compress_module_list(self, module_list):
-        for batch in self._make_batches(module_list):
+        for batch in self._assign_batches(module_list):
             quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
             batch_qparams = [module.weight_observer.get_qparams() for module in batch]
             names = [self._module_names[module] for module in batch]
@@ -404,7 +404,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
 
-    def _make_batches(
+    def _assign_batches(
         self, module_list: list[torch.nn.Module]
     ) -> list[list[torch.nn.Module]]:
         """Partition modules into execution batches which share batch_key"""
