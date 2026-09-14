@@ -3,7 +3,6 @@ name: fp8
 description: >
   Generate a working FP8 quantization example script and save a compressed-tensors checkpoint.
   Triggers on: "fp8", "FP8_DYNAMIC", "FP8_BLOCK", "MXFP8", "fp8 example", "quantize to fp8".
-allowed-tools: [Read, Write, Glob, Bash(make style), Bash(ls *), Bash(find *), WebFetch]
 ---
 
 # Write FP8 Example
@@ -12,7 +11,7 @@ Generate a working Python example script that quantizes a model to an FP8 scheme
 
 ## Step 1 — Gather information
 
-Read the shared documentation at `.claude/skills/shared_quantization.md` for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
+Read the shared documentation at `.agents/skills/shared_quantization.md` for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
 
 In addition to the shared information, ask the user (or infer from context) for:
 
@@ -24,7 +23,7 @@ In addition to the shared information, ask the user (or infer from context) for:
 
 ## Templates
 
-Templates are located in `.claude/skills/fp8/templates/`:
+Templates are located in `.agents/skills/fp8/templates/`:
 
 - `oneshot.py` — dense-model base template for `oneshot` with `QuantizationModifier`
 - `model_free_ptq.py` — template for `model_free_ptq` (no transformers class, or ~1TB+ models)
@@ -33,13 +32,13 @@ Templates are located in `.claude/skills/fp8/templates/`:
 
 ### `oneshot` with `QuantizationModifier` (standard path — most common)
 
-This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (`.claude/skills/shared_quantization.md`) before writing the final file.
+This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (`.agents/skills/shared_quantization.md`) before writing the final file.
 
-**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at `.claude/skills/templates/oneshot_with_data.py` instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
+**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at `.agents/skills/templates/oneshot_with_data.py` instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments documented in `.claude/skills/shared_quantization.md`.
+Apply the model-type adjustments documented in `.agents/skills/shared_quantization.md`.
 
 ## Step 4 — `model_free_ptq` (no transformers model definition, or very large models ~1TB+)
 

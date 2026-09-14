@@ -278,7 +278,7 @@ Also determine:
 
 ### Writing the dataset code
 
-Use the shared template at `.claude/skills/templates/oneshot_with_data.py` as the starting point. Choose the dataset code based on what the user selected — **never ask the user to edit or delete code themselves**:
+Use the shared template at `.agents/skills/templates/oneshot_with_data.py` as the starting point. Choose the dataset code based on what the user selected — **never ask the user to edit or delete code themselves**:
 
 - **Default (keep the template's manual block):** keep the manual `load_dataset` / `preprocess` / `tokenize` block as-is. It loads `HuggingFaceH4/ultrachat_200k` (split `train_sft`) and applies the chat template to the `messages` column. Pass the processed dataset object to `oneshot` as `dataset=ds`. If the user asks for a *different* HuggingFace dataset / local files with manual processing, keep this block and wire in their values:
   1. Set `DATASET_ID` and `DATASET_SPLIT` to the user's values (template defaults: `HuggingFaceH4/ultrachat_200k` / `train_sft`).
