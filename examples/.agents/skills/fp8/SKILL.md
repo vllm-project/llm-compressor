@@ -32,9 +32,9 @@ Templates are located in `.agents/skills/fp8/templates/`:
 
 ### `oneshot` with `QuantizationModifier` (standard path — most common)
 
-This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (`.agents/skills/shared_quantization.md`) before writing the final file.
+This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (examples/.agents/skills/shared_quantization.md) before writing the final file.
 
-**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at `.agents/skills/templates/oneshot_with_data.py` instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
+**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at examples/.agents/skills/templates/oneshot_with_data.py instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
 
 ## Step 3 — Apply model-type adjustments
 
