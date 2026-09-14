@@ -2,7 +2,6 @@ import math
 
 import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
-
 from llmcompressor.utils.dev import skip_weights_download
 
 model_id = "Qwen/Qwen3-30B-A3B"
