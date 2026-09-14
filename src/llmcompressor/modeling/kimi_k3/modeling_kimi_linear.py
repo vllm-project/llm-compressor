@@ -50,7 +50,6 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 import transformers
-from einops import rearrange
 from packaging import version
 from torch import nn
 from transformers.activations import ACT2FN
@@ -73,7 +72,11 @@ from transformers.utils import (
 from transformers.utils.generic import check_model_inputs
 from transformers.utils.output_capturing import OutputRecorder
 
+logger = logging.get_logger(__name__)
+
 try:
+    from einops import rearrange
+
     from fla.modules import FusedRMSNormGated, ShortConvolution
     from fla.ops.kda import chunk_kda, fused_recurrent_kda
 
@@ -81,7 +84,8 @@ try:
     from fla.ops.utils.index import prepare_cu_seqlens_from_mask, prepare_lens_from_mask
     from fla.utils import tensor_cache
 except ImportError:
-    raise ImportError("Plese run `pip install -U fla-core`")
+    logger.warning("Plese run `pip install -U fla-core einops tiktoken`")
+    rearrange = FusedRMSNormGated = ShortConvolution = chunk_kda = fused_recurrent_kda = prepare_cu_seqlens_from_mask = prepare_lens_from_mask = tensor_cache = None
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 
@@ -90,8 +94,6 @@ from .configuration_kimi_k3 import KimiLinearConfig
 assert version.parse(transformers.__version__) >= version.parse(
     "4.56.0"
 ), "Please upgrade transformers to >= 4.56.0"
-
-logger = logging.get_logger(__name__)
 
 
 # Register Moonshot-specific activation functions
