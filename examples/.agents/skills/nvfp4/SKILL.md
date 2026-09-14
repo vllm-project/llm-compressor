@@ -11,7 +11,7 @@ Generate a working Python example script that quantizes a model to an NVFP4 sche
 
 ## Shared Documentation
 
-Read `.agents/skills/shared_quantization.md` for common steps on gathering model information, applying model-type adjustments (dense, MoE, multimodal), GPTQ, transforms, and calibration dataset configuration.
+Read examples/.agents/skills/shared_quantization.md for common steps on gathering model information, applying model-type adjustments (dense, MoE, multimodal), GPTQ, transforms, and calibration dataset configuration.
 
 ## Step 1 — Gather information
 
