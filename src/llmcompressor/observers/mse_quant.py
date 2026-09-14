@@ -312,9 +312,7 @@ def _grid_search_mse_triton_packed_kernel(
                 diff_pow = diff_pow.to(tl.bfloat16)
             error = tl.sum(
                 tl.where(value_mask, diff_pow, 0.0).to(tl.float32), axis=1
-            ).to(
-                best_error.dtype
-            )
+            ).to(best_error.dtype)
             previous_best = best_error
             is_better = active & (error < previous_best)
             best_error = tl.where(is_better, error, best_error)
@@ -408,9 +406,7 @@ def _grid_search_mse_triton_split_kernel(
             diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
         else:
             diff = tl.abs(quantized - values)
-        diff_pow = tl.extra.cuda.libdevice.pow(
-            diff.to(tl.float32), norm.to(tl.float32)
-        )
+        diff_pow = tl.extra.cuda.libdevice.pow(diff.to(tl.float32), norm.to(tl.float32))
         error = tl.sum(tl.where(value_mask, diff_pow, 0.0))
         tl.store(
             partial_error_ptr + (step * num_qparams + qparam) * NUM_CHUNKS + chunk,

@@ -13,11 +13,7 @@ __all__ = ["MovingAverageMSEObserver"]
 
 def _default_triton_error_buffer(args) -> float:
     """Return the format-specific default for Triton per-group patience."""
-    return (
-        1.00
-        if args.type == QuantizationType.FLOAT and args.num_bits == 4
-        else 0.30
-    )
+    return 1.00 if args.type == QuantizationType.FLOAT and args.num_bits == 4 else 0.30
 
 
 @Observer.register("memoryless_mse")
