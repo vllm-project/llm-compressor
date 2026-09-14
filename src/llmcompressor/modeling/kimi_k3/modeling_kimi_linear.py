@@ -131,15 +131,16 @@ def index_first_axis(x, indices):
     return x[indices]
 
 
-@tensor_cache
-def get_unpad_data(
-    attention_mask: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, int]:
-    lens = prepare_lens_from_mask(attention_mask)
-    indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
-    max_seqlen_in_batch = lens.max().item()
-    cu_seqlens = prepare_cu_seqlens_from_mask(attention_mask)
-    return indices, cu_seqlens, max_seqlen_in_batch
+if tensor_cache is not None:
+    @tensor_cache
+    def get_unpad_data(
+        attention_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        lens = prepare_lens_from_mask(attention_mask)
+        indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+        max_seqlen_in_batch = lens.max().item()
+        cu_seqlens = prepare_cu_seqlens_from_mask(attention_mask)
+        return indices, cu_seqlens, max_seqlen_in_batch
 
 
 def pad_input(
