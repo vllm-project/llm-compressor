@@ -153,6 +153,11 @@ class MoEConfig:
                 ret.hidden_act = "sigmoid"
             case "lfm2_moe":
                 ret.hidden_act = "silu"
+            case "nemotron_h":
+                # NemotronH experts operate on the latent dimension when a latent
+                # projection is used, otherwise on the hidden dimension
+                if getattr(config, "moe_latent_size", None) is not None:
+                    ret.hidden_dim = config.moe_latent_size
 
         return ret
 

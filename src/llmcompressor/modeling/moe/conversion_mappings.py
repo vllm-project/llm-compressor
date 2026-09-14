@@ -214,6 +214,21 @@ ARCH_TO_2D_MAPPINGS = {
             ),
         ],
     ),
+    # NemotronH experts are non-gated and the fused checkpoint stores them as
+    # 3D `mixer.experts.{up,down}_proj` tensors
+    "nemotron_h": (
+        ["mixer.experts.up_proj", "mixer.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r".experts.\1.up_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r".experts.\1.down_proj.",
+            ),
+        ],
+    ),
 }
 
 

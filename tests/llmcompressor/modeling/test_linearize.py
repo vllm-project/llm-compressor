@@ -210,6 +210,26 @@ def test_linearize_moe(model_type):
         assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
 
 
+def test_moe_config_nemotron_h_hidden_dim():
+    try:
+        from transformers.models.nemotron_h.configuration_nemotron_h import (
+            NemotronHConfig,
+        )
+    except (ImportError, AttributeError):
+        pytest.skip("Could not import NemotronHConfig, please upgrade transformers")
+
+    # when a latent projection is used, experts operate on the latent dimension
+    latent_config = NemotronHConfig(
+        hidden_size=8192, moe_intermediate_size=5120, moe_latent_size=2048
+    )
+    assert MoEConfig.from_config(latent_config).hidden_dim == 2048
+
+    # when no latent projection is used, experts operate on the hidden dimension
+    # (moe_latent_size defaults to None, which must not be returned as hidden_dim)
+    no_latent_config = NemotronHConfig(hidden_size=32, moe_intermediate_size=64)
+    assert MoEConfig.from_config(no_latent_config).hidden_dim == 32
+
+
 def test_linearize_moe_gpt_oss():
     from transformers.models.gpt_oss.configuration_gpt_oss import GptOssConfig
     from transformers.models.gpt_oss.modeling_gpt_oss import GptOssExperts
