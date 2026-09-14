@@ -3,6 +3,7 @@ from typing import Literal
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
+from compressed_tensors.offload import disable_offloading
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.offload.dist_utils import is_source_process as is_src
 from compressed_tensors.quantization import (
@@ -13,7 +14,6 @@ from compressed_tensors.quantization import (
 from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import (
-    align_module_device,
     get_execution_device,
     getattr_chain,
     match_named_modules,
@@ -303,22 +303,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # broadcast compressed modules to each rank
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
-    def compress_module_list(self, module_list, qparams=None):
-        if qparams is None:
-            qparams = {
-                module: module.weight_observer.get_qparams() for module in module_list
-            }
-
+    def compress_module_list(self, module_list):
         for batch in self._make_batches(module_list):
             quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
-            batch_qparams = [qparams[module] for module in batch]
+            batch_qparams = [module.weight_observer.get_qparams() for module in batch]
             with (
                 torch.no_grad(),
-                contextlib.ExitStack() as ctx_stack,
+                disable_offloading(),
             ):
-                for module in batch:
-                    ctx_stack.enter_context(align_module_device(module))
-
                 hessian_list = []
                 for module in batch:
                     hessian = self._hessians.pop(module)
