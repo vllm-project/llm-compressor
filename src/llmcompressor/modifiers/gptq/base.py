@@ -307,6 +307,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         for batch in self._make_batches(module_list):
             quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
             batch_qparams = [module.weight_observer.get_qparams() for module in batch]
+            names = [self._module_names[module] for module in batch]
+            logger.info(f"Quantizing {len(batch)} module(s): {names}")
+
             with (
                 torch.no_grad(),
                 disable_offloading(),
@@ -319,14 +322,38 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     global_scales,
                 ) = self._prepare_batch(batch, batch_qparams)
 
-                self._compress_batch(
+                try:
+                    with contextlib.ExitStack() as ctx_stack:
+                        comp_loggers = [
+                            ctx_stack.enter_context(CompressionLogger(module))
+                            for module in batch
+                        ]
+                        quantized, losses, used_rtn_fallback = quantize_weight(
+                            weights=weights,
+                            hessians=hessians,
+                            scale=scales,
+                            zero_point=zero_points,
+                            global_scale=global_scales,
+                            quant_args=quant_args,
+                            blocksize=self.block_size,
+                            percdamp=self.dampening_frac,
+                        )
+                        for index, comp_logger in enumerate(comp_loggers):
+                            comp_logger.set_results(
+                                name="GPTQ", loss=losses[index].item()
+                            )
+                            if used_rtn_fallback[index].item():
+                                self._rtn_fallback_module_names.append(names[index])
+                except Exception as error:
+                    raise RuntimeError(f"GPTQ failed for modules: {names}") from error
+
+                self._update_batch_qparams(
                     batch,
-                    quant_args,
-                    weights,
-                    hessians,
+                    quantized,
                     scales,
                     zero_points,
                     global_scales,
+                    quant_args,
                 )
 
     def _prepare_batch(self, batch, batch_qparams):
@@ -354,43 +381,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
         )
         return weights, hessians, scales, zero_points, global_scales
 
-    def _compress_batch(
+    def _update_batch_qparams(
         self,
         modules: list[torch.nn.Module],
-        quant_args,
-        weights: torch.Tensor,
-        hessians: torch.Tensor,
+        quantized: torch.Tensor,
         scales: torch.Tensor,
         zero_points: torch.Tensor,
         global_scales: torch.Tensor | None,
+        quant_args,
     ):
-        names = [self._module_names[module] for module in modules]
-        logger.info(f"Quantizing {len(modules)} module(s): {names}")
-
-        try:
-            with contextlib.ExitStack() as ctx_stack:
-                comp_loggers = [
-                    ctx_stack.enter_context(CompressionLogger(module))
-                    for module in modules
-                ]
-                quantized, losses, used_rtn_fallback = quantize_weight(
-                    weights=weights,
-                    hessians=hessians,
-                    scale=scales,
-                    zero_point=zero_points,
-                    global_scale=global_scales,
-                    quant_args=quant_args,
-                    blocksize=self.block_size,
-                    percdamp=self.dampening_frac,
-                )
-
-                for index, comp_logger in enumerate(comp_loggers):
-                    comp_logger.set_results(name="GPTQ", loss=losses[index].item())
-                    if used_rtn_fallback[index].item():
-                        self._rtn_fallback_module_names.append(names[index])
-        except Exception as error:
-            raise RuntimeError(f"GPTQ failed for modules: {names}") from error
-
         for index, module in enumerate(modules):
             self._num_compressed_modules += 1
             q_param_dict = {
