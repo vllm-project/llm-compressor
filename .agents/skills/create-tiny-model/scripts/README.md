@@ -14,7 +14,7 @@ This directory contains utility scripts for creating and working with tiny model
 
 Run scripts from the project root:
 ```bash
-python .claude/skills/create-tiny-model/scripts/<script_name>.py
+python .agents/skills/create-tiny-model/scripts/<script_name>.py
 ```
 
 Or add your own scripts here for tiny model operations.

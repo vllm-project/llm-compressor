@@ -6,13 +6,13 @@ dataset_id: neuralmagic/calibration
 dataset_config: LLM
 dataset_split: "train"
 num_calibration_samples: 20
+max_model_len: 128000
 lmeval:
   model: vllm-vlm
   task: chartqa
   apply_chat_template: True
   add_bos_token: False
   num_fewshot: 0
-  max_model_len: 128000
   metrics:
     exact_match,none: 0.53
     relaxed_accuracy,none: 0.75

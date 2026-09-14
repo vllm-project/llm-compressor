@@ -41,7 +41,7 @@ print(tokenizer.decode(output[0]))
 
 ## Creation Process
 
-This model was created using the llm-compressor `create-tiny-model` claude skill.
+This model was created using the llm-compressor `create-tiny-model` skill.
 
 {creation process}
 

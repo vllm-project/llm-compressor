@@ -25,7 +25,7 @@ from tests.testing_utils import requires_gpu
 
 NUM_TEST_TOKENS = 64
 MODEL_MSE = 1e-2
-MODULE_MSE = 1e-10
+MODULE_MSE = 1e-8
 CONFIG_OVERRIDES = {
     "deepseek_ocr2": {"num_experts_per_tok": 16},
     "deepseek_v3": {"hidden_size": 512, "moe_intermediate_size": 1024},

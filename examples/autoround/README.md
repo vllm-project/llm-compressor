@@ -69,6 +69,7 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | `wNa16`             | [qwen3_example_custom_dataset.py](./quantization_wNa16/qwen3_example_custom_dataset.py) | Using custom calibration datasets |                                   |
 | `wNa16` + `FP8 Attention` | [qwen3_quantize_example.py](./quantization_attention/qwen3_quantize_example.py) | `Qwen/Qwen3-8B`, per-tensor FP8 attention |
 | `wNa16` + `FP8 Attention` | [qwen3_moe_quantize_example.py](./quantization_attention/qwen3_moe_quantize_example.py) | `Qwen/Qwen3-30B-A3B` (MoE). |
+| `MXFP8` + `FP8 Attention` | [llama3_3_quantize_example.py](./quantization_attention/llama3_3_quantize_example.py) | `meta-llama/Llama-3.3-70B-Instruct`, per-tensor FP8 attention |
 | `W8A8-FP8` Static   | [llama4_example](./quantization_w8a8_fp8/llama4_static_quant_example.py) |                                       |
 | `W8A8-FP8` Dynamic  | [llama4_example](./quantization_w8a8_fp8/llama4_dynamic_quant_example.py)  |                                       |
 | `W8A8-FP8` Block    | [llama3.1_example](./quantization_w8a8_fp8/llama3.1_block_quant_example.py) |                                     |
@@ -76,6 +77,18 @@ The accuracy of the quantized model is configured by tuning-related parameters. 
 | `MXFP4`  | [example](./quantization_w4a4_mxfp4/autoround_example.py)  | Usage: `python autoround_example.py ${model_id}` |
 | `NVFP4`  | [llama3.1_example](./quantization_w4a4_fp4/llama3.1_example.py)  |                                       |
 
+
+### Llama 3.3 70B with MXFP8 and FP8 Attention
+
+The [Llama 3.3 example](./quantization_attention/llama3_3_quantize_example.py) combines per-tensor FP8 attention quantization with AutoRound MXFP8 quantization for Linear layers, excluding `lm_head`. Attention quantization also applies KV cache quantization. It uses AutoRound's `get_dataset()` calibration data with 128 samples, a sequence length of 1024, and 200 tuning iterations.
+
+After installing LLM Compressor, run from the repository root on a machine with enough memory and disk space for the 70B model. Access to the gated Hugging Face model is required; alternatively, set `model_id` in the script to a local checkpoint directory.
+
+```bash
+python examples/autoround/quantization_attention/llama3_3_quantize_example.py
+```
+
+The script runs a sample generation and saves the compressed model and tokenizer to `Llama-3.3-70B-Instruct-FP8Attention-MXFP8-AutoRound` (or a directory based on the local checkpoint's name). For vLLM evaluation, use `kv_cache_dtype="fp8"` to enable the calibrated KV cache scales, and select a hardware/backend combination that supports the exported quantization schemes. See the [KV cache example](../quantization_kv_cache/README.md#evaluating-accuracy) for evaluation guidance.
 
 ### Known Issues
 `llm-compressor` supports AutoRound on weight-only integer schemes `W2A16` through `W7A16`, `W8A8`/FP8 variants, `MXFP8`, `MXFP4`, and `NVFP4`. `W7A16` is handled through the `llm-compressor` compatibility mapping because upstream `auto_round` does not currently ship a native `W7A16` preset. You can follow broader scheme work in the [RFC](https://github.com/vllm-project/llm-compressor/issues/2706).

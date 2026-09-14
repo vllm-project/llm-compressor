@@ -3,7 +3,6 @@ name: nvfp4
 description: >
   Generate a working NVFP4 (W4A4) quantization example script and save a compressed-tensors checkpoint.
   Triggers on: "nvfp4", "NVFP4", "fp4", "nvfp4 example", "quantize to nvfp4", "w4a4".
-allowed-tools: [Read, Write, Glob, Bash(make style), Bash(ls *), Bash(find *), WebFetch]
 ---
 
 # Write NVFP4 Example
@@ -12,7 +11,7 @@ Generate a working Python example script that quantizes a model to an NVFP4 sche
 
 ## Shared Documentation
 
-Read `.claude/skills/shared_quantization.md` for common steps on gathering model information, applying model-type adjustments (dense, MoE, multimodal), GPTQ, transforms, and calibration dataset configuration.
+Read `examples/.agents/skills/shared_quantization.md` for common steps on gathering model information, applying model-type adjustments (dense, MoE, multimodal), GPTQ, transforms, and calibration dataset configuration.
 
 ## Step 1 — Gather information
 
@@ -28,7 +27,7 @@ If the user specifically requests `model_free_ptq`, inform them it's not availab
 
 ## Step 2 — Use the oneshot template (only path for NVFP4)
 
-Read the shared template at `.claude/skills/templates/oneshot_with_data.py` and use it as the starting point. Set `scheme="NVFP4"`.
+Read the shared template at `examples/.agents/skills/templates/oneshot_with_data.py` and use it as the starting point. Set scheme="NVFP4".
 
 Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe if requested.
 
@@ -36,7 +35,7 @@ Apply the model-type adjustments from the shared documentation before writing th
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments documented in `.claude/skills/shared_quantization.md`.
+Apply the model-type adjustments documented in `examples/.agents/skills/shared_quantization.md`.
 
 **Note:** For MoE models, the pipeline automatically handles expert calibration via `CalibrationAfmoeMoE` module — no manual intervention needed.
 

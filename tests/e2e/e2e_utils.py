@@ -244,6 +244,8 @@ def prepare_oneshot_kwargs(
             # Prebaked dataset name (e.g., "perfectblend") — let oneshot handle
             # loading, preprocessing, and DDP partitioning automatically
             kwargs["dataset"] = dataset_id
+            kwargs["dataset_config_name"] = dataset_config
+            kwargs["splits"] = dataset_split
         else:
             split = get_rank_partition(dataset_split, num_calibration_samples)
 
