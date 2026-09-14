@@ -130,7 +130,9 @@ class MoEConfig:
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
             ),
-            hidden_dim=_getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
+            hidden_dim=_getattr_fallbacks(
+                config, ["moe_latent_size", "hidden_size", "hidden_dim"]
+            ),
             intermediate_size=_getattr_fallbacks(
                 config,
                 ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
@@ -153,11 +155,6 @@ class MoEConfig:
                 ret.hidden_act = "sigmoid"
             case "lfm2_moe":
                 ret.hidden_act = "silu"
-            case "nemotron_h":
-                # NemotronH experts operate on the latent dimension when a latent
-                # projection is used, otherwise on the hidden dimension
-                if getattr(config, "moe_latent_size", None) is not None:
-                    ret.hidden_dim = config.moe_latent_size
 
         return ret
 
