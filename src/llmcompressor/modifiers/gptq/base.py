@@ -17,7 +17,6 @@ from compressed_tensors.utils import (
     get_execution_device,
     getattr_chain,
     match_named_modules,
-    update_offload_parameter,
 )
 from loguru import logger
 from pydantic import PrivateAttr, StrictInt, field_validator
@@ -25,10 +24,13 @@ from torch import distributed as dist
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.modifiers.gptq.gptq_quantize import (
+from llmcompressor.modifiers.gptq.gptq_quantize import quantize_weight
+from llmcompressor.modifiers.gptq.helpers import (
     accumulate_hessian,
+    assign_batches,
     make_empty_hessian,
-    quantize_weight,
+    prepare_batch,
+    update_batch_qparams,
 )
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -304,7 +306,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
     def compress_module_list(self, module_list):
-        for batch in self._assign_batches(module_list):
+        for batch in assign_batches(
+            module_list, self.batched_quantization, self.block_size
+        ):
             quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
             batch_qparams = [module.weight_observer.get_qparams() for module in batch]
             names = [self._module_names[module] for module in batch]
@@ -321,7 +325,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     scales,
                     zero_points,
                     global_scales,
-                ) = self._prepare_batch(batch, batch_qparams)
+                ) = prepare_batch(
+                    batch,
+                    batch_qparams,
+                    self._hessians,
+                    self._num_samples,
+                )
 
                 comp_loggers = [
                     ctx_stack.enter_context(CompressionLogger(module))
@@ -343,7 +352,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                         self._rtn_fallback_module_names.append(names[index])
 
                 ctx_stack.close()
-                self._update_batch_qparams(
+                update_batch_qparams(
                     batch,
                     quantized,
                     scales,
@@ -351,123 +360,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     global_scales,
                     quant_args,
                 )
-
-    def _prepare_batch(self, batch, batch_qparams):
-        hessian_list = []
-        for module in batch:
-            hessian = self._hessians.pop(module)
-            num_samples = self._num_samples.pop(module).to(device=hessian.device)
-            hessian_list.append(hessian / num_samples)
-        hessians = torch.stack(hessian_list)
-        del hessian_list
-        weights = torch.empty(
-            (len(batch), *batch[0].weight.shape),
-            device=batch[0].weight.device,
-            dtype=torch.float32,
-        )
-        torch.stack([module.weight for module in batch], out=weights)
-        scales = torch.stack([qparam["scale"] for qparam in batch_qparams])
-        zero_points = torch.stack([qparam["zero_point"] for qparam in batch_qparams])
-        global_scales = (
-            torch.stack(
-                [qparam["global_scale"].reshape(-1)[0] for qparam in batch_qparams]
-            )
-            if batch_qparams[0]["global_scale"] is not None
-            else None
-        )
-        return weights, hessians, scales, zero_points, global_scales
-
-    def _update_batch_qparams(
-        self,
-        modules: list[torch.nn.Module],
-        quantized: torch.Tensor,
-        scales: torch.Tensor,
-        zero_points: torch.Tensor,
-        global_scales: torch.Tensor | None,
-        quant_args,
-    ):
-        for index, module in enumerate(modules):
-            self._num_compressed_modules += 1
-            q_param_dict = {
-                "weight": quantized[index].to(dtype=module.weight.dtype),
-                "weight_scale": scales[index].to(dtype=module.weight.dtype),
-                "weight_zero_point": zero_points[index].to(dtype=quant_args.zp_dtype),
-            }
-            if global_scales is not None:
-                q_param_dict["weight_global_scale"] = global_scales[index].to(
-                    dtype=module.weight.dtype
-                )
-            for attr, val in q_param_dict.items():
-                update_offload_parameter(module, attr, val)
-
-    def _assign_batches(
-        self, module_list: list[torch.nn.Module]
-    ) -> list[list[torch.nn.Module]]:
-        """Partition modules into execution batches which share batch_key"""
-        if self.batched_quantization is None:
-            return [[module] for module in module_list]
-
-        batches: list[list[torch.nn.Module]] = []
-        pending: dict[tuple, list[torch.nn.Module]] = {}
-        for module in module_list:
-            key = self._batch_key(module)
-            if key is None:
-                batches.append([module])
-            else:
-                pending.setdefault(key, []).append(module)
-
-        for members in pending.values():
-            max_batch = self._max_batch_size(members[0])
-            for start in range(0, len(members), max_batch):
-                batches.append(members[start : start + max_batch])
-        return batches
-
-    def _batch_key(self, module: torch.nn.Module) -> tuple | None:
-        """Return the compatibility key for modules that can share a GPTQ batch.
-        primarily shape, dtyle and quantization parameters."""
-        weight = getattr(module, "weight", None)
-        if weight is None or weight.dim() != 2:
-            return None
-        quant_args = getattr_chain(module, "quantization_scheme.weights", None)
-        if quant_args is None:
-            return None
-        try:
-            args_repr = quant_args.model_dump_json()
-        except Exception:
-            return None
-        return (
-            tuple(weight.shape),
-            str(weight.dtype),
-            str(get_execution_device(module)),
-            args_repr,
-        )
-
-    def _max_batch_size(self, module: torch.nn.Module) -> int:
-        if isinstance(self.batched_quantization, int):
-            return self.batched_quantization
-
-        out_features, in_features = module.weight.shape
-        device = get_execution_device(module)
-        weight_size = out_features * in_features
-        hessian_size = in_features * in_features
-        block_matrix_size = out_features * self.block_size
-
-        quantization_peak = (
-            hessian_size  # stacked Hessian, reused in place as its inverse
-            + 3 * weight_size  # module weight, stacked working weight, and w_err
-            + 4 * block_matrix_size  # W1, Q1, Err1, and losses1
-        )
-        actorder_peak = (
-            3 * hessian_size  # original Hessian and both gather outputs
-            + 2 * weight_size  # module weight and stacked working weight
-        )
-        per_module_bytes = max(quantization_peak, actorder_peak) * 4
-
-        if torch.device(device).type != "cuda" or not torch.accelerator.is_available():
-            return 1
-        free_bytes, _ = torch.get_device_module().mem_get_info(device)
-        budget = int(free_bytes * 0.75)
-        return max(1, budget // per_module_bytes)
+                self._num_compressed_modules += len(batch)
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):
         rank = dist.get_rank()
