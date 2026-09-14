@@ -86,6 +86,15 @@ def patch_deepseek_fp32_modules():
                 "model.layers.4.mlp.experts.1.down_proj.weight",
             ],
         ),
+        (
+            "inference-optimization/NemotronH-0.3B-A0.3B",
+            [
+                "backbone.layers.1.mixer.experts.2.up_proj.weight",
+                "backbone.layers.1.mixer.experts.2.down_proj.weight",
+                "backbone.layers.4.mixer.experts.2.up_proj.weight",
+                "backbone.layers.4.mixer.experts.2.down_proj.weight",
+            ],
+        ),
     ],
 )
 def test_load_quantizable_moe(

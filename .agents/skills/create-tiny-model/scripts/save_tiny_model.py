@@ -10,7 +10,9 @@ model_id = "Qwen/Qwen3-30B-A3B"
 config = AutoConfig.from_pretrained(model_id)
 config.num_hidden_layers = 3
 
-# Check if the model is multimodal. If so, change `AutoModelForCausalLM` to `...ForConditionalGeneration`
+# Check if the model is multimodal.
+# If so, change `AutoModelForCausalLM` to `...ForConditionalGeneration`
+# and change `AutoTokenizer` to `AutoProcessor`
 with skip_weights_download(AutoModelForCausalLM):
     model = AutoModelForCausalLM.from_pretrained(model_id, config=config)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
