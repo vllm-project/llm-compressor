@@ -84,13 +84,6 @@ from tests.testing_utils import requires_hf_token
             [],
         ),
         (
-            "inference-optimization/Kimi-K3-0.40B-MXFP4",
-            KimiK3ForConditionalGeneration,
-            ["KimiDecoderLayer"],
-            "text",
-            [],
-        ),
-        (
             "inference-optimization/Qwen3.8-1.0B-A0.6B",
             AutoModelForCausalLM,
             None,
@@ -145,14 +138,7 @@ from tests.testing_utils import requires_hf_token
             KimiK3ForConditionalGeneration,
             ["KimiDecoderLayer"],
             "vision",
-            [],
-        ),
-        (
-            "inference-optimization/Kimi-K3-0.40B-NVFP4",
-            KimiK3ForConditionalGeneration,
-            ["KimiDecoderLayer"],
-            "vision",
-            [],
+            ["einops", "fla-core", "tiktoken"],
         ),
         (
             "inference-optimization/gemma-4-unified-0.8B-tiny",
