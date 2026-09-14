@@ -349,6 +349,36 @@ _example_parallel_transformer_block_mappings = [
     )
 ]
 
+# Whisper (encoder + decoder self-attention share this naming). Mechanical port of
+# WHISPER_V2_SMOOTHQUANT_MAPPINGS (smoothquant/utils.py), which is already validated
+# in production. Deliberately does NOT add a v_proj->out_proj or activation_fn->fc2
+# "second matmul" chain the way most other architectures' mappings do (see
+# _bloom_mappings above): Whisper's attention output projection is out_proj, not
+# o_proj, and there's no existing evidence (SmoothQuant precedent or otherwise) this
+# repo has validated such a chain for Whisper specifically -- Bloom's own mapping
+# shows this chain is sometimes deliberately excluded per empirical AutoAWQ findings,
+# not a universal requirement. Also does not cover the decoder's cross-attention
+# block (encoder_attn / encoder_attn_layer_norm), matching the existing SmoothQuant
+# mapping's scope exactly. The q/k/v_proj balance patterns are explicitly scoped to
+# self_attn.* : the decoder layer has both self_attn and encoder_attn blocks with
+# identically-named q/k/v_proj children, and match_modules_set groups by shared
+# parent context, so an unscoped q_proj$ pattern would incorrectly pull the
+# cross-attention projections into the same group as self_attn_layer_norm.
+_whisper_mappings = [
+    AWQMapping(
+        "re:.*self_attn_layer_norm$",
+        [
+            "re:.*self_attn\\.k_proj$",
+            "re:.*self_attn\\.v_proj$",
+            "re:.*self_attn\\.q_proj$",
+        ],
+    ),
+    AWQMapping(
+        "re:.*final_layer_norm$",
+        ["re:.*fc1$"],
+    ),
+]
+
 AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "AfmoeForCausalLM": _afmoe_mappings,
     "BloomForCausalLM": _bloom_mappings,
@@ -388,6 +418,7 @@ AWQ_MAPPING_REGISTRY: dict[str, list[AWQMapping]] = {
     "Qwen3ForCausalLM": default_mappings,
     "Qwen3MoeForCausalLM": _moe_default_mappings,
     "SeedOssForCausalLM": default_mappings,
+    "WhisperForConditionalGeneration": _whisper_mappings,
     "Ernie4_5_MoeForCausalLM": default_mappings,
 }
 
