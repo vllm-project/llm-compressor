@@ -98,4 +98,3 @@ processor.save_pretrained(SAVE_DIR)
 save_mtp_tensors_to_checkpoint(
     source_model=MODEL_ID, dest_dir=SAVE_DIR, mtp_prefix="model.mtp"
 )
-
