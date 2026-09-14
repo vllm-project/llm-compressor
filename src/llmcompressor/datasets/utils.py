@@ -9,9 +9,10 @@ one-shot calibration workflows.
 
 import math
 from collections.abc import Iterator, Sized
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 import torch
+from compressed_tensors.distributed import is_distributed
 from datasets import Dataset
 from loguru import logger
 from torch import distributed as dist
@@ -223,7 +224,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
 
 
 def _is_dist_and_same_ds(dataset: Dataset) -> bool:
-    if not dist.is_initialized():
+    if not is_distributed():
         return False
 
     assert len(dataset) > 0, (
@@ -331,7 +332,7 @@ class LengthAwareSampler(Sampler[int]):
     def __init__(
         self,
         data_source: Dataset,
-        num_samples: Optional[int] = None,
+        num_samples: int | None = None,
         batch_size: int = 1,
     ) -> None:
         self.data_source = data_source

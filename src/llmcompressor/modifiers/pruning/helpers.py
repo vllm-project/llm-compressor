@@ -132,7 +132,11 @@ def polynomial_decay_scheduler(
             settings.end - settings.start
         )
 
-        scaled_complete = pow(per_complete - 1, exponent) + 1
+        # AGP decay (Zhu & Gupta 2017): 1 - (1 - t)^exponent. Using
+        # (t - 1)^exponent + 1 is only equal to this for odd exponents; for even
+        # exponents (including the default of 2) it flips the sign of the decay
+        # term and drives sparsity the wrong way.
+        scaled_complete = 1 - pow(1 - per_complete, exponent)
 
         return (
             settings.init_sparsity

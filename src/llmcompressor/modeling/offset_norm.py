@@ -56,6 +56,7 @@ class NormCalibrationModule(ABC, torch.nn.Module, RegistryMixin):
     alias=[
         "Gemma2RMSNorm",
         "Gemma3RMSNorm",
+        "MuseGlimmerTextCenteredRMSNorm",
         "Qwen3NextRMSNorm",
         "Qwen3_5RMSNorm",
         "Qwen3_5MoeRMSNorm",

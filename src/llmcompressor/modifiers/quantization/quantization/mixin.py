@@ -424,17 +424,23 @@ class QuantizationMixin(HooksMixin):
 
         # Apply observers to QuantizationArgs if specified
         update_map = [
-            (weight_obs, "weights"),
-            (input_obs, "input_activations"),
-            (output_obs, "output_activations"),
+            (weight_obs, "weights", "memoryless_minmax"),
+            (input_obs, "input_activations", "minmax"),
+            (output_obs, "output_activations", "minmax"),
         ]
 
-        for obs_value, scheme_attr in update_map:
+        for obs_value, scheme_attr, default_obs in update_map:
             q_args = getattr(scheme, scheme_attr, None)
-            if obs_value is not None and q_args is not None:
-                args_dict = q_args.model_dump()
-                args_dict["observer"] = obs_value
-                setattr(scheme, scheme_attr, QuantizationArgs.model_validate(args_dict))
+            if q_args is None:
+                continue
+            elif obs_value is None:
+                if (
+                    q_args.observer is not None
+                    and "observer" in q_args.model_fields_set
+                ):
+                    continue
+                obs_value = None if q_args.dynamic is True else default_obs
+            q_args.observer = obs_value
 
         return scheme
 

@@ -46,6 +46,7 @@ oneshot(
     model=model,
     processor=tokenizer,
     dataset="perfectblend",
+    splits="train[:512]",
     recipe=recipe,
     batch_size=4,
     num_calibration_samples=512,

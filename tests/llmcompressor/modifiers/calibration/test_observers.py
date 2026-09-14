@@ -31,9 +31,13 @@ def test_observers_update(shape, group_size, actorder):
     module = torch.nn.Linear(*shape)
     scheme = QuantizationScheme(
         targets=["Linear"],
-        weights=QuantizationArgs(group_size=group_size, actorder=actorder),
-        input_activations=QuantizationArgs(),
-        output_activations=QuantizationArgs(),
+        weights=QuantizationArgs(
+            group_size=group_size,
+            actorder=actorder,
+            observer="memoryless_minmax",
+        ),
+        input_activations=QuantizationArgs(observer="minmax"),
+        output_activations=QuantizationArgs(observer="minmax"),
     )
 
     input = torch.empty(module.in_features, dtype=module.weight.dtype)

@@ -1,0 +1,1 @@
+from .modeling_kimi_k3 import KimiK3ForConditionalGeneration
