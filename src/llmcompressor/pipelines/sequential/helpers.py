@@ -4,10 +4,16 @@ from collections import UserDict, deque
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 
 import torch
-from compressed_tensors.offload import disable_onloading
+from compressed_tensors.offload import (
+    disable_onloading,
+    get_execution_device,
+    get_offloaded_device,
+)
+from compressed_tensors.offload.cache.base import OffloadCache
+from compressed_tensors.offload.module import offload_module, remove_module_offload
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -27,7 +33,41 @@ from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 if TYPE_CHECKING:
     pass
 
-__all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
+__all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom", "disable_offloading_controlled"]
+
+
+@contextlib.contextmanager
+def disable_offloading_controlled(subgraph: "Subgraph", model: Module) -> Iterator[None]:
+	"""
+	Temporarily disable offloading for a subgraph's modules by onloading them before
+	execution and offloading them back after. This provides better control over
+	which modules are kept in memory during calibration.
+
+	:param subgraph: subgraph whose modules should be onloaded
+	:param model: model containing the subgraph modules
+	"""
+
+    # Track the modules that we offload
+	offloading_info = dict()
+	modules = subgraph.submodules(model)
+
+	for module in modules:
+		if not isinstance(module._parameters, OffloadCache):
+			continue
+		offloading_info[id(module)] = (
+			get_execution_device(module),
+			get_offloaded_device(module),
+		)
+		remove_module_offload(module, onload_tensors=True)
+
+	try:
+		yield
+
+	finally:
+		for module in modules:
+			if id(module) not in offloading_info:
+				continue
+			offload_module(module, *offloading_info[id(module)])
 
 
 @dataclass

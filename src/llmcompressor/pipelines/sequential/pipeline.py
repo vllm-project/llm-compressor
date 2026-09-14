@@ -2,7 +2,7 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import disable_offloading, set_onload_device
+from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -11,6 +11,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
+    disable_offloading_controlled,
     handle_sequential_oom,
     trace_subgraphs,
 )
@@ -140,7 +141,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                with disable_offloading():
+                with disable_offloading_controlled(subgraph, model):
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,
