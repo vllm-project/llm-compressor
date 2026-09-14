@@ -11,7 +11,7 @@ Generate a working Python example script that quantizes a model to an FP8 scheme
 
 ## Step 1 — Gather information
 
-Read the shared documentation at `.agents/skills/shared_quantization.md` for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
+Read the shared documentation at examples/.agents/skills/shared_quantization.md for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
 
 In addition to the shared information, ask the user (or infer from context) for:
 
