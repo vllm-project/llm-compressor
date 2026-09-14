@@ -1,9 +1,16 @@
 import pytest
 import torch
-from compressed_tensors.quantization import fake_quantize
+from compressed_tensors.quantization import QuantizationStrategy, fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 from llmcompressor.observers import MovingAverageMSEObserver, Observer
+from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.observers.hierarchical_mse import (
+    MAX_FACTOR,
+    MIN_FACTOR,
+    HierarchicalMSEObserver,
+    _hierarchical_search_mse,
+)
 from llmcompressor.observers.mse import MemorylessMSEObserver
 
 
@@ -86,6 +93,39 @@ def test_mse_fp4():
         module.weight, scale, zero_point, weights, global_scale=global_scale
     )
     assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.0015  # 0.0013
+
+
+def test_nvfp4_expanded_mse_uses_hierarchical_observer():
+    args = QuantizationArgs(
+        num_bits=4,
+        type="float",
+        symmetric=True,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        group_size=16,
+    )
+    observer = Observer.load_from_registry(
+        "nvfp4_expanded_mse", base_name="weight", args=args
+    )
+    assert isinstance(observer, HierarchicalMSEObserver)
+
+
+def test_hierarchical_mse_searches_expanded_range():
+    args = QuantizationArgs(
+        num_bits=4,
+        type="float",
+        symmetric=True,
+        strategy=QuantizationStrategy.TENSOR_GROUP,
+        group_size=16,
+    )
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    observed = flatten_for_calibration(torch.randn(4, 64), "weight", args)
+    minimum, maximum = _hierarchical_search_mse(observed, args, token_args, 2.4)
+    original_minimum = observed.amin(dim=(0, -1))
+    original_maximum = observed.amax(dim=(0, -1))
+    assert torch.all(minimum / original_minimum >= MIN_FACTOR)
+    assert torch.all(minimum / original_minimum <= MAX_FACTOR)
+    assert torch.all(maximum / original_maximum >= MIN_FACTOR)
+    assert torch.all(maximum / original_maximum <= MAX_FACTOR)
 
 
 def test_mse_observer_torch_compile():

@@ -14,4 +14,5 @@ from .helpers import *
 from .base import *
 from .min_max import *
 from .mse import *
+from .hierarchical_mse import *
 from .imatrix import *

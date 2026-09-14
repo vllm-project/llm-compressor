@@ -1,10 +1,9 @@
 """NVFP4 quantization with expanded MSE observer.
 
-The ``nvfp4_expanded_mse`` observer searches over a range of per-group
-scale expansions (1.8x down to 0.8x of the observed range) to find the
-scale that minimizes quantization error.  This typically gives better
-quality than the default minmax observer at the cost of a longer
-calibration pass.
+The ``nvfp4_expanded_mse`` observer uses a hierarchical per-group range
+search over 0.8x--1.8x of the observed range to minimize quantization error.
+It evaluates 64 candidates per group and typically gives better quality than
+the default minmax observer at the cost of a longer calibration pass.
 
 Usage::
 

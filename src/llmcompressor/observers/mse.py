@@ -6,6 +6,7 @@ from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.helpers import lerp
+from llmcompressor.observers.hierarchical_mse import HierarchicalMSEObserver
 from llmcompressor.observers.mse_quant import _grid_search_mse
 
 __all__ = ["MovingAverageMSEObserver"]
@@ -113,14 +114,13 @@ class MovingAverageMSEObserver(Observer):
 # benefit that fouroversix is based on.
 # Results: https://github.com/vllm-project/llm-compressor/pull/2950
 @Observer.register("nvfp4_expanded_mse")
-class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
+class NVFP4ExpandedMSEObserver(HierarchicalMSEObserver):
     """
     MSE observer with defaults tuned for NVFP4 range expansion.
 
-    Searches from ``expand`` times the observed range down to
-    ``(1 - maxshrink) * expand`` times the observed range.
-    With the defaults below, this covers 1.8x down to ~0.8x of
-    the original per-group range in 112 search steps.
+    Uses a 32-to-32 hierarchical search over 0.8x--1.8x of each original
+    per-group range. It retains four coarse candidates per group and refines
+    each with eight children, for 64 candidate evaluations per group.
 
     Usage::
 
@@ -129,14 +129,6 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
             observer="nvfp4_expanded_mse",
         )
     """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        observer_kwargs = self.args.observer_kwargs
-        self.expand = observer_kwargs.get("expand", 1.8)
-        self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
-        self.grid = observer_kwargs.get("grid", 200.0)
-        self.patience = observer_kwargs.get("patience", 1000)
 
 
 @Observer.register("fouroversix")
