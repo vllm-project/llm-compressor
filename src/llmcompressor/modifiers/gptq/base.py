@@ -313,6 +313,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             with (
                 torch.no_grad(),
                 disable_offloading(),
+                contextlib.ExitStack() as ctx_stack,
             ):
                 (
                     weights,
@@ -322,31 +323,29 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     global_scales,
                 ) = self._prepare_batch(batch, batch_qparams)
 
+                comp_loggers = [
+                    ctx_stack.enter_context(CompressionLogger(module))
+                    for module in batch
+                ]
                 try:
-                    with contextlib.ExitStack() as ctx_stack:
-                        comp_loggers = [
-                            ctx_stack.enter_context(CompressionLogger(module))
-                            for module in batch
-                        ]
-                        quantized, losses, used_rtn_fallback = quantize_weight(
-                            weights=weights,
-                            hessians=hessians,
-                            scale=scales,
-                            zero_point=zero_points,
-                            global_scale=global_scales,
-                            quant_args=quant_args,
-                            blocksize=self.block_size,
-                            percdamp=self.dampening_frac,
-                        )
-                        for index, comp_logger in enumerate(comp_loggers):
-                            comp_logger.set_results(
-                                name="GPTQ", loss=losses[index].item()
-                            )
-                            if used_rtn_fallback[index].item():
-                                self._rtn_fallback_module_names.append(names[index])
+                    quantized, losses, used_rtn_fallback = quantize_weight(
+                        weights=weights,
+                        hessians=hessians,
+                        scale=scales,
+                        zero_point=zero_points,
+                        global_scale=global_scales,
+                        quant_args=quant_args,
+                        blocksize=self.block_size,
+                        percdamp=self.dampening_frac,
+                    )
+                    for index, comp_logger in enumerate(comp_loggers):
+                        comp_logger.set_results(name="GPTQ", loss=losses[index].item())
+                        if used_rtn_fallback[index].item():
+                            self._rtn_fallback_module_names.append(names[index])
                 except Exception as error:
                     raise RuntimeError(f"GPTQ failed for modules: {names}") from error
 
+                ctx_stack.close()
                 self._update_batch_qparams(
                     batch,
                     quantized,
