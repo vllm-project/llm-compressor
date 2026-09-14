@@ -227,8 +227,7 @@ class TestvLLM:
             vllm_cmd = " ".join(cmds)
             vllm_bash = os.path.join(RUN_SAVE_DIR, "run-vllm.bash")
             vllm_env_vars = "\n".join(
-                f'export {key}="{value}"\n'
-                for key, value in vllm_env_variables.items()
+                f'export {key}="{value}"\n' for key, value in vllm_env_variables.items()
             )
             with open(vllm_bash, "w") as cf:
                 cf.write(f"#!/bin/bash\n{vllm_env_vars}\n{vllm_cmd}")
