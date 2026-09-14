@@ -18,7 +18,7 @@ This skill creates a tiny version of a known model for testing and experimentati
 
 ## Available Scripts
 
-Scripts are located in `.claude/skills/create-tiny-model/scripts/`:
+Scripts are located in `.agents/skills/create-tiny-model/scripts/`:
 
 - `inspect_config.py` - Inspect the config fields of a model without downloading all files
 - `save_tiny_model.py` - Template for saving a tiny version of the model
@@ -28,7 +28,7 @@ Scripts are located in `.claude/skills/create-tiny-model/scripts/`:
 
 ## Templates
 
-Templates are located in `.claude/skills/create-tiny-model/templates/`:
+Templates are located in `.agents/skills/create-tiny-model/templates/`:
 
 - `README_TEMPLATE.md` - Template for generating model README with placeholders for model details
 
