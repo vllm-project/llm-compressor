@@ -24,6 +24,7 @@ MIN_BATCHED_CHOLESKY_SIZE = 16
 def make_empty_hessian(
     module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
+    """Allocate the FP32 square Hessian accumulator for a module's input width."""
     weight = module.weight
     num_columns = weight.shape[1]
     device = device if device is not None else weight.device
@@ -36,6 +37,12 @@ def accumulate_hessian(
     hessian: torch.Tensor,
     num_samples: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Accumulate one module-input batch into its GPTQ Hessian statistics.
+
+    The Hessian and sample counter are updated in place and returned for the
+    hook caller to retain. Linear, Conv1D, and Conv2d inputs are reshaped into
+    the common ``[input_features, observations]`` representation first.
+    """
     inp = inp.to(device=hessian.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -75,6 +82,12 @@ def prepare_batch(
     torch.Tensor,
     torch.Tensor | None,
 ]:
+    """Build disposable stacked GPTQ inputs and consume per-module statistics.
+
+    Removes each module's accumulated Hessian and sample count from the passed
+    dictionaries, normalizes its Hessian, and stacks it with weights and
+    observer qparams for a single call to ``quantize_weight``.
+    """
     hessian_list = []
     for module in batch:
         hessian = hessians_by_module.pop(module)
@@ -107,6 +120,11 @@ def update_batch_qparams(
     global_scales: torch.Tensor | None,
     quant_args: QuantizationArgs,
 ) -> None:
+    """Write a batch's quantized weights and qparams back to its modules.
+
+    ``update_offload_parameter`` preserves offload-cache semantics while each
+    stacked result is cast to the module's storage dtype.
+    """
     for index, module in enumerate(modules):
         q_param_dict = {
             "weight": quantized[index].to(dtype=module.weight.dtype),
@@ -126,7 +144,11 @@ def assign_batches(
     batched_quantization: str | int | None,
     block_size: int,
 ) -> list[list[torch.nn.Module]]:
-    """Partition modules into compatible GPTQ execution batches."""
+    """Partition modules into compatible GPTQ execution batches.
+
+    ``None`` produces singleton batches; an integer caps every compatible
+    batch; and ``"auto"`` derives a cap from the available CUDA memory.
+    """
     if batched_quantization is None:
         return [[module] for module in module_list]
 
@@ -147,7 +169,11 @@ def assign_batches(
 
 
 def batch_key(module: torch.nn.Module) -> tuple | None:
-    """Return the compatibility key for modules that can share a GPTQ batch."""
+    """Return the shape, device, dtype, and qparam key needed to share a batch.
+
+    Return ``None`` for modules without a compatible two-dimensional weight or
+    quantization configuration, forcing them into a singleton batch.
+    """
     weight = getattr(module, "weight", None)
     if weight is None or weight.dim() != 2:
         return None
@@ -169,6 +195,11 @@ def batch_key(module: torch.nn.Module) -> tuple | None:
 def max_batch_size(
     module: torch.nn.Module, batched_quantization: str | int, block_size: int
 ) -> int:
+    """Return the safe batch cap for one representative compatible module.
+
+    An explicit integer cap bypasses memory estimation. ``"auto"`` reserves
+    75% of currently free CUDA memory for the largest estimated GPTQ phase.
+    """
     if isinstance(batched_quantization, int):
         return batched_quantization
 
@@ -199,7 +230,11 @@ def apply_activation_ordering(
     hessians: torch.Tensor,
     actorder: ActivationOrdering | None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-    """Apply GPTQ activation ordering to a weight/Hessian batch."""
+    """Reorder weight columns and both Hessian axes by descending activation.
+
+    The supplied working tensors are overwritten in place. The returned
+    permutation is used to restore the quantized weights' original order.
+    """
     if not actorder:
         return weights, hessians, None
     if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
@@ -242,7 +277,12 @@ def factorize_hessian(
     percdamp: float,
     used_rtn_fallback: torch.Tensor,
 ) -> torch.Tensor:
-    """Prepare and factorize GPTQ Hessians in place."""
+    """Dampen and factorize Hessians in place into GPTQ update factors.
+
+    Dead columns are zeroed in ``weights``. Non-positive-definite Hessians are
+    replaced with identity factors and marked for RTN fallback. Small batches
+    use per-item linear algebra because it is faster than batched CUDA calls.
+    """
     batch_size, _, num_columns = weights.shape
     diag = torch.diagonal(hessians, dim1=-2, dim2=-1)
     dead = diag == 0
@@ -300,7 +340,12 @@ def column_scale_window(
     i1: int,
     i2: int,
 ) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """Expand qparams into effective per-column values for ``[i1, i2)``."""
+    """Expand qparams into effective per-row, per-column values for a block.
+
+    Supports tensor, channel, group, tensor-group, and block qparam layouts;
+    folds in the optional global scale; and returns tensors consumable by both
+    the eager and Triton GPTQ block-update implementations.
+    """
     strategy = quant_args.strategy
     block_width = i2 - i1
     has_zp = zero_point is not None and not quant_args.symmetric
@@ -371,7 +416,11 @@ def column_scale_window(
 def get_triton_gptq_config(
     quant_args: QuantizationArgs,
 ) -> tuple[int, float, float] | None:
-    """Resolve fused GPTQ kernel configuration for supported schemes."""
+    """Map supported qargs to fused-kernel type and numeric code range.
+
+    Return ``None`` when the registered Triton block-update backend cannot
+    represent the requested quantization scheme.
+    """
     if quant_args.strategy not in (
         QuantizationStrategy.TENSOR,
         QuantizationStrategy.CHANNEL,
