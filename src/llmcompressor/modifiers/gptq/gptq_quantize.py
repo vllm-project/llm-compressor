@@ -31,52 +31,6 @@ __all__ = [
 ]
 
 
-def _apply_activation_ordering(
-    weights: torch.Tensor,
-    hessians: torch.Tensor,
-    actorder: ActivationOrdering | None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-    """Apply GPTQ activation ordering to a weight/Hessian batch."""
-    if not actorder:
-        return weights, hessians, None
-    if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
-        raise ValueError(
-            f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
-            " are supported for GPTQ."
-        )
-
-    num_rows, num_columns = weights.shape[-2:]
-    perm = torch.argsort(
-        torch.diagonal(hessians, dim1=-2, dim2=-1), dim=-1, descending=True
-    )
-    hessian_perm = perm
-    weight_perm = perm.to(device=weights.device)
-    if hessian_perm.device != hessians.device:
-        hessian_perm = hessian_perm.to(device=hessians.device)
-
-    permuted_hessians = torch.gather(
-        hessians,
-        -1,
-        hessian_perm.unsqueeze(-2).expand(-1, num_columns, -1),
-    )
-    permuted_hessians = torch.gather(
-        permuted_hessians,
-        -2,
-        hessian_perm.unsqueeze(-1).expand(-1, -1, num_columns),
-    )
-    hessians.copy_(permuted_hessians)
-    del permuted_hessians
-
-    permuted_weights = torch.gather(
-        weights,
-        -1,
-        weight_perm.unsqueeze(-2).expand(-1, num_rows, -1),
-    )
-    weights.copy_(permuted_weights)
-    del permuted_weights
-    return weights, hessians, weight_perm
-
-
 def make_empty_hessian(
     module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
@@ -123,61 +77,6 @@ def accumulate_hessian(
     H += inp.matmul(inp.t())
 
     return H, num_samples
-
-
-def _factorize_hessian(
-    weights: torch.Tensor,
-    hessians: torch.Tensor,
-    percdamp: float,
-    used_rtn_fallback: torch.Tensor,
-) -> torch.Tensor:
-    """Prepare and factorize GPTQ Hessians in place."""
-    batch_size, _, num_columns = weights.shape
-    diag = torch.diagonal(hessians, dim1=-2, dim2=-1)
-    dead = diag == 0
-    if dead.any():
-        diag.masked_fill_(dead, 1.0)
-        weights.masked_fill_(dead.unsqueeze(1), 0)
-
-    # doing singletons is faster than 2 <= batches < 16
-    if batch_size < MIN_BATCHED_CHOLESKY_SIZE:
-        info = torch.empty((), dtype=torch.int32, device=hessians.device)
-        identity = None
-        for index in range(batch_size):
-            damp = percdamp * torch.mean(torch.diag(hessians[index]))
-            torch.diagonal(hessians[index]).add_(damp)
-            torch.linalg.cholesky_ex(
-                hessians[index], check_errors=False, out=(hessians[index], info)
-            )
-            if info.item() == 0:
-                torch.cholesky_inverse(hessians[index], out=hessians[index])
-                torch.linalg.cholesky(hessians[index], upper=True, out=hessians[index])
-            else:
-                if identity is None:
-                    identity = torch.eye(
-                        num_columns, dtype=hessians.dtype, device=hessians.device
-                    )
-                hessians[index].copy_(identity)
-                used_rtn_fallback[index] = True
-        return hessians
-
-    damp = percdamp * diag.mean(dim=-1)
-    diag.add_(damp.unsqueeze(-1))
-    info = torch.empty(batch_size, dtype=torch.int32, device=hessians.device)
-    torch.linalg.cholesky_ex(hessians, check_errors=False, out=(hessians, info))
-    bad = info.nonzero(as_tuple=False).flatten()
-    if bad.numel():
-        hessians.index_copy_(
-            0,
-            bad,
-            torch.eye(num_columns, dtype=hessians.dtype, device=hessians.device).expand(
-                bad.numel(), -1, -1
-            ),
-        )
-        used_rtn_fallback[bad] = True
-    torch.cholesky_inverse(hessians, out=hessians)
-    torch.linalg.cholesky(hessians, upper=True, out=hessians)
-    return hessians
 
 
 def quantize_weight(
@@ -285,6 +184,232 @@ def quantize_weight(
         W = torch.gather(W, -1, invperm.unsqueeze(-2).expand(-1, num_rows, -1))
 
     return W.to(final_dtype), losses.sum(dim=1), used_rtn_fallback
+
+
+@ImplBackend.entrypoint("gptq_block_update")
+def gptq_block_update(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    Q1: torch.Tensor,
+    Err1: torch.Tensor,
+    losses1: torch.Tensor,
+    *,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor | None,
+    global_scale: torch.Tensor | None,
+    g_idx: torch.Tensor | None,
+    quant_args: QuantizationArgs,
+    i1: int,
+) -> None:
+    """Run one GPTQ block with the eager Torch implementation."""
+    if W1.dim() != 3:
+        raise ValueError("The eager GPTQ block backend requires a 3D weight block")
+
+    block_width = W1.shape[-1]
+    altered_qargs = copy(quant_args)
+    altered_qargs.strategy = QuantizationStrategy.CHANNEL
+    eff, zp = _column_scale_window(
+        scale,
+        zero_point,
+        global_scale,
+        g_idx,
+        quant_args,
+        num_rows=W1.shape[-2],
+        i1=i1,
+        i2=i1 + block_width,
+    )
+    for i in range(block_width):
+        w = W1[:, :, i]
+        # Flatten batch into CT's column dimension, allowing one QDQ call while
+        # retaining an independent scale for every batch item and output row.
+        q = fake_quantize(
+            w.transpose(0, 1),
+            eff[:, :, i].transpose(0, 1),
+            None if zp is None else zp[:, :, i].transpose(0, 1),
+            altered_qargs,
+        ).transpose(0, 1)
+
+        diagonal = Hinv1[:, i, i]
+        error = (w - q) / diagonal[:, None]
+        Q1[:, :, i] = q
+        Err1[:, :, i] = error
+        losses1[:, :, i] = error.square()
+        W1[:, :, i:] -= error.unsqueeze(-1) * Hinv1[:, i, i:].unsqueeze(1)
+
+
+def _gptq_block_update_triton_req(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    Q1: torch.Tensor,
+    Err1: torch.Tensor,
+    losses1: torch.Tensor,
+    *,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor | None,
+    global_scale: torch.Tensor | None,
+    g_idx: torch.Tensor | None,
+    quant_args: QuantizationArgs,
+    i1: int,
+) -> bool:
+    block_width = W1.shape[-1]
+    return (
+        triton_req(W1)
+        and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
+        and _get_triton_gptq_config(quant_args) is not None
+        and 0 < block_width <= 256
+        # Check that GPTQ block width is a power of two.
+        and not block_width & (block_width - 1)
+    )
+
+
+@ImplBackend.register("gptq_block_update", _gptq_block_update_triton_req, 0)
+def _gptq_block_update_triton(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    Q1: torch.Tensor,
+    Err1: torch.Tensor,
+    losses1: torch.Tensor,
+    *,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor | None,
+    global_scale: torch.Tensor | None,
+    g_idx: torch.Tensor | None,
+    quant_args: QuantizationArgs,
+    i1: int,
+) -> None:
+    """Run one GPTQ block with the registered Triton backend."""
+    kernel_config = _get_triton_gptq_config(quant_args)
+    if kernel_config is None:
+        raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
+
+    block_width = W1.shape[-1]
+    assert (
+        0 < block_width <= 256 and block_width & (block_width - 1) == 0
+    ), "Triton GPTQ block width must be a power of two <= 256"
+
+    quant_type, q_min, q_max = kernel_config
+    eff, zp = _column_scale_window(
+        scale,
+        zero_point,
+        global_scale,
+        g_idx,
+        quant_args,
+        num_rows=W1.shape[-2],
+        i1=i1,
+        i2=i1 + block_width,
+    )
+    fused_gptq_block_update(
+        W1.unsqueeze(-3) if W1.dim() == 2 else W1,
+        Hinv1.unsqueeze(-3) if Hinv1.dim() == 2 else Hinv1,
+        eff.unsqueeze(-3) if eff.dim() == 2 else eff,
+        zp if zp is None or zp.dim() == 3 else zp.unsqueeze(-3),
+        Q1.unsqueeze(-3) if Q1.dim() == 2 else Q1,
+        Err1.unsqueeze(-3) if Err1.dim() == 2 else Err1,
+        q_min,
+        q_max,
+        quant_type,
+    )
+    losses1.copy_(Err1.square())
+
+
+def _apply_activation_ordering(
+    weights: torch.Tensor,
+    hessians: torch.Tensor,
+    actorder: ActivationOrdering | None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+    """Apply GPTQ activation ordering to a weight/Hessian batch."""
+    if not actorder:
+        return weights, hessians, None
+    if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
+        raise ValueError(
+            f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
+            " are supported for GPTQ."
+        )
+
+    num_rows, num_columns = weights.shape[-2:]
+    perm = torch.argsort(
+        torch.diagonal(hessians, dim1=-2, dim2=-1), dim=-1, descending=True
+    )
+    hessian_perm = perm
+    weight_perm = perm.to(device=weights.device)
+    if hessian_perm.device != hessians.device:
+        hessian_perm = hessian_perm.to(device=hessians.device)
+
+    permuted_hessians = torch.gather(
+        hessians,
+        -1,
+        hessian_perm.unsqueeze(-2).expand(-1, num_columns, -1),
+    )
+    permuted_hessians = torch.gather(
+        permuted_hessians,
+        -2,
+        hessian_perm.unsqueeze(-1).expand(-1, -1, num_columns),
+    )
+    hessians.copy_(permuted_hessians)
+    del permuted_hessians
+
+    permuted_weights = torch.gather(
+        weights,
+        -1,
+        weight_perm.unsqueeze(-2).expand(-1, num_rows, -1),
+    )
+    weights.copy_(permuted_weights)
+    return weights, hessians, weight_perm
+
+
+def _factorize_hessian(
+    weights: torch.Tensor,
+    hessians: torch.Tensor,
+    percdamp: float,
+    used_rtn_fallback: torch.Tensor,
+) -> torch.Tensor:
+    """Prepare and factorize GPTQ Hessians in place."""
+    batch_size, _, num_columns = weights.shape
+    diag = torch.diagonal(hessians, dim1=-2, dim2=-1)
+    dead = diag == 0
+    if dead.any():
+        diag.masked_fill_(dead, 1.0)
+        weights.masked_fill_(dead.unsqueeze(1), 0)
+
+    # doing singletons is faster than 2 <= batches < 16
+    if batch_size < MIN_BATCHED_CHOLESKY_SIZE:
+        info = torch.empty((), dtype=torch.int32, device=hessians.device)
+        identity = None
+        for index in range(batch_size):
+            damp = percdamp * torch.mean(torch.diag(hessians[index]))
+            torch.diagonal(hessians[index]).add_(damp)
+            torch.linalg.cholesky_ex(
+                hessians[index], check_errors=False, out=(hessians[index], info)
+            )
+            if info.item() == 0:
+                torch.cholesky_inverse(hessians[index], out=hessians[index])
+                torch.linalg.cholesky(hessians[index], upper=True, out=hessians[index])
+            else:
+                if identity is None:
+                    identity = torch.eye(
+                        num_columns, dtype=hessians.dtype, device=hessians.device
+                    )
+                hessians[index].copy_(identity)
+                used_rtn_fallback[index] = True
+        return hessians
+
+    damp = percdamp * diag.mean(dim=-1)
+    diag.add_(damp.unsqueeze(-1))
+    info = torch.empty(batch_size, dtype=torch.int32, device=hessians.device)
+    torch.linalg.cholesky_ex(hessians, check_errors=False, out=(hessians, info))
+    bad = info.nonzero(as_tuple=False).flatten()
+    if bad.numel():
+        hessians.index_copy_(
+            0,
+            bad,
+            torch.eye(num_columns, dtype=hessians.dtype, device=hessians.device).expand(
+                bad.numel(), -1, -1
+            ),
+        )
+        used_rtn_fallback[bad] = True
+    torch.cholesky_inverse(hessians, out=hessians)
+    torch.linalg.cholesky(hessians, upper=True, out=hessians)
+    return hessians
 
 
 def _get_triton_gptq_config(
@@ -414,129 +539,3 @@ def _column_scale_window(
     zp = zp.to(GPTQ_PRECISION)
     zp = zp.expand(*zp.shape[:-2], num_rows, block_width).contiguous()
     return eff, zp
-
-
-def _gptq_block_update_triton_req(
-    W1: torch.Tensor,
-    Hinv1: torch.Tensor,
-    Q1: torch.Tensor,
-    Err1: torch.Tensor,
-    losses1: torch.Tensor,
-    *,
-    scale: torch.Tensor,
-    zero_point: torch.Tensor | None,
-    global_scale: torch.Tensor | None,
-    g_idx: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    i1: int,
-) -> bool:
-    block_width = W1.shape[-1]
-    return (
-        triton_req(W1)
-        and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
-        and _get_triton_gptq_config(quant_args) is not None
-        and 0 < block_width <= 256
-        # Check that GPTQ block width is a power of two.
-        and not block_width & (block_width - 1)
-    )
-
-
-@ImplBackend.register("gptq_block_update", _gptq_block_update_triton_req, 0)
-def _gptq_block_update_triton(
-    W1: torch.Tensor,
-    Hinv1: torch.Tensor,
-    Q1: torch.Tensor,
-    Err1: torch.Tensor,
-    losses1: torch.Tensor,
-    *,
-    scale: torch.Tensor,
-    zero_point: torch.Tensor | None,
-    global_scale: torch.Tensor | None,
-    g_idx: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    i1: int,
-) -> None:
-    """Run one GPTQ block with the registered Triton backend."""
-    kernel_config = _get_triton_gptq_config(quant_args)
-    if kernel_config is None:
-        raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
-
-    block_width = W1.shape[-1]
-    assert (
-        0 < block_width <= 256 and block_width & (block_width - 1) == 0
-    ), "Triton GPTQ block width must be a power of two <= 256"
-
-    quant_type, q_min, q_max = kernel_config
-    eff, zp = _column_scale_window(
-        scale,
-        zero_point,
-        global_scale,
-        g_idx,
-        quant_args,
-        num_rows=W1.shape[-2],
-        i1=i1,
-        i2=i1 + block_width,
-    )
-    fused_gptq_block_update(
-        W1.unsqueeze(-3) if W1.dim() == 2 else W1,
-        Hinv1.unsqueeze(-3) if Hinv1.dim() == 2 else Hinv1,
-        eff.unsqueeze(-3) if eff.dim() == 2 else eff,
-        zp if zp is None or zp.dim() == 3 else zp.unsqueeze(-3),
-        Q1.unsqueeze(-3) if Q1.dim() == 2 else Q1,
-        Err1.unsqueeze(-3) if Err1.dim() == 2 else Err1,
-        q_min,
-        q_max,
-        quant_type,
-    )
-    losses1.copy_(Err1.square())
-
-
-@ImplBackend.entrypoint("gptq_block_update")
-def gptq_block_update(
-    W1: torch.Tensor,
-    Hinv1: torch.Tensor,
-    Q1: torch.Tensor,
-    Err1: torch.Tensor,
-    losses1: torch.Tensor,
-    *,
-    scale: torch.Tensor,
-    zero_point: torch.Tensor | None,
-    global_scale: torch.Tensor | None,
-    g_idx: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    i1: int,
-) -> None:
-    """Run one GPTQ block with the eager Torch implementation."""
-    if W1.dim() != 3:
-        raise ValueError("The eager GPTQ block backend requires a 3D weight block")
-
-    block_width = W1.shape[-1]
-    altered_qargs = copy(quant_args)
-    altered_qargs.strategy = QuantizationStrategy.CHANNEL
-    eff, zp = _column_scale_window(
-        scale,
-        zero_point,
-        global_scale,
-        g_idx,
-        quant_args,
-        num_rows=W1.shape[-2],
-        i1=i1,
-        i2=i1 + block_width,
-    )
-    for i in range(block_width):
-        w = W1[:, :, i]
-        # Flatten batch into CT's column dimension, allowing one QDQ call while
-        # retaining an independent scale for every batch item and output row.
-        q = fake_quantize(
-            w.transpose(0, 1),
-            eff[:, :, i].transpose(0, 1),
-            None if zp is None else zp[:, :, i].transpose(0, 1),
-            altered_qargs,
-        ).transpose(0, 1)
-
-        diagonal = Hinv1[:, i, i]
-        error = (w - q) / diagonal[:, None]
-        Q1[:, :, i] = q
-        Err1[:, :, i] = error
-        losses1[:, :, i] = error.square()
-        W1[:, :, i:] -= error.unsqueeze(-1) * Hinv1[:, i, i:].unsqueeze(1)

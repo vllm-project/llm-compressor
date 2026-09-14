@@ -1,4 +1,5 @@
 import contextlib
+from typing import Literal
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
@@ -19,7 +20,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import PrivateAttr
+from pydantic import PrivateAttr, StrictInt, field_validator
 from torch import distributed as dist
 
 from llmcompressor.core import Event, State
@@ -92,13 +93,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
     :param actorder: order in which weight columns are quantized. Defaults to "static"
         activation ordering, which achieves best accuracy recovery with no runtime cost.
         For more information, see https://github.com/vllm-project/vllm/pull/8135.
-    :param batched_quantization: Set to False to disable batched quantization of
-        same-shape modules (e.g. linearized MoE experts). When enabled, groups of
-        modules sharing weight shape and quantization scheme are quantized with
-        batched Cholesky solves and a fused Triton column-update kernel when
-        available.
-    :param batch_memory_fraction: Fraction of currently free CUDA memory that may be
-        used for new allocations while processing a GPTQ batch. Defaults to 0.75.
+    :param batched_quantization: Controls batching of same-shape modules (e.g.
+        linearized MoE experts). ``"auto"`` (the default) limits batches to 75% of
+        available CUDA memory. A positive integer sets a maximum batch size without
+        consulting available memory. ``None`` disables batching.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -130,8 +128,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     block_size: int = 128
     dampening_frac: float | None = 0.01
     actorder: ActivationOrdering | Sentinel | None = Sentinel("static")
-    batched_quantization: bool = True
-    batch_memory_fraction: float = 0.75
+    batched_quantization: Literal["auto"] | StrictInt | None = "auto"
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
@@ -141,6 +138,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
     )
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
+
+    @field_validator("batched_quantization")
+    @classmethod
+    def _validate_batched_quantization(cls, value):
+        if isinstance(value, int) and value <= 0:
+            raise ValueError("batched_quantization must be a positive integer")
+        return value
 
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
@@ -409,8 +413,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def _make_batches(
         self, module_list: list[torch.nn.Module]
     ) -> list[list[torch.nn.Module]]:
-        """Partition modules into execution batches."""
-        if not self.batched_quantization:
+        """Partition modules into execution batches which share batch_key"""
+        if self.batched_quantization is None:
             return [[module] for module in module_list]
 
         batches: list[list[torch.nn.Module]] = []
@@ -429,6 +433,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return batches
 
     def _batch_key(self, module: torch.nn.Module) -> tuple | None:
+        """Return the compatibility key for modules that can share a GPTQ batch.
+        primarily shape, dtyle and quantization parameters."""
         weight = getattr(module, "weight", None)
         if weight is None or weight.dim() != 2:
             return None
@@ -447,6 +453,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         )
 
     def _max_batch_size(self, module: torch.nn.Module) -> int:
+        if isinstance(self.batched_quantization, int):
+            return self.batched_quantization
+
         out_features, in_features = module.weight.shape
         device = get_execution_device(module)
         weight_size = out_features * in_features
@@ -464,12 +473,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         )
         per_module_bytes = max(quantization_peak, actorder_peak) * 4
 
-        if not 0.0 < self.batch_memory_fraction <= 1.0:
-            raise ValueError("batch_memory_fraction must be in (0, 1]")
         if torch.device(device).type != "cuda" or not torch.accelerator.is_available():
             return 1
         free_bytes, _ = torch.get_device_module().mem_get_info(device)
-        budget = int(free_bytes * self.batch_memory_fraction)
+        budget = int(free_bytes * 0.75)
         return max(1, budget // per_module_bytes)
 
     def _reduce_hessian_to_target_rank(self, module_list, module_to_rank):

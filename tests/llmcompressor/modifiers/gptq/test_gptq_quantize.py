@@ -578,7 +578,7 @@ def test_compress_module_list_batches_same_shape(tmp_path):
 
     # force pure eager+single path so CPU runs deterministically cover the
     # batching decision logic, not the kernel
-    modifier.batched_quantization = False
+    modifier.batched_quantization = None
     modifier.compress_modules()
     assert modifier._num_compressed_modules == 4
 
@@ -594,7 +594,7 @@ def test_compress_module_list_batches_same_shape(tmp_path):
         for i, m in enumerate(modules_b)
     }
     modifier._num_samples = {m: torch.tensor(1.0) for m in modules_b}
-    modifier.batched_quantization = True
+    modifier.batched_quantization = 3
     modifier.compress_modules()
     assert modifier._num_compressed_modules == 4
 
