@@ -27,7 +27,7 @@ If the user specifically requests `model_free_ptq`, inform them it's not availab
 
 ## Step 2 — Use the oneshot template (only path for NVFP4)
 
-Read the shared template at examples/.agents/skills/templates/oneshot_with_data.py and use it as the starting point. Set scheme="NVFP4".
+Read the shared template at `examples/.agents/skills/templates/oneshot_with_data.py` and use it as the starting point. Set scheme="NVFP4".
 
 Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe if requested.
 
@@ -35,7 +35,7 @@ Apply the model-type adjustments from the shared documentation before writing th
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments documented in examples/.agents/skills/shared_quantization.md.
+Apply the model-type adjustments documented in `examples/.agents/skills/shared_quantization.md`.
 
 **Note:** For MoE models, the pipeline automatically handles expert calibration via `CalibrationAfmoeMoE` module — no manual intervention needed.
 

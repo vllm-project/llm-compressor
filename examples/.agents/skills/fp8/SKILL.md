@@ -11,7 +11,7 @@ Generate a working Python example script that quantizes a model to an FP8 scheme
 
 ## Step 1 — Gather information
 
-Read the shared documentation at examples/.agents/skills/shared_quantization.md for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
+Read the shared documentation at `examples/.agents/skills/shared_quantization.md` for common model information gathering steps, GPTQ, transforms, and calibration dataset configuration.
 
 In addition to the shared information, ask the user (or infer from context) for:
 
@@ -32,13 +32,13 @@ Templates are located in `.agents/skills/fp8/templates/`:
 
 ### `oneshot` with `QuantizationModifier` (standard path — most common)
 
-This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (examples/.agents/skills/shared_quantization.md) before writing the final file.
+This is the most common pathway for FP8 quantization and provides good accuracy without any calibration data. Read `templates/oneshot.py` and use it as the starting point. Apply the model-type adjustments from the shared documentation (`examples/.agents/skills/shared_quantization.md`) before writing the final file.
 
-**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at examples/.agents/skills/templates/oneshot_with_data.py instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
+**Optional: GPTQ or a transform for improved accuracy.** If the user wants to use GPTQ or apply a transform (AWQ, SmoothQuant), calibration data is required. Use the shared template at `examples/.agents/skills/templates/oneshot_with_data.py` instead of `templates/oneshot.py`. Follow the shared documentation to apply GPTQ and/or transform modifications to the recipe.
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments documented in examples/.agents/skills/shared_quantization.md.
+Apply the model-type adjustments documented in `examples/.agents/skills/shared_quantization.md`.
 
 ## Step 4 — `model_free_ptq` (no transformers model definition, or very large models ~1TB+)
 
