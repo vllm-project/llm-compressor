@@ -15,10 +15,16 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 
-from llmcompressor.modifiers.gptq.gptq_triton import FusedQuantType
-
 GPTQ_PRECISION = torch.float32
 MIN_BATCHED_CHOLESKY_SIZE = 16
+
+
+class FusedQuantType:
+    """Numeric quantizer identifiers consumed by the fused GPTQ Triton kernel."""
+
+    INT = 0
+    FP4_E2M1 = 1
+    FP8_E4M3 = 2
 
 
 def make_empty_hessian(
@@ -290,6 +296,7 @@ def factorize_hessian(
         diag.masked_fill_(dead, 1.0)
         weights.masked_fill_(dead.unsqueeze(1), 0)
 
+    # For small batches its faster to do it per-item than to use the batched CUDA ops.
     if batch_size < MIN_BATCHED_CHOLESKY_SIZE:
         info = torch.empty((), dtype=torch.int32, device=hessians.device)
         identity = None
