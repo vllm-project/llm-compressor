@@ -35,7 +35,7 @@ Apply the model-type adjustments from the shared documentation before writing th
 
 ## Step 3 — Apply model-type adjustments
 
-Apply the model-type adjustments documented in `.agents/skills/shared_quantization.md`.
+Apply the model-type adjustments documented in examples/.agents/skills/shared_quantization.md.
 
 **Note:** For MoE models, the pipeline automatically handles expert calibration via `CalibrationAfmoeMoE` module — no manual intervention needed.
 
