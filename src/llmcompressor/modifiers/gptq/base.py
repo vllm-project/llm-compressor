@@ -327,23 +327,20 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     ctx_stack.enter_context(CompressionLogger(module))
                     for module in batch
                 ]
-                try:
-                    quantized, losses, used_rtn_fallback = quantize_weight(
-                        weights=weights,
-                        hessians=hessians,
-                        scale=scales,
-                        zero_point=zero_points,
-                        global_scale=global_scales,
-                        quant_args=quant_args,
-                        blocksize=self.block_size,
-                        percdamp=self.dampening_frac,
-                    )
-                    for index, comp_logger in enumerate(comp_loggers):
-                        comp_logger.set_results(name="GPTQ", loss=losses[index].item())
-                        if used_rtn_fallback[index].item():
-                            self._rtn_fallback_module_names.append(names[index])
-                except Exception as error:
-                    raise RuntimeError(f"GPTQ failed for modules: {names}") from error
+                quantized, losses, used_rtn_fallback = quantize_weight(
+                    weights=weights,
+                    hessians=hessians,
+                    scale=scales,
+                    zero_point=zero_points,
+                    global_scale=global_scales,
+                    quant_args=quant_args,
+                    blocksize=self.block_size,
+                    percdamp=self.dampening_frac,
+                )
+                for index, comp_logger in enumerate(comp_loggers):
+                    comp_logger.set_results(name="GPTQ", loss=losses[index].item())
+                    if used_rtn_fallback[index].item():
+                        self._rtn_fallback_module_names.append(names[index])
 
                 ctx_stack.close()
                 self._update_batch_qparams(
