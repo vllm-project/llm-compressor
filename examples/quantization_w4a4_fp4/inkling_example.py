@@ -1,0 +1,101 @@
+from compressed_tensors.quantization.quant_scheme import (
+    FP8_BLOCK,
+    NVFP4,
+    QuantizationScheme,
+)
+from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
+from transformers import (
+    AutoConfig,
+    AutoProcessor,
+    InklingForConditionalGeneration,
+)
+
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
+
+MODEL_ID = "thinkingmachines/Inkling-Small"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+
+# The checkpoint's config.json omits `moe_intermediate_size`; transformers then
+# defaults it to 3072 while the expert weights were built at 2048, causing a
+# shape mismatch on load. Pin it to the checkpoint's expert dim before loading.
+config = AutoConfig.from_pretrained(MODEL_ID)
+_tc = config.text_config if hasattr(config, "text_config") else config
+_tc.moe_intermediate_size = 2048
+
+with load_context(InklingForConditionalGeneration):
+    model = InklingForConditionalGeneration.from_pretrained(
+        MODEL_ID,
+        config=config,
+        max_memory={"cpu": 500e9},
+        device_map="auto_offload",
+        offload_folder="./offload_folder",
+    )
+    processor = AutoProcessor.from_pretrained(MODEL_ID)
+    processor.tokenizer.eos_token = "<|endoftext|>"
+    processor.tokenizer.pad_token = "<|endoftext|>"
+
+# Configure the quantization algorithm to run.
+#   * quantize attention weights to FP8_BLOCK
+#   * quantize mlp/MoE weights to NVFP4
+recipe = QuantizationModifier(
+    config_groups={
+        "config_group_0": QuantizationScheme(
+            targets=[
+                r"re:.*attn\..*",
+            ],
+            **FP8_BLOCK,
+        ),
+        "config_group_1": QuantizationScheme(
+            targets=[
+                r"re:.*mlp\..*",
+            ],
+            **NVFP4,
+        ),
+    },
+    ignore=[
+        "lm_head",
+        "model.llm.unembed",
+        "model.llm.embed",
+        "re:.*sconv.*",
+        "re:.*norm.*",
+        "re:.*bias$",
+        "re:.*gate$",
+        "re:.*global_scale$",
+        "re:.*shared_experts.*",
+        "re:.*rel_logits_proj.*",
+        "re:.*act_fn.*",
+        "re:.*visual.*",
+        "re:.*vision.*",
+        "re:.*audio.*",
+        "re:model.mtp.*",
+    ],
+)
+
+# Select calibration dataset.
+DATASET_ID = "ultrachat-200k"
+DATASET_SPLIT = "train_sft"
+
+NUM_CALIBRATION_SAMPLES = 256
+MAX_SEQUENCE_LENGTH = 4096
+
+# Apply algorithms.
+oneshot(
+    model=model,
+    processor=processor,
+    recipe=recipe,
+    dataset=DATASET_ID,
+    splits={"calibration": f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]"},
+    max_seq_length=MAX_SEQUENCE_LENGTH,
+    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+)
+
+# Save to disk compressed.
+model.save_pretrained(SAVE_DIR, save_compressed=True, save_original_format=False)
+processor.save_pretrained(SAVE_DIR)
+
+save_mtp_tensors_to_checkpoint(
+    source_model=MODEL_ID, dest_dir=SAVE_DIR, mtp_prefix="model.mtp"
+)
+
