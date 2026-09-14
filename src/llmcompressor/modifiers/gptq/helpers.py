@@ -150,7 +150,7 @@ def assign_batches(
     batched_quantization: str | int | None,
     block_size: int,
 ) -> list[list[torch.nn.Module]]:
-    """Partition modules into compatible GPTQ execution batches based on 
+    """Partition modules into compatible GPTQ execution batches based on
     having the same batch_key.
 
     ``None`` produces singleton batches; an integer caps every compatible
