@@ -102,13 +102,13 @@ def test_mse_fp4():
         (8, "float", QuantizationStrategy.BLOCK, None, [2, 512]),
     ],
 )
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 def test_mse_triton_matches_eager_when_tile_fits_group(
     num_bits, quant_type, strategy, group_size, block_structure
 ):
     """A full buffer preserves eager choices when each group spans a tile."""
     if quant_type == "float" and num_bits == 8:
-        major, _ = torch.cuda.get_device_capability()
+        major, _ = torch.get_device_module().get_device_capability()
         if major < 9:
             pytest.skip("FP8 Triton QDQ requires SM90+")
     args = QuantizationArgs(
@@ -141,7 +141,7 @@ def test_mse_triton_matches_eager_when_tile_fits_group(
     assert torch.equal(eager[1], triton[1])
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 def test_mse_triton_matches_eager_for_packed_nvfp4_groups():
     """Packed BF16 NVFP4 groups preserve eager arithmetic and grid choices."""
     args = QuantizationArgs(
