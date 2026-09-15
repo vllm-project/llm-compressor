@@ -325,6 +325,7 @@ def _make_spd_hessian(in_features, device, seed):
             ),
             torch.bfloat16,
             False,
+            marks=requires_compute_capability(9, 0),
             id="fp8-channel",
         ),
         pytest.param(
@@ -337,6 +338,7 @@ def _make_spd_hessian(in_features, device, seed):
             ),
             torch.bfloat16,
             False,
+            marks=requires_compute_capability(9, 0),
             id="fp8-block",
         ),
         pytest.param(
@@ -363,6 +365,7 @@ def _make_spd_hessian(in_features, device, seed):
             ),
             torch.float32,
             True,
+            marks=requires_compute_capability(9, 0),
             id="nvfp4",
         ),
     ],
@@ -435,13 +438,17 @@ def test_fused_gptq_kernel_matches_eager(
             strategy="tensor_group",
             group_size=16,
         ),
-        QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="group",
-            group_size=16,
-            scale_dtype=torch.float8_e4m3fn,
+        pytest.param(
+            QuantizationArgs(
+                num_bits=4,
+                type="float",
+                symmetric=True,
+                strategy="group",
+                group_size=16,
+                scale_dtype=torch.float8_e4m3fn,
+            ),
+            marks=requires_compute_capability(9, 0),
+            id="nvfp4-scale",
         ),
         QuantizationArgs(
             num_bits=8,
