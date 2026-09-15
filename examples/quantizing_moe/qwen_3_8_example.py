@@ -51,6 +51,7 @@ recipe = [
 oneshot(
     model=model,
     dataset="perfectblend",
+    splits="train[:512]",
     recipe=recipe,
     max_seq_length=2048,
     num_calibration_samples=1024,

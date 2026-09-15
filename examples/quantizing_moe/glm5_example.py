@@ -50,6 +50,7 @@ recipe = QuantizationModifier(
 oneshot(
     model=model,
     dataset="perfectblend",
+    splits="train[:512]",
     batch_size=4,
     recipe=recipe,
     num_calibration_samples=512,
