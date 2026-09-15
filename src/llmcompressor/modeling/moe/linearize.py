@@ -26,6 +26,28 @@ from .conversion_mappings import (
 from .linear_experts import LinearExperts2D
 
 
+
+
+def _patch_replace_with_fp8_linear_for_moe():
+    """Make replace_with_fp8_linear a no-op for MoE models.
+
+    MoE models with pre-quantized experts don't need FP8 linear replacement.
+    The quantized weights are already in the checkpoint and our layerwise
+    decompression code handles dequantization.
+    """
+    try:
+        import transformers.integrations.finegrained_fp8
+
+        def patched_replace_with_fp8_linear(model, *args, **kwargs):
+            # Return model unchanged. Quantized weights are already loaded.
+            logger.info("Skipping FP8 linear replacement for MoE model")
+            return model
+
+        transformers.integrations.finegrained_fp8.replace_with_fp8_linear = patched_replace_with_fp8_linear
+    except Exception as e:
+        logger.warning(f"Could not patch replace_with_fp8_linear: {e}")
+
+
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
@@ -46,6 +68,9 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
+    # Patch replace_with_fp8_linear to skip expert modules
+    _patch_replace_with_fp8_linear_for_moe()
+
     original_from_pretrained = model_cls.from_pretrained
     patched_fn_called = False
 
