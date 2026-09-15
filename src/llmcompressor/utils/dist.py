@@ -9,7 +9,8 @@ from compressed_tensors.distributed import (
 from compressed_tensors.distributed import (
     wait_for_comms as _wait_for_comms,
 )
-from compressed_tensors.offload import get_execution_device
+from compressed_tensors.offload import get_execution_device, update_offload_parameter
+from compressed_tensors.offload.cache import CPUCache, DistributedCPUCache
 from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.utils.helpers import deprecated
 
@@ -52,6 +53,19 @@ def wait_for_comms(*args, **kwargs) -> None:
     return _wait_for_comms(*args, **kwargs)
 
 
+def _needs_offload_writeback(module: torch.nn.Module) -> bool:
+    """Return True only for modules with an independent per-rank CPUCache.
+
+    DistributedCPUCache already uses shared CPU storage (rank 0's write is
+    immediately visible to all ranks), so an explicit writeback is redundant.
+    Non-offloaded modules hold parameters in-place after broadcast, so calling
+    update_offload_parameter would be a self-copy no-op. Only independent
+    CPUCache instances require an explicit writeback after dist.broadcast.
+    """
+    cache = module._parameters
+    return isinstance(cache, CPUCache) and not isinstance(cache, DistributedCPUCache)
+
+
 def broadcast_qparams_and_cleanup(
     module_list: list[torch.nn.Module],
     module_to_rank: dict[torch.nn.Module, int],
@@ -60,29 +74,52 @@ def broadcast_qparams_and_cleanup(
 ) -> None:
     """Broadcast quantization params from owning rank and clean up observer stats.
 
+    For modules with an independent per-rank CPUCache (selected when auto_offload
+    runs before dist.init_process_group()), ``dist.broadcast`` modifies a temporary
+    onloaded CUDA tensor rather than the underlying CPUCache storage. The explicit
+    ``update_offload_parameter`` calls after ``_wait_for_comms`` write the broadcast
+    result back to each rank's independent CPUCache. Modules using DistributedCPUCache
+    (shared storage) or no offloading at all do not require this writeback.
+
     :param module_list: all modules across all ranks
     :param module_to_rank: mapping from module to the rank that computed its qparams
     :param qparam_names: attribute names to broadcast (e.g. weight_scale, weight)
     :param skip_cpu: if True, skip broadcasting for CPU-offloaded modules
     """
+    is_dist_initialized = dist.is_initialized()
+    rank = dist.get_rank() if is_dist_initialized else 0
+
     pending_comms = []
+    writeback_items: list[tuple[torch.nn.Module, str, torch.Tensor, torch.Tensor]] = []
+
     for module in module_list:
-        should_broadcast = not skip_cpu or (
-            get_execution_device(module) != torch.device("cpu")
+        should_broadcast = is_dist_initialized and (
+            not skip_cpu or (get_execution_device(module) != torch.device("cpu"))
         )
         if should_broadcast:
+            src = module_to_rank[module]
             for name in qparam_names:
                 if (param := getattr(module, name, None)) is not None:
+                    broadcast_param = as_broadcastable(param)
                     pending_comms.append(
                         dist.broadcast(
-                            as_broadcastable(param),
-                            src=module_to_rank[module],
+                            broadcast_param,
+                            src=src,
                             async_op=True,
                         )
                     )
+                    if rank != src and _needs_offload_writeback(module):
+                        writeback_items.append((module, name, param, broadcast_param))
 
         obs = getattr(module, "weight_observer", None)
         if obs is not None and obs.has_statistics:
             obs.delete_statistics(check_fused=True)
 
     _wait_for_comms(pending_comms)
+
+    for module, name, param, broadcast_param in writeback_items:
+        if broadcast_param is not param and (
+            broadcast_param.data_ptr() != param.data_ptr()
+        ):
+            param.copy_(broadcast_param.reshape_as(param))
+        update_offload_parameter(module, name, param)
