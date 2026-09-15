@@ -130,7 +130,9 @@ class MoEConfig:
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
             ),
-            hidden_dim=_getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
+            hidden_dim=_getattr_fallbacks(
+                config, ["moe_latent_size", "hidden_size", "hidden_dim"]
+            ),
             intermediate_size=_getattr_fallbacks(
                 config,
                 ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
@@ -153,6 +155,9 @@ class MoEConfig:
                 ret.hidden_act = "sigmoid"
             case "lfm2_moe":
                 ret.hidden_act = "silu"
+            case "nemotron_h":
+                if config.moe_latent_size is None:
+                    ret.hidden_dim = config.hidden_size
 
         return ret
 
