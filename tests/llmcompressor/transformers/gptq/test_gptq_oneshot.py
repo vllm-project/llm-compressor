@@ -10,6 +10,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
+from tests.testing_utils import requires_compute_capability
 
 recipe_str = """
 quant_stage:
@@ -153,8 +154,16 @@ recipe_modifier_channel_actorder_weight = GPTQModifier(
         recipe_modifier_shorthand_a,
         recipe_modifier_shorthand_b,
         recipe_modifier_group_actorder_weight,
-        recipe_modifier_full_block,
-        recipe_modifier_block_actorder_weight,
+        pytest.param(
+            recipe_modifier_full_block,
+            marks=requires_compute_capability(9, 0),
+            id="fp8-block",
+        ),
+        pytest.param(
+            recipe_modifier_block_actorder_weight,
+            marks=requires_compute_capability(9, 0),
+            id="fp8-block-actorder-weight",
+        ),
         recipe_modifier_channel_actorder_weight,
     ],
 )
