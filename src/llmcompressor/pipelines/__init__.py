@@ -15,3 +15,4 @@ from .data_free import *
 from .independent import *
 from .registry import *
 from .sequential import *
+from .streaming import *
