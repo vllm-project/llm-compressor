@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import disable_offloading, set_onload_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -10,6 +11,11 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines.sequential.error_logging import (
+    accumulate_batch_power,
+    cache_pre_compression_output,
+    compute_sqnr,
+)
 from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     trace_subgraphs,
@@ -79,6 +85,8 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
+
         session = active_session()
 
         # prepare model for sequential onloading
@@ -92,6 +100,12 @@ class SequentialPipeline(CalibrationPipeline):
         modifiers = session.lifecycle.recipe.modifiers
         if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
             dataset_args.propagate_error = False
+
+        # log_sequential_error requires comparing unquantized (pass 1) and quantized
+        # (pass 2) outputs, so propagate_error must be enabled. This takes precedence
+        # over the AutoRoundModifier override above since it was explicitly requested
+        if dataset_args.log_sequential_error:
+            dataset_args.propagate_error = True
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
@@ -157,11 +171,25 @@ class SequentialPipeline(CalibrationPipeline):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
+                        if (
+                            dataset_args.log_sequential_error
+                            and subgraph_index < num_subgraphs - 1
+                        ):
+                            cache_pre_compression_output(
+                                activations, batch_idx, outputs
+                            )
+
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                     if dataset_args.propagate_error:
                         # this pass does not trigger modifier hooks
                         # and is only used for capturing outputs of compressed modules
+                        # signal/noise power sums are accumulated across all batches
+                        # (rather than averaging a per-batch SQNR) so that the final
+                        # ratio correctly weights each batch by its element count
+                        signal_power_sum = 0.0
+                        noise_power_sum = 0.0
+                        num_batches_measured = 0
                         with HooksMixin.disable_hooks():
                             for batch_idx, inputs in _get_batches(
                                 activations,
@@ -176,6 +204,27 @@ class SequentialPipeline(CalibrationPipeline):
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                                # compare pre/post-compression activations
+                                if (
+                                    dataset_args.log_sequential_error
+                                    and subgraph_index < num_subgraphs - 1
+                                ):
+                                    batch_power = accumulate_batch_power(
+                                        activations, batch_idx, output
+                                    )
+                                    if batch_power is not None:
+                                        signal_power_sum += batch_power[0]
+                                        noise_power_sum += batch_power[1]
+                                        num_batches_measured += 1
+
+                        if dataset_args.log_sequential_error and num_batches_measured:
+                            sqnr = compute_sqnr(signal_power_sum, noise_power_sum)
+                            _logger.log(
+                                "METRIC",
+                                f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
+                                f"sequential error (SQNR dB): {sqnr:.2f}",
+                            )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

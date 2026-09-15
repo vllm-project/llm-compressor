@@ -370,6 +370,7 @@ def oneshot(
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     sequential_prefetch: bool = False,
+    log_sequential_error: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -463,6 +464,10 @@ def oneshot(
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.
+    :param log_sequential_error: Only relevant for the sequential pipeline. If True,
+        compute and log the SQNR between each subgraph's pre-compression
+        and post-compression outputs. Automatically enables propagate_error.
+        Default is False.
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.
