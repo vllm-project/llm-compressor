@@ -11,6 +11,7 @@ from transformers import (
     MllamaForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
     Qwen2VLForConditionalGeneration,
+    Qwen3VLForConditionalGeneration,
     WhisperForConditionalGeneration,
 )
 
@@ -97,6 +98,15 @@ from tests.testing_utils import requires_hf_token
             "Qwen/Qwen2-VL-2B-Instruct",
             Qwen2VLForConditionalGeneration,
             ["Qwen2VLDecoderLayer"],
+            "vision",
+            ["torchvision"],
+        ),
+        # dense Qwen3-VL: the vision tower is not traceable and must stay out
+        # of the traced subgraphs (#3071)
+        (
+            "Qwen/Qwen3-VL-2B-Instruct",
+            Qwen3VLForConditionalGeneration,
+            ["Qwen3VLTextDecoderLayer"],
             "vision",
             ["torchvision"],
         ),
