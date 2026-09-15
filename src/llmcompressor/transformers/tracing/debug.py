@@ -5,7 +5,7 @@ from contextlib import nullcontext
 
 import torch
 import transformers
-from transformers import AutoProcessor, PreTrainedModel
+from transformers import AutoProcessor, PreTrainedModel, AutoTokenizer
 
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
@@ -37,7 +37,7 @@ def trace(
     sequential_targets: list[str] | str | None = None,
     ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
-    trust_remote_code: bool = True,
+    trust_remote_code: bool = False,
     skip_weights: bool = True,
     device_map: str | dict = "cpu",
     targets_per_subgraph: int = 1
@@ -70,9 +70,14 @@ def trace(
             device_map=device_map,
             trust_remote_code=trust_remote_code,
         )
-    processor = AutoProcessor.from_pretrained(
-        model_id, trust_remote_code=trust_remote_code
-    )
+    if modality == "text":
+        processor = AutoTokenizer.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
+    else:
+        processor = AutoProcessor.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
     print("Loaded model")
 
     # Prepare sample data
