@@ -15,6 +15,7 @@ from compressed_tensors.quantization import (
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.microscale import get_fused_names
 
 
 def _make_nvfp4_config():
@@ -35,6 +36,18 @@ def _make_nvfp4_config():
 
 def _rand_weight(*shape):
     return torch.randn(*shape, dtype=torch.float16)
+
+
+def test_feed_forward_gate_up_projections_are_fused():
+    """Dependency and in-memory fusion mappings use the same module aliases."""
+    names = [
+        "model.layers.0.feed_forward.gate_proj.weight",
+        "model.layers.0.feed_forward.up_proj.weight",
+    ]
+
+    matched, _ = get_fused_names(names)
+
+    assert [set(group.values()) for group in matched] == [set(names)]
 
 
 @pytest.fixture
