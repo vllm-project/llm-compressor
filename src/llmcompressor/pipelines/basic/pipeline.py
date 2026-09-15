@@ -8,6 +8,7 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
@@ -53,6 +54,8 @@ class BasicPipeline(CalibrationPipeline):
         # Initialize loss_masks list for AWQ masking support
         if use_loss_mask:
             session.state.loss_masks = []
+
+        linearize_moe(model)
 
         LifecycleCallbacks.calibration_start()
 
