@@ -6,7 +6,9 @@ Covers the behavior that:
     (TextGenerationDataset.DEFAULT_SPLIT),
   * an explicitly provided split (including slices and HF "+" concatenation) is
     respected,
-  * num_calibration_samples limits the data *before* tokenization rather than after,
+  * num_calibration_samples limits the data *before* tokenization rather than
+    after (only when shuffling and without concatenation, so the sampler's
+    selection semantics are preserved),
   * a multi-split DatasetDict is collapsed to a single split for calibration.
 """
 
@@ -87,15 +89,14 @@ def test_explicit_split_is_respected(registry, split, expected, tiny_llama_token
 
 
 @pytest.mark.unit
-def test_limit_selects_first_n_when_not_shuffling(tiny_llama_tokenizer):
+def test_limit_selects_first_n_when_shuffling(tiny_llama_tokenizer):
     manager = _make_manager(
         tiny_llama_tokenizer,
         num_calibration_samples=8,
-        shuffle_calibration_samples=False,
+        shuffle_calibration_samples=True,
     )
     out = manager._limit_calibration_samples(_text_dataset(100))
     assert len(out) == 8
-    assert out["text"] == [f"sample {i}" for i in range(8)]
 
 
 @pytest.mark.unit
@@ -137,6 +138,29 @@ def test_limit_skips_non_map_style_dataset(tiny_llama_tokenizer):
     assert manager._limit_calibration_samples(sentinel) is sentinel
 
 
+def test_limit_skips_when_concatenating(tiny_llama_tokenizer):
+    # with concatenate_data the sampler must count chunks (after packing), not rows
+    manager = _make_manager(
+        tiny_llama_tokenizer,
+        num_calibration_samples=8,
+        concatenate_data=True,
+    )
+    dataset = _text_dataset(100)
+    assert manager._limit_calibration_samples(dataset) is dataset
+
+
+def test_limit_skips_when_not_shuffling(tiny_llama_tokenizer):
+    # with shuffle_calibration_samples=False the sampler must see the whole split
+    # to select the num_calibration_samples longest sequences
+    manager = _make_manager(
+        tiny_llama_tokenizer,
+        num_calibration_samples=8,
+        shuffle_calibration_samples=False,
+    )
+    dataset = _text_dataset(100)
+    assert manager._limit_calibration_samples(dataset) is dataset
+
+
 # --------------------------------------------------------------------------- #
 # _select_split (network-free: operates on an in-memory DatasetDict)
 # --------------------------------------------------------------------------- #
@@ -171,11 +195,20 @@ def test_select_split_prefers_calibration_when_no_train(tiny_llama_tokenizer):
 
 
 @pytest.mark.unit
-def test_select_split_falls_back_to_first_split(tiny_llama_tokenizer):
+def test_select_split_falls_back_to_lexicographically_first_split(tiny_llama_tokenizer):
     manager = _make_manager(tiny_llama_tokenizer)
     dd = DatasetDict({"foo": _text_dataset(2), "bar": _text_dataset(5)})
-    # neither train nor calibration present -> first inserted split
-    assert len(manager._select_split(dd)) == 2
+    # neither train nor calibration present -> lexicographically first split
+    assert len(manager._select_split(dd)) == 5
+
+
+def test_select_split_fallback_is_deterministic_not_insertion_order(
+    tiny_llama_tokenizer,
+):
+    manager = _make_manager(tiny_llama_tokenizer)
+    # "zeta" is inserted first; "alpha" must still win the fallback
+    dd = DatasetDict({"zeta": _text_dataset(2), "alpha": _text_dataset(5)})
+    assert len(manager._select_split(dd)) == 5
 
 
 # --------------------------------------------------------------------------- #
@@ -185,7 +218,36 @@ def test_select_split_falls_back_to_first_split(tiny_llama_tokenizer):
 
 @pytest.mark.unit
 def test_num_samples_trims_before_tokenization(tiny_llama_tokenizer, monkeypatch):
-    # Only the trimmed samples should ever be tokenized, not the whole split.
+    # Only the trimmed samples should ever be tokenized, not the whole split
+    # (when shuffling, the selection is a random seed-42 subset).
+    calls = {"n": 0}
+    original_tokenize = TextGenerationDataset.tokenize
+
+    def counting_tokenize(self, data):
+        calls["n"] += 1
+        return original_tokenize(self, data)
+
+    monkeypatch.setattr(TextGenerationDataset, "tokenize", counting_tokenize)
+
+    dataset_args = DatasetArguments(
+        dataset="open_platypus",
+        splits="train[:20]",
+        num_calibration_samples=8,
+        shuffle_calibration_samples=True,
+        overwrite_cache=True,  # force re-tokenization so the counter is exercised
+    )
+    dataset = get_processed_dataset(
+        dataset_args=dataset_args, processor=tiny_llama_tokenizer
+    )
+
+    assert len(dataset) == 8
+    assert calls["n"] == 8
+
+
+@pytest.mark.unit
+def test_no_shuffle_tokenizes_full_split(tiny_llama_tokenizer, monkeypatch):
+    # With shuffle off the sampler must see the WHOLE split to pick the
+    # num_calibration_samples longest sequences, so nothing may be trimmed early.
     calls = {"n": 0}
     original_tokenize = TextGenerationDataset.tokenize
 
@@ -200,14 +262,14 @@ def test_num_samples_trims_before_tokenization(tiny_llama_tokenizer, monkeypatch
         splits="train[:20]",
         num_calibration_samples=8,
         shuffle_calibration_samples=False,
-        overwrite_cache=True,  # force re-tokenization so the counter is exercised
+        overwrite_cache=True,
     )
     dataset = get_processed_dataset(
         dataset_args=dataset_args, processor=tiny_llama_tokenizer
     )
 
-    assert len(dataset) == 8
-    assert calls["n"] == 8
+    assert len(dataset) == 20
+    assert calls["n"] == 20
 
 
 @pytest.mark.unit

@@ -245,7 +245,9 @@ class TextGenerationDataset(RegistryMixin):
                 )
                 return dataset[name]
 
-        first = next(iter(dataset))
+        # use the lexicographically first split (not insertion order) so the
+        # choice is deterministic across machines/filesystems
+        first = sorted(dataset)[0]
         logger.warning(
             f"No split specified and no 'train'/'calibration' split found; using the "
             f"'{first}' split for calibration. Pass `splits` to select a split."
@@ -271,8 +273,19 @@ class TextGenerationDataset(RegistryMixin):
         if len(dataset) <= num_samples:
             return dataset
 
-        if self.dataset_args.shuffle_calibration_samples:
-            dataset = dataset.shuffle(seed=42)
+        if self.dataset_args.concatenate_data:
+            # rows are packed into max_seq_length chunks by group_text; trimming
+            # rows here would make the final chunk count silently smaller than
+            # num_calibration_samples. The sampler selects the final chunks.
+            return dataset
+
+        if not self.dataset_args.shuffle_calibration_samples:
+            # LengthAwareSampler selects the num_samples longest sequences from
+            # the WHOLE split; trimming rows first would hide longer sequences
+            # and change the calibration set.
+            return dataset
+
+        dataset = dataset.shuffle(seed=42)
         return dataset.select(range(num_samples))
 
     def load_dataset(self):
