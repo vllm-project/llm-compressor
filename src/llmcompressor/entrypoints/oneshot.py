@@ -22,6 +22,7 @@ from compressed_tensors.base import (
 )
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
+from torch import bfloat16, float16, float32
 from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
@@ -38,10 +39,15 @@ from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    _remove_fp8_save_roundtrip,
+)
+from llmcompressor.transformers.compression.mtp import prepare_mtp_save
 
 __all__ = ["Oneshot", "oneshot"]
 
 if TYPE_CHECKING:
+    from compressed_tensors.quantization import QuantizationScheme
     from datasets import Dataset, DatasetDict
 
     from llmcompressor.recipe import RecipeInput
@@ -121,6 +127,7 @@ class Oneshot:
     def __init__(
         self,
         log_dir: str | None = None,
+        mtp_scheme: str | QuantizationScheme | None = None,
         **kwargs,
     ):
         """
@@ -139,6 +146,10 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
+        :param mtp_scheme: Optional preset name or ``QuantizationScheme`` used to
+            quantize unloaded MTP layers when the model is saved. ``None``
+            preserves their source precision; ``"BF16"`` explicitly dequantizes
+            or casts them to BF16.
         """
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
@@ -188,6 +199,9 @@ class Oneshot:
         self.recipe = self.recipe_args.recipe
 
         self.validate_model(self.model)
+        self.model._llmcompressor_mtp_source = prepare_mtp_save(
+            self.model, mtp_scheme, model_args.model_revision
+        )
 
     def __call__(self):
         """
@@ -302,6 +316,30 @@ class Oneshot:
         if quant_method is None:
             return
 
+        elif (
+            quant_method == "fp8"
+            and getattr(model, "is_quantized", None) is False
+            and getattr(model, "hf_quantizer", None) is None
+            and getattr(model.config, QUANTIZATION_CONFIG_NAME, None) is None
+            and all(
+                parameter.dtype in (float16, bfloat16, float32)
+                for parameter in model.parameters()
+            )
+            and not any(
+                name.endswith("weight_scale_inv")
+                or (
+                    buffer.is_floating_point()
+                    and buffer.dtype not in (float16, bfloat16, float32)
+                )
+                for name, buffer in model.named_buffers()
+            )
+        ):
+            # Transformers removes its quantizer after an explicit dequantizing
+            # load. The on-disk FP8 config still describes unloaded MTP tensors,
+            # which must be converted separately by the save pathway.
+            _remove_fp8_save_roundtrip(model)
+            return
+
         elif quant_method == QUANTIZATION_METHOD:
             logger.warning(
                 "oneshot has limited support for models already quantized in the "
@@ -326,6 +364,7 @@ def oneshot(
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
+    mtp_scheme: str | QuantizationScheme | None = None,
     # Recipe arguments
     recipe: RecipeInput | None = None,
     recipe_args: list[str] | None = None,
@@ -398,6 +437,15 @@ def oneshot(
     :param save_compressed: Whether to compress sparse models during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
+    :param mtp_scheme: Optional data-free preset name (for example,
+        ``"FP8_DYNAMIC"``, ``"MXFP4"``, or ``"NVFP4A16"``) or
+        ``QuantizationScheme`` used for MTP layers. Transformers
+        does not load these layers, so oneshot processes them from the source
+        checkpoint when saving to ``output_dir`` or through a later wrapped
+        ``model.save_pretrained`` call. Schemes requiring
+        calibration are not applied. ``None`` preserves source MTP weights and
+        scales; ``"BF16"`` explicitly dequantizes or casts MTP to BF16. Matching
+        quantization schemes reuse compatible source tensors without conversion.
 
     # Recipe arguments
     :param recipe: A LLM Compressor recipe. Accepts a path (or list
