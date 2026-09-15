@@ -1,3 +1,2 @@
-cadence: "nightly"
 test_type: "regression"
 compressed_model_stub: "nm-testing/tinyllama-w8a16-dense"
