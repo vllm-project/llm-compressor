@@ -61,7 +61,7 @@ def _init_dist_low_timeout() -> torch.device:
     os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
 
     local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(local_rank)
+    torch.accelerator.set_device_index(local_rank)
     dist.init_process_group(backend="nccl", timeout=DIST_TIMEOUT)
 
     return torch.device(f"cuda:{local_rank}")
