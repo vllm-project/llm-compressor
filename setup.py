@@ -130,9 +130,9 @@ setup(
             else "auto-round>=0.15.1"
         ),
         (
-            "accelerate>=1.6.0,<=1.14.0"
+            "accelerate>=1.15.0,<=1.15.0"
             if BUILD_TYPE == "release"
-            else "accelerate>=1.6.0"
+            else "accelerate>=1.15.0"
         ),
         (
             "nvidia-ml-py>=12.560.30,<=13.610.43"
