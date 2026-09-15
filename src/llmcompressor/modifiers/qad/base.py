@@ -1,28 +1,32 @@
 import math
-from contextlib import ExitStack
 from dataclasses import dataclass
-from typing import Any, Literal
+from functools import partial
+from typing import Any
 
 import torch
 from compressed_tensors.quantization import QuantizationStatus, enable_quantization
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
-from compressed_tensors.utils import getattr_chain, patch_attr, update_offload_parameter
+from compressed_tensors.utils import (
+    getattr_chain,
+    match_named_modules,
+    update_offload_parameter,
+)
 from loguru import logger
 from pydantic import Field, PrivateAttr
-from torch.fx import Graph, GraphModule
 
-from llmcompressor.core import State, active_session
+from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
+from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import Subgraph
+from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["QADModifier"]
 
 
 @dataclass
-class _SubgraphBatch:
-    inputs: dict[str, Any]
+class _BlockBatch:
+    args: tuple[Any, ...]
+    kwargs: dict[str, Any]
     target: Any
     loss_mask: torch.Tensor | None
 
@@ -31,7 +35,8 @@ def _map_tensors(value: Any, transform):
     if isinstance(value, torch.Tensor):
         return transform(value)
     if isinstance(value, tuple):
-        return tuple(_map_tensors(item, transform) for item in value)
+        items = [_map_tensors(item, transform) for item in value]
+        return type(value)(*items) if hasattr(value, "_fields") else tuple(items)
     if isinstance(value, list):
         return [_map_tensors(item, transform) for item in value]
     if isinstance(value, dict):
@@ -96,94 +101,29 @@ def _quantized_modules(modules):
     ]
 
 
-def _distillation_graph(model, subgraph, quantized_modules, include_propagation=False):
-    """Keep the traced computation and select outputs dependent on quantized weights.
-
-    Calibration replaces the LM head with a meta forward. For an ignored head,
-    reconstruct its hidden-state input instead of allocating vocabulary logits.
-    All other operations, branches and residual paths retain their traced order.
-    """
-    head = (
-        model.get_output_embeddings()
-        if hasattr(model, "get_output_embeddings")
-        else None
-    )
-    quantized = set(quantized_modules)
-    if head in quantized:
-        raise ValueError(
-            "QAD requires the output LM head to be ignored by quantization"
-        )
-    graph = Graph()
-    mapping = {}
-    affected = set()
-    weights = {id(module.weight) for module in quantized}
-    for node in subgraph.graph.nodes:
-        if node.op == "call_module" and model.get_submodule(node.target) is head:
-            mapping[node] = mapping[node.args[0]]
-            continue
-        if node.op == "output":
-
-            def select(n):
-                mapped = mapping[n]
-                return mapped if mapped in affected else None
-
-            output = graph.output(torch.fx.map_arg(node.args[0], select))
-            if not output.all_input_nodes:
-                # The terminal pipeline subgraph exports {} because it has no
-                # consumers. Retain its terminal weight-dependent values for loss.
-                graph.erase_node(output)
-                output = graph.output(
-                    {n.name: n for n in graph.nodes if n in affected and not n.users}
-                )
-            if include_propagation:
-                # Return both the loss targets and the complete boundary values
-                # in a single teacher forward. Independent branches may be needed
-                # by a later subgraph even though they do not enter this loss.
-                output.args = (
-                    {
-                        "target": output.args[0],
-                        "propagation": torch.fx.map_arg(
-                            node.args[0], lambda n: mapping[n]
-                        ),
-                    },
-                )
-            continue
-        copied = graph.node_copy(node, lambda n: mapping[n])
-        mapping[node] = copied
-        direct = (
-            node.op == "call_module"
-            and any(m in quantized for m in model.get_submodule(node.target).modules())
-        ) or (
-            node.op == "get_attr" and id(getattr_chain(model, node.target)) in weights
-        )
-        if direct or any(n in affected for n in copied.all_input_nodes):
-            affected.add(copied)
-    result = GraphModule(model, graph, "QADSubgraph")
-    result.graph.eliminate_dead_code()
-    result.recompile()
-    return result
-
-
 class QADModifier(Modifier):
-    """Jointly distill quantized weights in each traced sequential subgraph.
+    """Reconstruct each sequential target's outputs after weight quantization.
 
-    Place after a weight quantization modifier, e.g. QuantizationModifier (RTN)
-    or GPTQModifier. Teacher outputs are captured before the current subgraph is
-    quantized. ``teacher_mode="local"`` uses the student's inputs, including
-    upstream quantization error. ``teacher_mode="full"`` maintains an independent
-    original-model activation stream from the model input. Neither mode loads a
-    second teacher model; full mode runs each stage before its weights change.
-    Qparams remain fixed throughout QAD and final weight materialization.
+    Place after a weight quantization modifier in the recipe. Calibration hooks
+    cache the current block's unquantized outputs on the student's inputs. At
+    ``sequential_epoch_end``, the preceding modifier initializes quantization,
+    then QAD optimizes the block's floating weights with fake quantization.
+    Weight quantization parameters are re-observed before training, after each
+    epoch, and before final weight materialization. No separate teacher is loaded.
 
-    ``num_epochs`` and early stopping apply separately to each subgraph. Cached
-    batches are split into training/validation sets. By default these are the PTQ
-    calibration batches. Pass ``qad_dataset`` and ``qad_dataset_args`` to oneshot
-    to configure an independent stream, including its microbatch size. Gradient
-    accumulation combines microbatches.
+    Use the sequential pipeline with one complete target module per subgraph and
+    ``propagate_error=True``. QAD shares the quantizer's calibration batches,
+    including preprocessing and microbatch size. Its training/validation split,
+    epochs and early stopping apply independently to each block. Validation
+    batches are withheld from QAD updates, but still calibrate the quantizer.
+
+    RTN and GPTQ are tested. Other preceding methods must preserve the teacher
+    during calibration, initialize qparams before QAD's end callback, and use
+    floating weights compatible with compressed-tensors fake quantization.
     """
 
     requires_calibration_data: bool = True
-    teacher_mode: Literal["local", "full"] = "local"
+    reobserve_weights: bool = True
     num_epochs: int = Field(default=1, ge=1)
     learning_rate: float = Field(default=2.0e-6, gt=0)
     weight_decay: float = Field(default=0.0, ge=0)
@@ -195,17 +135,21 @@ class QADModifier(Modifier):
     early_stopping_patience: int = Field(default=3, ge=1)
     validation_relative_min_delta: float = Field(default=1.0e-3, ge=0)
 
-    _graph: GraphModule | None = PrivateAttr(default=None)
-    _teacher_activations: IntermediatesCache | None = PrivateAttr(default=None)
-    _next_teacher_subgraph: int = PrivateAttr(default=0)
-    _num_subgraphs: int = PrivateAttr(default=0)
-    _batches: list[_SubgraphBatch] = PrivateAttr(default_factory=list)
+    _blocks: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _captured: dict[torch.nn.Module, list[_BlockBatch]] = PrivateAttr(
+        default_factory=dict
+    )
+    _pending: dict[torch.nn.Module, _BlockBatch] = PrivateAttr(default_factory=dict)
+    _block: torch.nn.Module | None = PrivateAttr(default=None)
+    _weight_modules: list[torch.nn.Module] = PrivateAttr(default_factory=list)
+    _batches: list[_BlockBatch] = PrivateAttr(default_factory=list)
     _name: str = PrivateAttr(default="")
     _device: torch.device = PrivateAttr(default_factory=lambda: torch.device("cpu"))
     _optimizer_steps: dict[str, int] = PrivateAttr(default_factory=dict)
     _best_validation_losses: dict[str, float] = PrivateAttr(default_factory=dict)
     _epochs_completed: dict[str, int] = PrivateAttr(default_factory=dict)
     _validation_histories: dict[str, list[float]] = PrivateAttr(default_factory=dict)
+    _reobservations: dict[str, list[str]] = PrivateAttr(default_factory=dict)
 
     @property
     def optimizer_steps(self):
@@ -225,31 +169,11 @@ class QADModifier(Modifier):
             name: list(values) for name, values in self._validation_histories.items()
         }
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        if self.teacher_mode == "full":
-            # These methods may change future weights or hidden representations
-            # before the teacher reaches them. Reusing those weights would no
-            # longer produce the original model's intermediate outputs.
-            from llmcompressor.modifiers.transform.awq import AWQModifier
-            from llmcompressor.modifiers.transform.quip import QuIPModifier
-            from llmcompressor.modifiers.transform.smoothquant import (
-                SmoothQuantModifier,
-            )
-            from llmcompressor.modifiers.transform.spinquant import SpinQuantModifier
+    @property
+    def reobservations(self):
+        return {name: list(stages) for name, stages in self._reobservations.items()}
 
-            modifiers = getattr(active_session().lifecycle.recipe, "modifiers", ())
-            if any(
-                isinstance(
-                    m,
-                    (AWQModifier, SmoothQuantModifier, QuIPModifier, SpinQuantModifier),
-                )
-                for m in modifiers
-            ):
-                raise ValueError(
-                    "Full QAD teacher does not support smoothing or rotation "
-                    "modifiers; "
-                    "use RTN/GPTQ without these transforms, or teacher_mode='local'"
-                )
+    def on_initialize(self, state: State, **kwargs) -> bool:
         modules = _quantized_modules(state.model.modules())
         if not modules:
             raise ValueError(
@@ -260,174 +184,121 @@ class QADModifier(Modifier):
             getattr(m, "quantization_status", None) == QuantizationStatus.COMPRESSED
             for m in modules
         ):
-            raise ValueError("QAD needs the original model before weight compression")
+            raise ValueError("QAD needs floating weights before weight compression")
+        if (
+            torch.distributed.is_initialized()
+            and torch.distributed.get_world_size() > 1
+        ):
+            raise ValueError("QAD currently supports single-process calibration")
+        targets = infer_sequential_targets(
+            state.model, kwargs.get("sequential_targets")
+        )
+        self._blocks = {
+            module: name or type(module).__name__
+            for name, module in match_named_modules(state.model, targets)
+            if _quantized_modules(module.modules())
+        }
+        owners = {}
+        covered = set()
+        for block in self._blocks:
+            for module in _quantized_modules(block.modules()):
+                # Inspect parameter identity without onloading the entire model.
+                owner = owners.setdefault(id(module._parameters["weight"]), block)
+                if owner is not block:
+                    raise ValueError(
+                        "QAD does not support overlapping targets or quantized "
+                        "weights shared across blocks"
+                    )
+                covered.add(module)
+        if covered != set(modules):
+            raise ValueError(
+                "QAD requires all quantized weights inside sequential target modules; "
+                "ignore the output LM head and select complete decoder blocks"
+            )
         return True
 
-    def on_calibration_start(
-        self, state, event, subgraphs=None, dataset_args=None, **kwargs
-    ):
-        if subgraphs is None or dataset_args is None:
-            raise ValueError('QADModifier requires pipeline="sequential"')
-        if not dataset_args.propagate_error:
-            raise ValueError("QADModifier requires propagate_error=True")
-        self._teacher_activations = None
-        self._next_teacher_subgraph = 0
-        self._num_subgraphs = len(subgraphs)
-        # A shared weight cannot be updated in an earlier stage without changing
-        # the unquantized teacher for a later stage. Sharing within a stage is fine.
-        owners = {}
-        for index, subgraph in enumerate(subgraphs):
-            for module in _quantized_modules(subgraph.submodules(state.model)):
-                # Inspect parameter identity without onloading all model weights.
-                previous = owners.setdefault(id(module._parameters["weight"]), index)
-                if previous != index:
-                    raise ValueError(
-                        "QAD found quantized weights shared across subgraphs; "
-                        "group their uses into the same sequential subgraph"
-                    )
-
-    @torch.no_grad()
-    def on_sequential_epoch_start(
-        self,
-        state,
-        event,
-        modules,
-        subgraph: Subgraph,
-        activations: IntermediatesCache,
-        subgraph_index: int,
-        additional_activations: dict[str, IntermediatesCache] | None = None,
-        **kwargs,
-    ):
-        self._clear_subgraph()
-        quantized = _quantized_modules(modules)
-        if not quantized and self.teacher_mode == "local":
-            return
-        separate_data = "qad" in (additional_activations or {})
-        if separate_data:
-            activations = additional_activations["qad"]
-        self._split_batch_indices(
-            len(activations)
-        )  # validate before expensive forwards
-        self._name = f"subgraph_{subgraph_index}"
-        if quantized:
-            self._graph = _distillation_graph(state.model, subgraph, quantized)
-        teacher_graph = (
-            _distillation_graph(
-                state.model, subgraph, quantized, include_propagation=True
+    def on_calibration_start(self, state, event, **kwargs):
+        for block in self._blocks:
+            self.register_hook(
+                block,
+                partial(self._capture_inputs, state=state),
+                "forward_pre",
+                with_kwargs=True,
             )
-            if self.teacher_mode == "full"
-            else self._graph
-        )
-        input_names = (
-            {n.target for n in self._graph.graph.nodes if n.op == "placeholder"}
-            if self._graph is not None
-            else set()
-        )
+            self.register_hook(block, self._capture_output, "forward", with_kwargs=True)
 
-        def cache(tensor):
-            if tensor.is_meta:
-                raise ValueError("QAD cannot cache a meta teacher output")
-            return tensor.detach().to(self.target_offload_device, copy=True)
+    def _cache_tensor(self, tensor):
+        if tensor.is_meta:
+            raise ValueError("QAD cannot cache meta tensors; ignore the output LM head")
+        return tensor.detach().to(self.target_offload_device, copy=True)
 
-        # Preserve the pipeline's quantization flags. DisableQuantization restores
-        # everything to enabled, which would corrupt the following GPTQ pass.
-        with ExitStack() as stack:
-            stack.enter_context(HooksMixin.disable_hooks())
-            for module in teacher_graph.modules():
-                if hasattr(module, "quantization_enabled"):
-                    stack.enter_context(
-                        patch_attr(module, "quantization_enabled", False)
-                    )
-            try:
-                if self.teacher_mode == "full":
-                    self._prepare_teacher_stream(activations, subgraph_index)
-                for batch_index in range(len(activations)):
-                    inputs = activations.fetch(batch_index, input_names)
-                    cached_inputs = _map_tensors(inputs, cache)
-                    if self.teacher_mode == "full":
-                        teacher_inputs = self._teacher_activations.fetch(
-                            batch_index, subgraph.input_names
-                        )
-                        result = teacher_graph(**teacher_inputs)
-                        target = _map_tensors(result["target"], cache)
-                        self._teacher_activations.update(
-                            batch_index,
-                            _map_tensors(
-                                result["propagation"], lambda t: t.detach().clone()
-                            ),
-                        )
-                        self._teacher_activations.delete(
-                            batch_index, subgraph.consumed_names
-                        )
-                    else:
-                        target = _map_tensors(teacher_graph(**inputs), cache)
-                    if not quantized:
-                        continue
-                    if separate_data:
-                        mask = activations.fetch(batch_index, ["loss_mask"]).get(
-                            "loss_mask"
-                        )
-                    else:
-                        mask = (
-                            state.loss_masks[batch_index]
-                            if state.loss_masks is not None
-                            else None
-                        )
-                    self._batches.append(
-                        _SubgraphBatch(
-                            cached_inputs,
-                            target,
-                            cache(mask) if mask is not None else None,
-                        )
-                    )
-                if self.teacher_mode == "full":
-                    self._next_teacher_subgraph += 1
-                    if self._next_teacher_subgraph == self._num_subgraphs:
-                        self._teacher_activations = None
-            except Exception:
-                self._clear_subgraph()
-                self._teacher_activations = None
-                raise
-        if quantized:
-            logger.info(
-                "QAD cached {} {} teacher batches for {}",
-                len(self._batches),
-                self.teacher_mode,
-                self._name,
-            )
-
-    def _prepare_teacher_stream(self, activations, subgraph_index):
-        if subgraph_index != self._next_teacher_subgraph:
-            raise ValueError("Full QAD teacher requires all subgraphs in order from 0")
-        if self._teacher_activations is None:
-            if subgraph_index != 0:
-                raise ValueError("Full QAD teacher activation stream is missing")
-            self._teacher_activations = IntermediatesCache.empty(
-                len(activations), torch.device(self.target_offload_device)
-            )
-            for index in range(len(activations)):
-                self._teacher_activations.update(
-                    index,
-                    _map_tensors(
-                        activations.fetch(index), lambda t: t.detach().clone()
-                    ),
+    def _capture_inputs(self, module, args, kwargs, *, state):
+        try:
+            index = state.current_batch_idx
+            if index < 0:
+                raise ValueError('QADModifier requires pipeline="sequential"')
+            batches = self._captured.setdefault(module, [])
+            if self._blocks[module] in self._optimizer_steps or index != len(batches):
+                raise ValueError(
+                    "QAD requires each target to run once per calibration batch "
+                    "in one sequential stage"
                 )
-        if len(self._teacher_activations) != len(activations):
-            raise ValueError("QAD teacher/student batch counts changed between stages")
+            if any(
+                getattr(m, "quantization_enabled", False)
+                for m in _quantized_modules(module.modules())
+            ):
+                raise ValueError("QAD teacher capture requires quantization disabled")
+            mask = state.loss_masks[index] if state.loss_masks is not None else None
+            self._pending[module] = _BlockBatch(
+                _map_tensors(args, self._cache_tensor),
+                _map_tensors(kwargs, self._cache_tensor),
+                None,
+                self._cache_tensor(mask) if mask is not None else None,
+            )
+        except Exception:
+            self._clear_cache()
+            raise
+
+    def _capture_output(self, module, args, kwargs, output):
+        try:
+            batch = self._pending.pop(module)
+            batch.target = _map_tensors(output, self._cache_tensor)
+            self._captured[module].append(batch)
+        except Exception:
+            self._clear_cache()
+            raise
 
     def on_sequential_epoch_end(self, state, event, modules, **kwargs):
-        if self._graph is None:
-            return
         try:
+            blocks = [m for m in dict.fromkeys(modules) if m in self._blocks]
+            if not blocks:
+                return
+            if len(blocks) != 1:
+                raise ValueError(
+                    "QAD requires one target module per subgraph; set "
+                    "sequential_targets_per_subgraph=1"
+                )
+            self._block = blocks[0]
+            self._name = self._blocks[self._block]
+            self._batches = self._captured.pop(self._block, [])
+            self._split_batch_indices(len(self._batches))
+            logger.info(
+                "QAD cached {} local teacher batches for {}",
+                len(self._batches),
+                self._name,
+            )
             with HooksMixin.disable_hooks():
-                self._optimize_subgraph(_quantized_modules(modules))
+                self._weight_modules = _quantized_modules(self._block.modules())
+                self._optimize_block(self._weight_modules)
         except Exception:
-            self._teacher_activations = None
+            self._clear_cache()
             raise
         finally:
-            self._clear_subgraph()
+            self._batches.clear()
+            self._block = None
+            self._weight_modules = []
 
-    def _optimize_subgraph(self, modules):
+    def _optimize_block(self, modules):
         trainable = []
         for module in modules:
             if (
@@ -444,12 +315,12 @@ class QADModifier(Modifier):
                 if (
                     value is None
                     or value.is_meta
-                    or not torch.isfinite(value).all()
-                    or not (value > 0).all()
+                    or not torch.isfinite(value.float()).all()
+                    or not (value.float() > 0).all()
                 ):
                     raise ValueError(
                         f"QAD requires initialized {key}; run the preceding "
-                        "quantization modifier before QAD at the subgraph boundary"
+                        "quantization modifier before QAD at the block boundary"
                     )
             trainable.append(module.weight)
         trainable = list(dict.fromkeys(trainable))
@@ -465,8 +336,8 @@ class QADModifier(Modifier):
         optimizer = torch.optim.AdamW(
             masters, lr=self.learning_rate, weight_decay=self.weight_decay
         )
-        flags = {p: p.requires_grad for p in self._graph.parameters()}
-        self._graph.requires_grad_(False)
+        flags = {p: p.requires_grad for p in self._block.parameters()}
+        self._block.requires_grad_(False)
         for parameter in trainable:
             parameter.requires_grad_(True)
         for module in modules:
@@ -475,10 +346,12 @@ class QADModifier(Modifier):
             train_indices, validation_indices = self._split_batch_indices(
                 len(self._batches)
             )
+            self._reobserve_weights("before_training")
             initial_train = self._evaluate(train_indices)
             steps, epochs, best_loss = self._train_with_validation(
                 optimizer, trainable, masters, train_indices, validation_indices
             )
+            self._reobserve_weights("before_materialization")
             self._materialize_quantized_weights(modules)
             final_train = self._evaluate(train_indices)
             final_validation = self._evaluate(validation_indices)
@@ -507,6 +380,7 @@ class QADModifier(Modifier):
         best_loss = self._evaluate(validation_indices)
         reference_loss = best_loss
         best_weights = self._snapshot_weights(trainable)
+        best_qparams = self._snapshot_qparams()
         history = [best_loss]
         patience = steps = epochs = 0
         for epoch in range(1, self.num_epochs + 1):
@@ -515,11 +389,13 @@ class QADModifier(Modifier):
                 optimizer, trainable, masters, [train_indices[i] for i in order]
             )
             epochs = epoch
+            self._reobserve_weights(f"epoch_{epoch}")
             loss = self._evaluate(validation_indices)
             history.append(loss)
             if loss < best_loss:
                 best_loss = loss
                 best_weights = self._snapshot_weights(trainable)
+                best_qparams = self._snapshot_qparams()
             improvement = (reference_loss - loss) / max(
                 abs(reference_loss), torch.finfo(torch.float32).tiny
             )
@@ -539,8 +415,49 @@ class QADModifier(Modifier):
             if patience >= self.early_stopping_patience:
                 break
         self._restore_weights(trainable, best_weights)
+        for module, qparams in zip(self._weight_modules, best_qparams):
+            for key, value in qparams.items():
+                current = getattr(module, key)
+                update_offload_parameter(
+                    module, key, value.to(current.device, copy=True)
+                )
         self._validation_histories[self._name] = history
         return steps, epochs, best_loss
+
+    def _snapshot_qparams(self):
+        return [
+            {
+                key: value.detach().to(self.target_offload_device, copy=True)
+                for key in ("weight_scale", "weight_zero_point", "weight_global_scale")
+                if (value := getattr(module, key, None)) is not None
+            }
+            for module in self._weight_modules
+        ]
+
+    @torch.no_grad()
+    def _reobserve_weights(self, stage):
+        if not self.reobserve_weights:
+            return
+        if not self._weight_modules or any(
+            getattr(module, "weight_observer", None) is None
+            for module in self._weight_modules
+        ):
+            raise ValueError("QAD weight re-observation requires live weight observers")
+        # Observe the entire group before updating scales: fused Q/K/V and
+        # gate/up projections can share a global-scale observer.
+        observe(self._weight_modules, "weight")
+        update_qparams(self._weight_modules, "weight")
+        for module in self._weight_modules:
+            for key in ("weight_scale", "weight_global_scale", "weight_zero_point"):
+                value = getattr(module, key, None)
+                if value is not None:
+                    numeric = value.float()  # Preserve native FP8 scale storage.
+                    if not torch.isfinite(numeric).all() or (
+                        "scale" in key and not (numeric > 0).all()
+                    ):
+                        raise ValueError(f"Invalid {key} after QAD re-observation")
+        self._reobservations.setdefault(self._name, []).append(stage)
+        logger.info("QAD {} re-observed weights: {}", self._name, stage)
 
     def _train_epoch(self, optimizer, trainable, masters, indices):
         steps = 0
@@ -597,8 +514,9 @@ class QADModifier(Modifier):
         )
 
     def _batch_loss(self, batch):
-        inputs = _map_tensors(batch.inputs, lambda t: t.to(self._device))
-        prediction = self._graph(**inputs)
+        args = _map_tensors(batch.args, lambda t: t.to(self._device))
+        kwargs = _map_tensors(batch.kwargs, lambda t: t.to(self._device))
+        prediction = self._block(*args, **kwargs)
         loss = _output_loss(prediction, batch.target, batch.loss_mask)
         if not torch.isfinite(loss):
             raise ValueError(f"Nonfinite QAD loss in {self._name}")
@@ -613,15 +531,24 @@ class QADModifier(Modifier):
             )
             update_offload_parameter(module, "weight", weight)
 
-    def _clear_subgraph(self):
+    def _clear_cache(self):
+        self.remove_hooks()
+        self._captured.clear()
+        self._pending.clear()
         self._batches.clear()
-        self._graph = None
+        self._block = None
+        self._weight_modules = []
 
     def on_calibration_end(self, state, event, **kwargs):
-        self._clear_subgraph()
-        self._teacher_activations = None
+        try:
+            if len(self._optimizer_steps) != len(self._blocks):
+                raise ValueError(
+                    "QAD did not optimize every target; use the sequential pipeline "
+                    "with one complete target module per subgraph"
+                )
+        finally:
+            self._clear_cache()
 
     def on_finalize(self, state, **kwargs):
-        self._clear_subgraph()
-        self._teacher_activations = None
+        self._clear_cache()
         return True
