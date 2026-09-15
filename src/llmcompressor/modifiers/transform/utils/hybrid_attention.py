@@ -42,3 +42,25 @@ def get_config_layer_types(model: Module) -> list[str] | None:
     Extract layer_types from a model config, checking text_config first when present.
     """
     return _get_config_metadata(model, "layer_types")
+
+
+def detect_linear_attn_projections(model: Module) -> list[str]:
+    """
+    Detect the linear attention input projection names by inspecting the first
+    linear_attention layer's submodules.
+
+    Different architectures use different projection layouts:
+      - Qwen3Next: in_proj_qkvz, in_proj_ba
+      - Qwen3.5:   in_proj_qkv, in_proj_z, in_proj_b, in_proj_a
+    """
+    proj_names = []
+    for name, _ in model.named_modules():
+        if ".linear_attn." not in name:
+            continue
+        # Extract the submodule name after linear_attn.
+        sub = name.rsplit("linear_attn.", 1)[-1]
+        # Only include input projection layers (in_proj_*)
+        if sub.startswith("in_proj_"):
+            proj_names.append(sub)
+    # Deduplicate while preserving order (same projections repeat per layer)
+    return list(dict.fromkeys(proj_names))

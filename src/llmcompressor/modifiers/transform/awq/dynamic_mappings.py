@@ -19,6 +19,7 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     default_mappings,
 )
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
+    detect_linear_attn_projections,
     get_hybrid_attention_config,
 )
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
@@ -85,7 +86,7 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
     full_re = "|".join(str(i) for i in full_indices)
     linear_re = "|".join(str(i) for i in linear_indices)
 
-    linear_proj_names = _detect_linear_attn_projections(model)
+    linear_proj_names = detect_linear_attn_projections(model)
     is_moe = is_moe_model(model)
 
     mappings = []
@@ -229,28 +230,6 @@ AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | No
     "Qwen3_5MoeForConditionalGeneration": build_hybrid_attention_mappings,
     "Step3p5ForCausalLM": build_step3p5_mappings,
 }
-
-
-def _detect_linear_attn_projections(model: Module) -> list[str]:
-    """
-    Detect the linear attention projection names by inspecting the first
-    linear_attention layer's submodules.
-
-    Different architectures use different projection layouts:
-      - Qwen3Next: in_proj_qkvz, in_proj_ba
-      - Qwen3.5:   in_proj_qkv, in_proj_z, in_proj_b, in_proj_a
-    """
-    proj_names = []
-    for name, _ in model.named_modules():
-        if ".linear_attn." not in name:
-            continue
-        # Extract the submodule name after linear_attn.
-        sub = name.rsplit("linear_attn.", 1)[-1]
-        # Only include input projection layers (in_proj_*)
-        if sub.startswith("in_proj_"):
-            proj_names.append(sub)
-    # Deduplicate while preserving order (same projections repeat per layer)
-    return list(dict.fromkeys(proj_names))
 
 
 _STEP3P5_FFN_LAYER_PATTERN = re.compile(
