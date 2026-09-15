@@ -110,9 +110,10 @@ def get_processed_dataset(
         # A concrete split is always resolved above, so a single Dataset is expected.
         # If a multi-split dataset still comes back, the split couldn't be resolved.
         if not isinstance(dataset, Dataset):
+            splits = list(dataset.keys()) if isinstance(dataset, dict) else "unknown"
             raise ValueError(
                 f"Expected a single calibration split but loaded {type(dataset)}. "
-                "Please specify `splits` explicitly."
+                f"Please specify `splits` with a split name that exists: {splits}."
             )
 
         return dataset
