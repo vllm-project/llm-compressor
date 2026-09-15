@@ -81,7 +81,12 @@ def quantize_dequantize(
     elif COMPUTE_DTYPE == 2:
         normalized = normalized.to(tl.bfloat16).to(tl.float32)
     if HAS_ZP:
+        # fake_quantize adds the zero point in the input dtype
         normalized += zero_point
+        if COMPUTE_DTYPE == 1:
+            normalized = normalized.to(tl.float16).to(tl.float32)
+        elif COMPUTE_DTYPE == 2:
+            normalized = normalized.to(tl.bfloat16).to(tl.float32)
     normalized = tl.clamp(normalized, q_min, q_max)
     if QUANT_TYPE == 0:
         rounded = tldevice.rint(normalized)

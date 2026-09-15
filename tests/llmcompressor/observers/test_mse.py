@@ -2,11 +2,14 @@ import pytest
 import torch
 from compressed_tensors.quantization import QuantizationStrategy, fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
 from compressed_tensors.utils.impl_backend import ImplBackend
+from compressed_tensors.utils.triton import tl, triton
 
 from llmcompressor.observers import MovingAverageMSEObserver, Observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 from llmcompressor.observers.mse import MemorylessMSEObserver, NVFP4ExpandedMSEObserver
+from llmcompressor.utils.triton_utils import quantize_dequantize
 
 
 @pytest.mark.parametrize(
@@ -161,6 +164,91 @@ def test_mse_triton_matches_eager_for_packed_nvfp4_groups():
     triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
     assert torch.equal(eager[0], triton[0])
     assert torch.equal(eager[1], triton[1])
+
+
+@triton.jit
+def _qdq_kernel(
+    values_ptr,
+    scale_ptr,
+    zero_point_ptr,
+    out_ptr,
+    num_values,
+    group_size,
+    q_min,
+    q_max,
+    QUANT_TYPE: tl.constexpr,
+    NUM_BITS: tl.constexpr,
+    HAS_ZP: tl.constexpr,
+    COMPUTE_DTYPE: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    mask = offsets < num_values
+    group = offsets // group_size
+    values = tl.load(values_ptr + offsets, mask=mask, other=0.0).to(tl.float32)
+    scale = tl.load(scale_ptr + group, mask=mask, other=1.0).to(tl.float32)
+    zero_point = tl.load(zero_point_ptr + group, mask=mask, other=0.0).to(tl.float32)
+    result = quantize_dequantize(
+        values,
+        scale,
+        zero_point,
+        q_min,
+        q_max,
+        QUANT_TYPE=QUANT_TYPE,
+        NUM_BITS=NUM_BITS,
+        HAS_ZP=HAS_ZP,
+        COMPUTE_DTYPE=COMPUTE_DTYPE,
+    )
+    tl.store(out_ptr + offsets, result, mask=mask)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("symmetric", [True, False])
+@pytest.mark.parametrize("num_bits", [4, 8])
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
+    """The shared QDQ helper reproduces fake_quantize bit for bit."""
+    args = QuantizationArgs(
+        num_bits=num_bits,
+        symmetric=symmetric,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=128,
+    )
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(64, 1024, device="cuda", dtype=dtype), "weight", args
+    )
+    scale, zero_point = calculate_qparams(
+        min_vals=torch.amin(observed, dim=(0, -1)),
+        max_vals=torch.amax(observed, dim=(0, -1)),
+        quantization_args=args,
+        global_scale=None,
+    )
+    expected = fake_quantize(
+        observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), token_args
+    )
+
+    values = observed.reshape(-1).contiguous()
+    result = torch.empty_like(values, dtype=torch.float32)
+    q_min, q_max = calculate_range(args, values.device)
+    block = 1024
+    _qdq_kernel[(triton.cdiv(values.numel(), block),)](
+        values,
+        scale.reshape(-1).to(torch.float32).contiguous(),
+        zero_point.reshape(-1).to(torch.float32).contiguous(),
+        result,
+        values.numel(),
+        args.group_size,
+        float(q_min),
+        float(q_max),
+        QUANT_TYPE=0,
+        NUM_BITS=num_bits,
+        HAS_ZP=not symmetric,
+        COMPUTE_DTYPE={torch.float32: 0, torch.float16: 1, torch.bfloat16: 2}[dtype],
+        BLOCK=block,
+    )
+    assert torch.equal(result.to(dtype).reshape(observed.shape), expected)
 
 
 def test_mse_triton_error_buffer_defaults():
