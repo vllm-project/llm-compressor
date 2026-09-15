@@ -2,18 +2,25 @@
 
 Demonstrates the writeback bug and its fix in a single distributed session.
 
+This reproduces the real auto_offload DDP GPTQ scenario where auto_offload
+occurs before distributed initialization, which causes OffloadCache.cls_from_device
+to select independent (per-rank) CPUCache instances instead of DistributedCPUCache.
+Each rank therefore holds its own separate CPU storage for offloaded parameters.
+
 Key design:
-- offload_module is called BEFORE dist.init_process_group().
+- offload_module (as called by auto_offload) is invoked BEFORE
+  dist.init_process_group().
   OffloadCache.cls_from_device checks dist.is_initialized() at call time.
   When dist is not yet initialized, offload_device='cpu' selects CPUCache
-  (not DistributedCPUCache), so each rank holds independent CPU storage.
+  (not DistributedCPUCache), giving each rank an independent CPUCache instance.
 - dist is initialized AFTER module setup, enabling real NCCL broadcast.
 
-This mirrors the real auto_offload DDP GPTQ scenario:
+Bug scenario (without fix):
   - GPTQ runs on each module's owning rank, computes weight_scale
   - broadcast_qparams_and_cleanup is called to propagate to all other ranks
-  - Without the fix, dist.broadcast modifies a temporary CUDA tensor that is
-    discarded without writing back to each rank's independent CPUCache storage
+  - dist.broadcast modifies a temporary CUDA tensor (the onloaded view) that is
+    discarded without writing back to each rank's independent CPUCache storage,
+    leaving non-source ranks with stale or NaN weight_scale values
 """
 
 import os
