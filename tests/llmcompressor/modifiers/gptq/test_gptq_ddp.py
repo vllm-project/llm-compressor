@@ -57,8 +57,11 @@ def test_gptq_distributed_global_scale_writeback():
     scheme = QuantizationScheme(
         targets=["Linear"],
         weights=QuantizationArgs(
-            num_bits=4, type="float", symmetric=True,
-            strategy="tensor_group", group_size=16,
+            num_bits=4,
+            type="float",
+            symmetric=True,
+            strategy="tensor_group",
+            group_size=16,
         ),
     )
     modifier = GPTQModifier(config_groups={"group_0": scheme}, block_size=16)
