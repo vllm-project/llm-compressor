@@ -41,7 +41,7 @@ def test_wikitext_initializes(tiny_llama_tokenizer):
     assert isinstance(wiki_manager, TextGenerationDataset)
     assert isinstance(wiki_manager, WikiTextDataset)
     assert wiki_manager.dataset_args.text_column == "text"
-    assert wiki_manager.padding == False
+    assert not wiki_manager.padding
     assert wiki_manager.max_seq_length == dataset_args.max_seq_length
 
 
