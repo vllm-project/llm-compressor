@@ -325,7 +325,6 @@ def _make_spd_hessian(in_features, device, seed):
             ),
             torch.bfloat16,
             False,
-            marks=requires_compute_capability(9, 0),
             id="fp8-channel",
         ),
         pytest.param(
@@ -338,7 +337,6 @@ def _make_spd_hessian(in_features, device, seed):
             ),
             torch.bfloat16,
             False,
-            marks=requires_compute_capability(9, 0),
             id="fp8-block",
         ),
         pytest.param(

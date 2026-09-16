@@ -306,6 +306,14 @@ def fused_gptq_block_update(
         torch.float16: 2,
     }[scale.dtype]
     has_zp = zero_point is not None
+    # Ampere does not expose the native E4M3FN (``float8e4nv``) conversion in
+    # Triton, but it does expose E4B15.  The formats have the same sign,
+    # exponent, and mantissa widths and differ only by eight in exponent bias,
+    # so scaling by 2**-8 before the cast and 2**8 afterwards gives the E4M3FN
+    # rounding operation without requiring Hopper FP8 instructions.
+    use_fp8_e4b15 = (
+        quant_type == 2 and torch.cuda.get_device_capability(work.device)[0] < 9
+    )
     if has_zp:
         zero_point = zero_point.to(torch.float32)
 
@@ -330,6 +338,7 @@ def fused_gptq_block_update(
         QUANT_TYPE=quant_type,
         DEQUANT_DTYPE=dequant_dtype,
         HAS_ZP=has_zp,
+        USE_FP8_E4B15=use_fp8_e4b15,
         BLOCK_ROWS=block_rows,
         num_warps=4,
         num_stages=2,
@@ -371,6 +380,7 @@ if HAS_TRITON:
         QUANT_TYPE: tl.constexpr,
         DEQUANT_DTYPE: tl.constexpr,
         HAS_ZP: tl.constexpr,
+        USE_FP8_E4B15: tl.constexpr,
         BLOCK_ROWS: tl.constexpr,
     ):
         batch = tl.program_id(axis=0)
@@ -446,7 +456,12 @@ if HAS_TRITON:
                 )
                 rounded = tl.where(clamped < 0.0, -magnitude, magnitude)
             else:
-                rounded = clamped.to(tl.float8e4nv).to(tl.float32)
+                if USE_FP8_E4B15:
+                    rounded = (clamped * 0.00390625).to(tl.float8e4b15).to(
+                        tl.float32
+                    ) * 256.0
+                else:
+                    rounded = clamped.to(tl.float8e4nv).to(tl.float32)
 
             if DEQUANT_DTYPE == 1:
                 rounded = rounded.to(tl.bfloat16)
