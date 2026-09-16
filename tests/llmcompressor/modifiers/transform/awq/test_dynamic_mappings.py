@@ -1,6 +1,7 @@
 import pytest
 import torch
 from compressed_tensors.quantization import apply_quantization_config
+from compressed_tensors.utils import match_modules_set
 from torch.nn import Linear
 
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -15,6 +16,7 @@ from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
 )
 from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
+    _qwen2_5_vl_mappings,
     default_mappings,
 )
 from llmcompressor.modifiers.transform.utils.hybrid_attention import (
@@ -493,3 +495,169 @@ class TestGetLayerMappingsFromModel:
         mappings = get_layer_mappings_from_model(model)
         assert mappings is not None
         assert len(mappings) == 4
+
+
+QWEN2_5_VL_TEXT_LAYERS = 2  # tiny model, only for resolution checks -- not accuracy
+QWEN2_5_VL_VISION_BLOCKS = 2
+
+
+def _make_tiny_qwen2_5_vl():
+    """Build a tiny Qwen2.5-VL on the meta device -- no hub download, no weights.
+
+    Both the text layers and the vision blocks are >1: the vision blocks are what
+    make the MLP mapping collapse, so a single-block config would not reproduce it.
+    """
+    import torch
+    from transformers import Qwen2_5_VLConfig, Qwen2_5_VLForConditionalGeneration
+
+    config = Qwen2_5_VLConfig(
+        vocab_size=128,
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=QWEN2_5_VL_TEXT_LAYERS,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        max_position_embeddings=64,
+        vision_config={
+            "depth": QWEN2_5_VL_VISION_BLOCKS,
+            "hidden_size": 32,
+            "intermediate_size": 64,
+            "num_heads": 2,
+            "in_chans": 3,
+            "patch_size": 14,
+            "spatial_merge_size": 2,
+            "temporal_patch_size": 2,
+            "out_hidden_size": 64,
+        },
+    )
+    with torch.device("meta"):
+        model = Qwen2_5_VLForConditionalGeneration(config)
+    return model
+
+
+def _mlp_mapping(mappings):
+    """The `post_attention_layernorm -> gate/up` entry, which is the one that breaks."""
+    return next(
+        mapping
+        for mapping in mappings
+        if "post_attention_layernorm" in mapping.smooth_layer
+        and any("gate_proj" in layer for layer in mapping.balance_layers)
+    )
+
+
+class TestQwen2_5_VLMappings:
+    def test_registry_points_to_vl_specific_mappings(self):
+        from llmcompressor.modifiers.transform.awq.mappings import (
+            AWQ_MAPPING_REGISTRY,
+            default_mappings,
+        )
+
+        entry = AWQ_MAPPING_REGISTRY["Qwen2_5_VLForConditionalGeneration"]
+        assert entry is _qwen2_5_vl_mappings
+        assert entry is not default_mappings
+
+    def test_vision_tower_collides_only_on_mlp_names(self):
+        """Only the MLP projections collide; the attention names do not.
+
+        This is why the attention mappings can stay unscoped while the MLP ones
+        must be scoped -- and it is the property that makes the fix minimal.
+        """
+        import re
+
+        model = _make_tiny_qwen2_5_vl()
+        names = [name for name, _ in model.named_modules()]
+
+        def prefixes(pattern):
+            hits = [n for n in names if re.search(pattern, n)]
+            return {n.split(".blocks")[0].split(".layers")[0] for n in hits}
+
+        # MLP projections exist in both the language model and the vision tower
+        for pattern in (r"gate_proj$", r"up_proj$", r"down_proj$"):
+            hits = [n for n in names if re.search(pattern, n)]
+            assert any("visual." in n for n in hits), f"{pattern} should hit vision"
+            assert any(
+                "language_model." in n for n in hits
+            ), f"{pattern} should hit text"
+
+        # Attention projections only exist in the language model
+        for pattern in (
+            r"input_layernorm$",
+            r"q_proj$",
+            r"k_proj$",
+            r"v_proj$",
+            r"o_proj$",
+        ):
+            hits = [n for n in names if re.search(pattern, n)]
+            assert hits, f"{pattern} matched nothing"
+            assert not any(
+                "visual." in n for n in hits
+            ), f"{pattern} unexpectedly hits vision"
+
+    def test_default_mappings_collapse_on_vl_tree(self):
+        """Pin the bug: default_mappings' MLP entry collapses into a single group.
+
+        If upstream ever fixes this another way (e.g. by threading the ignore list
+        into match_modules_set), this test fails and the registry entry added here
+        can be dropped.
+        """
+        from llmcompressor.modifiers.transform.awq.mappings import default_mappings
+
+        model = _make_tiny_qwen2_5_vl()
+        mapping = _mlp_mapping(default_mappings)
+
+        groups = list(
+            match_modules_set(model, (mapping.smooth_layer, *mapping.balance_layers))
+        )
+        assert groups, "default_mappings should match something"
+        assert len(groups) == 1 and len(groups[0][0]) > 1, (
+            "default_mappings did not collapse on this tree -- upstream may have fixed "
+            "the underlying issue another way, making this mapping entry unnecessary"
+        )
+
+        # The collapse is caused by the vision tower being pulled into the balance set
+        module_to_name = {module: name for name, module in model.named_modules()}
+        balance_names = [
+            module_to_name[module] for sub in groups[0][1:] for module in sub
+        ]
+        assert any("visual." in name for name in balance_names)
+
+    def test_vl_mappings_resolve_one_group_per_layer(self):
+        """The fix: every mapping resolves to one group of one module per target."""
+        from llmcompressor.modifiers.transform.awq.mappings import _qwen2_5_vl_mappings
+
+        model = _make_tiny_qwen2_5_vl()
+        assert len(_qwen2_5_vl_mappings) == 4
+
+        for mapping in _qwen2_5_vl_mappings:
+            groups = list(
+                match_modules_set(
+                    model, (mapping.smooth_layer, *mapping.balance_layers)
+                )
+            )
+            assert len(groups) == QWEN2_5_VL_TEXT_LAYERS, (
+                f"{mapping.smooth_layer}: expected one group per decoder layer, "
+                f"got {len(groups)} (1 means the resolution collapsed)"
+            )
+            for smooth, *balances in groups:
+                assert len(smooth) == 1, "each mapping needs exactly one smooth layer"
+                assert all(len(balance) == 1 for balance in balances)
+
+    def test_vision_tower_is_untouched_by_vl_mappings(self):
+        """No vision module may end up in any resolved group."""
+        import re
+
+        from llmcompressor.modifiers.transform.awq.mappings import _qwen2_5_vl_mappings
+
+        model = _make_tiny_qwen2_5_vl()
+        module_to_name = {module: name for name, module in model.named_modules()}
+
+        for mapping in _qwen2_5_vl_mappings:
+            for group in match_modules_set(
+                model, (mapping.smooth_layer, *mapping.balance_layers)
+            ):
+                for sub in group:
+                    for module in sub:
+                        name = module_to_name[module]
+                        assert not re.search(
+                            r"visual\.", name
+                        ), f"vision module was included: {name}"
