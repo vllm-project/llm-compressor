@@ -35,9 +35,13 @@ def mtp_checkpoint():
     "deferred_save", [False, True], ids=["output-dir", "save-pretrained"]
 )
 @pytest.mark.parametrize(
-    "mtp_scheme", [None, "BF16", "NVFP4A16"], ids=["preserve", "bf16", "nvfp4a16"]
+    "mtp_quant_scheme,mtp_dequantize",
+    [(None, False), (None, True), ("NVFP4A16", False)],
+    ids=["preserve", "bf16", "nvfp4a16"],
 )
-def test_oneshot_mtp_checkpoint(mtp_checkpoint, tmp_path, mtp_scheme, deferred_save):
+def test_oneshot_mtp_checkpoint(
+    mtp_checkpoint, tmp_path, mtp_quant_scheme, mtp_dequantize, deferred_save
+):
     """Exercise real loading, backbone compression, and unloaded MTP saving."""
     source = load_file(mtp_checkpoint / "model_mtp.safetensors")
     assert source
@@ -58,7 +62,8 @@ def test_oneshot_mtp_checkpoint(mtp_checkpoint, tmp_path, mtp_scheme, deferred_s
         recipe=QuantizationModifier(
             targets=["re:.*mlp.shared_experts.*_proj$"], scheme="FP8_DYNAMIC"
         ),
-        mtp_scheme=mtp_scheme,
+        mtp_quant_scheme=mtp_quant_scheme,
+        mtp_dequantize=mtp_dequantize,
         output_dir=None if deferred_save else str(tmp_path),
     )
     if deferred_save:
@@ -106,7 +111,7 @@ def test_oneshot_mtp_checkpoint(mtp_checkpoint, tmp_path, mtp_scheme, deferred_s
     }
     quantized_weights = (
         {f"{projection}.weight" for projection in projections}
-        if mtp_scheme == "NVFP4A16"
+        if mtp_quant_scheme == "NVFP4A16"
         else set()
     )
     dense_weights = set(source) - discarded - quantized_weights
@@ -118,12 +123,12 @@ def test_oneshot_mtp_checkpoint(mtp_checkpoint, tmp_path, mtp_scheme, deferred_s
     assert set(saved) == expected_keys
     for name in dense_weights:
         expected = source[name]
-        if mtp_scheme == "BF16" and expected.is_floating_point():
+        if mtp_dequantize and expected.is_floating_point():
             expected = expected.bfloat16()
         assert saved[name].dtype == expected.dtype
         assert torch.equal(saved[name], expected), name
 
-    if mtp_scheme in (None, "BF16"):
+    if mtp_quant_scheme is None:
         assert "mtp_group" not in groups
         assert quantization["format"] == "float-quantized"
         return

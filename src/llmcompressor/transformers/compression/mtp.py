@@ -36,7 +36,6 @@ from safetensors.torch import save_file
 from transformers import PretrainedConfig, PreTrainedModel
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
-from llmcompressor.entrypoints.model_free.microscale import DEFAULT_FUSED_MAPPINGS
 from llmcompressor.entrypoints.model_free.validate import validate_config
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     suspend_distributed_timeout,
@@ -303,29 +302,31 @@ def _resolve_mtp_layout(config: PretrainedConfig, names: set[str]) -> _MtpLayout
 
 
 def _resolve_mtp_scheme(
-    mtp_scheme: str | QuantizationScheme | None,
+    mtp_quant_scheme: str | QuantizationScheme | None,
 ) -> QuantizationScheme | None:
     """Resolve an MTP preset to a calibration-free quantization scheme."""
-    if mtp_scheme is None:
+    if mtp_quant_scheme is None:
         return None
-    if isinstance(mtp_scheme, str) and mtp_scheme.strip().upper() == "BF16":
-        return None
-    if isinstance(mtp_scheme, QuantizationScheme):
-        scheme = mtp_scheme.model_copy(deep=True)
-    elif isinstance(mtp_scheme, str):
+    if isinstance(mtp_quant_scheme, QuantizationScheme):
+        scheme = mtp_quant_scheme.model_copy(deep=True)
+    elif isinstance(mtp_quant_scheme, str):
         try:
-            scheme = preset_name_to_scheme(mtp_scheme.strip().upper(), targets=[])
+            scheme = preset_name_to_scheme(mtp_quant_scheme.strip().upper(), targets=[])
         except KeyError as error:
             raise ValueError(
-                f"Unknown MTP quantization scheme {mtp_scheme!r}; "
-                'use mtp_scheme=None to preserve MTP or "BF16" to dequantize it'
+                f"Unknown MTP quantization scheme {mtp_quant_scheme!r}; "
+                "use mtp_quant_scheme=None to preserve MTP or "
+                "mtp_dequantize=True to dequantize it"
             ) from error
         if scheme.weights is None:
-            raise ValueError('Use mtp_scheme=None to preserve MTP or "BF16"')
+            raise ValueError(
+                "Use mtp_quant_scheme=None to preserve MTP or "
+                "mtp_dequantize=True to dequantize it"
+            )
     else:
         raise TypeError(
-            "mtp_scheme must be None, a QuantizationScheme, or a preset name "
-            f"str, got {type(mtp_scheme).__name__}"
+            "mtp_quant_scheme must be None, a QuantizationScheme, or a preset name "
+            f"str, got {type(mtp_quant_scheme).__name__}"
         )
 
     try:
@@ -333,7 +334,7 @@ def _resolve_mtp_scheme(
     except ValueError as error:
         logger.warning(
             f"The requested MTP scheme is not data-free: {error}. "
-            "Preserving source MTP tensors instead; use an explicit data-free "
+            "Not applying this scheme; use an explicit data-free "
             "scheme such as FP8_DYNAMIC, FP8_BLOCK, MXFP4, or NVFP4A16."
         )
         return None
@@ -378,7 +379,7 @@ def _source_weight_map(
 class _MtpSource:
     """Validated source metadata; never retains model-sized tensor storage.
 
-    :param bf16: Explicit BF16 conversion, distinct from default preservation.
+    :param dequantize: Save BF16 when no quantization scheme is applied.
     """
 
     model: str
@@ -389,7 +390,7 @@ class _MtpSource:
     config: PretrainedConfig
     layout: _MtpLayout
     scheme: QuantizationScheme | None
-    bf16: bool = False
+    dequantize: bool = False
 
 
 def _source_mtp_scheme(source: _MtpSource) -> QuantizationScheme | None:
@@ -420,6 +421,30 @@ def _source_mtp_scheme(source: _MtpSource) -> QuantizationScheme | None:
     return scheme
 
 
+def _native_fp8_config(config: PretrainedConfig) -> tuple[dict, tuple[int, int]]:
+    """Validate native FP8 metadata shared by preservation and dequantization."""
+    raw = getattr(config, "quantization_config", None) or {}
+    if hasattr(raw, "to_dict"):
+        raw = raw.to_dict()
+    if not isinstance(raw, dict) or raw.get("quant_method") != "fp8":
+        raise ValueError("Native FP8 MTP scales require quant_method='fp8'")
+    block = raw.get("weight_block_size")
+    if block is None:
+        block = (128, 128)
+    if (
+        not isinstance(block, (list, tuple))
+        or len(block) != 2
+        or any(
+            not isinstance(size, int) or isinstance(size, bool) or size <= 0
+            for size in block
+        )
+    ):
+        raise ValueError(
+            "Native FP8 weight_block_size must contain two positive integers"
+        )
+    return raw, tuple(block)
+
+
 def _native_mtp_scheme(source: _MtpSource) -> QuantizationScheme | None:
     """Describe native block-FP8 without converting its weights or scales."""
     if not any(
@@ -427,37 +452,21 @@ def _native_mtp_scheme(source: _MtpSource) -> QuantizationScheme | None:
         for name in source.weight_map
     ):
         return None
-    config = getattr(source.config, "quantization_config", None) or {}
-    if hasattr(config, "to_dict"):
-        config = config.to_dict()
-    block = config.get("weight_block_size") or [128, 128]
-    if (
-        config.get("activation_scheme", "dynamic") != "dynamic"
-        or not isinstance(block, (list, tuple))
-        or len(block) != 2
-        or any(not isinstance(size, int) or size <= 0 for size in block)
-    ):
+    config, block = _native_fp8_config(source.config)
+    if config.get("activation_scheme", "dynamic") != "dynamic":
         return None
     scheme = _resolve_mtp_scheme("FP8_BLOCK")
-    scheme.weights.block_structure = block
+    scheme.weights.block_structure = list(block)
     scheme.input_activations.group_size = block[1]
     return QuantizationScheme.model_validate(scheme.model_dump())
-
-
-def _same_mtp_scheme(left: QuantizationScheme, right: QuantizationScheme) -> bool:
-    """Compare quantization settings and storage, independently of target names."""
-    left_format = left.format or infer_module_format(torch.nn.Linear, left).value
-    right_format = right.format or infer_module_format(torch.nn.Linear, right).value
-    return left_format == right_format and left.model_dump(
-        exclude={"targets", "format"}
-    ) == right.model_dump(exclude={"targets", "format"})
 
 
 def _prepare_mtp_source(
     source_model: str,
     config: PretrainedConfig,
     revision: str | None,
-    mtp_scheme: str | QuantizationScheme | None,
+    mtp_quant_scheme: str | QuantizationScheme | None,
+    mtp_dequantize: bool = False,
 ) -> _MtpSource:
     weight_map, directory, local = _source_weight_map(source_model, revision)
     config_path = os.path.join(directory, "config.json")
@@ -471,12 +480,11 @@ def _prepare_mtp_source(
             source_config = PretrainedConfig.from_dict(json.load(file))
     layout_config = source_config if source_config.architectures else config
     layout = _resolve_mtp_layout(layout_config, set(weight_map))
-    scheme = _resolve_mtp_scheme(mtp_scheme)
-    bf16 = isinstance(mtp_scheme, str) and mtp_scheme.strip().upper() == "BF16"
+    scheme = _resolve_mtp_scheme(mtp_quant_scheme)
     if scheme is not None and not layout.targets:
         logger.warning(
             "MTP quantization is not supported for this architecture; "
-            "preserving source MTP"
+            f"saving {'BF16' if mtp_dequantize else 'source'} MTP"
         )
         scheme = None
     source = _MtpSource(
@@ -488,9 +496,30 @@ def _prepare_mtp_source(
         source_config,
         layout,
         scheme,
-        bf16,
+        mtp_dequantize,
     )
-    _source_mtp_scheme(source)
+    inferred = _source_mtp_scheme(source)
+    if any(
+        layout.owns(name) and name.endswith(".weight_scale_inv") for name in weight_map
+    ):
+        _native_fp8_config(source_config)
+    # With no requested scheme and no dequantize, reproduce the source's own
+    # scheme through the converter. Resolve it here so the preflight below
+    # validates its block alignment, and require it to be data-free: a
+    # calibration-dependent source scheme cannot be reproduced and would emit
+    # zeroed activation scales.
+    if scheme is None and not mtp_dequantize:
+        recovered = inferred or _native_mtp_scheme(source)
+        if recovered is not None:
+            try:
+                validate_config(config=None, scheme=recovered, ignore=[])
+            except ValueError as error:
+                raise ValueError(
+                    "Cannot reproduce the source MTP scheme through data-free "
+                    "conversion; it requires calibration. Use mtp_dequantize=True."
+                ) from error
+            scheme = recovered
+            source = replace(source, scheme=recovered)
     # Header-only preflight: discover missing files and unclassified projections
     # before calibration without holding MTP tensors in memory.
     found = False
@@ -518,7 +547,7 @@ def _prepare_mtp_source(
                             f"MTP weight {name} with shape {shape} is not divisible "
                             f"by quantization block {block}. The runtime requires "
                             "aligned blocks; use FP8_DYNAMIC or another compatible "
-                            "mtp_scheme."
+                            "mtp_quant_scheme."
                         )
     if not found:
         raise ValueError(f"No MTP tensors found in {source_model}")
@@ -527,8 +556,10 @@ def _prepare_mtp_source(
 
 def prepare_mtp_save(
     model: PreTrainedModel,
-    mtp_scheme: str | QuantizationScheme | None = None,
+    mtp_quant_scheme: str | QuantizationScheme | None = None,
     revision: str | None = None,
+    *,
+    mtp_dequantize: bool = False,
 ) -> _MtpSource | None:
     """Preflight unloaded MTP before calibration or a standalone backbone save."""
     config = _text_config(model.config)
@@ -541,6 +572,15 @@ def prepare_mtp_save(
         )
     ):
         return None
+    architectures = getattr(model.config, "architectures", None) or [
+        type(model).__name__
+    ]
+    if not any(name in _MTP_LAYOUTS for name in architectures):
+        logger.warning(
+            f"MTP processing is unsupported for {architectures or ['unknown']}; "
+            "skipping unloaded MTP layers"
+        )
+        return None
     source = getattr(model, "name_or_path", None) or getattr(
         model.config, "_name_or_path", None
     )
@@ -548,8 +588,10 @@ def prepare_mtp_save(
         raise ValueError(
             "Cannot preserve MTP tensors: no source checkpoint path or Hub ID"
         )
-    revision = revision or getattr(model.config, "_commit_hash", None)
-    return _prepare_mtp_source(source, model.config, revision, mtp_scheme)
+    revision = getattr(model.config, "_commit_hash", None) or revision
+    return _prepare_mtp_source(
+        source, model.config, revision, mtp_quant_scheme, mtp_dequantize
+    )
 
 
 def _mtp_shards(source: _MtpSource) -> dict[str, list[str]]:
@@ -591,14 +633,22 @@ def _dequantize_fp8_blocks(
     if not modules:
         return tensors
 
-    quantization_config = getattr(config, "quantization_config", None)
-    if hasattr(quantization_config, "to_dict"):
-        quantization_config = quantization_config.to_dict()
-    block_size = (128, 128)
-    if isinstance(quantization_config, dict):
-        raw_block_size = quantization_config.get("weight_block_size")
-        if raw_block_size is not None:
-            block_size = tuple(raw_block_size)
+    _, block_size = _native_fp8_config(config)
+    # FP8BlockDequantizer.validate() broadcasts mismatched scale grids silently,
+    # so verify each grid matches the weight's block layout before dequantizing.
+    for module in modules:
+        weight = tensors.get(f"{module}.weight")
+        scale = tensors[f"{module}.weight_scale_inv"]
+        if weight is None:
+            raise ValueError(f"Orphan native FP8 MTP scale without weight: {module}")
+        expected = tuple(
+            (dim + block - 1) // block for dim, block in zip(weight.shape, block_size)
+        )
+        if weight.ndim != 2 or tuple(scale.shape) != expected:
+            raise ValueError(
+                f"Native FP8 MTP scale grid for {module} is {tuple(scale.shape)}, "
+                f"expected {expected} for block {tuple(block_size)}"
+            )
     return FP8BlockDequantizer(targets=modules, weight_block_size=block_size).validate(
         tensors
     )
@@ -647,87 +697,6 @@ def _dequantize_mtp_tensors(
         if tensor.is_floating_point() and tensor.element_size() == 1:
             raise ValueError(f"MTP dequantization left an FP8 tensor: {name}")
     return output
-
-
-def _preserve_mtp_tensors(
-    tensors: dict[str, torch.Tensor], source: _MtpSource
-) -> tuple[dict[str, torch.Tensor], QuantizationScheme | None]:
-    """Keep source tensor values and express supported quantization in the output."""
-    output = dict(tensors)
-    scheme = _source_mtp_scheme(source)
-    native = _native_mtp_scheme(source)
-    if native is None and any(name.endswith(".weight_scale_inv") for name in tensors):
-        raise ValueError('Cannot preserve native MTP quantization settings; use "BF16"')
-    if scheme is not None and native is not None:
-        raise ValueError("MTP mixes native and compressed-tensors quantization")
-    scheme = scheme or native
-    if scheme is None:
-        if any(
-            t.is_floating_point() and t.element_size() == 1 for t in output.values()
-        ):
-            raise ValueError("Cannot preserve an FP8 tensor without MTP scales")
-        return output, None
-
-    compressor = BaseCompressor.get_value_from_registry(
-        infer_module_format(torch.nn.Linear, scheme).value
-    )
-    params = compressor.compression_param_names(scheme)
-    qparams = set(QuantizationMetadata.all_qparam_names()) | {"weight_scale_inv"}
-    for name, tensor in tensors.items():
-        module, _, param = name.rpartition(".")
-        quantized = source.layout.quantizes(f"{module}.weight")
-        if (param in qparams or param == "weight_packed") and not quantized:
-            raise ValueError(
-                f'Cannot preserve quantized MTP projection {module}; use "BF16"'
-            )
-        if param in qparams and f"{module}.{params[0]}" not in tensors:
-            raise ValueError(f"Orphan MTP compression parameter: {name}")
-        if param != params[0]:
-            continue
-        if not quantized:
-            if tensor.is_floating_point() and tensor.element_size() == 1:
-                raise ValueError(
-                    f'Cannot preserve FP8 MTP projection {module}; use "BF16"'
-                )
-            continue
-        for required in params:
-            key = f"{module}.{required}"
-            if native is not None and required == "weight_scale":
-                key = f"{module}.weight_scale_inv"
-            if key not in tensors:
-                raise ValueError(f"Missing MTP compression parameter: {key}")
-        if native is not None:
-            scale = tensors[f"{module}.weight_scale_inv"]
-            block = scheme.weights.block_structure
-            if (
-                tensor.dtype != torch.float8_e4m3fn
-                or tensor.ndim != 2
-                or any(size % width for size, width in zip(tensor.shape, block))
-                or tuple(scale.shape)
-                != tuple(size // width for size, width in zip(tensor.shape, block))
-                or not torch.isfinite(scale).all()
-                or not (scale > 0).all()
-            ):
-                raise ValueError(
-                    f"Cannot preserve native FP8 MTP shape/scales for {module}; "
-                    'use "BF16"'
-                )
-            # Native scale_inv is a multiplier, like compressed-tensors weight_scale.
-            output[f"{module}.weight_scale"] = output.pop(f"{module}.weight_scale_inv")
-        for pattern, partners in DEFAULT_FUSED_MAPPINGS.items():
-            if match := re.fullmatch(pattern, f"{module}.weight"):
-                for partner in partners:
-                    peer = partner.format(**match.groupdict()).removesuffix(".weight")
-                    if f"{peer}.{params[0]}" not in tensors:
-                        raise ValueError(f"Incomplete MTP fusion group: {module}")
-                    for scale_name in ("weight_global_scale", "input_global_scale"):
-                        key, peer_key = f"{module}.{scale_name}", f"{peer}.{scale_name}"
-                        if key in tensors and (
-                            peer_key not in tensors
-                            or not torch.equal(tensors[key], tensors[peer_key])
-                        ):
-                            raise ValueError(f"Incompatible fused MTP scales: {key}")
-    return output, scheme
 
 
 def _partition_mtp_tensors(
@@ -903,46 +872,83 @@ def _update_index(
     update_safetensors_index(destination, total_size, weight_map)
 
 
+def _is_quantized_mtp(tensors: dict[str, torch.Tensor]) -> bool:
+    """True if any MTP tensor carries quantization params or is FP8."""
+    qparams = set(QuantizationMetadata.all_qparam_names()) | {
+        "weight_scale_inv",
+        "weight_packed",
+    }
+    return any(name.rpartition(".")[-1] in qparams for name in tensors) or any(
+        tensor.is_floating_point() and tensor.element_size() == 1
+        for tensor in tensors.values()
+    )
+
+
 def _quantize_and_save_mtp_tensors(
     source_model: str,
     destination: str,
     config: PretrainedConfig,
-    mtp_scheme: str | QuantizationScheme | None = None,
+    mtp_quant_scheme: str | QuantizationScheme | None = None,
     revision: str | None = None,
     shard_name: str = "model_mtp.safetensors",
     *,
     source: _MtpSource | None = None,
+    mtp_dequantize: bool = False,
 ) -> None:
     """Load, optionally quantize, and save one architecture's MTP tensors."""
-    source = source or _prepare_mtp_source(source_model, config, revision, mtp_scheme)
+    source = source or _prepare_mtp_source(
+        source_model, config, revision, mtp_quant_scheme, mtp_dequantize
+    )
     layout = source.layout
     tensors = _load_mtp_tensors(source)
+    # source.scheme already reflects the effective scheme: the requested one, or
+    # (for None without dequantize) the data-free source scheme recovered during
+    # preflight. A quantized source with no reproducible data-free scheme fails
+    # loudly rather than silently downgrading to BF16.
     scheme = source.scheme
     shard_path = os.path.join(destination, shard_name)
-    source_scheme = _source_mtp_scheme(source)
-    if source.bf16:
-        dense = _dequantize_mtp_tensors(tensors, source)
-        output = {
-            name: tensor.to(torch.bfloat16) if tensor.is_floating_point() else tensor
-            for name, tensor in dense.items()
-        }
-    elif scheme is None or (
-        (existing := source_scheme or _native_mtp_scheme(source)) is not None
-        and _same_mtp_scheme(existing, scheme)
-    ):
-        output, scheme = _preserve_mtp_tensors(tensors, source)
+    if scheme is None and not source.dequantize and _is_quantized_mtp(tensors):
+        raise ValueError(
+            "Cannot reproduce the source MTP format; pass an explicit "
+            "mtp_quant_scheme or use mtp_dequantize=True"
+        )
+    dense = _dequantize_mtp_tensors(tensors, source)
+    if scheme is None:
+        output = (
+            {
+                name: tensor.to(torch.bfloat16)
+                if tensor.is_floating_point()
+                else tensor
+                for name, tensor in dense.items()
+            }
+            if source.dequantize
+            else dense
+        )
     else:
-        # Dequantization failures remain fatal, outside optional quantization.
-        dense = _dequantize_mtp_tensors(tensors, source)
+        quantized, output = _partition_mtp_tensors(dense, layout)
         try:
-            quantized, output = _partition_mtp_tensors(dense, layout)
             output.update(_compress_mtp_weights(quantized, scheme))
-        except Exception as error:
+        except (ValueError, NotImplementedError) as error:
+            cause = error
+            visited = set()
+            while cause is not None and id(cause) not in visited:
+                if isinstance(cause, (MemoryError, torch.OutOfMemoryError)):
+                    raise cause
+                visited.add(id(cause))
+                cause = cause.__cause__ or cause.__context__
+            if not source.dequantize:
+                raise
             logger.warning(
-                "Could not apply data-free MTP quantization; preserving source "
-                f"MTP tensors instead. Reason: {error}"
+                "Could not apply data-free MTP quantization; saving BF16 MTP "
+                f"instead. Reason: {error}"
             )
-            output, scheme = _preserve_mtp_tensors(tensors, source)
+            output = {
+                name: tensor.to(torch.bfloat16)
+                if tensor.is_floating_point()
+                else tensor
+                for name, tensor in dense.items()
+            }
+            scheme = None
 
     # Conversion may fall back, but a checkpoint write failure must remain fatal.
     output = {name: tensor.contiguous() for name, tensor in output.items()}
@@ -955,27 +961,32 @@ def _quantize_and_save_mtp_tensors(
 def save_mtp_tensors(
     model: PreTrainedModel,
     save_directory: str,
-    mtp_scheme: str | QuantizationScheme | None = None,
+    mtp_quant_scheme: str | QuantizationScheme | None = None,
     revision: str | None = None,
     *,
     source: _MtpSource | None = None,
+    mtp_dequantize: bool = False,
 ) -> None:
     """Process unloaded MTP tensors after a compressed backbone save.
 
     Supported layouts are Qwen3.5, GLM-5.3 Flash and DSA, and NemotronH.
     Transformers omits these tensors from the model object, so they are read
     from the source checkpoint and always written alongside the saved backbone.
-    Source precision is preserved by default. An explicit BF16 request dequantizes
-    floating-point MTP tensors; a data-free scheme applies optional quantization.
+    The source format is reproduced through the converter by default. An explicit
+    BF16 request dequantizes floating-point MTP tensors; a data-free scheme
+    applies the requested quantization.
 
     :param model: Model whose source checkpoint contains MTP tensors.
     :param save_directory: Directory containing the saved backbone checkpoint.
-    :param mtp_scheme: Preset name or ``QuantizationScheme`` for MTP weights.
-        ``None`` preserves source precision; ``"BF16"`` dequantizes or casts MTP.
-        Matching quantization settings reuse compatible source weights and scales.
+    :param mtp_quant_scheme: Preset name or ``QuantizationScheme`` for MTP weights.
+        ``None`` reproduces the source format through the converter unless
+        ``mtp_dequantize=True``.
     :param revision: Optional source checkpoint revision.
+    :param mtp_dequantize: Save BF16 MTP when no quantization scheme is applied.
     """
-    source = source or prepare_mtp_save(model, mtp_scheme, revision)
+    source = source or prepare_mtp_save(
+        model, mtp_quant_scheme, revision, mtp_dequantize=mtp_dequantize
+    )
     if source is None:
         return
     with suspend_distributed_timeout():
@@ -984,7 +995,7 @@ def save_mtp_tensors(
                 source.model,
                 save_directory,
                 model.config,
-                mtp_scheme=mtp_scheme,
+                mtp_quant_scheme=mtp_quant_scheme,
                 revision=revision,
                 source=source,
             )

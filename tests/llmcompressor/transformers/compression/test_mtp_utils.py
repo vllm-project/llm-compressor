@@ -3,6 +3,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -232,7 +233,7 @@ def test_nvfp4a16_quantizes_supported_architecture_layouts(tmp_path, case_name):
         str(source),
         str(destination),
         config,
-        mtp_scheme="NVFP4A16",
+        mtp_quant_scheme="NVFP4A16",
     )
 
     with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
@@ -284,7 +285,7 @@ def test_data_free_mtp_schemes(tmp_path, scheme, weight_suffix, case_name):
     _write_destination(destination, f"{layout.source_prefixes[0]}.obsolete.weight")
 
     _quantize_and_save_mtp_tensors(
-        str(source), str(destination), config, mtp_scheme=scheme
+        str(source), str(destination), config, mtp_quant_scheme=scheme
     )
 
     with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
@@ -359,7 +360,7 @@ def test_nvfp4a16_fused_projections_share_global_scale(
         str(source),
         str(destination),
         config,
-        mtp_scheme="NVFP4A16",
+        mtp_quant_scheme="NVFP4A16",
     )
 
     with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
@@ -485,7 +486,7 @@ def test_glm5_next_discards_base_only_mhc_tensors(tmp_path):
 
 
 def test_default_preserves_mtp_and_ignores_runtime_prefix(tmp_path):
-    """Omitting mtp_scheme preserves MTP tensors and removes a stale MTP group."""
+    """Omitting mtp_quant_scheme preserves MTP tensors and removes a stale MTP group."""
     config, tensors, quantized_module, _ = _qwen_case()
     source = tmp_path / "source"
     destination = tmp_path / "destination"
@@ -527,12 +528,14 @@ def test_default_handles_null_backbone_ignore_list(tmp_path):
     assert r"re:^mtp\." in output_config["quantization_config"]["ignore"]
 
 
-@pytest.mark.parametrize("scheme", ["BF16", "bf16"])
 @pytest.mark.parametrize("activation_scheme", ["dynamic", "static"])
-def test_unquantized_native_fp8_mtp(tmp_path, scheme, activation_scheme):
+def test_unquantized_native_fp8_mtp(tmp_path, activation_scheme):
     """Explicit BF16 saves dequantized FP8 weights."""
     config, tensors, _, _ = _qwen_case()
-    config.quantization_config = {"activation_scheme": activation_scheme}
+    config.quantization_config = {
+        "quant_method": "fp8",
+        "activation_scheme": activation_scheme,
+    }
     tensors["mtp.counter"] = torch.tensor([3], dtype=torch.int64)
     weight_name = "mtp.layers.0.self_attn.q_proj.weight"
     scale_name = "mtp.layers.0.self_attn.q_proj.weight_scale_inv"
@@ -543,7 +546,9 @@ def test_unquantized_native_fp8_mtp(tmp_path, scheme, activation_scheme):
     _write_source(source, tensors)
     _write_destination(destination, "mtp.obsolete.weight")
 
-    _quantize_and_save_mtp_tensors(str(source), str(destination), config, scheme)
+    _quantize_and_save_mtp_tensors(
+        str(source), str(destination), config, mtp_dequantize=True
+    )
     saved = load_file(destination / "model_mtp.safetensors")
     assert saved.keys() == tensors.keys() - {scale_name}
     assert torch.equal(saved[weight_name], torch.full((30, 30), 6.0))
@@ -568,16 +573,16 @@ def test_unquantized_mtp_rejects_fp8_without_scales(tmp_path):
     source, destination = tmp_path / "source", tmp_path / "destination"
     _write_source(source, tensors)
     _write_destination(destination, "mtp.obsolete.weight")
-    with pytest.raises(ValueError, match="FP8 tensor without MTP scales"):
+    with pytest.raises(ValueError, match="Cannot reproduce the source MTP format"):
         _quantize_and_save_mtp_tensors(str(source), str(destination), config)
     assert not (destination / "model_mtp.safetensors").exists()
 
 
 @pytest.mark.parametrize("scheme", [None, "FP8_BLOCK", "FP8"])
-def test_native_fp8_preserves_values_and_translates_scales(
-    tmp_path, monkeypatch, scheme
-):
+def test_native_fp8_reproduces_block_format_through_converter(tmp_path, scheme):
+    """Native block-FP8 is dequantized and requantized to the same block format."""
     config, tensors, _, _ = _qwen_case()
+    config.quantization_config = {"quant_method": "fp8"}
     layout = _resolve_mtp_layout(config, set(tensors))
     for name in list(tensors):
         if layout.quantizes(name):
@@ -589,19 +594,15 @@ def test_native_fp8_preserves_values_and_translates_scales(
     _write_source(source, tensors)
     _write_destination(destination, "mtp.obsolete.weight")
 
-    def unexpected(*args):
-        pytest.fail("Compatible native FP8 preservation must not convert tensors")
-
-    monkeypatch.setattr(mtp, "_dequantize_mtp_tensors", unexpected)
-    monkeypatch.setattr(mtp, "_compress_mtp_weights", unexpected)
     _quantize_and_save_mtp_tensors(str(source), str(destination), config, scheme)
     saved = load_file(destination / "model_mtp.safetensors")
-    for name, tensor in tensors.items():
-        output_name = name.replace(".weight_scale_inv", ".weight_scale")
-        assert saved[output_name].dtype == tensor.dtype
-        assert torch.equal(
-            saved[output_name].view(torch.uint8), tensor.view(torch.uint8)
-        )
+    for name in tensors:
+        if not layout.quantizes(name):
+            continue
+        module = name.removesuffix(".weight")
+        assert saved[f"{module}.weight"].dtype == torch.float8_e4m3fn
+        assert f"{module}.weight_scale" in saved
+        assert f"{module}.weight_scale_inv" not in saved
     output_config = json.loads((destination / "config.json").read_text())[
         "quantization_config"
     ]
@@ -612,12 +613,11 @@ def test_native_fp8_preserves_values_and_translates_scales(
     assert r"re:^mtp\." not in output_config["ignore"]
 
 
-@pytest.mark.parametrize(
-    "invalid",
-    ["shape", "missing_scale", "dense_projection", "orphan_scale", "fusion", "static"],
-)
-def test_native_fp8_preservation_rejects_incompatible_source(tmp_path, invalid):
+@pytest.mark.parametrize("invalid", ["missing_scale", "static"])
+def test_native_fp8_source_rejected_when_unreproducible(tmp_path, invalid):
+    """Sources the converter cannot reproduce fail loudly instead of downgrading."""
     config, tensors, _, _ = _qwen_case()
+    config.quantization_config = {"quant_method": "fp8"}
     layout = _resolve_mtp_layout(config, set(tensors))
     for name in list(tensors):
         if layout.quantizes(name):
@@ -626,20 +626,13 @@ def test_native_fp8_preservation_rejects_incompatible_source(tmp_path, invalid):
                 1, 1
             )
     module = "mtp.layers.0.self_attn.q_proj"
-    if invalid == "shape":
-        tensors[f"{module}.weight_scale_inv"] = torch.ones(2, 1)
-    elif invalid == "missing_scale":
+    if invalid == "missing_scale":
         del tensors[f"{module}.weight_scale_inv"]
-    elif invalid == "dense_projection":
-        tensors["mtp.fc.weight"] = torch.ones(128, 128).to(torch.float8_e4m3fn)
-        tensors["mtp.fc.weight_scale_inv"] = torch.ones(1, 1)
-    elif invalid == "orphan_scale":
-        del tensors[f"{module}.weight"]
-    elif invalid == "static":
-        config.quantization_config = {"activation_scheme": "static"}
     else:
-        del tensors["mtp.layers.0.self_attn.k_proj.weight"]
-        del tensors["mtp.layers.0.self_attn.k_proj.weight_scale_inv"]
+        config.quantization_config = {
+            "quant_method": "fp8",
+            "activation_scheme": "static",
+        }
     source, destination = tmp_path / "source", tmp_path / "destination"
     _write_source(source, tensors)
     _write_destination(destination, "mtp.obsolete.weight")
@@ -649,13 +642,11 @@ def test_native_fp8_preservation_rejects_incompatible_source(tmp_path, invalid):
 
 
 @pytest.mark.parametrize("case_name", CASES)
-@pytest.mark.parametrize(
-    "error_type", [RuntimeError, ValueError, TypeError, AttributeError, KeyError]
-)
-def test_failed_quantization_preserves_source_mtp(
+@pytest.mark.parametrize("error_type", [ValueError, NotImplementedError])
+def test_failed_quantization_is_fatal_without_dequantize(
     tmp_path, monkeypatch, case_name, error_type
 ):
-    """A data-free quantization failure never drops supported MTP tensors."""
+    """A conversion failure is fatal unless BF16 dequantization was requested."""
     config, tensors, _, _ = CASES[case_name]()
     layout = _resolve_mtp_layout(config, set(tensors))
 
@@ -668,21 +659,11 @@ def test_failed_quantization_preserves_source_mtp(
     _write_source(source, tensors)
     _write_destination(destination, f"{layout.source_prefixes[0]}.obsolete.weight")
 
-    _quantize_and_save_mtp_tensors(
-        str(source), str(destination), config, mtp_scheme="NVFP4A16"
-    )
-
-    with safe_open(destination / "model_mtp.safetensors", framework="pt") as file:
-        assert set(file.keys()) == {
-            name for name in tensors if not layout.discards(name)
-        }
-        for name in file.keys():
-            assert file.get_tensor(name).dtype == tensors[name].dtype
-            assert torch.equal(file.get_tensor(name), tensors[name])
-    output_config = json.loads((destination / "config.json").read_text())
-    quantization_config = output_config["quantization_config"]
-    assert "mtp_group" not in quantization_config["config_groups"]
-    assert set(layout.full_precision_ignores()) <= set(quantization_config["ignore"])
+    with pytest.raises(error_type, match="injected conversion failure"):
+        _quantize_and_save_mtp_tensors(
+            str(source), str(destination), config, mtp_quant_scheme="NVFP4A16"
+        )
+    assert not (destination / "model_mtp.safetensors").exists()
 
 
 @pytest.mark.parametrize("case_name", CASES)
@@ -752,7 +733,7 @@ def test_mtp_model_requires_source_checkpoint():
 def test_native_fp8_blocks_are_dequantized_before_requantization(
     quantization_config, block_size, device
 ):
-    """Native block-FP8 MTP weights are restored before applying mtp_scheme."""
+    """Native block-FP8 MTP weights are restored before applying mtp_quant_scheme."""
     if device == "cuda" and (
         not torch.accelerator.is_available()
         or torch.accelerator.current_accelerator().type != "cuda"
@@ -766,7 +747,9 @@ def test_native_fp8_blocks_are_dequantized_before_requantization(
         "mtp.layers.0.self_attn.q_proj.weight": weight,
         "mtp.layers.0.self_attn.q_proj.weight_scale_inv": scales,
     }
-    config = PretrainedConfig(quantization_config=quantization_config)
+    config = PretrainedConfig(
+        quantization_config={"quant_method": "fp8", **quantization_config}
+    )
 
     output = _dequantize_fp8_blocks(tensors, config)
 
@@ -825,11 +808,11 @@ def test_source_index_uses_requested_revision(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     "alias",
-    ["bfloat16", "none", "dense", "unquantized"],
+    ["BF16", "bf16", "bfloat16", "none", "dense", "unquantized"],
 )
 def test_unquantized_scheme_aliases_are_rejected(alias):
     """Only None and the explicit BF16 preset select non-quantizing paths."""
-    with pytest.raises(ValueError, match="mtp_scheme=None"):
+    with pytest.raises(ValueError, match="mtp_quant_scheme=None"):
         _resolve_mtp_scheme(alias)
 
 
@@ -851,17 +834,15 @@ def test_calibration_dependent_scheme_preserves_source(scheme):
 
 
 def test_scheme_rejects_invalid_type():
-    """mtp_scheme accepts only preset names, scheme objects, or None."""
-    with pytest.raises(TypeError, match="mtp_scheme must be"):
+    """mtp_quant_scheme accepts only preset names, scheme objects, or None."""
+    with pytest.raises(TypeError, match="mtp_quant_scheme must be"):
         _resolve_mtp_scheme(123)
 
 
 @pytest.mark.parametrize("case_name", CASES)
 @pytest.mark.parametrize("scheme", ["NVFP4A16", "FP8_DYNAMIC", "FP8_BLOCK", "MXFP4"])
 @pytest.mark.parametrize("save_scheme", [None, "same", "BF16"])
-def test_quantized_source_preservation_and_bf16(
-    tmp_path, monkeypatch, case_name, scheme, save_scheme
-):
+def test_quantized_source_round_trip_and_bf16(tmp_path, case_name, scheme, save_scheme):
     config, tensors, _, _ = CASES[case_name]()
     layout = _resolve_mtp_layout(config, set(tensors))
     if scheme == "FP8_BLOCK":
@@ -875,17 +856,12 @@ def test_quantized_source_preservation_and_bf16(
         _write_destination(destination, f"{layout.source_prefixes[0]}.obsolete.weight")
     _quantize_and_save_mtp_tensors(str(source), str(first), config, scheme)
 
-    def unexpected(*args):
-        pytest.fail("Preservation/BF16 must not requantize the source")
-
-    monkeypatch.setattr(mtp, "_compress_mtp_weights", unexpected)
-    if save_scheme != "BF16":
-        monkeypatch.setattr(mtp, "_dequantize_mtp_tensors", unexpected)
     _quantize_and_save_mtp_tensors(
         str(first),
         str(second),
         config,
-        scheme if save_scheme == "same" else save_scheme,
+        scheme if save_scheme == "same" else None,
+        mtp_dequantize=save_scheme == "BF16",
     )
     original = load_file(first / "model_mtp.safetensors")
     saved = load_file(second / "model_mtp.safetensors")
@@ -896,13 +872,17 @@ def test_quantized_source_preservation_and_bf16(
         "quantization_config"
     ]
     if save_scheme != "BF16":
+        # None and an explicit matching scheme both reproduce the source format
+        # through the converter (identical settings and weight storage; scale
+        # precision may narrow to BF16 through the intermediate dequantization).
         assert saved.keys() == original.keys()
         for name in original:
-            assert saved[name].dtype == original[name].dtype
-            assert torch.equal(
-                saved[name].view(torch.uint8), original[name].view(torch.uint8)
-            )
-        assert second_config == first_config
+            if name.rpartition(".")[-1] in ("weight", "weight_packed"):
+                assert saved[name].dtype == original[name].dtype
+        assert (
+            second_config["config_groups"]["mtp_group"]
+            == first_config["config_groups"]["mtp_group"]
+        )
         return
     assert saved.keys() == {name for name in tensors if not layout.discards(name)}
     source_scheme = mtp.QuantizationScheme.model_validate(
@@ -935,7 +915,7 @@ def test_native_fp8_failure_does_not_mutate_source(
     tmp_path, monkeypatch, failure_point
 ):
     config, tensors, _, _ = _qwen_case()
-    config.quantization_config = {"weight_block_size": [32, 32]}
+    config.quantization_config = {"quant_method": "fp8", "weight_block_size": [32, 32]}
     layout = _resolve_mtp_layout(config, set(tensors))
     for name in list(tensors):
         if layout.quantizes(name):
@@ -973,27 +953,16 @@ def test_native_fp8_failure_does_not_mutate_source(
             raise ValueError("injected after dequantization")
 
         monkeypatch.setattr(mtp, "_compress_mtp_weights", fail)
-    if failure_point == "dequantizer":
-        with pytest.raises(ValueError, match="injected midway failure"):
-            _quantize_and_save_mtp_tensors(
-                str(source), str(destination), config, "NVFP4A16"
-            )
-        assert not (destination / "model_mtp.safetensors").exists()
-    else:
+    expected_error = (
+        "injected midway failure"
+        if failure_point == "dequantizer"
+        else "injected after dequantization"
+    )
+    with pytest.raises(ValueError, match=expected_error):
         _quantize_and_save_mtp_tensors(
             str(source), str(destination), config, "NVFP4A16"
         )
-        saved = load_file(destination / "model_mtp.safetensors")
-        for projection in ("q_proj", "k_proj"):
-            module = f"mtp.layers.0.self_attn.{projection}"
-            assert f"{module}.weight_scale_inv" not in saved
-            assert saved[f"{module}.weight"].dtype == torch.float8_e4m3fn
-            assert torch.equal(
-                saved[f"{module}.weight"].float(), torch.full((32, 32), 2.0)
-            )
-            assert torch.equal(saved[f"{module}.weight_scale"], torch.full((1, 1), 3.0))
-        metadata = json.loads((destination / "config.json").read_text())
-        assert "mtp_group" in metadata["quantization_config"]["config_groups"]
+    assert not (destination / "model_mtp.safetensors").exists()
     assert tensors.keys() == original.keys()
     for name in original:
         assert tensors[name].dtype == original[name].dtype
@@ -1100,24 +1069,9 @@ def test_write_failure_is_not_conversion_fallback(tmp_path, monkeypatch):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("changed", ["format", "weights", "input_activations"])
-def test_reuse_requires_matching_quantization_settings(changed):
-    source = _resolve_mtp_scheme("FP8_BLOCK")
-    requested = source.model_copy(deep=True)
-    requested.targets = ["another_target"]
-    assert mtp._same_mtp_scheme(source, requested)
-    if changed == "format":
-        requested.format = "dense"
-    elif changed == "weights":
-        requested.weights.block_structure = [64, 128]
-    else:
-        requested.input_activations.group_size = 64
-    assert not mtp._same_mtp_scheme(source, requested)
-
-
 def test_native_reuse_probe_does_not_block_conversion(tmp_path, monkeypatch):
     config, tensors, _, _ = _qwen_case()
-    config.quantization_config = {"activation_scheme": "static"}
+    config.quantization_config = {"quant_method": "fp8", "activation_scheme": "static"}
     module = "mtp.layers.0.self_attn.q_proj"
     tensors[f"{module}.weight"] = torch.ones(32, 32).to(torch.float8_e4m3fn)
     tensors[f"{module}.weight_scale_inv"] = torch.ones(1, 1)
@@ -1133,3 +1087,215 @@ def test_native_reuse_probe_does_not_block_conversion(tmp_path, monkeypatch):
         _quantize_and_save_mtp_tensors(
             str(source), str(destination), config, "NVFP4A16"
         )
+
+
+@pytest.mark.parametrize("revision", [None, "main", "another-branch"])
+def test_mtp_uses_loaded_backbone_commit(monkeypatch, revision):
+    config, _, _, _ = _qwen_case()
+    config._commit_hash = "loaded-commit"
+    model = SimpleNamespace(config=config, name_or_path="owner/model")
+    prepare = Mock(return_value="prepared")
+    monkeypatch.setattr(mtp, "_prepare_mtp_source", prepare)
+    assert mtp.prepare_mtp_save(model, revision=revision) == "prepared"
+    assert prepare.call_args.args[2] == "loaded-commit"
+
+
+def test_mtp_revision_fallback_without_commit(monkeypatch):
+    config, _, _, _ = _qwen_case()
+    config._commit_hash = None
+    prepare = Mock(return_value="prepared")
+    monkeypatch.setattr(mtp, "_prepare_mtp_source", prepare)
+    mtp.prepare_mtp_save(
+        SimpleNamespace(config=config, name_or_path="owner/model"), revision="tag"
+    )
+    assert prepare.call_args.args[2] == "tag"
+
+
+def test_unsupported_architecture_skips_mtp_before_source_access(monkeypatch):
+    config = PretrainedConfig(
+        architectures=["FutureMtpForCausalLM"], num_nextn_predict_layers=1
+    )
+    prepare = Mock(side_effect=AssertionError("Unsupported MTP must not access source"))
+    monkeypatch.setattr(mtp, "_prepare_mtp_source", prepare)
+    assert mtp.prepare_mtp_save(SimpleNamespace(config=config)) is None
+    prepare.assert_not_called()
+
+
+@pytest.mark.parametrize("scheme", [None, "FP8_DYNAMIC"])
+@pytest.mark.parametrize("dequantize", [False, True])
+def test_mtp_quantization_and_dequantization_controls(tmp_path, scheme, dequantize):
+    config, tensors, _, _ = _qwen_case()
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    _quantize_and_save_mtp_tensors(
+        str(source), str(destination), config, scheme, mtp_dequantize=dequantize
+    )
+    saved = load_file(destination / "model_mtp.safetensors")
+    name = "mtp.layers.0.self_attn.q_proj.weight"
+    if scheme:
+        assert saved[name].dtype == torch.float8_e4m3fn
+        assert name.removesuffix(".weight") + ".weight_scale" in saved
+    else:
+        expected = tensors[name].bfloat16() if dequantize else tensors[name]
+        assert saved[name].dtype == expected.dtype
+        assert torch.equal(saved[name], expected)
+
+
+@pytest.mark.parametrize(
+    "error_type,wrapped",
+    [
+        (RuntimeError, False),
+        (TypeError, False),
+        (AttributeError, False),
+        (KeyError, False),
+        (MemoryError, False),
+        (torch.OutOfMemoryError, False),
+        (MemoryError, True),
+        (torch.OutOfMemoryError, True),
+    ],
+)
+def test_unexpected_conversion_errors_are_fatal(
+    tmp_path, monkeypatch, error_type, wrapped
+):
+    config, tensors, _, _ = _qwen_case()
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+
+    def fail(*args):
+        if wrapped:
+            try:
+                raise error_type("injected failure")
+            except error_type as error:
+                raise ValueError("wrapped conversion failure") from error
+        raise error_type("injected failure")
+
+    monkeypatch.setattr(mtp, "_compress_mtp_weights", fail)
+    with pytest.raises(error_type, match="injected failure"):
+        _quantize_and_save_mtp_tensors(
+            str(source), str(destination), config, "FP8_DYNAMIC"
+        )
+    assert not (destination / "model_mtp.safetensors").exists()
+
+
+@pytest.mark.parametrize("dequantize", [False, True])
+def test_conversion_fallback_honors_dequantize(tmp_path, monkeypatch, dequantize):
+    config, tensors, _, _ = _qwen_case()
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    monkeypatch.setattr(
+        mtp,
+        "_compress_mtp_weights",
+        Mock(side_effect=ValueError("unsupported conversion")),
+    )
+    if not dequantize:
+        with pytest.raises(ValueError, match="unsupported conversion"):
+            _quantize_and_save_mtp_tensors(
+                str(source), str(destination), config, "FP8_DYNAMIC"
+            )
+        assert not (destination / "model_mtp.safetensors").exists()
+        return
+    _quantize_and_save_mtp_tensors(
+        str(source), str(destination), config, "FP8_DYNAMIC", mtp_dequantize=True
+    )
+    saved = load_file(destination / "model_mtp.safetensors")
+    for name, tensor in tensors.items():
+        expected = tensor.bfloat16() if tensor.is_floating_point() else tensor
+        assert saved[name].dtype == expected.dtype
+        assert torch.equal(saved[name], expected)
+    groups = json.loads((destination / "config.json").read_text())[
+        "quantization_config"
+    ]["config_groups"]
+    assert "mtp_group" not in groups
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {},
+        {"quant_method": "other"},
+        *(
+            {"quant_method": "fp8", "weight_block_size": block}
+            for block in (128, 0, [], [128], [128, 0], [128, True], [128, 1.5])
+        ),
+    ],
+)
+@pytest.mark.parametrize("dequantize", [False, True])
+def test_native_fp8_metadata_rejected_before_save(tmp_path, metadata, dequantize):
+    config, tensors, _, _ = _qwen_case()
+    config.quantization_config = metadata
+    name = "mtp.layers.0.self_attn.q_proj.weight"
+    tensors[name] = tensors[name].to(torch.float8_e4m3fn)
+    tensors[name.removesuffix(".weight") + ".weight_scale_inv"] = torch.ones(1, 1)
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    with pytest.raises(ValueError, match="Native FP8"):
+        _quantize_and_save_mtp_tensors(
+            str(source), str(destination), config, mtp_dequantize=dequantize
+        )
+    with pytest.raises(ValueError, match="Native FP8"):
+        _dequantize_fp8_blocks(tensors, config)
+    assert not (destination / "model_mtp.safetensors").exists()
+
+
+def test_calibration_dependent_source_scheme_is_rejected(tmp_path):
+    """Regression: a source scheme needing calibration cannot be reproduced
+    data-free through the converter, so default (None) saving must fail loudly
+    rather than emit zeroed activation scales."""
+    config, tensors, _, _ = _qwen_case()
+    source, first, second = (tmp_path / name for name in ("source", "first", "second"))
+    _write_source(source, tensors)
+    for destination in (first, second):
+        _write_destination(destination, "mtp.obsolete.weight")
+    _quantize_and_save_mtp_tensors(str(source), str(first), config, "FP8_DYNAMIC")
+    config_path = first / "config.json"
+    saved_config = json.loads(config_path.read_text())
+    group = saved_config["quantization_config"]["config_groups"]["mtp_group"]
+    group["input_activations"]["strategy"] = "tensor"
+    group["input_activations"]["dynamic"] = False
+    config_path.write_text(json.dumps(saved_config))
+    with pytest.raises(ValueError, match="requires calibration"):
+        _quantize_and_save_mtp_tensors(str(first), str(second), config)
+    assert not (second / "model_mtp.safetensors").exists()
+
+
+def test_native_fp8_expert_block_alignment_checked_without_scheme(tmp_path):
+    """Regression: default (None) saving reproduces the source block scheme, so
+    preflight must reject block-misaligned experts exactly as an explicit
+    FP8_BLOCK request would."""
+    config, tensors, _, _ = _glm5_next_case()
+    config.quantization_config = {
+        "quant_method": "fp8",
+        "weight_block_size": [128, 128],
+    }
+    layout = _resolve_mtp_layout(config, set(tensors))
+    for name in list(tensors):
+        if ".experts." in name and layout.quantizes(name):
+            tensors[name] = torch.ones(128, 192).to(torch.float8_e4m3fn)
+            tensors[name.removesuffix(".weight") + ".weight_scale_inv"] = torch.ones(
+                1, 2
+            )
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, f"{layout.source_prefixes[0]}.obsolete.weight")
+    with pytest.raises(ValueError, match="not divisible"):
+        _quantize_and_save_mtp_tensors(str(source), str(destination), config)
+    assert not (destination / "model_mtp.safetensors").exists()
+
+
+def test_native_fp8_scale_grid_shape_is_validated():
+    """Regression: a malformed scale grid must be rejected rather than silently
+    broadcast by the block dequantizer."""
+    module = "mtp.layers.0.self_attn.q_proj"
+    tensors = {
+        f"{module}.weight": torch.ones(256, 256).to(torch.float8_e4m3fn),
+        f"{module}.weight_scale_inv": torch.ones(1, 2),
+    }
+    config = PretrainedConfig(
+        quantization_config={"quant_method": "fp8", "weight_block_size": [128, 128]}
+    )
+    with pytest.raises(ValueError, match="scale grid"):
+        _dequantize_fp8_blocks(tensors, config)

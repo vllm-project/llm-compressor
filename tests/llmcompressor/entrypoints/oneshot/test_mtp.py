@@ -100,22 +100,22 @@ def test_fp8_save_cleanup_retains_scoped_reshapes_and_renames():
     "deferred_save", [False, True], ids=["output-dir", "save-pretrained"]
 )
 @pytest.mark.parametrize(
-    "moe,scheme,native_fp8,quantize_backbone",
+    "moe,scheme,dequantize,native_fp8,quantize_backbone",
     [
-        (False, None, False, True),
-        (False, "NVFP4A16", False, True),
-        (True, None, False, True),
-        (False, "BF16", False, True),
-        (False, None, True, True),
-        (False, None, True, False),
-        (False, "BF16", True, True),
-        (False, "BF16", True, False),
-        (False, "NVFP4A16", True, True),
-        (False, "NVFP4A16", True, False),
+        (False, None, False, False, True),
+        (False, "NVFP4A16", False, False, True),
+        (True, None, False, False, True),
+        (False, None, True, False, True),
+        (False, None, False, True, True),
+        (False, None, False, True, False),
+        (False, None, True, True, True),
+        (False, None, True, True, False),
+        (False, "NVFP4A16", False, True, True),
+        (False, "NVFP4A16", False, True, False),
     ],
 )
 def test_qwen_real_load_and_save(
-    tmp_path, deferred_save, moe, scheme, native_fp8, quantize_backbone
+    tmp_path, deferred_save, moe, scheme, dequantize, native_fp8, quantize_backbone
 ):
     """Exercise the instantiated CausalLM aliases, not a hand-set loaded config."""
     config_class = Qwen3_5MoeTextConfig if moe else Qwen3_5TextConfig
@@ -207,7 +207,8 @@ def test_qwen_real_load_and_save(
         )
         if quantize_backbone
         else [],
-        mtp_scheme=scheme,
+        mtp_quant_scheme=scheme,
+        mtp_dequantize=dequantize,
         output_dir=None if deferred_save else str(destination),
     )
     if deferred_save:
@@ -231,17 +232,14 @@ def test_qwen_real_load_and_save(
         "quantization_config", {}
     )
     group = quantization.get("config_groups", {}).get("mtp_group")
-    if native_fp8 and scheme is None:
+    if native_fp8 and scheme is None and not dequantize:
         assert group["format"] == "float-quantized"
         assert group["weights"]["block_structure"] == [32, 32]
         for name, value in tensors.items():
             if ".self_attn." in name:
+                module = name.removesuffix(".weight")
                 assert saved[name].dtype == torch.float8_e4m3fn
-                assert torch.equal(saved[name].float(), weights[name].float())
-                assert torch.equal(
-                    saved[name.removesuffix(".weight") + ".weight_scale"],
-                    weights[name.removesuffix(".weight") + ".weight_scale_inv"],
-                )
+                assert f"{module}.weight_scale" in saved
             else:
                 assert torch.equal(saved[name], value)
     elif scheme == "NVFP4A16":
@@ -255,7 +253,32 @@ def test_qwen_real_load_and_save(
                 assert saved[name].dtype == torch.bfloat16
                 assert torch.equal(saved[name], weights[name].bfloat16())
             else:
-                expected = (
-                    tensors[name].bfloat16() if scheme == "BF16" else tensors[name]
-                )
+                expected = tensors[name].bfloat16() if dequantize else tensors[name]
                 assert torch.equal(saved[name], expected)
+
+
+@pytest.mark.parametrize(
+    "missing", ["_original_source_patterns", "_original_target_patterns"]
+)
+def test_fp8_save_rejects_incompatible_transformers_before_mutating(missing):
+    from transformers.core_model_loading import WeightConverter
+    from transformers.integrations.finegrained_fp8 import Fp8Dequantize
+
+    conversion = WeightConverter(
+        ["q.weight", "q.weight_scale_inv"], "q.weight", [Fp8Dequantize(None)]
+    )
+    delattr(conversion, missing)
+    original = [conversion]
+    model = SimpleNamespace(_weight_conversions=original)
+    with pytest.raises(
+        RuntimeError, match="cannot safely save.*WeightConverter is missing"
+    ):
+        _remove_fp8_save_roundtrip(model)
+    assert model._weight_conversions is original
+
+
+def test_fp8_save_without_conversions_needs_no_private_api(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "transformers.core_model_loading", None)
+    _remove_fp8_save_roundtrip(SimpleNamespace())

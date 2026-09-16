@@ -127,7 +127,8 @@ class Oneshot:
     def __init__(
         self,
         log_dir: str | None = None,
-        mtp_scheme: str | QuantizationScheme | None = None,
+        mtp_quant_scheme: str | QuantizationScheme | None = None,
+        mtp_dequantize: bool = False,
         **kwargs,
     ):
         """
@@ -146,10 +147,13 @@ class Oneshot:
         :param output_dir: Path to save the output model after carrying out oneshot
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
-        :param mtp_scheme: Optional preset name or ``QuantizationScheme`` used to
+        :param mtp_quant_scheme: Optional preset name or ``QuantizationScheme`` used to
             quantize unloaded MTP layers when the model is saved. ``None``
-            preserves their source precision; ``"BF16"`` explicitly dequantizes
-            or casts them to BF16.
+            reproduces the source MTP format through the converter (requantizing
+            to the source's own data-free scheme) unless ``mtp_dequantize=True``.
+        :param mtp_dequantize: Dequantize or cast MTP to BF16 when no quantization
+            scheme is applied. Independent of backbone dequantization; defaults
+            to False. A requested quantization scheme determines the output format.
         """
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
@@ -200,7 +204,10 @@ class Oneshot:
 
         self.validate_model(self.model)
         self.model._llmcompressor_mtp_source = prepare_mtp_save(
-            self.model, mtp_scheme, model_args.model_revision
+            self.model,
+            mtp_quant_scheme,
+            model_args.model_revision,
+            mtp_dequantize=mtp_dequantize,
         )
 
     def __call__(self):
@@ -364,7 +371,8 @@ def oneshot(
     trust_remote_code_model: bool = False,
     save_compressed: bool = True,
     model_revision: str = "main",
-    mtp_scheme: str | QuantizationScheme | None = None,
+    mtp_quant_scheme: str | QuantizationScheme | None = None,
+    mtp_dequantize: bool = False,
     # Recipe arguments
     recipe: RecipeInput | None = None,
     recipe_args: list[str] | None = None,
@@ -437,15 +445,20 @@ def oneshot(
     :param save_compressed: Whether to compress sparse models during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
-    :param mtp_scheme: Optional data-free preset name (for example,
+    :param mtp_quant_scheme: Optional data-free preset name (for example,
         ``"FP8_DYNAMIC"``, ``"MXFP4"``, or ``"NVFP4A16"``) or
         ``QuantizationScheme`` used for MTP layers. Transformers
         does not load these layers, so oneshot processes them from the source
         checkpoint when saving to ``output_dir`` or through a later wrapped
         ``model.save_pretrained`` call. Schemes requiring
-        calibration are not applied. ``None`` preserves source MTP weights and
-        scales; ``"BF16"`` explicitly dequantizes or casts MTP to BF16. Matching
-        quantization schemes reuse compatible source tensors without conversion.
+        calibration are not applied. ``None`` reproduces the source MTP format by
+        requantizing to its own data-free scheme through the converter, unless
+        ``mtp_dequantize=True``. A source whose scheme requires calibration cannot
+        be reproduced and fails loudly; use ``mtp_dequantize=True`` instead.
+    :param mtp_dequantize: Dequantize or cast MTP to BF16 when no quantization
+        scheme is applied. Defaults to False and is independent of backbone
+        dequantization. Requested quantization determines the output format, with
+        intermediate dequantization performed automatically when needed.
 
     # Recipe arguments
     :param recipe: A LLM Compressor recipe. Accepts a path (or list

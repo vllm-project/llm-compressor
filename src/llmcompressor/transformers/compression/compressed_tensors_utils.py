@@ -36,11 +36,33 @@ def _remove_fp8_save_roundtrip(model: PreTrainedModel) -> None:
     saving. Once oneshot owns the output format, that would corrupt both dense
     exclusions and newly compressed weights.
     """
-    from transformers.core_model_loading import WeightConverter, WeightRenaming
-    from transformers.integrations.finegrained_fp8 import Fp8Dequantize
+    if not getattr(model, "_weight_conversions", None):
+        return
+    try:
+        from transformers.core_model_loading import WeightConverter, WeightRenaming
+        from transformers.integrations.finegrained_fp8 import Fp8Dequantize
+    except ImportError as error:
+        raise RuntimeError(
+            "This Transformers version cannot safely save a dequantized FP8 model: "
+            "the required weight conversion API is unavailable"
+        ) from error
 
     conversions = []
     for conversion in getattr(model, "_weight_conversions", []):
+        if isinstance(conversion, WeightConverter):
+            required = (
+                "operations",
+                "_original_source_patterns",
+                "_original_target_patterns",
+                "scope_prefix",
+                "base_model_prefix",
+            )
+            missing = [name for name in required if not hasattr(conversion, name)]
+            if missing:
+                raise RuntimeError(
+                    "This Transformers version cannot safely save a dequantized "
+                    f"FP8 model: WeightConverter is missing {missing}"
+                )
         if not isinstance(conversion, WeightConverter) or not any(
             isinstance(operation, Fp8Dequantize) for operation in conversion.operations
         ):
@@ -58,11 +80,17 @@ def _remove_fp8_save_roundtrip(model: PreTrainedModel) -> None:
         ]
         target_patterns = conversion._original_target_patterns
         if operations:
+            # Transformers 5.15 predates the force_cpu constructor option.
+            options = (
+                {"force_cpu": conversion.force_cpu}
+                if hasattr(conversion, "force_cpu")
+                else {}
+            )
             updated = WeightConverter(
                 source_patterns,
                 target_patterns,
                 operations,
-                force_cpu=conversion.force_cpu,
+                **options,
             )
         elif [pattern.rstrip("$") for pattern in source_patterns] == target_patterns:
             continue  # The pure dequantizer has no name/shape mapping to retain.

@@ -82,23 +82,24 @@ tokenizer.save_pretrained(SAVE_DIR)
 
 Some models ship Multi-Token Prediction (MTP) layers used as the draft model for speculative decoding in vLLM. Transformers omits these layers from the loaded backbone, so LLM Compressor reads them separately from the source checkpoint when saving. Both `oneshot(output_dir=...)` and `oneshot(...); model.save_pretrained(...)` write MTP alongside the backbone. Source layouts and shards are validated before calibration.
 
-Use `mtp_scheme=None` (the default) to preserve source MTP precision. Dense tensors are copied unchanged; supported quantized weights and scales are retained with compatible output metadata. Use `mtp_scheme="BF16"` to explicitly dequantize or cast MTP to BF16 and exclude its runtime modules from quantization. Compressed-tensors sources must include compatible `mtp_group` metadata.
+Use `mtp_quant_scheme=None` and `mtp_dequantize=False` (the defaults) to keep the source MTP format. Dense tensors are copied unchanged; quantized weights are reproduced in the same format through the compressed-tensors converter. Use `mtp_dequantize=True` with no quantization scheme to dequantize or cast MTP to BF16 and exclude its runtime modules from quantization. Compressed-tensors sources must include compatible `mtp_group` metadata.
 
 For a native FP8 checkpoint, first load the backbone with Transformers'
 `FineGrainedFP8Config(dequantize=True)`, then pass that model to `oneshot`.
 The backbone must be fully dequantized. MTP processing reads the original
-source separately: `None` preserves supported FP8 weights and scales, while
-`"BF16"` dequantizes them. Backbone and MTP precision are independent.
+source separately: the default reproduces the source FP8 format;
+`mtp_dequantize=True` requests BF16 MTP. Backbone and MTP precision are independent.
 A still-quantized FP8 backbone remains unsupported.
 
-Pass a quantization preset or `QuantizationScheme` as `mtp_scheme` to apply data-free quantization to the MTP layers. Fully dynamic activation quantization such as `FP8_DYNAMIC` is supported. Schemes that require calibration are not applied; oneshot warns and preserves the supported source MTP tensors instead. The same fallback is used if optional quantization fails; source dequantization errors remain fatal.
+Pass a quantization preset or `QuantizationScheme` as `mtp_quant_scheme` to apply data-free quantization to the MTP layers. Fully dynamic activation quantization such as `FP8_DYNAMIC` is supported. Schemes that require calibration are not applied. A conversion that cannot be applied is fatal unless `mtp_dequantize=True`, which falls back to BF16. Unexpected errors, resource failures, and source dequantization errors remain fatal.
 
 MTP processing supports the Qwen3.5/Qwen3.8-27B dense architecture,
 GLM-5.3 Flash (`Glm5Next`) and DSA (`GlmMoeDsa`), and NVIDIA's Nemotron3.5
 Lightning (`NemotronH`) layout, including the instantiated causal-LM aliases.
 Qwen3.5 MoE supports dense MTP preservation and BF16 conversion; MTP quantization is not supported.
 Each architecture has an explicit projection layout so unsupported tensors fail
-instead of being quantized by a broad name heuristic.
+instead of being quantized by a broad name heuristic. Other architectures warn and
+skip unloaded MTP processing; this does not preserve their MTP tensors.
 
 ```python
 SAVE_DIR = "your-model-NVFP4-MTP"
@@ -108,31 +109,31 @@ oneshot(
     recipe=recipe,
     dataset=dataset,
     output_dir=SAVE_DIR,
-    mtp_scheme="FP8_DYNAMIC",  # or "MXFP4", "NVFP4A16", "BF16", or None
+    mtp_quant_scheme="FP8_DYNAMIC",  # or "MXFP4", "NVFP4A16", or None
+    mtp_dequantize=False,
 )
 ```
 
-The `mtp_scheme` passed to `oneshot` is also used by later calls to that model's
+Both MTP arguments passed to `oneshot` are also used by later calls to that model's
 wrapped `save_pretrained`. Missing shards, incompatible layouts, failed source
-dequantization, and checkpoint write failures remain fatal. Compatible source
-weights and scales are reused when the requested quantization settings and storage
-format match. Otherwise, the existing dequantization and quantization converters
-apply the requested scheme.
+dequantization, and checkpoint write failures remain fatal. All MTP tensors are
+routed through the compressed-tensors converter: quantized sources are dequantized
+and requantized to the target format rather than reusing source bytes.
 
-Native block-FP8 preservation translates scale names and metadata without changing
-tensor values. Its projection layout, block shapes, and fused groups must be
-compatible with the runtime. Unsupported preservation fails explicitly; choose
-`"BF16"` when dequantized MTP is required.
-Block-FP8 MoE expert weights must have dimensions divisible by their
-block size. For example, Nemotron3.5 Lightning's 1856-wide experts cannot use
-the `FP8_BLOCK` preset; use `FP8_DYNAMIC` instead.
+Native block-FP8 sources are dequantized and requantized to the same block-FP8
+format through the converter, using the source's own block size. Block-FP8 MoE
+expert weights must have dimensions divisible by their block size. For example,
+Nemotron3.5 Lightning's 1856-wide experts cannot use the `FP8_BLOCK` preset; use
+`FP8_DYNAMIC` instead.
+
+A requested quantization scheme determines the final MTP format regardless of
+`mtp_dequantize`; required intermediate dequantization happens automatically.
 
 Choosing a scheme:
 
-| `mtp_scheme` | Notes |
+| `mtp_quant_scheme` | Notes |
 |--------------|-------|
-| `None` (default) | Preserves source MTP precision, weights, and scales; translates supported quantization metadata as needed. |
-| `"BF16"` | Dequantizes or casts floating-point MTP tensors to BF16 and excludes MTP modules from quantization. |
+| `None` (default) | Reproduces the source MTP format through the converter; `mtp_dequantize=True` saves BF16 instead. |
 | `"FP8_DYNAMIC"` | Keeps calibration-free runtime activation quantization and uses weight-derived per-channel scales. |
 | `"FP8_BLOCK"` | Applies data-free block-FP8 weight quantization with dynamic activations. |
 | `"MXFP4"` | Applies data-free MXFP4 weight and dynamic activation quantization. |
