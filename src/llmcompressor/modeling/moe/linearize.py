@@ -5,7 +5,7 @@ from typing import Type
 import torch
 import tqdm
 from compressed_tensors.offload import (
-    disable_offloading_controlled,
+    disable_offloading,
     get_cache_init_kwargs,
     offload_module,
 )
@@ -22,6 +22,9 @@ from transformers.conversion_mapping import (
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
+from llmcompressor.pipelines.sequential.offloading import (
+    disable_offloading_controlled,
+)
 
 from .conversion_mappings import (
     get_linearize_load_mappings,
@@ -119,7 +122,7 @@ def get_moe_linear_status(
 
     return model._moe_lookup
 
-def repack_moe_model(model: PreTrainedModel) -> PreTrainedModel:
+def repack_moe_model(model: PreTrainedModel) -> None:
     """
     Explicitly pack linearized :class:`LinearExperts2D` modules back into native
     fused 3D expert modules.
@@ -132,7 +135,6 @@ def repack_moe_model(model: PreTrainedModel) -> PreTrainedModel:
     :param model: model containing linearized MoE layers to repack
     :return: the same model with fused expert modules restored
     """
-
     moe_lookup = get_moe_linear_status(model)
 
     linearized = [
@@ -141,13 +143,18 @@ def repack_moe_model(model: PreTrainedModel) -> PreTrainedModel:
         if module in moe_lookup and isinstance(module, LinearExperts2D)
     ]
 
-    for name, module in tqdm.tqdm(linearized, desc="Repacking experts"):
-        repack_moe_layer(model, name, module)
+    # Use range because we want to avoid creating references to the 
+    # modules in the list, which would prevent them from being deleted
+    for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts"):
+        with disable_offloading_controlled(linearized[i][1]):
+            repack_moe_layer(model, linearized[i][0], linearized[i][1])
+
+        linearized[i] = None  # remove reference to module to allow deletion
 
 def repack_moe_subgraph(
     model: PreTrainedModel,
     subgraph_modules: list[torch.nn.Module],
-) -> PreTrainedModel:
+) -> None:
     """
     Repack linearized :class:`LinearExperts2D` modules back into native fused 3D expert
     modules for a subgraph during sequential calibration.
@@ -158,20 +165,18 @@ def repack_moe_subgraph(
     """
     subgraph_set = set(subgraph_modules)
     moe_lookup = get_moe_linear_status(model)
-
     linearized = [
         (moe_lookup[module], module)
         for module in subgraph_set
         if module in moe_lookup and isinstance(module, LinearExperts2D)
     ]
 
-    for name, module in tqdm.tqdm(linearized, desc="Repacking experts in subgraph"):
-        with disable_offloading_controlled(module):
-            repack_moe_layer(model, name, module)
+    for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts in subgraph"):
+        repack_moe_layer(model, linearized[i][0], linearized[i][1])
 
 def repack_moe_layer(
     model: PreTrainedModel, name: str, module: LinearExperts2D
-) -> PreTrainedModel:
+) -> None:
     """
     Repack a single linearized :class:`LinearExperts2D` module back into its native
     fused 3D expert module. 
@@ -186,7 +191,7 @@ def repack_moe_layer(
         del model._moe_lookup[module]
         model._moe_lookup[fused] = name
 
-def linearize_moe_model(model: PreTrainedModel):
+def linearize_moe_model(model: PreTrainedModel) -> None:
     """
     Experts modules will be replaced by either two pathways:
     1. The expert module has a registered replacement. This is required for
@@ -214,14 +219,16 @@ def linearize_moe_model(model: PreTrainedModel):
     )
 
     # This is also sequential
-    for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
-        with disable_offloading_controlled(module):
-            linearize_moe_layer(model, name, module)
+    for i in tqdm.tqdm(range(len(non_linearized)), desc="Linearizing experts"):
+        with disable_offloading_controlled(non_linearized[i][1]):
+            linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
+
+        non_linearized[i] = None
 
 def linearize_moe_subgraph(
     model: PreTrainedModel,
     subgraph_modules: list[torch.nn.Module],
-) -> list[tuple[torch.nn.Module, dict]]:
+) -> None:
     """
     Linearize MoE layers within a subgraph during sequential calibration.
     Offloading is deferred so calibration can run on the newly created modules before
@@ -232,7 +239,6 @@ def linearize_moe_subgraph(
 
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
-    :return: list of (new LinearExperts2D module, offload kwargs from original)
     """
     subgraph_set = set(subgraph_modules)
     moe_lookup = get_moe_linear_status(model)
@@ -243,16 +249,14 @@ def linearize_moe_subgraph(
         if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
-    for name, module in tqdm.tqdm(
-        non_linearized, desc="Linearizing experts in subgraph"
-    ):
-        linear_moe = linearize_moe_layer(model, name, module)
+    for i in tqdm.tqdm(range(len(non_linearized)), desc="Linearizing experts in subgraph"):
+        linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
 
 def linearize_moe_layer(
     model: PreTrainedModel, 
     name: str, 
     module: torch.nn.Module
-) -> tuple[torch.nn.Module, dict]:
+) -> None:
     """Linearize a single module within the model"""
 
     if not isinstance(module, FusedExpertsProtocol) and not LinearExperts2D.get_registration(module.__class__):
@@ -270,4 +274,3 @@ def linearize_moe_layer(
     if hasattr(model, "_moe_lookup"):
         del model._moe_lookup[module]
         model._moe_lookup[linear_moe] = name
-    

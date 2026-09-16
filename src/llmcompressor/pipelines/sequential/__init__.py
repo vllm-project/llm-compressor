@@ -1,3 +1,2 @@
-# ruff: noqa
-from .pipeline import *
+"""Sequential pipeline package."""
 from .helpers import *

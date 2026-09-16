@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import disable_offloading_controlled, set_onload_device
+from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -23,6 +23,7 @@ from llmcompressor.pipelines.sequential.helpers import (
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
+from .offloading import disable_offloading_controlled
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
