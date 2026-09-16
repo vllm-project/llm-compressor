@@ -31,6 +31,11 @@ CONFIG_OVERRIDES = {
     "deepseek_v3": {"hidden_size": 512, "moe_intermediate_size": 1024},
     "cohere2_moe": {"hidden_size": 256, "intermediate_size": 256},
     "gemma4": {"num_experts": 16, "top_k_experts": 4, "moe_intermediate_size": 2304},
+    "glm5_next": {
+        "hidden_size": 256,
+        "moe_intermediate_size": 256,
+        "n_routed_experts": 16,
+    },
     "glm_moe_dsa": {"hidden_size": 512},
     "hy_v3": {"hidden_size": 256, "moe_intermediate_size": 256, "num_experts": 16},
     "jamba": {"hidden_size": 256, "intermediate_size": 256, "num_experts": 16},
