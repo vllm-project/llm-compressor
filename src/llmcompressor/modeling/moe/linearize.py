@@ -9,6 +9,7 @@ from loguru import logger
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
+    PreTrainedConfig,
     PreTrainedModel,
 )
 from transformers.conversion_mapping import (
@@ -79,6 +80,10 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         set_save_conversion_mapping(model, save_map)
         register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
 
+        for _, module in get_linearized_moes(model):
+            module._source_experts_cls = experts_cls
+            module._source_config = _experts_config(module, model)
+
         return model
 
     with patch_attr(model_cls, "from_pretrained", patched):
@@ -119,12 +124,27 @@ def linearize_moe(model: PreTrainedModel):
     )
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = getattr(module, "config", model.config)
+        config = _experts_config(module, model)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
         linear_moe = linear_experts_cls.from_experts_module(module, config)
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+def _experts_config(
+    module: torch.nn.Module, model: PreTrainedModel
+) -> PreTrainedConfig:
+    """Prefer a nested text config so fused experts construct with the right
+    constructor (e.g. InklingExperts(InklingTextConfig)).
+    """
+    if (config := getattr(module, "config", None)) is not None:
+        return config
+    config = model.config
+    get_text_config = getattr(config, "get_text_config", None)
+    if callable(get_text_config):
+        return get_text_config()
+    return getattr(config, "text_config", config)
 
 
 def get_linearized_moes(
@@ -145,10 +165,20 @@ def repack_moe(model: PreTrainedModel) -> PreTrainedModel:
     Explicitly pack linearized :class:`LinearExperts2D` modules back into native
     fused 3D expert modules.
 
-    Call this after calibration/quantization and before ``save_pretrained`` when
-    the target Transformers architecture expects packed expert weights (e.g.
-    ``qwen3_vl_moe``, ``qwen3_5_moe``). See
-    https://github.com/vllm-project/llm-compressor/issues/2699
+    Call this after calibration/quantization. For compressed checkpoints,
+    compress first, then repack:
+
+    ```python
+    compressor.compress_model(model)
+    repack_moe(model)
+    model.save_pretrained(output_dir)
+    ```
+
+    Dense experts restore native fused Parameters. Compressed experts replace
+    ``gate_up_proj`` / ``down_proj`` with serialization-only nested modules
+    that own packed tensors and qparams so Transformers conversion mappings
+    can emit native 3D keys. Compressed fused modules are not intended for
+    fused expert forward.
 
     :param model: model containing linearized MoE layers to repack
     :return: the same model with fused expert modules restored

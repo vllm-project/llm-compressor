@@ -22,6 +22,15 @@ class GptOssExpertMLP(ExpertMLPWithGate):
         self.up_proj.bias.copy_(gate_up_bias[1::2])
         self.down_proj.bias.copy_(experts.down_proj_bias[index])
 
+    def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        """Inverse of :meth:`copy_from_experts_module` for interleaved GPT-OSS."""
+        experts.gate_up_proj[index][:, 0::2].copy_(self.gate_proj.weight.T)
+        experts.gate_up_proj[index][:, 1::2].copy_(self.up_proj.weight.T)
+        experts.down_proj[index].copy_(self.down_proj.weight.T)
+        experts.gate_up_proj_bias[index][0::2].copy_(self.gate_proj.bias)
+        experts.gate_up_proj_bias[index][1::2].copy_(self.up_proj.bias)
+        experts.down_proj_bias[index].copy_(self.down_proj.bias)
+
 
 class GptOssLinearExperts(LinearExperts2D):
     is_concatenated = False
