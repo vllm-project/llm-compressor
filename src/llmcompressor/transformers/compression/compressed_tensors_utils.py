@@ -179,8 +179,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                     if has_mtp:
                         save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
 
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+            # # convert back from accelerate to restore model to original form
+            # from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper

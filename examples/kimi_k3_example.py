@@ -3,19 +3,23 @@ from compressed_tensors.distributed import init_dist
 from transformers import AutoConfig, AutoProcessor, CompressedTensorsConfig
 
 from llmcompressor import oneshot
+from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 from llmcompressor.modifiers.pruning import REAPPruningModifier
-from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Small representative model with same MXFP4 quantization
-MODEL_ID = "moonshotai/Kimi-K3"  # "inference-optimization/Kimi-K3-0.40B-MXFP4"
+# MODEL_ID = "moonshotai/Kimi-K3"
+MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
 
 # Patch quantization config to
 # 1. Fix an incomplete ignore list provided by the base checkpoint
-# 2. Unfront dequantize modules for subsequent calibration/compression
+# 2. Disable decompression (for later step)
 config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
-qconfig = CompressedTensorsConfig(**config.quantization_config, dequantize=True)
+qconfig = CompressedTensorsConfig(
+    **config.quantization_config, dequantize=False, use_optimized_inference=False
+)
 qconfig.quantization_config.ignore += [
     "re:.*mlp_res_proj.*",
     "re:.*self_attention_res_proj.*",
@@ -23,28 +27,30 @@ qconfig.quantization_config.ignore += [
     "re:.*output_attn_res_proj.*",
 ]
 
-# Load model with the modified quantization config
-init_dist()
+# Load model with the modified quantization config and disk offloading
+# init_dist()
 with load_context(KimiK3ForConditionalGeneration):
     model = KimiK3ForConditionalGeneration.from_pretrained(
         MODEL_ID,
         quantization_config=qconfig,
         device_map="auto_offload",
-        max_memory={},
         trust_remote_code=True,
-        offload_folder="/data/kylesayrs/hub/offload_folder",
+        max_memory={},
+        offload_folder="offload_folder",
     )
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+breakpoint()
 
 recipe = [
     REAPPruningModifier(sparsity=0.25),
-    GPTQModifier(
-        targets="Linear",
+    QuantizationModifier(
+        targets="re:.*mlp.*",
         scheme="NVFP4",
         ignore=[
             "lm_head",
             r"re:.*block_sparse_moe\.gate",
             "re:.*vision_tower.*",
+            "re:.*mlp_res_proj$",
         ],
     )
 ]
@@ -53,13 +59,12 @@ oneshot(
     model=model,
     tokenizer=processor.tokenizer,
     dataset="perfectblend",
-    splits="train[:512]",
+    splits=get_rank_partition("train", 512),
     recipe=recipe,
     max_seq_length=2048,
-    num_calibration_samples=1024,
     trust_remote_code_model=True,
-    batch_size=16,
-    pipeline="sequential"
+    pipeline="sequential",
+    layerwise_decompression=True,
 )
 
 SAVE_DIR = "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP25"

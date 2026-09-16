@@ -402,8 +402,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "weight_zero_point": zero_points[index].to(dtype=quant_args.zp_dtype),
             }
             if global_scales is not None:
-                q_param_dict["weight_global_scale"] = global_scales[index].to(
-                    dtype=module.weight.dtype
+                q_param_dict["weight_global_scale"] = global_scales[index].unsqueeze(0).to(
+                    dtype=torch.float32
                 )
             for attr, val in q_param_dict.items():
                 update_offload_parameter(module, attr, val)
