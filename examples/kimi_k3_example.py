@@ -10,8 +10,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Small representative model with same MXFP4 quantization
-# MODEL_ID = "moonshotai/Kimi-K3"
-MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
+MODEL_ID = "moonshotai/Kimi-K3"
+# MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
 
 # Patch quantization config to
 # 1. Fix an incomplete ignore list provided by the base checkpoint
@@ -28,7 +28,7 @@ qconfig.quantization_config.ignore += [
 ]
 
 # Load model with the modified quantization config and disk offloading
-init_dist()
+# init_dist()
 with load_context(KimiK3ForConditionalGeneration):
     model = KimiK3ForConditionalGeneration.from_pretrained(
         MODEL_ID,
