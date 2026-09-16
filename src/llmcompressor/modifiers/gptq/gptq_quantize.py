@@ -312,7 +312,8 @@ def fused_gptq_block_update(
     # so scaling by 2**-8 before the cast and 2**8 afterwards gives the E4M3FN
     # rounding operation without requiring Hopper FP8 instructions.
     use_fp8_e4b15 = (
-        quant_type == 2 and torch.cuda.get_device_capability(work.device)[0] < 9
+        quant_type == 2
+        and torch.get_device_module().get_device_capability(work.device)[0] < 9
     )
     if has_zp:
         zero_point = zero_point.to(torch.float32)
