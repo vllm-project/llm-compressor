@@ -47,7 +47,9 @@ def test_local_teacher_uses_final_upstream_outputs(kind):
             # after QAD validation and final weight materialization.
             for batch, output in zip(self._batches, propagated[-len(data) :]):
                 hidden = batch.args[0] if batch.args else batch.kwargs["hidden_states"]
-                torch.testing.assert_close(hidden, output, rtol=0, atol=0)
+                torch.testing.assert_close(
+                    hidden, output.to(hidden.device), rtol=0, atol=0
+                )
         seen.append(block_name)
         original_optimize(self, modules)
 

@@ -231,7 +231,13 @@ def test_partial_accumulation_matches_large_batch():
         "_batch_loss",
         side_effect=lambda target: (parameter - target).square().sum(),
     ):
-        steps = qad._train_epoch(optimizer, [parameter], [parameter], [0, 1, 2])
+        steps = qad._train_epoch(
+            optimizer,
+            [parameter],
+            [parameter],
+            [0, 1, 2],
+            torch.amp.GradScaler("cpu", enabled=False),
+        )
     assert steps == 2
     # First mean gradient = -2, w=1.2; final single-batch gradient=-7.6, w=1.96.
     torch.testing.assert_close(parameter, torch.tensor([1.96]))

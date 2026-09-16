@@ -377,6 +377,10 @@ class QADModifier(Modifier):
         self, optimizer, trainable, masters, train_indices, validation_indices
     ):
         generator = torch.Generator().manual_seed(self.seed)
+        scaler = torch.amp.GradScaler(
+            self._device.type,
+            enabled=any(p.dtype == torch.float16 for p in trainable),
+        )
         best_loss = self._evaluate(validation_indices)
         reference_loss = best_loss
         best_weights = self._snapshot_weights(trainable)
@@ -386,7 +390,7 @@ class QADModifier(Modifier):
         for epoch in range(1, self.num_epochs + 1):
             order = torch.randperm(len(train_indices), generator=generator).tolist()
             steps += self._train_epoch(
-                optimizer, trainable, masters, [train_indices[i] for i in order]
+                optimizer, trainable, masters, [train_indices[i] for i in order], scaler
             )
             epochs = epoch
             self._reobserve_weights(f"epoch_{epoch}")
@@ -459,25 +463,43 @@ class QADModifier(Modifier):
         self._reobservations.setdefault(self._name, []).append(stage)
         logger.info("QAD {} re-observed weights: {}", self._name, stage)
 
-    def _train_epoch(self, optimizer, trainable, masters, indices):
+    def _train_epoch(self, optimizer, trainable, masters, indices, scaler):
         steps = 0
         with torch.enable_grad():
             for start in range(0, len(indices), self.gradient_accumulation_steps):
                 group = indices[start : start + self.gradient_accumulation_steps]
-                optimizer.zero_grad(set_to_none=True)
-                for parameter in trainable:
-                    parameter.grad = None
-                for index in group:
-                    (self._batch_loss(self._batches[index]) / len(group)).backward()
-                for parameter, master in zip(trainable, masters):
-                    if parameter.grad is not None:
-                        if not torch.isfinite(parameter.grad).all():
-                            raise ValueError(f"Nonfinite QAD gradient in {self._name}")
-                        if master is not parameter:
+                # Mean reconstruction losses can underflow during FP16 backward,
+                # even with FP32 master weights. Keep the scale fixed throughout
+                # accumulation, then unscale the FP32 gradients before clipping.
+                for _ in range(32):
+                    optimizer.zero_grad(set_to_none=True)
+                    for parameter in trainable:
+                        parameter.grad = None
+                    for index in group:
+                        loss = self._batch_loss(self._batches[index]) / len(group)
+                        scaler.scale(loss).backward()
+                    for parameter, master in zip(trainable, masters):
+                        if parameter.grad is not None and master is not parameter:
                             master.grad = parameter.grad.float()
+                    scaler.unscale_(optimizer)
+                    if all(
+                        p.grad is None or torch.isfinite(p.grad).all() for p in masters
+                    ):
+                        break
+                    if not scaler.is_enabled():
+                        raise ValueError(f"Nonfinite QAD gradient in {self._name}")
+                    # GradScaler skips the overflowing step and lowers its scale.
+                    # Retry the same group so every calibration batch contributes.
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    raise ValueError(f"Nonfinite QAD gradient in {self._name}")
                 if self.max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(masters, self.max_grad_norm)
-                optimizer.step()
+                    torch.nn.utils.clip_grad_norm_(
+                        masters, self.max_grad_norm, error_if_nonfinite=True
+                    )
+                scaler.step(optimizer)
+                scaler.update()
                 with torch.no_grad():
                     for parameter, master in zip(trainable, masters):
                         if parameter is not master:
