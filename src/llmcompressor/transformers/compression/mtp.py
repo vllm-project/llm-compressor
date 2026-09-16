@@ -36,6 +36,7 @@ from safetensors.torch import save_file
 from transformers import PretrainedConfig, PreTrainedModel
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.microscale import DEFAULT_FUSED_MAPPINGS
 from llmcompressor.entrypoints.model_free.validate import validate_config
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     suspend_distributed_timeout,
@@ -649,6 +650,11 @@ def _dequantize_fp8_blocks(
                 f"Native FP8 MTP scale grid for {module} is {tuple(scale.shape)}, "
                 f"expected {expected} for block {tuple(block_size)}"
             )
+        if not torch.isfinite(scale).all() or not (scale > 0).all():
+            raise ValueError(
+                f"Native FP8 MTP scale for {module} has non-finite or "
+                "non-positive values"
+            )
     return FP8BlockDequantizer(targets=modules, weight_block_size=block_size).validate(
         tensors
     )
@@ -718,7 +724,28 @@ def _partition_mtp_tensors(
             )
     if not quantized:
         raise ValueError("No supported MTP projections were found")
+    _validate_fused_groups(quantized)
     return quantized, dense
+
+
+def _validate_fused_groups(quantized: dict[str, torch.Tensor]) -> None:
+    """Ensure a fused projection's partners are all present before conversion.
+
+    Fused groups (e.g. q/k/v) share runtime quantization parameters; a missing
+    partner would silently produce an incomplete, unloadable checkpoint.
+    """
+    names = set(quantized)
+    for name in quantized:
+        for pattern, partners in DEFAULT_FUSED_MAPPINGS.items():
+            match = re.fullmatch(pattern, name)
+            if match is None:
+                continue
+            for partner in partners:
+                peer = partner.format(**match.groupdict())
+                if peer not in names:
+                    raise ValueError(
+                        f"Incomplete fused MTP group: {name} is missing partner {peer}"
+                    )
 
 
 def _update_quantization_config(

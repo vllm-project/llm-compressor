@@ -1299,3 +1299,40 @@ def test_native_fp8_scale_grid_shape_is_validated():
     )
     with pytest.raises(ValueError, match="scale grid"):
         _dequantize_fp8_blocks(tensors, config)
+
+
+def test_native_fp8_nonfinite_scale_rejected(tmp_path):
+    """Regression: NaN/Inf native FP8 scales must be rejected, not dequantized
+    into invalid weights."""
+    config, tensors, _, _ = _qwen_case()
+    config.quantization_config = {"quant_method": "fp8", "weight_block_size": [32, 32]}
+    layout = _resolve_mtp_layout(config, set(tensors))
+    for name in list(tensors):
+        if layout.quantizes(name):
+            tensors[name] = torch.ones(32, 32).to(torch.float8_e4m3fn)
+            tensors[name.removesuffix(".weight") + ".weight_scale_inv"] = torch.ones(
+                1, 1
+            )
+    module = "mtp.layers.0.self_attn.q_proj"
+    tensors[f"{module}.weight_scale_inv"] = torch.full((1, 1), float("nan"))
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    with pytest.raises(ValueError, match="non-finite or non-positive"):
+        _quantize_and_save_mtp_tensors(str(source), str(destination), config)
+    assert not (destination / "model_mtp.safetensors").exists()
+
+
+def test_incomplete_fused_group_rejected(tmp_path):
+    """Regression: a missing fused projection partner must fail before conversion,
+    not silently save an incomplete checkpoint."""
+    config, tensors, _, _ = _qwen_case()
+    del tensors["mtp.layers.0.self_attn.k_proj.weight"]
+    source, destination = tmp_path / "source", tmp_path / "destination"
+    _write_source(source, tensors)
+    _write_destination(destination, "mtp.obsolete.weight")
+    with pytest.raises(ValueError, match="Incomplete fused MTP group"):
+        _quantize_and_save_mtp_tensors(
+            str(source), str(destination), config, "NVFP4A16"
+        )
+    assert not (destination / "model_mtp.safetensors").exists()
