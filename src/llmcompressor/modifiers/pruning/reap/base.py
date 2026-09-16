@@ -284,6 +284,8 @@ class REAPPruningModifier(Modifier):
             del self._saliency_trackers[layer_name]
             self._norm_buffers.pop(layer_name, None)
 
+        logger.info(f"Reaped {len(trackers)} experts")
+
     # -- calibration hooks ---------------------------------------------------
 
     def _expert_hook(

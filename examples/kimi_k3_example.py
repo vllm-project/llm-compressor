@@ -28,7 +28,7 @@ qconfig.quantization_config.ignore += [
 ]
 
 # Load model with the modified quantization config and disk offloading
-# init_dist()
+init_dist()
 with load_context(KimiK3ForConditionalGeneration):
     model = KimiK3ForConditionalGeneration.from_pretrained(
         MODEL_ID,
@@ -36,10 +36,9 @@ with load_context(KimiK3ForConditionalGeneration):
         device_map="auto_offload",
         trust_remote_code=True,
         max_memory={},
-        offload_folder="offload_folder",
+        offload_folder="/data/kylesayrs/hub/offload_folder",
     )
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
-breakpoint()
 
 recipe = [
     REAPPruningModifier(sparsity=0.25),
