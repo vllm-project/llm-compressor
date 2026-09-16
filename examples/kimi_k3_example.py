@@ -28,7 +28,7 @@ qconfig.quantization_config.ignore += [
 ]
 
 # Load model with the modified quantization config and disk offloading
-# init_dist()
+init_dist()
 with load_context(KimiK3ForConditionalGeneration):
     model = KimiK3ForConditionalGeneration.from_pretrained(
         MODEL_ID,
@@ -43,7 +43,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 recipe = [
     REAPPruningModifier(sparsity=0.25),
     QuantizationModifier(
-        targets="re:.*mlp.*",
+        targets="re:.*block_sparse_moe.*",
         scheme="NVFP4",
         ignore=[
             "lm_head",
@@ -64,8 +64,9 @@ oneshot(
     trust_remote_code_model=True,
     pipeline="sequential",
     layerwise_decompression=True,
+    batch_size=16,
 )
 
-SAVE_DIR = "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP25"
+SAVE_DIR = "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP50"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
