@@ -124,8 +124,11 @@ sequential error propagation do not satisfy the contract automatically.
 - Each block has its own optimizer, `num_epochs`, and early stopping
   (`early_stopping_patience=3`, `validation_relative_min_delta=0.001`). The
   quantizer's initial weights are included among the best-weight candidates.
-- FP16/BF16 execution uses FP32 optimizer master weights. Gradients are clipped
-  with `max_grad_norm=1.0` by default; set it to `None` to disable clipping.
+- FP16/BF16 execution uses FP32 optimizer master weights. FP16 backward also
+  uses dynamic loss scaling to retain small reconstruction gradients. Overflow
+  retries use the same accumulation group with a lower scale, up to 32 attempts.
+  Gradients are unscaled before clipping with `max_grad_norm=1.0` by default;
+  set it to `None` to disable clipping.
 - Inputs, targets, and best-weight snapshots default to CPU storage through
   `target_offload_device="cpu"`. QAD still needs memory for a block's backward
   pass and optimizer state.
