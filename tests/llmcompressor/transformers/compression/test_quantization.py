@@ -23,7 +23,7 @@ def _get_dataloader(dataset_args, tokenizer):
         split="train[:5%]",
         processor=tokenizer,
     )
-    calib_dataset = dataset_manager()
+    calib_dataset = dataset_manager(add_labels=True)
     data_loader = DataLoader(
         calib_dataset,
         batch_size=1,
