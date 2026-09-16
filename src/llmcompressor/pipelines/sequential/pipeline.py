@@ -1,17 +1,18 @@
-import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import (
-    disable_offloading,
-    offload_module,
-    set_onload_device,
-)
+from compressed_tensors.offload import disable_offloading_controlled, set_onload_device
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.moe.linearize import linearize_moe, linearize_moe_layer
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe_model,
+    linearize_moe_subgraph,
+    repack_moe_model,
+    repack_moe_subgraph
+)
+import contextlib
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -122,8 +123,8 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(DisableQuantization(model))
 
             # linearize MoE layers upfront if not using layer-wise linearization
-            if not dataset_args.sequential_linearize_moe:
-                linearize_moe(model)
+            if not dataset_args.sequential_linearize_repack:
+                linearize_moe_model(model)
 
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
@@ -150,15 +151,13 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                with disable_offloading():
+
+                # Everything onloaded in this context, offloaded outside
+                with disable_offloading_controlled(model, subgraph.submodules(model)):
                     # linearize moe layers just before calibration,
-                    # deferring offloading setup until after calibration
-                    if dataset_args.sequential_linearize_moe:
-                        linearized = linearize_moe_layer(
-                            model, subgraph.submodules(model)
-                        )
-                    else:
-                        linearized = []  # already linearized upfront
+                    if dataset_args.sequential_linearize_repack:
+                        linearize_moe_subgraph(model, subgraph.submodules(model))
+
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(
                         activations,
@@ -195,9 +194,13 @@ class SequentialPipeline(CalibrationPipeline):
                                         batch_idx, subgraph.consumed_names
                                     )
 
-                for module, offload_kwargs in linearized:
-                    for submodule in module.modules():
-                        offload_module(submodule, **offload_kwargs)
+                    if dataset_args.sequential_linearize_repack and \
+                            dataset_args.repack_moe_layers:
+                        repack_moe_subgraph(model, subgraph.submodules(model))
+
+            if not dataset_args.sequential_linearize_repack and \
+                    dataset_args.repack_moe_layers:
+                repack_moe_model(model)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
