@@ -75,9 +75,10 @@ cannot be jointly optimized as an arbitrary traced subgraph in this version.
 
 ## Composing quantization methods
 
-QAD does not depend on GPTQ Hessians or quantizer class names. RTN
-(`QuantizationModifier`) and GPTQ (`GPTQModifier`) are tested with NVFP4A16 and
-integer W4A16. Another method can precede QAD if it:
+QAD does not depend on GPTQ Hessians or quantizer class names. Tiny Llama
+integration tests cover RTN (`QuantizationModifier`), GPTQ (`GPTQModifier`), and
+AWQ followed by RTN, each followed by QAD, with NVFP4A16 and integer W4A16.
+Another method can precede QAD if it:
 
 - Attaches a compressed-tensors weight quantization scheme during initialization.
 - Preserves the unquantized block computation during the calibration pass used
@@ -87,11 +88,25 @@ integer W4A16. Another method can precede QAD if it:
 - Leaves floating-point weights compatible with compressed-tensors fake
   quantization, and suppresses calibration hooks during its own replay forwards.
 
-A transform such as AWQ or SmoothQuant is not a weight quantizer by itself; it
-must be composed with a quantization modifier. Those combinations require their
-own validation before being claimed as supported. Methods that change target
-boundaries, overwrite teacher weights before capture, or disable sequential
-error propagation do not satisfy the contract automatically.
+A transform such as AWQ or SmoothQuant must be composed with a weight
+quantization modifier. For example, the tested AWQ recipe is:
+
+```python
+from llmcompressor.modifiers.transform.awq import AWQModifier
+
+recipe = [
+    AWQModifier(n_grid=4),
+    QuantizationModifier(scheme="NVFP4A16", ignore=["lm_head"]),
+    QADModifier(),
+]
+```
+
+Pass this recipe to `oneshot` with the sequential settings above. The AWQ
+integration tests check per-block optimization, cache cleanup, and finite model
+outputs; save/reload/generation tests separately cover RTN and GPTQ. Other
+transform/quantizer combinations need their own validation. Methods that change
+target boundaries, overwrite teacher weights before capture, or disable
+sequential error propagation do not satisfy the contract automatically.
 
 ## Training and supported scope
 
