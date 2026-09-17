@@ -11,6 +11,7 @@ from llmcompressor.utils import (
     calibration_forward_context,
     disable_cache,
     disable_lm_head,
+    import_from_path,
 )
 from llmcompressor.utils.dev import skip_weights_download
 from tests.testing_utils import requires_gpu, requires_hf_token
@@ -89,3 +90,55 @@ def test_disable_lm_head(offload):
         input = {key: value.to("cuda") for key, value in model.dummy_inputs.items()}
         output = model(**input)
         assert output.logits.device == torch.device("meta")
+
+
+PREPROCESS_SOURCE = """
+def preprocess(example):
+    return example
+"""
+
+
+@pytest.fixture
+def preprocess_file(tmp_path):
+    file_path = tmp_path / "custom_preprocess.py"
+    file_path.write_text(PREPROCESS_SOURCE)
+    return file_path
+
+
+@pytest.mark.unit
+def test_import_from_path_file_with_suffix(preprocess_file):
+    # The form documented in the docstring and in
+    # `TextGenerationDataset.preprocessing_func`: "/path/to/file.py:func_name".
+    func = import_from_path(f"{preprocess_file}:preprocess")
+
+    assert func.__name__ == "preprocess"
+    assert func({"a": 1}) == {"a": 1}
+
+
+@pytest.mark.unit
+def test_import_from_path_file_without_suffix(preprocess_file):
+    without_suffix = preprocess_file.with_suffix("")
+    func = import_from_path(f"{without_suffix}:preprocess")
+
+    assert func.__name__ == "preprocess"
+
+
+@pytest.mark.unit
+def test_import_from_path_dotted_module_containing_py_segment():
+    # The module path must not be truncated at a package that happens to start with
+    # "py", such as `llmcompressor.pytorch`.
+    func = import_from_path("llmcompressor.pytorch.utils.helpers:get_quantized_layers")
+
+    assert func.__name__ == "get_quantized_layers"
+
+
+@pytest.mark.unit
+def test_import_from_path_missing_module():
+    with pytest.raises(ImportError, match="Cannot find module with path"):
+        import_from_path("llmcompressor.does.not.exist:some_name")
+
+
+@pytest.mark.unit
+def test_import_from_path_missing_attribute(preprocess_file):
+    with pytest.raises(AttributeError, match="Cannot find not_there in"):
+        import_from_path(f"{preprocess_file}:not_there")
