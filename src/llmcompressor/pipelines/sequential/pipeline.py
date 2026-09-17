@@ -125,7 +125,7 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(DisableQuantization(model))
 
             # linearize MoE layers upfront if not using layer-wise linearization
-            if not dataset_args.sequential_linearize_repack:
+            if not dataset_args.moe_eager_linearization_and_repack:
                 linearize_moe_model(model)
 
             # prepare intermediates cache
@@ -159,7 +159,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # Everything onloaded in this context, offloaded outside
                 with disable_offloading_controlled(model, subgraph_modules):
                     # linearize moe layers just before calibration,
-                    if dataset_args.sequential_linearize_repack:
+                    if dataset_args.moe_eager_linearization_and_repack:
                         linearize_moe_subgraph(model, subgraph_modules)
 
                     # do a preliminary pass to trigger modifier hooks
@@ -199,13 +199,13 @@ class SequentialPipeline(CalibrationPipeline):
                                     )
 
                     if (
-                        dataset_args.sequential_linearize_repack
+                        dataset_args.moe_eager_linearization_and_repack
                         and dataset_args.repack_moe_layers
                     ):
                         repack_moe_subgraph(model, subgraph.submodules(model))
 
             if (
-                not dataset_args.sequential_linearize_repack
+                not dataset_args.moe_eager_linearization_and_repack
                 and dataset_args.repack_moe_layers
             ):
                 repack_moe_model(model)
