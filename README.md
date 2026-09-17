@@ -49,6 +49,9 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 
 Some of the exciting new features include:
 
+* **MXFP4 Quantized GLM-5.3**: An MXFP4 quantized checkpoint for GLM-5.3 has been created by the Red Hat AI team. The linear operators within transformer blocks are quantized to MXFP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
+  - [RedHatAI/GLM-5.3-MXFP4](https://huggingface.co/RedHatAI/GLM-5.3-MXFP4)
+  - [GLM-5.3 MXFP4 Example](examples/model_free_ptq/glm_5_3_mxfp4.py)
 * **NVFP4 Quantized GLM 5.3-Flash**: NVFP4 quantized checkpoint for GLM-5.3-Flash. Expert layers have been quantized to NVFP4 and MTP layers have been quantized to FP8 on a per-block basis
   - [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)
 * **Qwen3.8 NVFP4, FP8, and INT4 Quantized Checkpoints**: NVFP4 and FP8 quantized checkpoints for Qwen3.8-2.4T-A95B, along with an INT4 checkpoint for Qwen3.8-27B, have been created by the Red Hat AI team. Of particular note, `Qwen3.8-2.4T-A95B-NVFP4-REAP-25` combines REAP expert pruning with NVFP4 quantization — 25% of the least-salient experts are pruned prior to quantization, further reducing VRAM requirements while maintaining accuracy recovery.
