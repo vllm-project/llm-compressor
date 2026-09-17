@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -57,7 +56,8 @@ class ExpertMLPWithGate(ExpertMLP):
         self._apply_gate = _apply_gate
 
     def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        # load weights
+        # Rebind linear parameters to views into the fused expert tensors so the
+        # linearized representation can share storage with the original module.
         if not experts.is_transposed:
             gate_weight = experts.gate_up_proj[index, : self.intermediate_size]
             up_weight = experts.gate_up_proj[index, self.intermediate_size :]
@@ -68,19 +68,30 @@ class ExpertMLPWithGate(ExpertMLP):
             up_weight = experts.gate_up_proj[index, :, self.intermediate_size :].T
             down_weight = experts.down_proj[index].T
 
-        self.gate_proj.weight.copy_(gate_weight)
-        self.up_proj.weight.copy_(up_weight)
-        self.down_proj.weight.copy_(down_weight)
+        self.gate_proj.weight = torch.nn.Parameter(
+            gate_weight, requires_grad=experts.gate_up_proj.requires_grad
+        )
+        self.up_proj.weight = torch.nn.Parameter(
+            up_weight, requires_grad=experts.gate_up_proj.requires_grad
+        )
+        self.down_proj.weight = torch.nn.Parameter(
+            down_weight, requires_grad=experts.down_proj.requires_grad
+        )
 
-        # load biases
         if experts.has_bias:
             gate_bias = experts.gate_up_proj_bias[index, : self.intermediate_size]
             up_bias = experts.gate_up_proj_bias[index, self.intermediate_size :]
             down_bias = experts.down_proj_bias[index]
 
-            self.gate_proj.bias.copy_(gate_bias)
-            self.up_proj.bias.copy_(up_bias)
-            self.down_proj.bias.copy_(down_bias)
+            self.gate_proj.bias = torch.nn.Parameter(
+                gate_bias, requires_grad=experts.gate_up_proj_bias.requires_grad
+            )
+            self.up_proj.bias = torch.nn.Parameter(
+                up_bias, requires_grad=experts.gate_up_proj_bias.requires_grad
+            )
+            self.down_proj.bias = torch.nn.Parameter(
+                down_bias, requires_grad=experts.down_proj_bias.requires_grad
+            )
 
     def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
         """Inverse of :meth:`copy_from_experts_module` for weight (and bias) tensors."""
@@ -144,7 +155,6 @@ class ExpertMLPWithoutGate(ExpertMLP):
         self.act_fn = act_fn
 
     def copy_from_experts_module(self, experts: FusedExpertsProtocol, index: int):
-        # load weights
         if not experts.is_transposed:
             up_weight = experts.up_proj[index]
             down_weight = experts.down_proj[index]
@@ -153,16 +163,23 @@ class ExpertMLPWithoutGate(ExpertMLP):
             up_weight = experts.up_proj[index].T
             down_weight = experts.down_proj[index].T
 
-        self.up_proj.weight.copy_(up_weight)
-        self.down_proj.weight.copy_(down_weight)
+        self.up_proj.weight = torch.nn.Parameter(
+            up_weight, requires_grad=experts.up_proj.requires_grad
+        )
+        self.down_proj.weight = torch.nn.Parameter(
+            down_weight, requires_grad=experts.down_proj.requires_grad
+        )
 
-        # load biases
         if experts.has_bias:
             up_bias = experts.up_proj_bias[index]
             down_bias = experts.down_proj_bias[index]
 
-            self.up_proj.bias.copy_(up_bias)
-            self.down_proj.bias.copy_(down_bias)
+            self.up_proj.bias = torch.nn.Parameter(
+                up_bias, requires_grad=experts.up_proj_bias.requires_grad
+            )
+            self.down_proj.bias = torch.nn.Parameter(
+                down_bias, requires_grad=experts.down_proj_bias.requires_grad
+            )
 
     def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
         """Inverse of :meth:`copy_from_experts_module` for weight (and bias) tensors."""
@@ -241,7 +258,9 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
     ):
         with skip_weights_initialize():
             self = cls(config)
@@ -254,11 +273,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         # fused experts class and config (see issue #2699).
         self._source_experts_cls = experts.__class__
         self._source_config = config
-
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
 
         return self
 
@@ -294,8 +308,6 @@ class LinearExperts2D(torch.nn.ModuleList):
 
         self._pack_weight_qparams(fused)
 
-        offload_kwargs = get_cache_init_kwargs(self)
-        offload_module(fused, **offload_kwargs)
         return fused
 
     def _pack_weight_qparams(self, fused: FusedExpertsProtocol) -> None:
