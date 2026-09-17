@@ -1,6 +1,6 @@
 import contextlib
-from functools import wraps
 from collections.abc import Iterable
+from functools import wraps
 from typing import Type
 
 import torch
@@ -289,7 +289,10 @@ def _get_non_linearized_moe_targets(
         for module in model.modules()
         if module in moe_lookup
         and not isinstance(module, LinearExperts2D)
-        and any(selected_module in module.modules() for selected_module in selected_module_set)
+        and any(
+            selected_module in module.modules()
+            for selected_module in selected_module_set
+        )
     ]
 
 

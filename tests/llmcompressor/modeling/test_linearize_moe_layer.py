@@ -111,9 +111,7 @@ def test_linearize_moe_subgraph_promotes_selected_expert_children(monkeypatch):
     def fake_linearize_moe_layer(model_arg, name, module):
         calls.append((name, module))
 
-    monkeypatch.setattr(
-        linearize_mod, "linearize_moe_layer", fake_linearize_moe_layer
-    )
+    monkeypatch.setattr(linearize_mod, "linearize_moe_layer", fake_linearize_moe_layer)
 
     expert_child = next(iter(model.block1.mlp.experts.children()))
     linearize_moe_subgraph(model, [expert_child])
