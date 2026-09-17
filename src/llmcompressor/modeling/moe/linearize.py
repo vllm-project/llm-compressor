@@ -98,7 +98,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
 def get_moe_linear_status(
     model: torch.nn.Module,
-) -> list[tuple[str, torch.nn.Module]]:
+) -> dict[torch.nn.Module, str]:
     """
     Return all modules which are recognized to be experts layers.
     Includes both 3D experts (which need linearization) and
@@ -115,6 +115,7 @@ def get_moe_linear_status(
         for name, module in model.named_modules()
         if isinstance(module, FusedExpertsProtocol)
         or isinstance(module, LinearExperts2D)
+        or LinearExperts2D.get_registration(module.__class__) is not None
     }
 
     return model._moe_lookup
@@ -166,8 +167,10 @@ def repack_moe_subgraph(
     moe_lookup = get_moe_linear_status(model)
     linearized = [
         (moe_lookup[module], module)
-        for module in subgraph_set
-        if module in moe_lookup and isinstance(module, LinearExperts2D)
+        for module in model.modules()
+        if module in moe_lookup
+        and isinstance(module, LinearExperts2D)
+        and any(selected_module in module.modules() for selected_module in subgraph_set)
     ]
 
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts in subgraph"):
@@ -247,6 +250,27 @@ def linearize_moe_subgraph(
         range(len(non_linearized)), desc="Linearizing experts in subgraph"
     ):
         linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
+
+
+def get_moe_linearization_modules(
+    model: torch.nn.Module,
+    subgraph_modules: Iterable[torch.nn.Module],
+) -> list[torch.nn.Module]:
+    """Include enclosing non-linearized MoE modules in a subgraph selection.
+
+    Sequential tracing can select an individual expert without selecting its
+    parent experts container. The parent must still be wrapped before it is
+    replaced so the offloading lifecycle continues to track the new module.
+    """
+    modules = list(dict.fromkeys(subgraph_modules))
+    selected = set(modules)
+
+    for _, module in _get_non_linearized_moe_targets(model, modules):
+        if module not in selected:
+            modules.append(module)
+            selected.add(module)
+
+    return modules
 
 
 def linearize_moe_layer(

@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modeling.moe.linearize import (
+    get_moe_linearization_modules,
     linearize_moe_model,
     linearize_moe_subgraph,
     repack_moe_model,
@@ -154,11 +155,17 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
 
+                subgraph_modules = subgraph.submodules(model)
+                if dataset_args.sequential_linearize_repack:
+                    subgraph_modules = get_moe_linearization_modules(
+                        model, subgraph_modules
+                    )
+
                 # Everything onloaded in this context, offloaded outside
-                with disable_offloading_controlled(model, subgraph.submodules(model)):
+                with disable_offloading_controlled(model, subgraph_modules):
                     # linearize moe layers just before calibration,
                     if dataset_args.sequential_linearize_repack:
-                        linearize_moe_subgraph(model, subgraph.submodules(model))
+                        linearize_moe_subgraph(model, subgraph_modules)
 
                     # do a preliminary pass to trigger modifier hooks
                     for batch_idx, inputs in _get_batches(

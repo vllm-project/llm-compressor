@@ -10,9 +10,14 @@ import llmcompressor.modeling.moe.linearize as linearize_mod
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modeling.moe.linearize import (
     get_moe_linear_status,
+    get_moe_linearization_modules,
     linearize_moe_layer,
     linearize_moe_subgraph,
     load_quantizable_moe,
+    repack_moe_subgraph,
+)
+from llmcompressor.pipelines.sequential.offloading import (
+    disable_offloading_controlled,
 )
 
 
@@ -117,6 +122,27 @@ def test_linearize_moe_subgraph_promotes_selected_expert_children(monkeypatch):
     linearize_moe_subgraph(model, [expert_child])
 
     assert calls == [("block1.mlp.experts", model.block1.mlp.experts)]
+
+
+@torch.no_grad()
+def test_promoted_expert_parent_is_wrapped_for_real_conversion():
+    config = _make_config()
+    model = _TwoExpertBlocks(config)
+    experts = model.block1.mlp.experts
+    _init_experts(experts, config)
+    expert_child = next(iter(experts.children()))
+
+    subgraph_modules = get_moe_linearization_modules(model, [expert_child])
+    assert experts in subgraph_modules
+
+    with disable_offloading_controlled(model, subgraph_modules):
+        linearize_moe_subgraph(model, subgraph_modules)
+
+    linearized_experts = model.block1.mlp.experts
+    assert isinstance(linearized_experts, LinearExperts2D)
+
+    repack_moe_subgraph(model, [next(iter(linearized_experts.children()))])
+    assert isinstance(model.block1.mlp.experts, Qwen3MoeExperts)
 
 
 @torch.no_grad()

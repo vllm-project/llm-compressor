@@ -291,7 +291,7 @@ def test_linearize_moe_llama4():
 
     mock_model = DummyModel(experts, config)
     linearize_moe(mock_model)
-    assert mock_model.module is experts
+    assert mock_model.module is not experts
 
     moe_config = MoEConfig.from_config(text_config)
     hidden_states = torch.randn(
