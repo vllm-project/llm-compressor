@@ -8,7 +8,7 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.moe.linearize import linearize_moe_model
+from llmcompressor.modeling.moe.linearize import linearize_moe_model, repack_moe_model
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
@@ -74,6 +74,9 @@ class BasicPipeline(CalibrationPipeline):
 
                 batch = tensors_to_device(batch, model_device)
                 model(**batch)
+
+        if dataset_args and dataset_args.repack_moe_layers:
+            repack_moe_model(model)
 
         LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
         LifecycleCallbacks.calibration_end()
