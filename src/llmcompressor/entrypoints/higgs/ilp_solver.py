@@ -153,16 +153,16 @@ def solve_ilp_mixed_precision(
         else:
             weighted_bitwidth_terms = []
             for layer in mse_matrix:
-                params = layer_param_counts.get(layer, 0)
+                param_fraction = layer_param_counts.get(layer, 0) / total_params
                 for scheme in candidate_schemes:
                     bitwidth = scheme_bitwidths.get(scheme, 0)
                     weighted_bitwidth_terms.append(
-                        bitwidth * params * x[layer][scheme]
+                        bitwidth * param_fraction * x[layer][scheme]
                     )
 
             # Average bitwidth = sum(bitwidth * params * x) / total_params
             prob += (
-                pulp.lpSum(weighted_bitwidth_terms) <= target_avg_bitwidth * total_params,
+                pulp.lpSum(weighted_bitwidth_terms) <= target_avg_bitwidth,
                 "AverageWeightBitwidthConstraint",
             )
 
@@ -178,15 +178,15 @@ def solve_ilp_mixed_precision(
         else:
             weighted_act_bitwidth_terms = []
             for layer in mse_matrix:
-                params = layer_param_counts.get(layer, 0)
+                param_fraction = layer_param_counts.get(layer, 0) / total_params
                 for scheme in candidate_schemes:
                     act_bitwidth = scheme_act_bitwidths.get(scheme, 16.0)
                     weighted_act_bitwidth_terms.append(
-                        act_bitwidth * params * x[layer][scheme]
+                        act_bitwidth * param_fraction * x[layer][scheme]
                     )
 
             prob += (
-                pulp.lpSum(weighted_act_bitwidth_terms) <= target_avg_act_bitwidth * total_params,
+                pulp.lpSum(weighted_act_bitwidth_terms) <= target_avg_act_bitwidth,
                 "AverageActBitwidthConstraint",
             )
 

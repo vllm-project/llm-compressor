@@ -2,11 +2,10 @@
 Unit tests for ILP solver.
 """
 
-import pytest
-
 from llmcompressor.entrypoints.higgs.ilp_solver import (
     solve_ilp_mixed_precision,
 )
+from llmcompressor.entrypoints.higgs.utils import UNQUANTIZED_SCHEME
 
 
 def test_ilp_basic_solution():
@@ -24,6 +23,50 @@ def test_ilp_basic_solution():
     # Should choose W8A8 for both layers (lower MSE)
     assert solution["layer1"] == "W8A8"
     assert solution["layer2"] == "W8A8"
+
+
+def test_ilp_unquantized_scheme_uses_16_bit_budget():
+    mse_matrix = {
+        "layer1": {"W4A16": 0.1, UNQUANTIZED_SCHEME: 0.0},
+        "layer2": {"W4A16": 0.2, UNQUANTIZED_SCHEME: 0.0},
+    }
+
+    solution = solve_ilp_mixed_precision(
+        mse_matrix=mse_matrix,
+        alphas={"layer1": 1.0, "layer2": 1.0},
+        candidate_schemes=["W4A16", UNQUANTIZED_SCHEME],
+        target_avg_bitwidth=10.0,
+        layer_param_counts={"layer1": 100, "layer2": 100},
+        scheme_bitwidths={"W4A16": 4.0, UNQUANTIZED_SCHEME: 16.0},
+    )
+
+    assert solution == {
+        "layer1": "W4A16",
+        "layer2": UNQUANTIZED_SCHEME,
+    }
+
+
+def test_ilp_large_model_bitwidth_constraint_is_well_scaled():
+    num_layers = 512
+    mse_matrix = {
+        f"layer{i}": {
+            "W4": 1.0,
+            "W8": 0.1,
+            UNQUANTIZED_SCHEME: 0.0,
+        }
+        for i in range(num_layers)
+    }
+
+    solution = solve_ilp_mixed_precision(
+        mse_matrix=mse_matrix,
+        alphas={layer: 1.0 for layer in mse_matrix},
+        candidate_schemes=["W4", "W8", UNQUANTIZED_SCHEME],
+        target_avg_bitwidth=8.0,
+        layer_param_counts={layer: 60_000_000 for layer in mse_matrix},
+        scheme_bitwidths={"W4": 4.0, "W8": 8.0, UNQUANTIZED_SCHEME: 16.0},
+    )
+
+    assert set(solution.values()) == {"W8"}
 
 
 def test_ilp_fused_layer_constraint():

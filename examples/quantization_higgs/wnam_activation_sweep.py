@@ -132,6 +132,7 @@ def run_sweep(model_id, model_short, schemes, weight_bits_list, act_bits_list,
                     ignore=IGNORE,
                     enforce_fused_layer_constraints=True,
                     target_avg_bitwidth=wbits,
+                    allow_unquantized=True,
                     target_avg_act_bitwidth=abits,
                     device="cuda:0",
                 )

@@ -56,6 +56,7 @@ def main():
         targets="Linear",
         ignore=IGNORE,
         target_avg_bitwidth=args.target_bits,
+        allow_unquantized=True,
     )
 
     print(f"\nHIGGS config: {len(config.config_groups)} groups")

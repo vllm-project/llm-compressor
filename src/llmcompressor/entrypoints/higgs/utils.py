@@ -28,13 +28,15 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.observers.helpers import FUSED_LAYER_NAMES
 
-
 __all__ = [
     "compute_layer_mse",
     "compute_heuristic_alphas",
     "generate_config_groups",
     "detect_fused_groups",
 ]
+
+
+UNQUANTIZED_SCHEME = "__unquantized__"
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +206,12 @@ def generate_config_groups(
         scheme_to_layers[scheme_name].append(layer)
 
     config_groups = {}
-    for idx, (scheme_name, layer_list) in enumerate(sorted(scheme_to_layers.items())):
+    quantized_groups = [
+        item
+        for item in sorted(scheme_to_layers.items())
+        if item[0] != UNQUANTIZED_SCHEME
+    ]
+    for idx, (scheme_name, layer_list) in enumerate(quantized_groups):
         base_scheme = candidate_schemes.get(scheme_name)
         if base_scheme is None:
             logger.warning(f"Scheme {scheme_name} not in candidate_schemes, skipping")
@@ -222,6 +229,8 @@ def generate_config_groups(
         config_groups[group_name] = QuantizationScheme(**scheme_dict)
         logger.info(f"Config group '{group_name}': {len(layer_list)} layers")
 
+    unquantized_layers = scheme_to_layers.get(UNQUANTIZED_SCHEME, [])
+    if unquantized_layers:
+        logger.info(f"Leaving {len(unquantized_layers)} layers unquantized")
+
     return config_groups
-
-

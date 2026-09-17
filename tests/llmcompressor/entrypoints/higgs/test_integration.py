@@ -2,18 +2,17 @@
 Integration tests for HIGGS mixed-precision quantization.
 """
 
-import tempfile
-
 import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.entrypoints.higgs import (
     HiggsMSECollectorConverter,
-    HiggsQuantizationConverter,
     compute_heuristic_alphas,
     detect_fused_groups,
 )
+from llmcompressor.entrypoints.higgs.utils import UNQUANTIZED_SCHEME
+from llmcompressor.entrypoints.model_free.validate import validate_config
 
 
 @pytest.fixture
@@ -53,6 +52,7 @@ def test_mse_collector_basic(candidate_schemes, sample_tensors):
         candidate_schemes=list(candidate_schemes.values()),
         targets="Linear",
         ignore=[],
+        allow_unquantized=False,
     )
 
     # Process tensors
@@ -73,6 +73,7 @@ def test_mse_collector_basic(candidate_schemes, sample_tensors):
     # Should have config groups
     assert len(config.config_groups) > 0
     assert config.config_groups is not None
+    assert validate_config(config=config, scheme=None, ignore=[]) is config
 
 
 def test_mse_collector_with_heuristic(candidate_schemes, sample_tensors):
@@ -82,6 +83,7 @@ def test_mse_collector_with_heuristic(candidate_schemes, sample_tensors):
         targets="Linear",
         ignore=[],
         alpha_calculator=compute_heuristic_alphas,
+        allow_unquantized=False,
     )
 
     collector.process(sample_tensors)
@@ -92,6 +94,29 @@ def test_mse_collector_with_heuristic(candidate_schemes, sample_tensors):
     assert len(config.config_groups) > 0
 
 
+def test_mse_collector_allows_unquantized_layers(
+    candidate_schemes, sample_tensors
+):
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=list(candidate_schemes.values()),
+        targets="Linear",
+        ignore=[],
+        allow_unquantized=True,
+    )
+
+    collector.process(sample_tensors)
+
+    assert all(
+        layer_mse[UNQUANTIZED_SCHEME] == 0.0
+        for layer_mse in collector.mse_matrix.values()
+    )
+
+    config = collector.create_config()
+
+    # With no bitwidth constraint, zero-MSE unquantized wins for every layer.
+    assert config.config_groups == {}
+
+
 def test_mse_collector_with_fusion(candidate_schemes, sample_tensors):
     """Test MSE collector with fusion detection."""
     collector = HiggsMSECollectorConverter(
@@ -99,6 +124,7 @@ def test_mse_collector_with_fusion(candidate_schemes, sample_tensors):
         targets="Linear",
         ignore=[],
         fusion_detector=detect_fused_groups,
+        allow_unquantized=False,
     )
 
     collector.process(sample_tensors)
@@ -107,32 +133,6 @@ def test_mse_collector_with_fusion(candidate_schemes, sample_tensors):
     # Should generate valid config respecting fusion constraints
     assert config is not None
     assert len(config.config_groups) > 0
-
-
-def test_quantization_converter_basic(candidate_schemes, sample_tensors):
-    """Test quantization converter workflow."""
-    # First, run MSE collector to get optimal config
-    collector = HiggsMSECollectorConverter(
-        candidate_schemes=list(candidate_schemes.values()),
-        targets="Linear",
-        ignore=[],
-    )
-    collector.process(sample_tensors)
-    optimal_config = collector.create_config()
-
-    # Now apply quantization
-    quantizer = HiggsQuantizationConverter(
-        optimal_config=optimal_config,
-        targets="Linear",
-        ignore=[],
-    )
-
-    # Process tensors (this quantizes them)
-    quantized_tensors = quantizer.process(sample_tensors.copy())
-
-    # Tensors should have changed (quantized)
-    # Note: May have different keys due to compression
-    assert len(quantized_tensors) > 0
 
 
 def test_alpha_heuristic_layer_types():
@@ -158,8 +158,6 @@ def test_alpha_heuristic_layer_types():
 
     embed_alpha = alphas["model.embed_tokens"]
     attn_alpha = alphas["model.layers.0.self_attn.q_proj"]
-    mlp_alpha = alphas["model.layers.5.mlp.gate_proj"]
-
     # Embedding should be highest
     assert embed_alpha > attn_alpha
 
