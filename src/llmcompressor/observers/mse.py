@@ -120,7 +120,8 @@ class NVFP4ExpandedMSEObserver(HierarchicalMSEObserver):
 
     Uses a 32-to-32 hierarchical search over 0.8x--1.8x of each original
     per-group range. It retains four coarse candidates per group and refines
-    each with eight children, for 64 candidate evaluations per group.
+    them with 20/8/2/2 children, for 64 distinct candidate evaluations per
+    group.
 
     Usage::
 

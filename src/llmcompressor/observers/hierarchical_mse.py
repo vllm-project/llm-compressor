@@ -1,10 +1,9 @@
 """Hierarchical range search used by the expanded NVFP4 MSE observer.
 
 The search evaluates 32 equally spaced factors over 0.8--1.8, retains the
-four lowest-error factors independently for each qparam, then evaluates eight
-children around each retained factor.  It therefore evaluates 64 candidates
-per qparam while retaining a substantially finer effective resolution than a
-linear 64-point search.
+four lowest-error factors independently for each qparam, then evaluates
+20/8/2/2 children around them.  It therefore evaluates 64 distinct candidates
+per qparam while concentrating refinement on the most promising basin.
 """
 
 import torch
@@ -24,7 +23,7 @@ MIN_FACTOR = 0.8
 MAX_FACTOR = 1.8
 COARSE_POINTS = 32
 RETAINED_POINTS = 4
-CHILDREN_PER_POINT = 8
+CHILDREN_PER_RANK = (20, 8, 2, 2)
 TILE_VALUES = 512
 
 
@@ -106,20 +105,23 @@ def _hierarchical_search_mse(
 
     selected_error = best_errors[0]
     selected_factor = best_factors[0]
-    for parent in range(RETAINED_POINTS):
-        for child in range(CHILDREN_PER_POINT):
-            offset = (
-                (2 * child + 1 - CHILDREN_PER_POINT)
-                * spacing
-                / (2 * CHILDREN_PER_POINT)
-            )
-            factor = (best_factors[parent] + offset).clamp(MIN_FACTOR, MAX_FACTOR)
-            error = _calculate_error(
-                observed, args, token_args, minimum * factor, maximum * factor, norm
-            )
-            improved = error < selected_error
-            selected_error = torch.where(improved, error, selected_error)
-            selected_factor = torch.where(improved, factor, selected_factor)
+    for parent, num_children in enumerate(CHILDREN_PER_RANK):
+        # The parent was evaluated during the coarse pass.  Place only new
+        # candidates at +/- k * spacing / (num_children + 1), which makes the
+        # parent and its children an evenly spaced, parent-inclusive grid.
+        for child in range(1, num_children // 2 + 1):
+            offset = child * spacing / (num_children + 1)
+            offsets = (-offset, offset)
+            for offset in offsets:
+                factor = (best_factors[parent] + offset).clamp(
+                    MIN_FACTOR, MAX_FACTOR
+                )
+                error = _calculate_error(
+                    observed, args, token_args, minimum * factor, maximum * factor, norm
+                )
+                improved = error < selected_error
+                selected_error = torch.where(improved, error, selected_error)
+                selected_factor = torch.where(improved, factor, selected_factor)
 
     return minimum * selected_factor, maximum * selected_factor
 
@@ -194,8 +196,6 @@ def _hierarchical_search_mse_kernel(
     P_MIN: tl.constexpr,
     P_MAX: tl.constexpr,
     NUM_COARSE: tl.constexpr,
-    NUM_RETAINED: tl.constexpr,
-    NUM_CHILDREN: tl.constexpr,
     BLOCK_VALUES: tl.constexpr,
     TILE_QPARAMS: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
@@ -243,16 +243,36 @@ def _hierarchical_search_mse_kernel(
         )
 
     best_error, best_factor = e0, p0
-    for parent_index in range(NUM_RETAINED):
-        parent = tl.where(
-            parent_index == 0,
-            p0,
-            tl.where(parent_index == 1, p1, tl.where(parent_index == 2, p2, p3)),
+    # The children are parent-inclusive-grid refinements: every candidate is
+    # distinct from its already evaluated parent.  The 20/8/2/2 allocation was
+    # selected by an all-layer Llama-3 NVFP4 regret sweep.
+    for child in range(20):
+        distance = (child // 2 + 1) * spacing / 21.0
+        offset = (2 * (child % 2) - 1) * distance
+        factor = tl.maximum(P_MIN, tl.minimum(P_MAX, p0 + offset))
+        error = _candidate_error(
+            values, value_mask, minimum, maximum, factor, q_min, q_max, norm,
+            OBSERVED_DTYPE=OBSERVED_DTYPE,
         )
-        for child in range(NUM_CHILDREN):
-            offset: tl.constexpr = (
-                (2 * child + 1 - NUM_CHILDREN) * spacing / (2 * NUM_CHILDREN)
-            )
+        improved = error < best_error
+        best_error = tl.where(improved, error, best_error)
+        best_factor = tl.where(improved, factor, best_factor)
+    for child in range(8):
+        distance = (child // 2 + 1) * spacing / 9.0
+        offset = (2 * (child % 2) - 1) * distance
+        factor = tl.maximum(P_MIN, tl.minimum(P_MAX, p1 + offset))
+        error = _candidate_error(
+            values, value_mask, minimum, maximum, factor, q_min, q_max, norm,
+            OBSERVED_DTYPE=OBSERVED_DTYPE,
+        )
+        improved = error < best_error
+        best_error = tl.where(improved, error, best_error)
+        best_factor = tl.where(improved, factor, best_factor)
+    for parent_index in range(2):
+        parent = tl.where(parent_index == 0, p2, p3)
+        for child in range(2):
+            distance = (child // 2 + 1) * spacing / 3.0
+            offset = (2 * (child % 2) - 1) * distance
             factor = tl.maximum(P_MIN, tl.minimum(P_MAX, parent + offset))
             error = _candidate_error(
                 values,
@@ -321,8 +341,6 @@ def _hierarchical_search_mse_triton(
         P_MIN=MIN_FACTOR,
         P_MAX=MAX_FACTOR,
         NUM_COARSE=COARSE_POINTS,
-        NUM_RETAINED=RETAINED_POINTS,
-        NUM_CHILDREN=CHILDREN_PER_POINT,
         BLOCK_VALUES=block_values,
         TILE_QPARAMS=tile_qparams,
         OBSERVED_DTYPE=observed_dtype,
