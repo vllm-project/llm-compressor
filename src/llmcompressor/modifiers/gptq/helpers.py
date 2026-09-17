@@ -139,7 +139,9 @@ def update_batch_qparams(
         }
         if global_scales is not None:
             q_param_dict["weight_global_scale"] = (
-                global_scales[index].unsqueeze(0).to(dtype=torch.float32)
+                global_scales[index]
+                .reshape_as(module.weight_global_scale)
+                .to(dtype=torch.float32)
             )
         for attr, val in q_param_dict.items():
             update_offload_parameter(module, attr, val)
