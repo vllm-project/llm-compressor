@@ -7,8 +7,10 @@ quantization schemes for each layer in Llama-3-8B.
 
 import os
 import time
+
 import torch
 
+from llmcompressor import model_free_ptq
 from llmcompressor.entrypoints.higgs import get_higgs_config
 
 # Select model
@@ -18,6 +20,7 @@ MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
 # HIGGS will evaluate each scheme on each layer and select the optimal assignment
 # Note: Use schemes with different quality/size tradeoffs for mixed-precision
 CANDIDATE_SCHEMES = ["W4A16", "W8A16"]  # 4-bit vs 8-bit weights
+OUTPUT_DIR = os.path.expanduser("~/hf_hub/Meta-Llama-3-8B-Instruct-HIGGS")
 
 # Run HIGGS quantization
 # Phase 1: Collect MSE data and solve ILP
@@ -37,6 +40,14 @@ optimal_config = get_higgs_config(
     ignore=["lm_head", "model.embed_tokens"],
     enforce_fused_layer_constraints=True,
     target_avg_bitwidth=6.0,
+    allow_unquantized=True,
+    device="cuda:0",
+)
+
+model_free_ptq(
+    model_stub=MODEL_ID,
+    save_directory=OUTPUT_DIR,
+    config=optimal_config,
     device="cuda:0",
 )
 
@@ -58,21 +69,19 @@ for group_name, scheme in optimal_config.config_groups.items():
     num_layers = len(scheme.targets)
     bitwidth = scheme.weights.num_bits if scheme.weights else "N/A"
     print(f"  {group_name}: {num_layers} layers @ {bitwidth}-bit")
-print(f"\nQuantized model saved to: ~/hf_hub/Meta-Llama-3-8B-Instruct-HIGGS")
+print(f"\nQuantized model saved to: {OUTPUT_DIR}")
 print("=" * 80)
 
 # Verify the quantized model was saved
 print("\nVerifying quantized model files...")
-import os
-output_dir = os.path.expanduser("~/hf_hub/Meta-Llama-3-8B-Instruct-HIGGS")
-if os.path.exists(output_dir):
-    files = os.listdir(output_dir)
-    safetensor_files = [f for f in files if f.endswith('.safetensors')]
+if os.path.exists(OUTPUT_DIR):
+    files = os.listdir(OUTPUT_DIR)
+    safetensor_files = [f for f in files if f.endswith(".safetensors")]
     print(f"  Found {len(safetensor_files)} safetensors files")
     print(f"  Total files: {len(files)}")
 
     # Check config
-    config_path = os.path.join(output_dir, "config.json")
+    config_path = os.path.join(OUTPUT_DIR, "config.json")
     if os.path.exists(config_path):
         import json
         with open(config_path) as f:

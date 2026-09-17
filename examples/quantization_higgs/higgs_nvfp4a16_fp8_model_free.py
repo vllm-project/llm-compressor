@@ -1,8 +1,8 @@
 """
-HIGGS Mixed-Precision: NVFP4A16 + FP8_DYNAMIC via convert_checkpoint
+HIGGS Mixed-Precision: NVFP4A16 + FP8_DYNAMIC via model_free_ptq
 
 1. get_higgs_config(): model-free ILP selects optimal per-layer schemes
-2. convert_checkpoint() + HiggsQuantizationConverter: applies quantization
+2. model_free_ptq(): applies the generated mixed-precision config
    directly to safetensors without loading the full model into GPU memory
 
 NVFP4A16 (W4A16) and FP8_DYNAMIC are data-free schemes, so no calibration
@@ -17,12 +17,8 @@ Usage:
 import argparse
 import os
 
-from compressed_tensors.entrypoints.convert import convert_checkpoint
-
-from llmcompressor.entrypoints.higgs import (
-    HiggsQuantizationConverter,
-    get_higgs_config,
-)
+from llmcompressor import model_free_ptq
+from llmcompressor.entrypoints.higgs import get_higgs_config
 
 IGNORE = [
     "lm_head",
@@ -54,24 +50,19 @@ def main():
         targets="Linear",
         ignore=IGNORE,
         target_avg_bitwidth=args.target_bits,
+        allow_unquantized=True,
     )
 
     print(f"\nHIGGS config: {len(config.config_groups)} groups")
     for name, scheme in config.config_groups.items():
         print(f"  {name}: {len(scheme.targets)} layers")
 
-    # Step 2: apply quantization via convert_checkpoint (no model load)
-    converter = HiggsQuantizationConverter(
-        optimal_config=config,
-        targets="Linear",
-        ignore=IGNORE,
-        device="cuda:0",
-    )
-
-    convert_checkpoint(
+    # Step 2: apply the mixed-precision config without loading the model
+    model_free_ptq(
         model_stub=args.model,
         save_directory=save_dir,
-        converter=converter,
+        config=config,
+        device="cuda:0",
         max_workers=args.max_workers,
     )
 

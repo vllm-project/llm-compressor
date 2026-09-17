@@ -4,7 +4,6 @@ HIGGS: Heuristic ILP-Guided Grouped Scheme Mixed-Precision Quantization
 
 from llmcompressor.entrypoints.higgs.base import (
     HiggsMSECollectorConverter,
-    HiggsQuantizationConverter,
     get_higgs_config,
 )
 from llmcompressor.entrypoints.higgs.ilp_solver import (
@@ -17,11 +16,9 @@ from llmcompressor.entrypoints.higgs.utils import (
     generate_config_groups,
 )
 
-
 __all__ = [
     "get_higgs_config",
     "HiggsMSECollectorConverter",
-    "HiggsQuantizationConverter",
     "compute_layer_mse",
     "solve_ilp_mixed_precision",
     "generate_config_groups",

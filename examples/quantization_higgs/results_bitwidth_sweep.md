@@ -8,7 +8,7 @@ baselines at 4-bit, 8-bit, and 16-bit.
 
 - **Model**: meta-llama/Meta-Llama-3.1-8B-Instruct
 - **Schemes**: NVFP4A16 (4-bit weight-only) + FP8_DYNAMIC (8-bit dynamic)
-- **Method**: convert_checkpoint + HiggsQuantizationConverter (data-free)
+- **Method**: model-free conversion (data-free)
 - **Eval**: lm_eval wikitext word_perplexity via vLLM
 
 ## Results
