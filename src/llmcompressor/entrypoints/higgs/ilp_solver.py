@@ -37,20 +37,25 @@ def solve_ilp_mixed_precision(
         Decision variables: x[layer][scheme] ∈ {0, 1}
 
         Objective:
-            minimize: Σ_layer Σ_scheme (MSE[layer][scheme] * alpha[layer] * x[layer][scheme])
+            minimize: Σ_layer Σ_scheme (
+                MSE[layer][scheme] * alpha[layer] * x[layer][scheme]
+            )
 
         Constraints:
             1. Each layer gets exactly one scheme:
                Σ_scheme x[layer][scheme] = 1  ∀ layer
 
             2. Fused layers use same scheme (if fused_groups provided):
-               x[layer_i][scheme] = x[layer_j][scheme]  ∀ scheme, ∀ (layer_i, layer_j) in same group
+               x[layer_i][scheme] = x[layer_j][scheme]  ∀ scheme,
+               ∀ (layer_i, layer_j) in same group
 
-            3. Optional: Average weight bitwidth constraint (if target_avg_bitwidth provided):
+            3. Optional: Average weight bitwidth constraint
+               (if target_avg_bitwidth provided):
                Σ_layer (bitwidth[scheme] * params[layer] * x[layer][scheme])
                / Σ_layer params[layer] <= target_avg_bitwidth
 
-            4. Optional: Average activation bitwidth constraint (if target_avg_act_bitwidth provided):
+            4. Optional: Average activation bitwidth constraint
+               (if target_avg_act_bitwidth provided):
                Σ_layer (act_bitwidth[scheme] * params[layer] * x[layer][scheme])
                / Σ_layer params[layer] <= target_avg_act_bitwidth
 
@@ -60,9 +65,10 @@ def solve_ilp_mixed_precision(
         candidate_schemes: List of scheme names (must match keys in mse_matrix)
         fused_groups: Optional list of layer name groups that must use same scheme
         target_avg_bitwidth: Optional constraint on weighted average weight bitwidth
-        layer_param_counts: Required if target_avg_bitwidth or target_avg_act_bitwidth is set
+        layer_param_counts: Required if either average bitwidth target is set
         scheme_bitwidths: Required if target_avg_bitwidth is set
-        target_avg_act_bitwidth: Optional constraint on weighted average activation bitwidth
+        target_avg_act_bitwidth: Optional constraint on weighted average
+            activation bitwidth
         scheme_act_bitwidths: Required if target_avg_act_bitwidth is set
 
     Returns:
@@ -89,7 +95,8 @@ def solve_ilp_mixed_precision(
     if target_avg_act_bitwidth is not None:
         if layer_param_counts is None or scheme_act_bitwidths is None:
             raise ValueError(
-                "target_avg_act_bitwidth requires layer_param_counts and scheme_act_bitwidths"
+                "target_avg_act_bitwidth requires layer_param_counts and "
+                "scheme_act_bitwidths"
             )
 
     # Create ILP problem
@@ -110,8 +117,8 @@ def solve_ilp_mixed_precision(
     for layer in mse_matrix:
         alpha = alphas.get(layer, 1.0)  # Default alpha = 1.0 if missing
         for scheme in candidate_schemes:
-            mse = mse_matrix[layer].get(scheme, float('inf'))
-            mse = max(min(1e10, mse), 0) # clamp between 0 and 1e10
+            mse = mse_matrix[layer].get(scheme, float("inf"))
+            mse = max(min(1e10, mse), 0)  # clamp between 0 and 1e10
             objective_terms.append(mse * alpha * x[layer][scheme])
 
     prob += pulp.lpSum(objective_terms), "WeightedMSE"
@@ -130,12 +137,16 @@ def solve_ilp_mixed_precision(
 
         base_layer = group[0]
         if base_layer not in mse_matrix:
-            logger.warning(f"Fused group layer {base_layer} not in MSE matrix, skipping")
+            logger.warning(
+                f"Fused group layer {base_layer} not in MSE matrix, skipping"
+            )
             continue
 
         for other_layer in group[1:]:
             if other_layer not in mse_matrix:
-                logger.warning(f"Fused group layer {other_layer} not in MSE matrix, skipping")
+                logger.warning(
+                    f"Fused group layer {other_layer} not in MSE matrix, skipping"
+                )
                 continue
 
             for scheme in candidate_schemes:
@@ -174,7 +185,9 @@ def solve_ilp_mixed_precision(
         total_params = sum(layer_param_counts.get(layer, 0) for layer in mse_matrix)
 
         if total_params == 0:
-            logger.warning("Total parameter count is 0, skipping activation bitwidth constraint")
+            logger.warning(
+                "Total parameter count is 0, skipping activation bitwidth constraint"
+            )
         else:
             weighted_act_bitwidth_terms = []
             for layer in mse_matrix:
@@ -191,7 +204,10 @@ def solve_ilp_mixed_precision(
             )
 
     # Solve the ILP
-    logger.info(f"Solving ILP with {len(mse_matrix)} layers and {len(candidate_schemes)} schemes")
+    logger.info(
+        f"Solving ILP with {len(mse_matrix)} layers and "
+        f"{len(candidate_schemes)} schemes"
+    )
     logger.info(f"  Variables: {sum(len(x[layer]) for layer in x)}")
     logger.info(f"  Fused groups: {len([g for g in fused_groups if len(g) >= 2])}")
 
