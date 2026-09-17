@@ -117,7 +117,7 @@ def trace_subgraphs(
         stack.enter_context(HooksMixin.disable_hooks())
 
         # flags useful for tracing
-        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
+        # note: eager attention is forced by `calibration_forward_context`
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
 
         # autowrap forwards

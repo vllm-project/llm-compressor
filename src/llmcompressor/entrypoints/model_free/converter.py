@@ -84,16 +84,6 @@ class ModelFreePtqConverter(Converter):
                 deps.add(template.format(**match.groupdict()))
         return deps
 
-    def validate(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """
-        Validate that each quantizable tensor can be quantized under its scheme.
-        Operates on meta tensors.
-        """
-        tensors = split_fused_moe_experts(tensors)
-        for _, name, scheme in _match_tensors_to_schemes(tensors, self.config):
-            validate_weight_for_quantization(tensors[name], scheme, name)
-        return tensors
-
     def process(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Quantize and compress all tensors. Device is inferred from the tensors."""
         tensors = split_fused_moe_experts(tensors)
@@ -143,7 +133,7 @@ class ModelFreePtqConverter(Converter):
             del tensors[name]
             prefix = module_name + "."
             for key, value in module.state_dict(prefix=prefix).items():
-                tensors[key] = value.to("cpu")
+                tensors[key] = value
         return tensors
 
     def _process_microscale(
@@ -178,7 +168,7 @@ class ModelFreePtqConverter(Converter):
             del tensors[name]
             prefix = module_name + "."
             for key, value in module.state_dict(prefix=prefix).items():
-                tensors[key] = value.to("cpu")
+                tensors[key] = value
 
         for named_modules in fused_modules.values():
             FusionHandler.fuse(
@@ -193,16 +183,15 @@ class ModelFreePtqConverter(Converter):
                 module_name, _ = name.rsplit(".", 1)
                 prefix = module_name + "."
                 for key, value in module.state_dict(prefix=prefix).items():
-                    tensors[key] = value.to("cpu")
+                    tensors[key] = value
 
         return tensors
 
 
 def _infer_device(tensors: dict[str, torch.Tensor]) -> torch.device:
     for t in tensors.values():
-        if t.device.type != "meta":
-            return t.device
-    return torch.device("cpu")
+        return t.device
+    return torch.device("meta")
 
 
 def split_fused_moe_experts(

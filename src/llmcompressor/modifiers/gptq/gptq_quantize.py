@@ -1,9 +1,7 @@
-import math
 import os
 from copy import copy
 
 import torch
-import transformers
 from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
@@ -11,117 +9,21 @@ from compressed_tensors.quantization import (
     QuantizationType,
     fake_quantize,
 )
-from compressed_tensors.quantization.utils import calculate_range
+from compressed_tensors.quantization.lifecycle.forward_helpers import _is_fp8_supported
 from compressed_tensors.utils.impl_backend import ImplBackend
-from compressed_tensors.utils.triton import triton_req
+from compressed_tensors.utils.triton import HAS_TRITON, tl, triton, triton_req
 
-from llmcompressor.modifiers.gptq.gptq_triton import (
-    FusedQuantType,
-    fused_gptq_block_update,
+from llmcompressor.modifiers.gptq.helpers import (
+    GPTQ_PRECISION,
+    apply_activation_ordering,
+    column_scale_window,
+    factorize_hessian,
+    get_triton_gptq_config,
 )
 
-GPTQ_PRECISION = torch.float32
-
-
 __all__ = [
-    "make_empty_hessian",
-    "accumulate_hessian",
     "quantize_weight",
 ]
-
-
-def _apply_activation_ordering(
-    weights: torch.Tensor,
-    hessians: torch.Tensor,
-    actorder: ActivationOrdering | None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-    """Apply GPTQ activation ordering to a weight/Hessian batch."""
-    if not actorder:
-        return weights, hessians, None
-    if actorder not in (ActivationOrdering.WEIGHT, ActivationOrdering.STATIC):
-        raise ValueError(
-            f"Invalid activation ordering {actorder}. Only 'weight' and 'static'"
-            " are supported for GPTQ."
-        )
-
-    num_rows, num_columns = weights.shape[-2:]
-    perm = torch.argsort(
-        torch.diagonal(hessians, dim1=-2, dim2=-1), dim=-1, descending=True
-    )
-    hessian_perm = perm
-    weight_perm = perm.to(device=weights.device)
-    if hessian_perm.device != hessians.device:
-        hessian_perm = hessian_perm.to(device=hessians.device)
-
-    permuted_hessians = torch.gather(
-        hessians,
-        -1,
-        hessian_perm.unsqueeze(-2).expand(-1, num_columns, -1),
-    )
-    permuted_hessians = torch.gather(
-        permuted_hessians,
-        -2,
-        hessian_perm.unsqueeze(-1).expand(-1, -1, num_columns),
-    )
-    hessians.copy_(permuted_hessians)
-    del permuted_hessians
-
-    permuted_weights = torch.gather(
-        weights,
-        -1,
-        weight_perm.unsqueeze(-2).expand(-1, num_rows, -1),
-    )
-    weights.copy_(permuted_weights)
-    del permuted_weights
-    return weights, hessians, weight_perm
-
-
-def make_empty_hessian(
-    module: torch.nn.Module, device: torch.device | None = None
-) -> torch.Tensor:
-    weight = module.weight
-    num_columns = weight.shape[1]
-    device = device if device is not None else weight.device
-    return torch.zeros((num_columns, num_columns), device=device, dtype=GPTQ_PRECISION)
-
-
-def accumulate_hessian(
-    inp: torch.Tensor,
-    module: torch.nn.Module,
-    H: torch.Tensor | None,
-    num_samples: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    inp = inp.to(device=H.device)
-    if len(inp.shape) == 2:
-        inp = inp.unsqueeze(0)
-    elif len(inp.shape) > 3:
-        inp = inp.reshape(inp.shape[0], -1, inp.shape[-1])
-
-    num_added = inp.shape[0]
-
-    match module:
-        case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
-        case torch.nn.Conv2d():
-            unfold = torch.nn.Unfold(
-                module.kernel_size,
-                dilation=module.dilation,
-                padding=module.padding,
-                stride=module.stride,
-            )
-            inp = unfold(inp)
-            inp = inp.permute([1, 0, 2])
-            inp = inp.flatten(1)
-
-    num_samples += num_added
-
-    inp = inp.to(dtype=GPTQ_PRECISION)
-    inp = math.sqrt(2) * inp
-    H += inp.matmul(inp.t())
-
-    return H, num_samples
 
 
 def quantize_weight(
@@ -168,7 +70,7 @@ def quantize_weight(
     if global_scale is not None:
         global_scale = global_scale.to(device=device)
 
-    W, H, perm = _apply_activation_ordering(W, H, quant_args.actorder)
+    W, H, perm = apply_activation_ordering(W, H, quant_args.actorder)
     # handle g_idx
     g_idx = None
     if strategy in (
@@ -189,31 +91,7 @@ def quantize_weight(
 
     losses = torch.zeros(batch_size, num_rows, device=device)
     used_rtn_fallback = torch.zeros(batch_size, dtype=torch.bool, device=device)
-    # mask dead hessian values
-    diag = torch.diagonal(H, dim1=-2, dim2=-1)
-    dead = diag == 0
-    if dead.any():
-        torch.diagonal(H, dim1=-2, dim2=-1).masked_fill_(dead, 1.0)
-        W.masked_fill_(dead.unsqueeze(1), 0)
-
-    # compute inverse hessian in place to save memory
-    damp = percdamp * torch.diagonal(H, dim1=-2, dim2=-1).mean(dim=-1)
-    torch.diagonal(H, dim1=-2, dim2=-1).add_(damp.unsqueeze(-1))
-    info = torch.empty(batch_size, dtype=torch.int32, device=device)
-    torch.linalg.cholesky_ex(H, check_errors=False, out=(H, info))
-    bad = info.nonzero(as_tuple=False).flatten()
-    if bad.numel():
-        H.index_copy_(
-            0,
-            bad,
-            torch.eye(num_columns, dtype=H.dtype, device=device).expand(
-                bad.numel(), -1, -1
-            ),
-        )
-        used_rtn_fallback[bad] = True
-    torch.cholesky_inverse(H, out=H)
-    torch.linalg.cholesky(H, upper=True, out=H)
-    Hinv = H
+    Hinv = factorize_hessian(W, H, percdamp, used_rtn_fallback)
     # See section 3.4 of https://arxiv.org/abs/2203.07259
     for i1 in range(0, num_columns, blocksize):
         i2 = min(i1 + blocksize, num_columns)
@@ -255,218 +133,6 @@ def quantize_weight(
     return W.to(final_dtype), losses.sum(dim=1), used_rtn_fallback
 
 
-def _get_triton_gptq_config(
-    quant_args: QuantizationArgs,
-) -> tuple[int, float, float] | None:
-    """
-    Resolve fused GPTQ kernel configuration, or None if the scheme is not
-    supported by the fused kernel.
-    """
-    if quant_args.strategy in (
-        QuantizationStrategy.TENSOR,
-        QuantizationStrategy.CHANNEL,
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-        QuantizationStrategy.BLOCK,
-    ):
-        pass
-    else:
-        return None
-
-    if quant_args.type == QuantizationType.INT:
-        quant_type = FusedQuantType.INT
-    elif quant_args.type == QuantizationType.FLOAT and quant_args.num_bits == 4:
-        quant_type = FusedQuantType.FP4_E2M1
-    elif quant_args.type == QuantizationType.FLOAT and quant_args.num_bits == 8:
-        quant_type = FusedQuantType.FP8_E4M3
-    else:
-        return None
-
-    q_min, q_max = calculate_range(quant_args, "cpu")
-    return quant_type, float(q_min), float(q_max)
-
-
-def _column_scale_window(
-    scale: torch.Tensor,
-    zero_point: torch.Tensor | None,
-    global_scale: torch.Tensor | None,
-    g_idx: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    num_rows: int,
-    i1: int,
-    i2: int,
-) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """
-    Expand quantization parameters into effective per-column values over the
-    column window [i1, i2), with the global scale folded in.
-
-    Supports arbitrary leading batch dimensions: `scale` is [..., num_rows, G]
-    and `g_idx` (group strategies) is [... or absent, num_columns].
-
-    :return: (eff_scale [..., num_rows, block_width], zero_point or None)
-    """
-    strategy = quant_args.strategy
-    block_width = i2 - i1
-
-    has_zp = zero_point is not None and not quant_args.symmetric
-
-    if strategy == QuantizationStrategy.TENSOR:
-        # A stacked batch can be [B], [B, 1], or [B, 1, 1]. Normalize all
-        # forms to [B, 1, 1] before expanding over rows and columns.
-        eff = scale.reshape(-1, 1, 1)
-        if has_zp:
-            zp = zero_point.reshape(-1, 1, 1)
-        else:
-            zp = None
-    elif strategy == QuantizationStrategy.CHANNEL:
-        eff = scale[..., :, 0:1]
-        zp = zero_point[..., :, 0:1] if has_zp else None
-    elif strategy in (
-        QuantizationStrategy.GROUP,
-        QuantizationStrategy.TENSOR_GROUP,
-    ):
-        idx = g_idx[..., i1:i2].long()
-        eff = torch.gather(
-            scale, -1, idx.unsqueeze(-2).expand(*scale.shape[:-1], block_width)
-        )
-        zp = (
-            torch.gather(
-                zero_point,
-                -1,
-                idx.unsqueeze(-2).expand(*zero_point.shape[:-1], block_width),
-            )
-            if has_zp
-            else None
-        )
-    elif strategy == QuantizationStrategy.BLOCK:
-        block_height, _ = quant_args.block_structure
-        row_idx = torch.arange(num_rows, device=scale.device) // block_height
-        col_idx = g_idx[..., i1:i2].long().unsqueeze(-2)
-        eff = torch.gather(
-            scale,
-            -1,
-            col_idx.expand(*scale.shape[:-1], block_width),
-        )
-        row_idx = row_idx.reshape((1,) * (eff.ndim - 2) + (num_rows, 1))
-        eff = torch.gather(
-            eff,
-            -2,
-            row_idx.expand(*eff.shape[:-2], num_rows, block_width),
-        )
-        if has_zp:
-            zp = torch.gather(
-                zero_point,
-                -1,
-                col_idx.expand(*zero_point.shape[:-1], block_width),
-            )
-            zp = torch.gather(
-                zp,
-                -2,
-                row_idx.expand(*zp.shape[:-2], num_rows, block_width),
-            )
-        else:
-            zp = None
-    else:
-        raise ValueError(f"Unsupported strategy for column scale window: {strategy}")
-
-    if global_scale is not None:
-        gs = global_scale
-        gs = gs.reshape(*gs.shape, *([1] * (eff.ndim - gs.ndim)))
-        eff = eff / gs
-    eff = eff.expand(*eff.shape[:-2], num_rows, block_width).contiguous()
-
-    if zp is None:
-        # symmetric zero points are exactly zero; adding them is a no-op
-        return eff, None
-
-    zp = zp.to(GPTQ_PRECISION)
-    zp = zp.expand(*zp.shape[:-2], num_rows, block_width).contiguous()
-    return eff, zp
-
-
-def _gptq_block_update_triton_req(
-    W1: torch.Tensor,
-    Hinv1: torch.Tensor,
-    Q1: torch.Tensor,
-    Err1: torch.Tensor,
-    losses1: torch.Tensor,
-    *,
-    scale: torch.Tensor,
-    zero_point: torch.Tensor | None,
-    global_scale: torch.Tensor | None,
-    g_idx: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    i1: int,
-) -> bool:
-    block_width = W1.shape[-1]
-    return (
-        triton_req(W1)
-        and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
-        and _get_triton_gptq_config(quant_args) is not None
-        and 0 < block_width <= 256
-        # Check that GPTQ block width is a power of two.
-        and not block_width & (block_width - 1)
-    )
-
-
-@ImplBackend.register("gptq_block_update", _gptq_block_update_triton_req, 0)
-def _gptq_block_update_triton(
-    W1: torch.Tensor,
-    Hinv1: torch.Tensor,
-    Q1: torch.Tensor,
-    Err1: torch.Tensor,
-    losses1: torch.Tensor,
-    *,
-    scale: torch.Tensor,
-    zero_point: torch.Tensor | None,
-    global_scale: torch.Tensor | None,
-    g_idx: torch.Tensor | None,
-    quant_args: QuantizationArgs,
-    i1: int,
-) -> None:
-    """Run one GPTQ block with the registered Triton backend."""
-    kernel_config = _get_triton_gptq_config(quant_args)
-    if kernel_config is None:
-        raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
-
-    block_width = W1.shape[-1]
-    assert (
-        0 < block_width <= 256 and not block_width & (block_width - 1)
-    ), "Triton GPTQ block width must be a power of two <= 256"
-
-    quant_type, q_min, q_max = kernel_config
-    eff, zp = _column_scale_window(
-        scale,
-        zero_point,
-        global_scale,
-        g_idx,
-        quant_args,
-        num_rows=W1.shape[-2],
-        i1=i1,
-        i2=i1 + block_width,
-    )
-    try:
-        fused_gptq_block_update(
-            W1.unsqueeze(-3) if W1.dim() == 2 else W1,
-            Hinv1.unsqueeze(-3) if Hinv1.dim() == 2 else Hinv1,
-            eff.unsqueeze(-3) if eff.dim() == 2 else eff,
-            zp if zp is None or zp.dim() == 3 else zp.unsqueeze(-3),
-            Q1.unsqueeze(-3) if Q1.dim() == 2 else Q1,
-            Err1.unsqueeze(-3) if Err1.dim() == 2 else Err1,
-            q_min,
-            q_max,
-            quant_type,
-        )
-    except Exception as error:
-        if (
-            isinstance(error, torch.OutOfMemoryError)
-            or "out of memory" in str(error).lower()
-        ):
-            raise
-        raise RuntimeError("GPTQ Triton block update failed") from error
-    losses1.copy_(Err1.square())
-
-
 @ImplBackend.entrypoint("gptq_block_update")
 def gptq_block_update(
     W1: torch.Tensor,
@@ -489,7 +155,7 @@ def gptq_block_update(
     block_width = W1.shape[-1]
     altered_qargs = copy(quant_args)
     altered_qargs.strategy = QuantizationStrategy.CHANNEL
-    eff, zp = _column_scale_window(
+    eff, zp = column_scale_window(
         scale,
         zero_point,
         global_scale,
@@ -516,3 +182,336 @@ def gptq_block_update(
         Err1[:, :, i] = error
         losses1[:, :, i] = error.square()
         W1[:, :, i:] -= error.unsqueeze(-1) * Hinv1[:, i, i:].unsqueeze(1)
+
+
+def _gptq_block_update_triton_req(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    Q1: torch.Tensor,
+    Err1: torch.Tensor,
+    losses1: torch.Tensor,
+    *,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor | None,
+    global_scale: torch.Tensor | None,
+    g_idx: torch.Tensor | None,
+    quant_args: QuantizationArgs,
+    i1: int,
+) -> bool:
+    block_width = W1.shape[-1]
+    return (
+        triton_req(W1)
+        and os.environ.get("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "0") != "1"
+        and get_triton_gptq_config(quant_args) is not None
+        and 0 < block_width <= 256
+        # Check that GPTQ block width is a power of two.
+        and not block_width & (block_width - 1)
+    )
+
+
+@ImplBackend.register("gptq_block_update", _gptq_block_update_triton_req, 0)
+def _gptq_block_update_triton(
+    W1: torch.Tensor,
+    Hinv1: torch.Tensor,
+    Q1: torch.Tensor,
+    Err1: torch.Tensor,
+    losses1: torch.Tensor,
+    *,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor | None,
+    global_scale: torch.Tensor | None,
+    g_idx: torch.Tensor | None,
+    quant_args: QuantizationArgs,
+    i1: int,
+) -> None:
+    """Run one GPTQ block with the registered Triton backend."""
+    kernel_config = get_triton_gptq_config(quant_args)
+    if kernel_config is None:
+        raise ValueError(f"Unsupported Triton GPTQ scheme: {quant_args}")
+
+    block_width = W1.shape[-1]
+    assert (
+        0 < block_width <= 256 and block_width & (block_width - 1) == 0
+    ), "Triton GPTQ block width must be a power of two <= 256"
+
+    quant_type, q_min, q_max = kernel_config
+    eff, zp = column_scale_window(
+        scale,
+        zero_point,
+        global_scale,
+        g_idx,
+        quant_args,
+        num_rows=W1.shape[-2],
+        i1=i1,
+        i2=i1 + block_width,
+    )
+    fused_gptq_block_update(
+        W1.unsqueeze(-3) if W1.dim() == 2 else W1,
+        Hinv1.unsqueeze(-3) if Hinv1.dim() == 2 else Hinv1,
+        eff.unsqueeze(-3) if eff.dim() == 2 else eff,
+        zp if zp is None or zp.dim() == 3 else zp.unsqueeze(-3),
+        Q1.unsqueeze(-3) if Q1.dim() == 2 else Q1,
+        Err1.unsqueeze(-3) if Err1.dim() == 2 else Err1,
+        q_min,
+        q_max,
+        quant_type,
+    )
+    losses1.copy_(Err1.square())
+
+
+def fused_gptq_block_update(
+    work: torch.Tensor,
+    hinv: torch.Tensor,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor | None,
+    quantized: torch.Tensor,
+    errors: torch.Tensor,
+    q_min: float,
+    q_max: float,
+    quant_type: int,
+) -> None:
+    """Run the fused Triton GPTQ block update on FP32 working tensors."""
+    if not HAS_TRITON:
+        raise RuntimeError("Triton is unavailable")
+    if (
+        work.dim() != 3
+        or work.device.type != "cuda"
+        or work.dtype != torch.float32
+        or hinv.dtype != torch.float32
+        or quantized.dtype != torch.float32
+        or errors.dtype != torch.float32
+        or scale.dtype not in (torch.float16, torch.bfloat16, torch.float32)
+        or any(
+            tensor.device != work.device for tensor in (hinv, scale, quantized, errors)
+        )
+        or (zero_point is not None and zero_point.device != work.device)
+    ):
+        raise ValueError("invalid tensors for fused GPTQ block update")
+
+    batch, out_rows, width = work.shape
+    if (
+        width <= 0
+        or width > 256
+        or width & (width - 1)
+        or hinv.shape != (batch, width, width)
+        or scale.shape != work.shape
+        or quantized.shape != work.shape
+        or errors.shape != work.shape
+    ):
+        raise ValueError("invalid shapes for fused GPTQ block update")
+    if zero_point is not None and zero_point.shape != work.shape:
+        raise ValueError("zero_point must have the same shape as work")
+
+    dequant_dtype = {
+        torch.float32: 0,
+        torch.bfloat16: 1,
+        torch.float16: 2,
+    }[scale.dtype]
+    has_zp = zero_point is not None
+    use_fp8_e4b15 = quant_type == 2 and not _is_fp8_supported(work.device)
+    if has_zp:
+        zero_point = zero_point.to(torch.float32)
+
+    block_rows = 16
+    _gptq_block_update_kernel[(batch, triton.cdiv(out_rows, block_rows))](
+        work,
+        hinv,
+        scale,
+        zero_point if has_zp else scale,
+        quantized,
+        errors,
+        out_rows,
+        *work.stride(),
+        *hinv.stride(),
+        *scale.stride(),
+        *(zero_point.stride() if has_zp else (0, 0, 0)),
+        *quantized.stride(),
+        *errors.stride(),
+        float(q_min),
+        float(q_max),
+        WIDTH=width,
+        QUANT_TYPE=quant_type,
+        DEQUANT_DTYPE=dequant_dtype,
+        HAS_ZP=has_zp,
+        USE_FP8_E4B15=use_fp8_e4b15,
+        BLOCK_ROWS=block_rows,
+        num_warps=4,
+        num_stages=2,
+    )
+
+
+if HAS_TRITON:
+
+    @triton.jit
+    def _gptq_block_update_kernel(
+        work_ptr,
+        hinv_ptr,
+        scale_ptr,
+        zp_ptr,
+        quant_ptr,
+        errors_ptr,
+        out_rows,
+        stride_w_b,
+        stride_w_r,
+        stride_w_c,
+        stride_h_b,
+        stride_h_r,
+        stride_h_c,
+        stride_s_b,
+        stride_s_r,
+        stride_s_c,
+        stride_z_b,
+        stride_z_r,
+        stride_z_c,
+        stride_q_b,
+        stride_q_r,
+        stride_q_c,
+        stride_e_b,
+        stride_e_r,
+        stride_e_c,
+        q_min,
+        q_max,
+        WIDTH: tl.constexpr,
+        QUANT_TYPE: tl.constexpr,
+        DEQUANT_DTYPE: tl.constexpr,
+        HAS_ZP: tl.constexpr,
+        USE_FP8_E4B15: tl.constexpr,
+        BLOCK_ROWS: tl.constexpr,
+    ):
+        batch = tl.program_id(axis=0)
+        row_block = tl.program_id(axis=1)
+        rows = row_block * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
+        cols = tl.arange(0, WIDTH)
+        batch_i64 = batch.to(tl.int64)
+        rows_i64 = rows.to(tl.int64)
+        cols_i64 = cols.to(tl.int64)
+        row_mask = rows < out_rows
+        work_offsets = (
+            batch_i64 * stride_w_b
+            + rows_i64[:, None] * stride_w_r
+            + cols_i64[None, :] * stride_w_c
+        )
+        work = tl.load(work_ptr + work_offsets, mask=row_mask[:, None], other=0.0).to(
+            tl.float32
+        )
+
+        for column in range(0, WIDTH):
+            selector = cols[None, :] == column
+            weight_column = tl.sum(tl.where(selector, work, 0.0), axis=1)
+            scale = tl.load(
+                scale_ptr
+                + batch_i64 * stride_s_b
+                + rows_i64 * stride_s_r
+                + column * stride_s_c,
+                mask=row_mask,
+                other=1.0,
+            ).to(tl.float32)
+            scale = tl.maximum(scale, 1.1754943508222875e-38)
+            normalized = tl.extra.cuda.libdevice.div_rn(weight_column, scale)
+            if HAS_ZP:
+                zp = tl.load(
+                    zp_ptr
+                    + batch_i64 * stride_z_b
+                    + rows_i64 * stride_z_r
+                    + column * stride_z_c,
+                    mask=row_mask,
+                    other=0.0,
+                ).to(tl.float32)
+                normalized = normalized + zp
+
+            clamped = tl.clamp(normalized, q_min, q_max)
+            if QUANT_TYPE == 0:
+                rounded = tl.extra.cuda.libdevice.rint(clamped)
+            elif QUANT_TYPE == 1:
+                absolute = tl.abs(clamped)
+                magnitude = tl.where(
+                    absolute <= 0.25,
+                    0.0,
+                    tl.where(
+                        absolute < 0.75,
+                        0.5,
+                        tl.where(
+                            absolute <= 1.25,
+                            1.0,
+                            tl.where(
+                                absolute < 1.75,
+                                1.5,
+                                tl.where(
+                                    absolute <= 2.5,
+                                    2.0,
+                                    tl.where(
+                                        absolute < 3.5,
+                                        3.0,
+                                        tl.where(absolute <= 5.0, 4.0, 6.0),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+                rounded = tl.where(clamped < 0.0, -magnitude, magnitude)
+            else:
+                # Ampere does not expose the native E4M3FN (``float8e4nv``) conversion
+                # in Triton, but it does expose E4B15.  The formats have the same sign,
+                # exponent, and mantissa widths and differ only by eight in exponent
+                # bias, so scaling by 2**-8 before the cast and 2**8 afterwards gives
+                # the E4M3FN rounding operation without requiring Hopper instructions.
+                if USE_FP8_E4B15:
+                    rounded = (clamped * 0.00390625).to(tl.float8e4b15).to(
+                        tl.float32
+                    ) * 256.0
+                else:
+                    rounded = clamped.to(tl.float8e4nv).to(tl.float32)
+
+            if DEQUANT_DTYPE == 1:
+                rounded = rounded.to(tl.bfloat16)
+                scale_value = scale.to(tl.bfloat16)
+                if HAS_ZP:
+                    rounded = (rounded - zp.to(tl.bfloat16)).to(tl.bfloat16)
+                quantized_column = (
+                    (rounded * scale_value).to(tl.bfloat16).to(tl.float32)
+                )
+            elif DEQUANT_DTYPE == 2:
+                rounded = rounded.to(tl.float16)
+                scale_value = scale.to(tl.float16)
+                if HAS_ZP:
+                    rounded = (rounded - zp.to(tl.float16)).to(tl.float16)
+                quantized_column = (rounded * scale_value).to(tl.float16).to(tl.float32)
+            else:
+                if HAS_ZP:
+                    quantized_column = tl.extra.cuda.libdevice.mul_rn(
+                        tl.extra.cuda.libdevice.sub_rn(rounded, zp), scale
+                    )
+                else:
+                    quantized_column = tl.extra.cuda.libdevice.mul_rn(rounded, scale)
+
+            diagonal = tl.load(
+                hinv_ptr
+                + batch_i64 * stride_h_b
+                + column * stride_h_r
+                + column * stride_h_c,
+            ).to(tl.float32)
+            error = tl.extra.cuda.libdevice.div_rn(
+                tl.extra.cuda.libdevice.sub_rn(weight_column, quantized_column),
+                diagonal,
+            )
+            q_offsets = (
+                batch_i64 * stride_q_b + rows_i64 * stride_q_r + column * stride_q_c
+            )
+            e_offsets = (
+                batch_i64 * stride_e_b + rows_i64 * stride_e_r + column * stride_e_c
+            )
+            tl.store(quant_ptr + q_offsets, quantized_column, mask=row_mask)
+            tl.store(errors_ptr + e_offsets, error, mask=row_mask)
+
+            hinv_row = tl.load(
+                hinv_ptr
+                + batch_i64 * stride_h_b
+                + column * stride_h_r
+                + cols_i64 * stride_h_c,
+            ).to(tl.float32)
+            tail = cols[None, :] > column
+            update = tl.extra.cuda.libdevice.mul_rn(error[:, None], hinv_row[None, :])
+            work = tl.where(tail, tl.extra.cuda.libdevice.sub_rn(work, update), work)
+
+        tl.store(work_ptr + work_offsets, work, mask=row_mask[:, None])

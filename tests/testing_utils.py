@@ -277,6 +277,13 @@ class BaseTestConfig(BaseModel):
             "Tests are skipped if fewer are available.",
         ),
     )
+    max_num_seqs: int = Field(
+        128, description="Maximum number of sequences to process in parallel."
+    )
+    max_model_len: Optional[int] = Field(
+        default=None,
+        description="Maximum sequence length for the model. Not used by e2e tests.",
+    )
     pipeline_parallel: bool = Field(
         False,
         description=(
@@ -373,7 +380,7 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
 
 def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecorator:
     """
-    Pytest decorator to skip based on GPU compute capability.
+    Pytest decorator to skip based on CUDA GPU compute capability.
 
     Usage:
     @requires_compute_capability(9, 0)  # Requires H100 or higher
@@ -385,6 +392,12 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     """
     if not torch.accelerator.is_available():
         return pytest.mark.skip(reason="No accelerator available")
+
+    accelerator_type = torch.accelerator.current_accelerator().type
+    if accelerator_type != "cuda":
+        return pytest.mark.skip(
+            reason=f"CUDA compute capability required, found {accelerator_type}"
+        )
 
     device_module = torch.get_device_module()
     if not hasattr(device_module, "get_device_capability"):
@@ -639,7 +652,7 @@ def process_dataset(
 
         def process(sample):
             return processor(
-                sample["question"],
+                text=sample["question"],
                 padding=False,
                 max_length=max_seq_length,
                 truncation=True,
@@ -650,7 +663,7 @@ def process_dataset(
 
         def process(sample):
             return processor(
-                processor.apply_chat_template(
+                text=processor.apply_chat_template(
                     sample["messages"],
                     tokenize=False,
                 ),
@@ -664,7 +677,7 @@ def process_dataset(
         # use the output rather than the instruction
         def process(sample):
             return processor(
-                processor.apply_chat_template(
+                text=processor.apply_chat_template(
                     sample["output"],
                     tokenize=False,
                 ),
@@ -710,13 +723,15 @@ def process_dataset(
             return processor.apply_chat_template(
                 messages,
                 return_tensors="pt",
-                padding=False,
-                truncation=True,
-                max_length=max_seq_length,
                 tokenize=True,
-                add_special_tokens=False,
                 return_dict=True,
                 add_generation_prompt=False,
+                processor_kwargs={
+                    "padding": False,
+                    "truncation": True,
+                    "max_length": max_seq_length,
+                    "add_special_tokens": False,
+                },
             )
 
     else:

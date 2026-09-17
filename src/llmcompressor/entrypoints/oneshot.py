@@ -348,7 +348,7 @@ def oneshot(
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
     max_seq_length: int | None = None,
-    pad_to_max_length: bool = True,
+    pad_to_max_length: bool = False,
     text_column: str = "text",
     concatenate_data: bool = False,
     streaming: bool = False,

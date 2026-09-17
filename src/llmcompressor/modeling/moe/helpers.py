@@ -153,6 +153,9 @@ class MoEConfig:
                 ret.hidden_act = "sigmoid"
             case "lfm2_moe":
                 ret.hidden_act = "silu"
+            case "nemotron_h":
+                if config.moe_latent_size is None:
+                    ret.hidden_dim = config.hidden_size
 
         return ret
 

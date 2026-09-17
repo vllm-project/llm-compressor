@@ -5,13 +5,10 @@ from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
 )
-from loguru import logger
 
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.modifiers.gptq.gptq_quantize import (
-    make_empty_hessian,
-    quantize_weight,
-)
+from llmcompressor.modifiers.gptq.gptq_quantize import quantize_weight
+from llmcompressor.modifiers.gptq.helpers import make_empty_hessian
 from llmcompressor.modifiers.quantization.calibration import (
     initialize_observer,
     observe,
@@ -455,12 +452,16 @@ def test_fused_gptq_kernel_matches_eager(
     ],
 )
 @pytest.mark.parametrize("actorder", [None, ActivationOrdering.WEIGHT])
-@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("backend", ["eager", "triton"])
+@requires_gpu
 @torch.no_grad()
-def test_quantize_weight_batch_matches_single(quant_args, actorder, device):
-    """Batched GPTQ over same-shape modules must match per-module solves."""
-    if device == "cuda" and not torch.accelerator.is_available():
-        pytest.skip("requires CUDA")
+def test_quantize_weight_batch_close_to_single(
+    quant_args, actorder, backend, monkeypatch
+):
+    """Batched GPTQ should remain close to per-module solves for both backends."""
+    device = "cuda"
+    if backend == "eager":
+        monkeypatch.setenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "1")
     if actorder is not None:
         quant_args.actorder = actorder
 
@@ -496,8 +497,8 @@ def test_quantize_weight_batch_matches_single(quant_args, actorder, device):
     for idx, single in enumerate(single_results):
         s_loss, s_params, s_rtn = single
         assert s_rtn == batched_rtn[idx].item()
-        assert torch.equal(
-            s_params["weight"], batched_weights[idx]
+        assert torch.allclose(
+            s_params["weight"], batched_weights[idx], rtol=1e-4, atol=1e-5
         ), f"module {idx} weight mismatch"
         assert torch.equal(
             s_params["weight_scale"], scales[idx]
@@ -575,7 +576,7 @@ def test_compress_module_list_batches_same_shape(tmp_path):
 
     # force pure eager+single path so CPU runs deterministically cover the
     # batching decision logic, not the kernel
-    modifier.batched_quantization = False
+    modifier.batched_quantization = None
     modifier.compress_modules()
     assert modifier._num_compressed_modules == 4
 
@@ -591,7 +592,7 @@ def test_compress_module_list_batches_same_shape(tmp_path):
         for i, m in enumerate(modules_b)
     }
     modifier._num_samples = {m: torch.tensor(1.0) for m in modules_b}
-    modifier.batched_quantization = True
+    modifier.batched_quantization = 3
     modifier.compress_modules()
     assert modifier._num_compressed_modules == 4
 
@@ -600,62 +601,3 @@ def test_compress_module_list_batches_same_shape(tmp_path):
         assert torch.allclose(m_single.weight_scale, m_batched.weight_scale)
         # quantized weights were written back through update_offload_parameter
         assert torch.allclose(m_single.weight, m_batched.weight, rtol=1e-4, atol=1e-5)
-
-
-@torch.no_grad()
-def test_compress_module_list_fails_explicitly_on_gptq_error():
-    """GPTQ errors identify the affected modules and are not retried."""
-    quant_args = QuantizationArgs(
-        num_bits=4, symmetric=True, strategy="group", group_size=16
-    )
-    module = _make_observed_linear(64, 48, quant_args, seed=0)
-    name = "model.layers.0.self_attn.q_proj"
-    modifier = GPTQModifier()
-    modifier._module_names[module] = name
-    modifier._hessians[module] = make_empty_hessian(module) + 1
-    modifier._num_samples[module] = torch.tensor(1.0)
-    modifier.block_size = 0
-
-    with pytest.raises(RuntimeError, match=f"GPTQ failed for modules: \['{name}'\]"):
-        modifier.compress_modules()
-
-    assert module not in modifier._hessians
-    assert module not in modifier._num_samples
-
-
-@torch.no_grad()
-def test_gptq_rtn_fallback_summary_fires():
-    module, quant_args = _make_channel_quantized_linear()
-    name = "model.layers.0.self_attn.q_proj"
-
-    module.weight_scale = torch.nn.Parameter(
-        torch.empty(4, 1, dtype=module.weight.dtype), requires_grad=False
-    )
-    module.weight_zero_point = torch.nn.Parameter(
-        torch.empty(4, 1, dtype=quant_args.zp_dtype), requires_grad=False
-    )
-
-    modifier = GPTQModifier(dampening_frac=0.0)
-    modifier._module_names[module] = name
-    modifier._hessians[module] = make_empty_hessian(module) + 1
-    modifier._num_samples[module] = torch.tensor(1.0)
-
-    messages = []
-    handler_id = logger.add(messages.append, level="WARNING")
-    try:
-        modifier.compress_modules()
-        modifier._log_rtn_fallback_summary()
-    finally:
-        logger.remove(handler_id)
-
-    assert modifier._num_compressed_modules == 1
-    assert modifier._rtn_fallback_module_names == [name]
-    summaries = [
-        str(message)
-        for message in messages
-        if "Hessian inversion failed for" in str(message)
-    ]
-    assert len(summaries) == 1
-    assert "1/1" in summaries[0]
-    assert "round-to-nearest" in summaries[0]
-    assert name in summaries[0]

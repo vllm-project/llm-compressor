@@ -70,6 +70,10 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
             "transformers.models.glm4_moe_lite.modeling_glm4_moe_lite.Glm4MoeLiteExperts",
         ],
     ),
+    "glm5_next": (
+        "transformers.models.glm5_next.configuration_glm5_next.Glm5NextTextConfig",
+        "transformers.models.glm5_next.modeling_glm5_next.Glm5NextTextExperts",
+    ),
     "glm_moe_dsa": (
         "transformers.models.glm_moe_dsa.configuration_glm_moe_dsa.GlmMoeDsaConfig",
         [
@@ -201,6 +205,23 @@ ARCH_TO_2D_MAPPINGS = {
             ),
         ],
     ),
+    "glm5_next": (
+        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
+        [
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
+                target_patterns=r".experts.\1.gate_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.up_proj\.",
+                target_patterns=r".experts.\1.up_proj.",
+            ),
+            WeightRenaming(
+                source_patterns=r"\.experts\.(\d+)\.down_proj\.",
+                target_patterns=r".experts.\1.down_proj.",
+            ),
+        ],
+    ),
     "qwen2_moe": (
         ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
         [
@@ -235,8 +256,6 @@ ARCH_TO_2D_MAPPINGS = {
             ),
         ],
     ),
-    # NemotronH experts are non-gated (up_proj + down_proj only) and the fused
-    # checkpoint stores them as 3D `mixer.experts.{up,down}_proj` tensors
     "nemotron_h": (
         ["mixer.experts.up_proj", "mixer.experts.down_proj"],
         [
