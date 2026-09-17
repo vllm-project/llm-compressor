@@ -167,7 +167,7 @@ def test_ilp_multiple_fused_groups():
 def test_ilp_infinite_mse_excluded():
     """Verify schemes with infinite MSE are excluded."""
     mse_matrix = {
-        "layer1": {"W4A16": 0.5, "W8A8": float('inf')},
+        "layer1": {"W4A16": 0.5, "W8A8": float("inf")},
         "layer2": {"W4A16": 0.3, "W8A8": 0.2},
     }
     alphas = {"layer1": 1.0, "layer2": 1.0}

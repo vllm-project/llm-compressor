@@ -94,9 +94,7 @@ def test_mse_collector_with_heuristic(candidate_schemes, sample_tensors):
     assert len(config.config_groups) > 0
 
 
-def test_mse_collector_allows_unquantized_layers(
-    candidate_schemes, sample_tensors
-):
+def test_mse_collector_allows_unquantized_layers(candidate_schemes, sample_tensors):
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
         targets="Linear",
@@ -142,9 +140,7 @@ def test_alpha_heuristic_layer_types():
         "model.layers.5.mlp.gate_proj",  # mlp, depth 5
         "model.embed_tokens",  # embedding, depth 0
     ]
-    param_counts = {
-        layer: 1000 for layer in layer_names
-    }
+    param_counts = {layer: 1000 for layer in layer_names}
 
     alphas = compute_heuristic_alphas(layer_names, param_counts)
 

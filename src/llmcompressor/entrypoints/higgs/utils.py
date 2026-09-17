@@ -43,6 +43,7 @@ UNQUANTIZED_SCHEME = "__unquantized__"
 # MSE computation
 # ---------------------------------------------------------------------------
 
+
 def compute_layer_mse(weight, scheme, device=None):
     """Compute MSE between original and fake-quantized weight."""
     try:
@@ -62,12 +63,16 @@ def compute_layer_mse(weight, scheme, device=None):
 
         scale = module.weight_scale
         zp = getattr(module, "weight_zero_point", torch.zeros_like(scale))
-        quantized = fake_quantize(x=weight, scale=scale, zero_point=zp, args=scheme.weights)
+        quantized = fake_quantize(
+            x=weight, scale=scale, zero_point=zp, args=scheme.weights
+        )
 
         return torch.mean((weight - quantized) ** 2).item()
 
     except Exception as e:
-        logger.warning(f"Failed to compute MSE for scheme {scheme}: {e}. Returning inf.")
+        logger.warning(
+            f"Failed to compute MSE for scheme {scheme}: {e}. Returning inf."
+        )
         return float("inf")
 
 
@@ -124,7 +129,7 @@ _MOE_EXPERT_RE = re.compile(r"(.+\.experts)\.\d+\..+")
 
 
 def detect_fused_groups(layer_names: List[str]) -> List[List[str]]:
-    """Group layers that must share the same quantization scheme (MoE experts, qkv, gate+up)."""
+    """Group layers sharing a scheme (MoE experts, qkv, gate+up)."""
     layer_name_set = set(layer_names)
 
     # Phase 1: MoE expert fusion
@@ -148,19 +153,27 @@ def detect_fused_groups(layer_names: List[str]) -> List[List[str]]:
         current_group = [name]
         processed.add(name)
         for fusion_pattern in FUSED_LAYER_NAMES:
-            matching_suffix = next((s for s in fusion_pattern if name.endswith(s)), None)
+            matching_suffix = next(
+                (s for s in fusion_pattern if name.endswith(s)), None
+            )
             if matching_suffix is None:
                 continue
             base = name[: -len(matching_suffix)]
             for other in fusion_pattern:
                 candidate = base + other
-                if other != matching_suffix and candidate in layer_name_set and candidate not in processed:
+                if (
+                    other != matching_suffix
+                    and candidate in layer_name_set
+                    and candidate not in processed
+                ):
                     current_group.append(candidate)
                     processed.add(candidate)
         if len(current_group) > 1:
             groups.append(sorted(current_group))
 
-    logger.info(f"Detected {len(groups)} fused groups ({sum(len(g) for g in groups)} layers)")
+    logger.info(
+        f"Detected {len(groups)} fused groups ({sum(len(g) for g in groups)} layers)"
+    )
     return groups
 
 
@@ -200,7 +213,7 @@ def generate_config_groups(
     ilp_solution: Dict[str, str],
     candidate_schemes: Dict[str, QuantizationScheme],
 ) -> Dict[str, QuantizationScheme]:
-    """Convert ILP layer->scheme mapping into config_groups with proper targets and formats."""
+    """Convert ILP assignments into config groups with targets and formats."""
     scheme_to_layers: dict[str, list[str]] = defaultdict(list)
     for layer, scheme_name in ilp_solution.items():
         scheme_to_layers[scheme_name].append(layer)
@@ -222,7 +235,9 @@ def generate_config_groups(
 
         if base_scheme.format is None:
             dummy = torch.nn.Linear(64, 64, bias=False)
-            initialize_module_for_quantization(dummy, base_scheme, force_zero_point=False)
+            initialize_module_for_quantization(
+                dummy, base_scheme, force_zero_point=False
+            )
             scheme_dict["format"] = infer_module_format(type(dummy), base_scheme).value
 
         group_name = f"group_{idx}"

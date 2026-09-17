@@ -21,8 +21,8 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.entrypoints.higgs import get_higgs_config
+from llmcompressor.modifiers.gptq import GPTQModifier
 
 IGNORE = [
     "lm_head",
@@ -75,9 +75,7 @@ def main():
 
     def preprocess(example):
         return {
-            "text": tokenizer.apply_chat_template(
-                example["messages"], tokenize=False
-            )
+            "text": tokenizer.apply_chat_template(example["messages"], tokenize=False)
         }
 
     ds = ds.map(preprocess)

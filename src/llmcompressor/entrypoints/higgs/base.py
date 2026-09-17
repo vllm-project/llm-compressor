@@ -95,7 +95,11 @@ class HiggsMSECollectorConverter(Converter):
             elif isinstance(scheme, QuantizationScheme):
                 if scheme.weights:
                     key = f"W{scheme.weights.num_bits}"
-                    key += f"A{scheme.input_activations.num_bits}" if scheme.input_activations else "A16"
+                    key += (
+                        f"A{scheme.input_activations.num_bits}"
+                        if scheme.input_activations
+                        else "A16"
+                    )
                 else:
                     key = f"scheme_{len(resolved)}"
                 resolved[key] = scheme
@@ -105,12 +109,17 @@ class HiggsMSECollectorConverter(Converter):
 
     def validate(self, tensors: Dict[str, torch.Tensor]):
         tensors = split_fused_moe_experts(tensors)
-        count = sum(1 for _ in match_quantizable_tensors(tensors, self.ignore, self.targets))
+        count = sum(
+            1 for _ in match_quantizable_tensors(tensors, self.ignore, self.targets)
+        )
         if count == 0:
-            logger.warning(f"No quantizable tensors. Targets: {self.targets}, Ignore: {self.ignore}")
+            logger.warning(
+                f"No quantizable tensors. Targets: {self.targets}, "
+                f"Ignore: {self.ignore}"
+            )
 
     def process(self, tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Compute per-layer MSE for each candidate scheme. Returns tensors unchanged."""
+        """Compute MSE for each candidate scheme; return tensors unchanged."""
         tensors = split_fused_moe_experts(tensors)
         logger.info(f"Collecting MSE data from shard with {len(tensors)} tensors")
 
@@ -190,14 +199,18 @@ class HiggsMSECollectorConverter(Converter):
         )
 
         config_groups = generate_config_groups(ilp_solution, self.candidate_schemes)
-        formats = {CompressionFormat(s.format) for s in config_groups.values() if s.format}
+        formats = {
+            CompressionFormat(s.format) for s in config_groups.values() if s.format
+        }
         self.optimal_config = QuantizationConfig(
             config_groups=config_groups,
             format=_flatten_formats(formats).value,
             quantization_status=QuantizationStatus.COMPRESSED,
             ignore=self.ignore,
         )
-        logger.info(f"ILP optimization complete: {len(config_groups)} config groups generated")
+        logger.info(
+            f"ILP optimization complete: {len(config_groups)} config groups generated"
+        )
         return self.optimal_config
 
     def get_dependencies(self, weight_name: str) -> set[str]:
@@ -245,7 +258,7 @@ def get_higgs_config(
         QuantizationConfig with optimized config_groups
     """
     if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        device = torch.device("cuda" if torch.accelerator.is_available() else "cpu")
 
     if ignore is None:
         ignore = ["lm_head"]
@@ -271,7 +284,9 @@ def get_higgs_config(
         ignore=ignore,
         device=device,
         alpha_calculator=compute_heuristic_alphas,
-        fusion_detector=detect_fused_groups if enforce_fused_layer_constraints else None,
+        fusion_detector=detect_fused_groups
+        if enforce_fused_layer_constraints
+        else None,
         target_avg_bitwidth=target_avg_bitwidth,
         target_avg_act_bitwidth=target_avg_act_bitwidth,
         allow_unquantized=allow_unquantized,

@@ -1,9 +1,8 @@
 # HIGGS: Heuristic ILP-Guided Grouped Scheme Mixed-Precision Quantization
 
-HIGGS builds a mixed-precision `QuantizationConfig` by measuring the weight
-reconstruction error of candidate schemes and solving an integer linear program
-(ILP). It reads safetensors directly and does not instantiate the model while
-choosing the allocation.
+HIGGS is an automated mixed-precision quantization system that uses Integer Linear Programming (ILP) to select optimal quantization schemes for each layer in a neural network. This technique is based on the paper: [Pushing the Limits of Large Language Model Quantization via the
+Linearity Theorem](https://arxiv.org/pdf/2411.17525)
+
 
 ## Quick start
 
