@@ -11,7 +11,7 @@ from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (  # noqa: E402
 )
 
 from llmcompressor.args.dataset_arguments import DatasetArguments  # noqa: E402
-from llmcompressor.modeling.moe.linearize import linearize_moe  # noqa: E402
+from llmcompressor.modeling.moe.linearize import linearize_moe_model  # noqa: E402
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs  # noqa: E402
 from llmcompressor.utils.dev import skip_weights_initialize  # noqa: E402
 
@@ -37,7 +37,7 @@ def tiny_glm_moe_dsa():
     config = GlmMoeDsaConfig(**TINY_CONFIG_KWARGS)
     with skip_weights_initialize():
         model = GlmMoeDsaForCausalLM(config)
-    linearize_moe(model)
+    linearize_moe_model(model)
     return model
 
 

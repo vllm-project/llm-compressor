@@ -5,7 +5,7 @@ from transformers import PreTrainedModel
 from transformers.models.cohere2_moe.modeling_cohere2_moe import Cohere2MoeTopKRouter
 
 from llmcompressor.modeling.fuse import fuse_norm_linears
-from llmcompressor.modeling.moe.linearize import linearize_moe
+from llmcompressor.modeling.moe.linearize import linearize_moe_model
 
 
 class LinearRouter(torch.nn.Module):
@@ -91,7 +91,7 @@ def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
     lossless:
 
     1. Linearize batched MoE experts (3D ``nn.Parameter`` -> per-expert ``nn.Linear``)
-       via :func:`linearize_moe`, exposing them to R1/R4.
+       via :func:`linearize_moe_model`, exposing them to R1/R4.
     2. Replace each MoE router with :class:`LinearRouter` so R1 can be applied (the
        router reads the rotated residual stream and must rotate with it).
     3. Fuse each ``input_layernorm`` into all of its consumers and reset the norm to
@@ -119,7 +119,7 @@ def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
         "(num_shared_experts > 0); their input_layernorm consumers are not fused."
     )
 
-    linearize_moe(model)
+    linearize_moe_model(model)
 
     num_routers = 0
     for layer in model.model.layers:

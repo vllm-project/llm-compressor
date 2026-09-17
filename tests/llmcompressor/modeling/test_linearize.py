@@ -20,7 +20,10 @@ from llmcompressor.modeling.moe.helpers import (
     _getattr_fallbacks,
     import_or_none,
 )
-from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe_model,
+    load_quantizable_moe,
+)
 from tests.testing_utils import requires_gpu
 
 NUM_TEST_TOKENS = 64
@@ -119,7 +122,7 @@ def test_load_quantizable_moe(
         model2 = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
 
     # linearization is now deferred — apply it before testing forward pass
-    linearize_moe(model2)
+    linearize_moe_model(model2)
 
     select_exp_outputs = model2(input_ids=input_ids).logits
 
@@ -202,7 +205,7 @@ def test_linearize_moe(model_type):
             init.normal_(down_proj_bias, mean=0.0, std=config.initializer_range)
 
         mock_model = DummyModel(experts, config)
-        linearize_moe(mock_model)
+        linearize_moe_model(mock_model)
         assert mock_model.module is not experts
 
         moe_config = MoEConfig.from_config(config)
@@ -246,7 +249,7 @@ def test_linearize_moe_gpt_oss():
     gate_up_proj_bias = experts.gate_up_proj_bias.clone()
 
     mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
+    linearize_moe_model(mock_model)
     assert mock_model.module is not experts
 
     # gate and up are interleaved along the last dim, not concatenated
@@ -290,7 +293,7 @@ def test_linearize_moe_llama4():
     init.normal_(experts.down_proj, mean=0.0, std=text_config.initializer_range)
 
     mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
+    linearize_moe_model(mock_model)
     assert mock_model.module is not experts
 
     moe_config = MoEConfig.from_config(text_config)

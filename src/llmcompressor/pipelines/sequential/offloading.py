@@ -77,14 +77,26 @@ class OnloadWrapper:
 
         del self.module._onload_wrapper
 
-    def replace_with(self, new_module: torch.nn.Module):
-        """
-        Replace the wrapped module with a new module.
-        This is useful for linearization/packing,
-        which creates new module instances.
-        """
-        self.module = new_module
-        self.module._onload_wrapper = self
+def replace_module(
+    model: torch.nn.Module,
+    name: str,
+    old_module: torch.nn.Module,
+    new_module: torch.nn.Module,
+) -> None:
+    """Replace a wrapped module and transfer its offload wrapper."""
+    wrapper = getattr(old_module, "_onload_wrapper", None)
+    if wrapper is None:
+        raise ValueError(f"Module {name} is not wrapped with OnloadWrapper")
+
+    model.set_submodule(name, new_module)
+    del old_module._onload_wrapper
+    wrapper.module = new_module
+    new_module._onload_wrapper = wrapper
+
+    if hasattr(model, "_moe_lookup"):
+        module_name = model._moe_lookup.pop(old_module, None)
+        if module_name is not None:
+            model._moe_lookup[new_module] = module_name
 
 
 def _log_cuda_memory(prefix: str):

@@ -1,7 +1,7 @@
 import contextlib
-from collections.abc import Iterable
 from functools import wraps
 from typing import Type
+from weakref import WeakKeyDictionary
 
 import torch
 import tqdm
@@ -20,6 +20,7 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from llmcompressor.pipelines.sequential.offloading import (
     disable_offloading_controlled,
+    replace_module,
 )
 
 from .conversion_mappings import (
@@ -98,7 +99,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
 def get_moe_linear_status(
     model: torch.nn.Module,
-) -> dict[torch.nn.Module, str]:
+) -> WeakKeyDictionary:
     """
     Return all modules which are recognized to be experts layers.
     Includes both 3D experts (which need linearization) and
@@ -110,13 +111,15 @@ def get_moe_linear_status(
     if hasattr(model, "_moe_lookup"):
         delattr(model, "_moe_lookup")
 
-    model._moe_lookup = {
-        module: name
-        for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
-        or isinstance(module, LinearExperts2D)
-        or LinearExperts2D.get_registration(module.__class__) is not None
-    }
+    model._moe_lookup = WeakKeyDictionary(
+        {
+            module: name
+            for name, module in model.named_modules()
+            if isinstance(module, FusedExpertsProtocol)
+            or isinstance(module, LinearExperts2D)
+            or LinearExperts2D.get_registration(module.__class__) is not None
+        }
+    )
 
     return model._moe_lookup
 
@@ -163,14 +166,13 @@ def repack_moe_subgraph(
     :param subgraph_modules: modules in the subgraph to check for experts
     :return: the same model with fused expert modules restored for the subgraph
     """
-    subgraph_set = set(subgraph_modules)
     moe_lookup = get_moe_linear_status(model)
     linearized = [
         (moe_lookup[module], module)
         for module in model.modules()
         if module in moe_lookup
         and isinstance(module, LinearExperts2D)
-        and any(selected_module in module.modules() for selected_module in subgraph_set)
+        and module in subgraph_modules
     ]
 
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts in subgraph"):
@@ -185,17 +187,7 @@ def repack_moe_layer(
     fused 3D expert module.
     """
     fused = module.to_experts_module()
-    model.set_submodule(name, fused)
-
-    # very important for onloading/offloading
-    # ensures that the wrapper tracks the new module
-    # and not the old one. Same logic for linearize_moe_layer
-    module._onload_wrapper.replace_with(fused)
-
-    if hasattr(model, "_moe_lookup"):
-        # update the lookup to reflect the new module
-        del model._moe_lookup[module]
-        model._moe_lookup[fused] = name
+    replace_module(model, name, module, fused)
 
 
 def linearize_moe_model(model: PreTrainedModel) -> None:
@@ -210,7 +202,12 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
     :param model: model containing MoE layers to linearize
     """
 
-    non_linearized = _get_non_linearized_moe_targets(model, model.modules())
+    moe_lookup = get_moe_linear_status(model)
+    non_linearized = [
+        (moe_lookup[module], module)
+        for module in model.modules()
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
+    ]
 
     logger.warning(
         "MoE is being linearized after loading in order to support efficient "
@@ -237,40 +234,21 @@ def linearize_moe_subgraph(
     Offloading is deferred so calibration can run on the newly created modules before
     they are wrapped again.
 
-    If a subgraph contains any descendant of a non-linearized experts container
-    (for example, individual expert modules rather than the parent experts module),
-    linearize that parent container so all experts are converted before calibration.
-
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
     """
-    non_linearized = _get_non_linearized_moe_targets(model, subgraph_modules)
+    subgraph_set = set(subgraph_modules)
+    moe_lookup = get_moe_linear_status(model)
+    non_linearized = [
+        (moe_lookup[module], module)
+        for module in subgraph_set
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
+    ]
 
     for i in tqdm.tqdm(
         range(len(non_linearized)), desc="Linearizing experts in subgraph"
     ):
         linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
-
-
-def get_moe_linearization_modules(
-    model: torch.nn.Module,
-    subgraph_modules: Iterable[torch.nn.Module],
-) -> list[torch.nn.Module]:
-    """Include enclosing non-linearized MoE modules in a subgraph selection.
-
-    Sequential tracing can select an individual expert without selecting its
-    parent experts container. The parent must still be wrapped before it is
-    replaced so the offloading lifecycle continues to track the new module.
-    """
-    modules = list(dict.fromkeys(subgraph_modules))
-    selected = set(modules)
-
-    for _, module in _get_non_linearized_moe_targets(model, modules):
-        if module not in selected:
-            modules.append(module)
-            selected.add(module)
-
-    return modules
 
 
 def linearize_moe_layer(
@@ -286,40 +264,4 @@ def linearize_moe_layer(
     config = getattr(module, "config", model.config)
     linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
     linear_moe = linear_experts_cls.from_experts_module(module, config)
-    model.set_submodule(name, linear_moe)
-
-    module._onload_wrapper.replace_with(linear_moe)
-
-    if hasattr(model, "_moe_lookup"):
-        del model._moe_lookup[module]
-        model._moe_lookup[linear_moe] = name
-
-
-def _get_non_linearized_moe_targets(
-    model: torch.nn.Module,
-    selected_modules: Iterable[torch.nn.Module],
-) -> list[tuple[str, torch.nn.Module]]:
-    """
-    Return non-linearized MoE containers that intersect with the selected modules.
-
-    This promotes submodule selections to their enclosing experts container so that
-    tracing or targeting individual experts still linearizes the full MoE module.
-    """
-    selected_module_set = set(selected_modules)
-    moe_lookup = get_moe_linear_status(model)
-
-    return [
-        (moe_lookup[module], module)
-        for module in model.modules()
-        if module in moe_lookup
-        and not isinstance(module, LinearExperts2D)
-        and any(
-            selected_module in module.modules()
-            for selected_module in selected_module_set
-        )
-    ]
-
-
-# Backwards-compatible aliases for existing callers/tests.
-linearize_moe = linearize_moe_model
-repack_moe = repack_moe_model
+    replace_module(model, name, module, linear_moe)

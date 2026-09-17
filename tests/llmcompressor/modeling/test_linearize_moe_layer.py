@@ -1,3 +1,5 @@
+import gc
+import weakref
 from types import SimpleNamespace
 
 import pytest
@@ -10,23 +12,14 @@ import llmcompressor.modeling.moe.linearize as linearize_mod
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modeling.moe.linearize import (
     get_moe_linear_status,
-    get_moe_linearization_modules,
     linearize_moe_layer,
     linearize_moe_subgraph,
     load_quantizable_moe,
-    repack_moe_subgraph,
-)
-from llmcompressor.pipelines.sequential.offloading import (
-    disable_offloading_controlled,
 )
 
 
 class _DummyOnloadWrapper:
-    def __init__(self):
-        self.replaced_with = None
-
-    def replace_with(self, new_module):
-        self.replaced_with = new_module
+    pass
 
 
 class _TwoExpertBlocks(torch.nn.Module):
@@ -75,9 +68,29 @@ def test_linearize_moe_layer_replaces_module_and_updates_lookup():
     new_module = model.block1.mlp.experts
     assert new_module is not experts
     assert isinstance(new_module, LinearExperts2D)
-    assert wrapper.replaced_with is new_module
+    assert new_module._onload_wrapper is wrapper
+    assert not hasattr(experts, "_onload_wrapper")
     assert experts not in model._moe_lookup
     assert model._moe_lookup[new_module] == "block1.mlp.experts"
+
+
+@torch.no_grad()
+def test_moe_lookup_does_not_keep_replaced_module_alive():
+    config = _make_config()
+    model = _TwoExpertBlocks(config)
+    experts = model.block1.mlp.experts
+    _init_experts(experts, config)
+    old_module_ref = weakref.ref(experts)
+
+    get_moe_linear_status(model)
+    experts._onload_wrapper = _DummyOnloadWrapper()
+    linearize_moe_layer(model, "block1.mlp.experts", experts)
+
+    del experts
+    gc.collect()
+
+    assert old_module_ref() is None
+    assert model.block1.mlp.experts in model._moe_lookup
 
 
 @torch.no_grad()
@@ -106,7 +119,7 @@ def test_linearize_moe_subgraph_only_targets_selected_modules(monkeypatch):
 
 
 @torch.no_grad()
-def test_linearize_moe_subgraph_promotes_selected_expert_children(monkeypatch):
+def test_linearize_moe_subgraph_does_not_promote_expert_children(monkeypatch):
     config = _make_config()
     model = _TwoExpertBlocks(config)
     _init_experts(model.block1.mlp.experts, config)
@@ -121,28 +134,7 @@ def test_linearize_moe_subgraph_promotes_selected_expert_children(monkeypatch):
     expert_child = next(iter(model.block1.mlp.experts.children()))
     linearize_moe_subgraph(model, [expert_child])
 
-    assert calls == [("block1.mlp.experts", model.block1.mlp.experts)]
-
-
-@torch.no_grad()
-def test_promoted_expert_parent_is_wrapped_for_real_conversion():
-    config = _make_config()
-    model = _TwoExpertBlocks(config)
-    experts = model.block1.mlp.experts
-    _init_experts(experts, config)
-    expert_child = next(iter(experts.children()))
-
-    subgraph_modules = get_moe_linearization_modules(model, [expert_child])
-    assert experts in subgraph_modules
-
-    with disable_offloading_controlled(model, subgraph_modules):
-        linearize_moe_subgraph(model, subgraph_modules)
-
-    linearized_experts = model.block1.mlp.experts
-    assert isinstance(linearized_experts, LinearExperts2D)
-
-    repack_moe_subgraph(model, [next(iter(linearized_experts.children()))])
-    assert isinstance(model.block1.mlp.experts, Qwen3MoeExperts)
+    assert calls == []
 
 
 @torch.no_grad()
