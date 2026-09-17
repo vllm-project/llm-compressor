@@ -132,6 +132,7 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
     - Disable lm head (input and weights can still be calibrated, output will be meta)
+    - Force eager attention (see `use_eager_attention`)
     """
     with contextlib.ExitStack() as stack:
         stack.enter_context(torch.no_grad())
@@ -139,6 +140,25 @@ def calibration_forward_context(model: torch.nn.Module):
         stack.enter_context(eval_context(model))
         stack.enter_context(disable_hf_kernels(model))
         stack.enter_context(disable_lm_head(model))
+        stack.enter_context(use_eager_attention(model))
+        yield
+
+
+@contextlib.contextmanager
+def use_eager_attention(model: torch.nn.Module):
+    """
+    Temporarily force eager attention for the duration of calibration.
+
+    The sequential pipeline traces subgraphs under eager attention, which bakes an
+    unconditional causal-mask add into the traced graph. Runtime calibration must match
+    so that ``create_causal_mask`` uses the eager path and always returns a mask tensor;
+    otherwise (e.g. sdpa) it returns ``None`` for unpadded batches and the baked-in add
+    fails. This matters when samples are not padded to a fixed length.
+    """
+    if isinstance(model, PreTrainedModel):
+        with patch_attr(model.config, "_attn_implementation", "eager"):
+            yield
+    else:
         yield
 
 
