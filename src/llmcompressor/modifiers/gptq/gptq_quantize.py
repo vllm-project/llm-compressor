@@ -8,6 +8,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     fake_quantize,
 )
+from compressed_tensors.quantization.lifecycle.forward_helpers import _is_fp8_supported
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import HAS_TRITON, tl, triton, triton_req
 
@@ -306,6 +307,7 @@ def fused_gptq_block_update(
         torch.float16: 2,
     }[scale.dtype]
     has_zp = zero_point is not None
+    use_fp8_e4b15 = quant_type == 2 and not _is_fp8_supported(work.device)
     if has_zp:
         zero_point = zero_point.to(torch.float32)
 
@@ -330,6 +332,7 @@ def fused_gptq_block_update(
         QUANT_TYPE=quant_type,
         DEQUANT_DTYPE=dequant_dtype,
         HAS_ZP=has_zp,
+        USE_FP8_E4B15=use_fp8_e4b15,
         BLOCK_ROWS=block_rows,
         num_warps=4,
         num_stages=2,
@@ -371,6 +374,7 @@ if HAS_TRITON:
         QUANT_TYPE: tl.constexpr,
         DEQUANT_DTYPE: tl.constexpr,
         HAS_ZP: tl.constexpr,
+        USE_FP8_E4B15: tl.constexpr,
         BLOCK_ROWS: tl.constexpr,
     ):
         batch = tl.program_id(axis=0)
@@ -446,7 +450,17 @@ if HAS_TRITON:
                 )
                 rounded = tl.where(clamped < 0.0, -magnitude, magnitude)
             else:
-                rounded = clamped.to(tl.float8e4nv).to(tl.float32)
+                # Ampere does not expose the native E4M3FN (``float8e4nv``) conversion
+                # in Triton, but it does expose E4B15.  The formats have the same sign,
+                # exponent, and mantissa widths and differ only by eight in exponent
+                # bias, so scaling by 2**-8 before the cast and 2**8 afterwards gives
+                # the E4M3FN rounding operation without requiring Hopper instructions.
+                if USE_FP8_E4B15:
+                    rounded = (clamped * 0.00390625).to(tl.float8e4b15).to(
+                        tl.float32
+                    ) * 256.0
+                else:
+                    rounded = clamped.to(tl.float8e4nv).to(tl.float32)
 
             if DEQUANT_DTYPE == 1:
                 rounded = rounded.to(tl.bfloat16)
