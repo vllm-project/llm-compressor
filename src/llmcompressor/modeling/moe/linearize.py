@@ -1,5 +1,6 @@
 import contextlib
 from functools import wraps
+from collections.abc import Iterable
 from typing import Type
 
 import torch
@@ -206,12 +207,7 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
     :param model: model containing MoE layers to linearize
     """
 
-    moe_lookup = get_moe_linear_status(model)
-    non_linearized = [
-        (moe_lookup[module], module)
-        for module in model.modules()
-        if module in moe_lookup and not isinstance(module, LinearExperts2D)
-    ]
+    non_linearized = _get_non_linearized_moe_targets(model, model.modules())
 
     logger.warning(
         "MoE is being linearized after loading in order to support efficient "
@@ -238,20 +234,14 @@ def linearize_moe_subgraph(
     Offloading is deferred so calibration can run on the newly created modules before
     they are wrapped again.
 
-    Handles both 3D experts (which need linearization) and already-linearized 2D experts
-    (from checkpoints loaded via patch mappings), capturing offload kwargs for both.
+    If a subgraph contains any descendant of a non-linearized experts container
+    (for example, individual expert modules rather than the parent experts module),
+    linearize that parent container so all experts are converted before calibration.
 
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
     """
-    subgraph_set = set(subgraph_modules)
-    moe_lookup = get_moe_linear_status(model)
-
-    non_linearized = [
-        (moe_lookup[module], module)
-        for module in subgraph_set
-        if module in moe_lookup and not isinstance(module, LinearExperts2D)
-    ]
+    non_linearized = _get_non_linearized_moe_targets(model, subgraph_modules)
 
     for i in tqdm.tqdm(
         range(len(non_linearized)), desc="Linearizing experts in subgraph"
@@ -279,6 +269,28 @@ def linearize_moe_layer(
     if hasattr(model, "_moe_lookup"):
         del model._moe_lookup[module]
         model._moe_lookup[linear_moe] = name
+
+
+def _get_non_linearized_moe_targets(
+    model: torch.nn.Module,
+    selected_modules: Iterable[torch.nn.Module],
+) -> list[tuple[str, torch.nn.Module]]:
+    """
+    Return non-linearized MoE containers that intersect with the selected modules.
+
+    This promotes submodule selections to their enclosing experts container so that
+    tracing or targeting individual experts still linearizes the full MoE module.
+    """
+    selected_module_set = set(selected_modules)
+    moe_lookup = get_moe_linear_status(model)
+
+    return [
+        (moe_lookup[module], module)
+        for module in model.modules()
+        if module in moe_lookup
+        and not isinstance(module, LinearExperts2D)
+        and any(selected_module in module.modules() for selected_module in selected_module_set)
+    ]
 
 
 # Backwards-compatible aliases for existing callers/tests.

@@ -101,6 +101,27 @@ def test_linearize_moe_subgraph_only_targets_selected_modules(monkeypatch):
 
 
 @torch.no_grad()
+def test_linearize_moe_subgraph_promotes_selected_expert_children(monkeypatch):
+    config = _make_config()
+    model = _TwoExpertBlocks(config)
+    _init_experts(model.block1.mlp.experts, config)
+
+    calls = []
+
+    def fake_linearize_moe_layer(model_arg, name, module):
+        calls.append((name, module))
+
+    monkeypatch.setattr(
+        linearize_mod, "linearize_moe_layer", fake_linearize_moe_layer
+    )
+
+    expert_child = next(iter(model.block1.mlp.experts.children()))
+    linearize_moe_subgraph(model, [expert_child])
+
+    assert calls == [("block1.mlp.experts", model.block1.mlp.experts)]
+
+
+@torch.no_grad()
 def test_linearize_moe_layer_rejects_non_moe_module():
     config = _make_config()
     model = _TwoExpertBlocks(config)
