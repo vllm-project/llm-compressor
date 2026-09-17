@@ -1,3 +1,4 @@
+import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -10,9 +11,8 @@ from llmcompressor.modeling.moe.linearize import (
     linearize_moe_model,
     linearize_moe_subgraph,
     repack_moe_model,
-    repack_moe_subgraph
+    repack_moe_subgraph,
 )
-import contextlib
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -23,6 +23,7 @@ from llmcompressor.pipelines.sequential.helpers import (
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
+
 from .offloading import disable_offloading_controlled
 
 if TYPE_CHECKING:
@@ -195,12 +196,16 @@ class SequentialPipeline(CalibrationPipeline):
                                         batch_idx, subgraph.consumed_names
                                     )
 
-                    if dataset_args.sequential_linearize_repack and \
-                            dataset_args.repack_moe_layers:
+                    if (
+                        dataset_args.sequential_linearize_repack
+                        and dataset_args.repack_moe_layers
+                    ):
                         repack_moe_subgraph(model, subgraph.submodules(model))
 
-            if not dataset_args.sequential_linearize_repack and \
-                    dataset_args.repack_moe_layers:
+            if (
+                not dataset_args.sequential_linearize_repack
+                and dataset_args.repack_moe_layers
+            ):
                 repack_moe_model(model)
 
             # redundant, finish any remaining compression

@@ -5,10 +5,17 @@ from pathlib import Path
 import torch
 from safetensors import safe_open
 from transformers import Qwen3VLMoeConfig, Qwen3VLMoeForConditionalGeneration
+from transformers import initialization as init
+from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
-from llmcompressor.modeling.moe.linearize import linearize_moe, repack_moe
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe_model,
+    repack_moe_model,
+    repack_moe_subgraph,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
@@ -40,6 +47,32 @@ def _tiny_qwen3_vl_moe():
     return model
 
 
+def _tiny_qwen3_moe_blocks():
+    config = Qwen3MoeConfig(
+        hidden_size=16,
+        intermediate_size=32,
+        num_experts=4,
+        num_experts_per_tok=2,
+    )
+    with skip_weights_initialize():
+        block1 = Qwen3MoeExperts(config)
+        block2 = Qwen3MoeExperts(config)
+    init.normal_(block1.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block1.down_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block2.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block2.down_proj, mean=0.0, std=config.initializer_range)
+
+    model = torch.nn.Module()
+    model.config = config
+    model.block1 = torch.nn.Module()
+    model.block1.mlp = torch.nn.Module()
+    model.block1.mlp.experts = block1
+    model.block2 = torch.nn.Module()
+    model.block2.mlp = torch.nn.Module()
+    model.block2.mlp.experts = block2
+    return model
+
+
 def test_repack_restores_fused_experts_and_weights():
     model = _tiny_qwen3_vl_moe()
     experts = model.model.language_model.layers[0].mlp.experts
@@ -52,10 +85,10 @@ def test_repack_restores_fused_experts_and_weights():
     ref_gate_up = experts.gate_up_proj.detach().clone()
     ref_down = experts.down_proj.detach().clone()
 
-    linearize_moe(model)
+    linearize_moe_model(model)
     assert isinstance(model.model.language_model.layers[0].mlp.experts, LinearExperts2D)
 
-    repack_moe(model)
+    repack_moe_model(model)
     experts = model.model.language_model.layers[0].mlp.experts
     assert isinstance(experts, FusedExpertsProtocol)
     assert not isinstance(experts, LinearExperts2D)
@@ -65,7 +98,7 @@ def test_repack_restores_fused_experts_and_weights():
 
 def test_repack_packs_weight_qparams():
     model = _tiny_qwen3_vl_moe()
-    linearize_moe(model)
+    linearize_moe_model(model)
     lin = model.model.language_model.layers[0].mlp.experts
     intermediate = lin.intermediate_size
     hidden = lin[0].gate_proj.in_features
@@ -81,7 +114,7 @@ def test_repack_packs_weight_qparams():
             torch.full((hidden,), float(i + 100)), requires_grad=False
         )
 
-    repack_moe(model)
+    repack_moe_model(model)
     experts = model.model.language_model.layers[0].mlp.experts
     assert hasattr(experts, "gate_up_proj_scale")
     assert hasattr(experts, "down_proj_scale")
@@ -99,8 +132,8 @@ def test_repack_packs_weight_qparams():
 
 def test_repack_save_pretrained_writes_3d_keys(tmp_path: Path):
     model = _tiny_qwen3_vl_moe()
-    linearize_moe(model)
-    repack_moe(model)
+    linearize_moe_model(model)
+    repack_moe_model(model)
 
     out_dir = tmp_path / "repacked"
     model.save_pretrained(out_dir, safe_serialization=True)
@@ -123,8 +156,8 @@ def test_repack_then_transformers_reload(tmp_path: Path):
     ref_gate_up = experts.gate_up_proj.detach().clone()
     ref_down = experts.down_proj.detach().clone()
 
-    linearize_moe(model)
-    repack_moe(model)
+    linearize_moe_model(model)
+    repack_moe_model(model)
     out_dir = tmp_path / "reload"
     model.save_pretrained(out_dir, safe_serialization=True)
 
@@ -133,3 +166,23 @@ def test_repack_then_transformers_reload(tmp_path: Path):
     assert isinstance(experts, FusedExpertsProtocol)
     assert torch.allclose(experts.gate_up_proj, ref_gate_up)
     assert torch.allclose(experts.down_proj, ref_down)
+
+
+@torch.no_grad()
+def test_repack_moe_subgraph_only_targets_selected_module(monkeypatch):
+    model = _tiny_qwen3_moe_blocks()
+    linearize_moe_model(model)
+
+    calls = []
+
+    def fake_repack_moe_layer(model_arg, name, module):
+        calls.append((name, module))
+
+    monkeypatch.setattr(
+        "llmcompressor.modeling.moe.linearize.repack_moe_layer",
+        fake_repack_moe_layer,
+    )
+
+    repack_moe_subgraph(model, [model.block1.mlp.experts, model.block2])
+
+    assert calls == [("block1.mlp.experts", model.block1.mlp.experts)]

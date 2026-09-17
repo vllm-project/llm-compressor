@@ -308,9 +308,7 @@ class DatasetArguments(CustomDatasetArguments):
     )
     repack_moe_layers: bool = field(
         default=True,
-        metadata={
-            "help": "Repack moe layers to 3D after calibration."
-        },
+        metadata={"help": "Repack moe layers to 3D after calibration."},
     )
     enable_compile: bool = field(
         default=False,

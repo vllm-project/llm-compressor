@@ -4,11 +4,6 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.offload import (
-    disable_offloading,
-    get_cache_init_kwargs,
-    offload_module,
-)
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -99,13 +94,14 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                     "please pass as argument to `load_quantizable_moe`"
                 )
 
+
 def get_moe_linear_status(
     model: torch.nn.Module,
 ) -> list[tuple[str, torch.nn.Module]]:
     """
-    Return all modules which are recognized to be experts layers. 
-    Includes both 3D experts (which need linearization) and 
-    already-linearized 2D experts. This lookup is used by the 
+    Return all modules which are recognized to be experts layers.
+    Includes both 3D experts (which need linearization) and
+    already-linearized 2D experts. This lookup is used by the
     repack_moe_* and linearize_moe_* functions to determine
     which modules to operate on.
     """
@@ -121,6 +117,7 @@ def get_moe_linear_status(
     }
 
     return model._moe_lookup
+
 
 def repack_moe_model(model: PreTrainedModel) -> None:
     """
@@ -143,13 +140,14 @@ def repack_moe_model(model: PreTrainedModel) -> None:
         if module in moe_lookup and isinstance(module, LinearExperts2D)
     ]
 
-    # Use range because we want to avoid creating references to the 
+    # Use range because we want to avoid creating references to the
     # modules in the list, which would prevent them from being deleted
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts"):
         with disable_offloading_controlled(linearized[i][1]):
             repack_moe_layer(model, linearized[i][0], linearized[i][1])
 
         linearized[i] = None  # remove reference to module to allow deletion
+
 
 def repack_moe_subgraph(
     model: PreTrainedModel,
@@ -174,22 +172,27 @@ def repack_moe_subgraph(
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts in subgraph"):
         repack_moe_layer(model, linearized[i][0], linearized[i][1])
 
+
 def repack_moe_layer(
     model: PreTrainedModel, name: str, module: LinearExperts2D
 ) -> None:
     """
     Repack a single linearized :class:`LinearExperts2D` module back into its native
-    fused 3D expert module. 
+    fused 3D expert module.
     """
     fused = module.to_experts_module()
     model.set_submodule(name, fused)
 
+    # very important for onloading/offloading
+    # ensures that the wrapper tracks the new module
+    # and not the old one. Same logic for linearize_moe_layer
     module._onload_wrapper.replace_with(fused)
 
     if hasattr(model, "_moe_lookup"):
         # update the lookup to reflect the new module
         del model._moe_lookup[module]
         model._moe_lookup[fused] = name
+
 
 def linearize_moe_model(model: PreTrainedModel) -> None:
     """
@@ -225,6 +228,7 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
 
         non_linearized[i] = None
 
+
 def linearize_moe_subgraph(
     model: PreTrainedModel,
     subgraph_modules: list[torch.nn.Module],
@@ -249,24 +253,25 @@ def linearize_moe_subgraph(
         if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
-    for i in tqdm.tqdm(range(len(non_linearized)), desc="Linearizing experts in subgraph"):
+    for i in tqdm.tqdm(
+        range(len(non_linearized)), desc="Linearizing experts in subgraph"
+    ):
         linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
 
+
 def linearize_moe_layer(
-    model: PreTrainedModel, 
-    name: str, 
-    module: torch.nn.Module
+    model: PreTrainedModel, name: str, module: torch.nn.Module
 ) -> None:
     """Linearize a single module within the model"""
 
-    if not isinstance(module, FusedExpertsProtocol) and not LinearExperts2D.get_registration(module.__class__):
+    if not isinstance(
+        module, FusedExpertsProtocol
+    ) and not LinearExperts2D.get_registration(module.__class__):
         raise ValueError(f"Module {name} is not a recognized MoE layer")
 
     config = getattr(module, "config", model.config)
     linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-    linear_moe = linear_experts_cls.from_experts_module(
-        module, config
-    )
+    linear_moe = linear_experts_cls.from_experts_module(module, config)
     model.set_submodule(name, linear_moe)
 
     module._onload_wrapper.replace_with(linear_moe)
@@ -274,3 +279,8 @@ def linearize_moe_layer(
     if hasattr(model, "_moe_lookup"):
         del model._moe_lookup[module]
         model._moe_lookup[linear_moe] = name
+
+
+# Backwards-compatible aliases for existing callers/tests.
+linearize_moe = linearize_moe_model
+repack_moe = repack_moe_model

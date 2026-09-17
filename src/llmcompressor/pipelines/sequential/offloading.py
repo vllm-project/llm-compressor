@@ -1,15 +1,11 @@
-import gc
 import contextlib
+import gc
 from collections.abc import Iterable
-from typing import Literal
 
 import torch
-from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
-from compressed_tensors.offload import get_cache_init_kwargs
-from compressed_tensors.distributed.utils import set_source_process
 from compressed_tensors.logger import logger
+from compressed_tensors.offload import get_cache_init_kwargs
 from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.convert import from_accelerate, to_accelerate
 from compressed_tensors.offload.dispatch import (  # noqa: F401
     dispatch_model,
     dispatch_with_map,
@@ -18,30 +14,20 @@ from compressed_tensors.offload.dispatch import (  # noqa: F401
     remove_dispatch,
     set_onload_device,
 )
-from compressed_tensors.offload.module import remove_module_offload
-from compressed_tensors.offload.dist_utils import (
-    as_broadcastable,
-    init_dist,
-    is_distributed,
-    is_rank0,
+from compressed_tensors.offload.module import (
+    offload_module,
+    remove_module_offload,
 )
-from compressed_tensors.offload.load import load_offloaded_model
-from compressed_tensors.offload.module import offload_module, unwrap_offload_forward
-from compressed_tensors.offload.utils import (
-    as_single_threaded,
-    get_module_device,
-    move_module_tensor,
-    to_meta,
-)
-from compressed_tensors.utils.helpers import deprecated, patch_attr
+
+from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 
 
-class OnloadWrapper():
+class OnloadWrapper:
     """
     Class for wrapping onloaded modules. This is the only way for
-    the disable_offloading_controlled context manager to work, since 
+    the disable_offloading_controlled context manager to work, since
     it needs to keep track of modules after linearization/packing,
-    which creates new module instances. 
+    which creates new module instances.
     """
 
     def __init__(
@@ -93,7 +79,8 @@ class OnloadWrapper():
 
     def replace_with(self, new_module: torch.nn.Module):
         """
-        Replace the wrapped module with a new module. This is useful for linearization/packing,
+        Replace the wrapped module with a new module.
+        This is useful for linearization/packing,
         which creates new module instances.
         """
         self.module = new_module
@@ -104,14 +91,14 @@ def _log_cuda_memory(prefix: str):
     """
     Emit a lightweight CUDA memory snapshot for debugging.
     """
-    if not torch.cuda.is_available():
+    if not torch.accelerator.is_available():
         logger.debug(f"{prefix} | CUDA unavailable")
         return
 
-    device = torch.cuda.current_device()
-    allocated = torch.cuda.memory_allocated(device) / 1024**3
-    reserved = torch.cuda.memory_reserved(device) / 1024**3
-    peak_allocated = torch.cuda.max_memory_allocated(device) / 1024**3
+    device = torch.accelerator.current_device_index()
+    allocated = torch.accelerator.memory_allocated(device) / 1024**3
+    reserved = torch.accelerator.memory_reserved(device) / 1024**3
+    peak_allocated = torch.accelerator.max_memory_allocated(device) / 1024**3
     logger.debug(
         f"{prefix} | cuda:{device} allocated={allocated:.2f} GiB "
         f"reserved={reserved:.2f} GiB peak_allocated={peak_allocated:.2f} GiB"
@@ -135,10 +122,7 @@ def disable_offloading_controlled(
     # module can only be offloaded once
     modules = subgraph if subgraph is not None else model.modules()
     modules_list = list(dict.fromkeys(modules))
-    wrapper_list = [
-        OnloadWrapper(module)
-        for module in modules_list
-    ]
+    wrapper_list = [OnloadWrapper(module) for module in modules_list]
 
     try:
         _log_cuda_memory("disable_offloading_controlled: before onload")
@@ -158,7 +142,7 @@ def disable_offloading_controlled(
             wrapper.offload()
 
         # This is pretty much required since we don't create enough objects
-        # to trigger the garbage collector to run on its own, 
+        # to trigger the garbage collector to run on its own,
         # and we want to free memory as soon as possible
         gc.collect()
         if torch.accelerator.is_available():
