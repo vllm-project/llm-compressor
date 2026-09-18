@@ -17,6 +17,7 @@ Usage:
 import argparse
 import os
 
+from compressed_tensors.quantization import preset_name_to_scheme
 from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -42,11 +43,13 @@ def main():
     parser.add_argument("--target-bits", type=float, default=6.0)
     args = parser.parse_args()
 
-    schemes = ["NVFP4", "FP8_DYNAMIC"]
+    nvfp4_scheme = preset_name_to_scheme("NVFP4", targets=["Linear"])
+    nvfp4_scheme.weights.observer = "nvfp4_expanded_mse"
+    schemes = [nvfp4_scheme, "FP8_DYNAMIC"]
+    scheme_tag = "NVFP4+FP8_DYNAMIC+ExpandedMSE"
     model_short = args.model.rstrip("/").split("/")[-1]
-    tag = "+".join(sorted(schemes))
     save_dir = os.path.expanduser(
-        f"~/hf_hub/{model_short}-HIGGS-{tag}-W{args.target_bits}avg-GPTQ"
+        f"~/hf_hub/{model_short}-HIGGS-{scheme_tag}-W{args.target_bits}avg-GPTQ"
     )
 
     # Step 1: get optimal mixed-precision config (model-free)
