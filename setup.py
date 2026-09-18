@@ -177,6 +177,9 @@ setup(
             "tiktoken",
             "qwen_vl_utils",
         ],
+        "qwen": [
+            "qwen_vl_utils",  # TODO: remove
+        ],
     },
     entry_points={
         "console_scripts": [

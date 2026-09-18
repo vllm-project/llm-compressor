@@ -88,7 +88,7 @@ from tests.testing_utils import requires_hf_token
             "Qwen4ExpForConditionalGeneration",
             ["Qwen4ExpTextDecoderLayer"],
             "text",
-            ["transformers>=5.9.0"],
+            ["transformers>=5.17.0"],
         ),
         (
             "inference-optimization/NemotronH-0.3B-A0.3B",
