@@ -26,8 +26,9 @@ class Llama4LinearExperts(LinearExperts2D):
     @classmethod
     @torch.no_grad()
     def from_experts_module(cls, experts: "Llama4TextExperts", config: Llama4Config):
-        source_config = config
-        config: Llama4TextConfig = config.text_config
+        # linearize.py may already pass Llama4TextConfig via get_text_config().
+        if hasattr(config, "text_config"):
+            config = config.text_config
         assert experts.num_experts == config.num_local_experts
         experts.is_concatenated = cls.is_concatenated
         experts.is_transposed = cls.is_transposed
@@ -48,7 +49,7 @@ class Llama4LinearExperts(LinearExperts2D):
             expert: ExpertMLPWithGate = self[index]
             expert.copy_from_experts_module(experts, index)
 
-        self._record_source_metadata(experts, source_config)
+        self._record_source_metadata(experts, config)
 
         # copy offloading from original
         offload_kwargs = get_cache_init_kwargs(experts)

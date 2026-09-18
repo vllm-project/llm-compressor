@@ -176,35 +176,30 @@ def test_repack_packs_compressed_nested_modules():
     scale_in = max(hidden // 16, 1)
 
     for i in range(num_experts):
-        _mark_linear_compressed(
-            lin[i].gate_proj,
-            _nvfp4_like_state(
-                torch.full((intermediate, packed_in), i + 1, dtype=torch.uint8),
-                torch.full((intermediate, scale_in), float(i + 1)),
-                float(i + 1),
-                float(i + 2),
-            ),
+        gate_state = _nvfp4_like_state(
+            torch.full((intermediate, packed_in), i + 1, dtype=torch.uint8),
+            torch.full((intermediate, scale_in), float(i + 1)),
+            float(i + 1),
+            float(i + 2),
         )
-        _mark_linear_compressed(
-            lin[i].up_proj,
-            _nvfp4_like_state(
-                torch.full((intermediate, packed_in), i + 10, dtype=torch.uint8),
-                torch.full((intermediate, scale_in), float(i + 10)),
-                float(i + 1),
-                float(i + 2),
-            ),
+        gate_state["bias"] = torch.full((intermediate,), float(i))
+        _mark_linear_compressed(lin[i].gate_proj, gate_state)
+        up_state = _nvfp4_like_state(
+            torch.full((intermediate, packed_in), i + 10, dtype=torch.uint8),
+            torch.full((intermediate, scale_in), float(i + 10)),
+            float(i + 1),
+            float(i + 2),
         )
-        _mark_linear_compressed(
-            lin[i].down_proj,
-            _nvfp4_like_state(
-                torch.full(
-                    (hidden, max(intermediate // 2, 1)), i + 100, dtype=torch.uint8
-                ),
-                torch.full((hidden, max(intermediate // 16, 1)), float(i + 100)),
-                float(i + 6),
-                float(i + 7),
-            ),
+        up_state["bias"] = torch.full((intermediate,), float(i + 10))
+        _mark_linear_compressed(lin[i].up_proj, up_state)
+        down_state = _nvfp4_like_state(
+            torch.full((hidden, max(intermediate // 2, 1)), i + 100, dtype=torch.uint8),
+            torch.full((hidden, max(intermediate // 16, 1)), float(i + 100)),
+            float(i + 6),
+            float(i + 7),
         )
+        down_state["bias"] = torch.full((hidden,), float(i + 100))
+        _mark_linear_compressed(lin[i].down_proj, down_state)
 
     repack_moe(model)
     experts = model.model.language_model.layers[0].mlp.experts
@@ -234,6 +229,8 @@ def test_repack_packs_compressed_nested_modules():
     assert "down_proj.weight_packed" in keys
     assert "gate_up_proj.weight_scale" in keys
     assert "down_proj.input_global_scale" in keys
+    assert "gate_up_proj.bias" not in keys
+    assert "down_proj.bias" not in keys
     assert not any(key.startswith("0.") for key in keys)
 
 
@@ -463,3 +460,27 @@ def test_repack_save_conversion_emits_inkling_nested_keys():
     mapping = get_checkpoint_conversion_mapping("inkling_mm_model")
     if mapping is not None:
         assert any("w13_weight" in str(item) for item in mapping)
+
+
+def test_llama4_from_experts_accepts_text_config():
+    from transformers.models.llama4.configuration_llama4 import (
+        Llama4Config,
+        Llama4TextConfig,
+    )
+    from transformers.models.llama4.modeling_llama4 import Llama4TextExperts
+
+    from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
+
+    text_config = Llama4TextConfig(
+        hidden_size=64,
+        intermediate_size=32,
+        num_local_experts=2,
+        num_experts_per_tok=1,
+    )
+    experts = Llama4TextExperts(text_config)
+    from_text = Llama4LinearExperts.from_experts_module(experts, text_config)
+    assert from_text._source_config is text_config
+
+    parent = Llama4Config(text_config=text_config)
+    from_parent = Llama4LinearExperts.from_experts_module(experts, parent)
+    assert from_parent._source_config is parent.text_config

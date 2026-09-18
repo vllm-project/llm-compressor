@@ -124,14 +124,20 @@ class ExpertMLPWithGate(ExpertMLP):
             )
             experts.down_proj[index].copy_(self.down_proj.weight.T)
 
-        if experts.has_bias:
-            experts.gate_up_proj_bias[index, : self.intermediate_size].copy_(
-                self.gate_proj.bias
-            )
-            experts.gate_up_proj_bias[index, self.intermediate_size :].copy_(
-                self.up_proj.bias
-            )
-            experts.down_proj_bias[index].copy_(self.down_proj.bias)
+        self.copy_bias_to_experts_module(experts, index)
+
+    def copy_bias_to_experts_module(
+        self, experts: FusedExpertsProtocol, index: int
+    ) -> None:
+        if not experts.has_bias:
+            return
+        experts.gate_up_proj_bias[index, : self.intermediate_size].copy_(
+            self.gate_proj.bias
+        )
+        experts.gate_up_proj_bias[index, self.intermediate_size :].copy_(
+            self.up_proj.bias
+        )
+        experts.down_proj_bias[index].copy_(self.down_proj.bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
@@ -196,9 +202,15 @@ class ExpertMLPWithoutGate(ExpertMLP):
             experts.up_proj[index].copy_(self.up_proj.weight.T)
             experts.down_proj[index].copy_(self.down_proj.weight.T)
 
-        if experts.has_bias:
-            experts.up_proj_bias[index].copy_(self.up_proj.bias)
-            experts.down_proj_bias[index].copy_(self.down_proj.bias)
+        self.copy_bias_to_experts_module(experts, index)
+
+    def copy_bias_to_experts_module(
+        self, experts: FusedExpertsProtocol, index: int
+    ) -> None:
+        if not experts.has_bias:
+            return
+        experts.up_proj_bias[index].copy_(self.up_proj.bias)
+        experts.down_proj_bias[index].copy_(self.down_proj.bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
@@ -312,8 +324,16 @@ class LinearExperts2D(torch.nn.ModuleList):
         first_param = next(self.parameters(), None)
         if first_param is not None:
             fused.to(device=first_param.device)
-            if first_param.is_floating_point() or first_param.is_complex():
-                fused.to(dtype=first_param.dtype)
+        float_param = next(
+            (
+                param
+                for param in self.parameters()
+                if param.is_floating_point() or param.is_complex()
+            ),
+            None,
+        )
+        if float_param is not None:
+            fused.to(dtype=float_param.dtype)
 
         if pack_mode is _ExpertPackMode.DENSE:
             for index in range(self.num_experts):
@@ -322,6 +342,9 @@ class LinearExperts2D(torch.nn.ModuleList):
             self._pack_weight_qparams(fused)
         else:
             self._pack_compressed_projections(fused)
+            if self.has_bias:
+                for index in range(self.num_experts):
+                    self[index].copy_bias_to_experts_module(fused, index)
 
         offload_kwargs = get_cache_init_kwargs(self)
         offload_module(fused, **offload_kwargs)
@@ -552,6 +575,9 @@ def _linear_direct_state(linear: torch.nn.Linear) -> dict[str, torch.Tensor]:
             "`weight`. Call ModelCompressor.compress_model(model) "
             "before repack_moe()."
         )
+    # Native fused experts keep bias as sibling Parameters, not nested
+    # ``gate_up_proj.bias`` / ``down_proj.bias``.
+    state.pop("bias", None)
     if not state:
         raise RuntimeError(
             "Cannot pack compressed experts with empty projection state."

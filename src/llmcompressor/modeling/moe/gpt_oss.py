@@ -27,6 +27,11 @@ class GptOssExpertMLP(ExpertMLPWithGate):
         experts.gate_up_proj[index][:, 0::2].copy_(self.gate_proj.weight.T)
         experts.gate_up_proj[index][:, 1::2].copy_(self.up_proj.weight.T)
         experts.down_proj[index].copy_(self.down_proj.weight.T)
+        self.copy_bias_to_experts_module(experts, index)
+
+    def copy_bias_to_experts_module(
+        self, experts: FusedExpertsProtocol, index: int
+    ) -> None:
         experts.gate_up_proj_bias[index][0::2].copy_(self.gate_proj.bias)
         experts.gate_up_proj_bias[index][1::2].copy_(self.up_proj.bias)
         experts.down_proj_bias[index].copy_(self.down_proj.bias)
