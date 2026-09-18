@@ -6,7 +6,6 @@ from compressed_tensors.quantization import (
     ActivationOrdering,
     QuantizationArgs,
     QuantizationStrategy,
-    QuantizationType,
     fake_quantize,
 )
 from compressed_tensors.quantization.lifecycle.forward_helpers import _is_fp8_supported

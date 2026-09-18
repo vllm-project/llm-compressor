@@ -5,8 +5,8 @@ from transformers import AutoConfig, AutoProcessor, CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
+from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.pruning import REAPPruningModifier
-from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Small representative model with same MXFP4 quantization
@@ -41,8 +41,8 @@ with load_context(KimiK3ForConditionalGeneration):
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 recipe = [
-    REAPPruningModifier(sparsity=0.25),
-    QuantizationModifier(
+    REAPPruningModifier(sparsity=0.10),
+    GPTQModifier(
         targets="re:.*block_sparse_moe.*",
         scheme="NVFP4",
         ignore=[
@@ -50,23 +50,27 @@ recipe = [
             r"re:.*block_sparse_moe\.gate",
             "re:.*vision_tower.*",
             "re:.*mlp_res_proj$",
+            "re:.*routed_expert.*",
         ],
-    )
+    ),
 ]
 
 oneshot(
     model=model,
     tokenizer=processor.tokenizer,
     dataset="perfectblend",
-    splits=get_rank_partition("train", 512),
+    splits=get_rank_partition("train", 1024),
     recipe=recipe,
     max_seq_length=2048,
     trust_remote_code_model=True,
     pipeline="sequential",
-    layerwise_decompression=True,
     batch_size=16,
+    layerwise_decompression=True,
+    layerwise_compression=True,
 )
 
-SAVE_DIR = "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP50"
+SAVE_DIR = (
+    "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP10-GPTQ"
+)
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)

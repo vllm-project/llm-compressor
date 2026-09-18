@@ -211,8 +211,8 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls, key: type[torch.nn.Module], default: Any = None
     ) -> type["LinearExperts2D"]:
         from .gpt_oss import GptOssLinearExperts  # noqa: F401
-        from .llama4 import Llama4LinearExperts  # noqa: F401
         from .kimi_linear import KimiLinearLinearExperts  # noqa: F401
+        from .llama4 import Llama4LinearExperts  # noqa: F401
 
         return cls._registry.get(key, default)
 

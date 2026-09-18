@@ -1,10 +1,10 @@
 # requires: einops, fla-core, tiktoken
 from compressed_tensors.distributed import init_dist
-from transformers import AutoConfig, AutoProcessor, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoProcessor
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.utils import load_context
 
 # Small representative model with same MXFP4 quantization
@@ -35,7 +35,7 @@ recipe = [
             "backbone.norm_f",
             "lm_head",
         ],
-    )
+    ),
 ]
 
 oneshot(
@@ -48,9 +48,11 @@ oneshot(
     num_calibration_samples=1024,
     trust_remote_code_model=True,
     batch_size=16,
-    pipeline="sequential"
+    pipeline="sequential",
 )
 
-SAVE_DIR = "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP25"
+SAVE_DIR = (
+    "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP25"
+)
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)

@@ -10,7 +10,7 @@ import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
-from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
+from compressed_tensors.offload import OffloadCache, to_accelerate
 from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
 from huggingface_hub import hf_hub_download
 from loguru import logger

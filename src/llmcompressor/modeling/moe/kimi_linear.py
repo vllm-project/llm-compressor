@@ -1,13 +1,14 @@
 import torch
-from transformers.activations import ACT2FN
 from transformers import PreTrainedConfig
+from transformers.activations import ACT2FN
 
-from llmcompressor.modeling.kimi_k3.modeling_kimi_linear import KimiLinearExperts, _get_situ_activation_params, SituAndMul
-from llmcompressor.modeling.kimi_k3.configuration_kimi_k3 import KimiLinearConfig
-
-from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
-from llmcompressor.modeling.moe.linear_experts import ExpertMLPWithGate, LinearExperts2D
+from llmcompressor.modeling.kimi_k3.modeling_kimi_linear import (
+    KimiLinearExperts,
+    SituAndMul,
+    _get_situ_activation_params,
+)
 from llmcompressor.modeling.moe.helpers import MoEConfig
+from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 
 
 class KimiLinearLinearExperts(LinearExperts2D):
@@ -20,7 +21,7 @@ class KimiLinearLinearExperts(LinearExperts2D):
         moe_config = MoEConfig.from_config(config)
         self.num_experts = moe_config.num_experts
         self.intermediate_size = moe_config.intermediate_size
-        
+
         # support initialization of situ activation
         if moe_config.hidden_act == "situ":
             beta, linear_beta = _get_situ_activation_params(config)
@@ -42,7 +43,7 @@ class KimiLinearLinearExperts(LinearExperts2D):
                     moe_config.dtype,
                 )
                 for _ in range(moe_config.num_experts)
-            ]
+            ],
         )
 
         self.act_fn = act_fn

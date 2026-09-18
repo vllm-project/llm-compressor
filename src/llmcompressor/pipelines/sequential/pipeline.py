@@ -1,4 +1,5 @@
 import contextlib
+from functools import partial
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -8,7 +9,6 @@ from compressed_tensors.offload import disable_offloading, set_onload_device
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
-from functools import partial
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -150,9 +150,7 @@ class SequentialPipeline(CalibrationPipeline):
                     # layerwise decompression: strip compression and
                     # re-apply quantization config for this subgraph
                     if dataset_args.layerwise_decompression:
-                        compressed = [
-                            m for m in modules if is_module_quantized(m)
-                        ]
+                        compressed = [m for m in modules if is_module_quantized(m)]
                         desc = "Decompressing model"
                         # Decompress modules using distributed or sequential
                         if not is_distributed():
@@ -166,9 +164,7 @@ class SequentialPipeline(CalibrationPipeline):
                         # init qparams
                         for modifier in modifiers:
                             if hasattr(modifier, "start_layerwise_calibration"):
-                                modifier.start_layerwise_calibration(
-                                    model, modules
-                                )
+                                modifier.start_layerwise_calibration(model, modules)
 
                     # LifecycleCallbacks.sequential_epoch_start(modules)
 
@@ -211,9 +207,7 @@ class SequentialPipeline(CalibrationPipeline):
                     # layerwise compression: pack weights back after
                     # calibration and error propagation
                     if dataset_args.layerwise_compression:
-                        quantized = [
-                            m for m in modules if is_module_quantized(m)
-                        ]
+                        quantized = [m for m in modules if is_module_quantized(m)]
                         if not is_distributed():
                             for module in tqdm(quantized, desc="Compressing modules"):
                                 compress_module(module)
