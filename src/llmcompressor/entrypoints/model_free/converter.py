@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Iterator
 
 import torch
+from compressed_tensors.base import QUANTIZATION_CONFIG_NAME, TRANSFORM_CONFIG_NAME
 from compressed_tensors.compressors import compress_module
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
@@ -118,6 +119,11 @@ class ModelFreePtqConverter(Converter):
             return new_config
         config.merge(new_config)
         return config
+
+    def update_model_config(self, model_config: dict) -> dict:
+        if QUANTIZATION_CONFIG_NAME in model_config:
+            model_config[QUANTIZATION_CONFIG_NAME].setdefault(TRANSFORM_CONFIG_NAME, {})
+        return model_config
 
     def _process_standard(
         self, tensors: dict[str, torch.Tensor]
