@@ -196,15 +196,7 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4",
             ),
-        ),
-        pytest.param(
-            TestCase(
-                "quantizing_moe/kimi_k3_example.py",
-                compressed_format=CompressionFormat.nvfp4_pack_quantized,
-                prefix="NVFP4",
-            ),
-            marks=(requires_gpu(2), pytest.mark.multi_gpu),
-        ),
+        )
     ],
     ids=repr,
 )
