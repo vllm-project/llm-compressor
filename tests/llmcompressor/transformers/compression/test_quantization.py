@@ -20,7 +20,7 @@ def _get_dataloader(dataset_args, tokenizer, num_eval):
     dataset_manager = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split=f"train[:{num_eval}]",
+        split=f"train[:{num_eval * 2}]",
         processor=tokenizer,
     )
     calib_dataset = dataset_manager(add_labels=True)
