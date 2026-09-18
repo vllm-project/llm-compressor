@@ -4,7 +4,7 @@ Tests that compression algorithms work correctly with disk-offloaded models.
 
 import pytest
 import torch
-from compressed_tensors.offload import get_device_map, load_context
+from compressed_tensors.offload import get_device_map
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
@@ -20,6 +20,7 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.utils import load_context
 
 MODEL_ID = "nm-testing/tinysmokellama-3.2"
 NUM_CALIBRATION_SAMPLES = 4

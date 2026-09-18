@@ -26,7 +26,7 @@ Behavior | Try to load model onto device 0, then broadcast replicas to other dev
 LLM Compressor Examples | This is the recommended load option when using the "basic" or "data_free" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 ## Disk Offloading ##
-When compressing models which are larger than the available CPU memory, it is recommended to utilize disk offloading for any weights which cannot fit on the cpu. To enable disk offloading, use the `load_context` context from `compressed_tensors` to load your model, along with `device_map="auto_offload"`.
+When compressing models which are larger than the available CPU memory, it is recommended to utilize disk offloading for any weights which cannot fit on the cpu. To enable disk offloading, use the `load_context` context from `llmcompressor.utils` to load your model, along with `device_map="auto_offload"`.
 
 ```python
 from llmcompressor.utils import load_context
@@ -49,7 +49,8 @@ You can then call `oneshot` as usual to perform calibration and compression. Som
 When performing `oneshot` with distributed computing, you will need to ensure that your model does not replicate offloaded values across ranks, otherwise this will create excess work and memory usage. Coordinated loading between ranks is automatically handled by the `load_context` context, so long as it is entered after `torch.distributed` has been initialized.
 
 ```python
-from compressed_tensors.offload import init_dist, load_context
+from compressed_tensors.offload import init_dist
+from llmcompressor.utils import load_context
 
 init_dist()
 with load_context():
