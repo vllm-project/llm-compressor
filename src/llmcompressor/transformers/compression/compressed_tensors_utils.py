@@ -11,7 +11,7 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -27,6 +27,79 @@ from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
 from llmcompressor.utils.transformers import get_embeddings
 
 __all__ = ["modify_save_pretrained"]
+
+
+def _remove_fp8_save_roundtrip(model: PreTrainedModel) -> None:
+    """Keep model renamings/reshapes, but do not undo an FP8 dequantizing load.
+
+    Transformers reverses ``Fp8Dequantize`` into native FP8 quantization when
+    saving. Once oneshot owns the output format, that would corrupt both dense
+    exclusions and newly compressed weights.
+    """
+    if not getattr(model, "_weight_conversions", None):
+        return
+    try:
+        from transformers.core_model_loading import WeightConverter, WeightRenaming
+        from transformers.integrations.finegrained_fp8 import Fp8Dequantize
+    except ImportError as error:
+        raise RuntimeError(
+            "This Transformers version cannot safely save a dequantized FP8 model: "
+            "the required weight conversion API is unavailable"
+        ) from error
+
+    conversions = []
+    for conversion in getattr(model, "_weight_conversions", []):
+        if isinstance(conversion, WeightConverter):
+            required = (
+                "operations",
+                "_original_source_patterns",
+                "_original_target_patterns",
+                "scope_prefix",
+                "base_model_prefix",
+            )
+            missing = [name for name in required if not hasattr(conversion, name)]
+            if missing:
+                raise RuntimeError(
+                    "This Transformers version cannot safely save a dequantized "
+                    f"FP8 model: WeightConverter is missing {missing}"
+                )
+        if not isinstance(conversion, WeightConverter) or not any(
+            isinstance(operation, Fp8Dequantize) for operation in conversion.operations
+        ):
+            conversions.append(conversion)
+            continue
+        operations = [
+            operation
+            for operation in conversion.operations
+            if not isinstance(operation, Fp8Dequantize)
+        ]
+        source_patterns = [
+            pattern
+            for pattern in conversion._original_source_patterns
+            if "weight_scale_inv" not in pattern and "activation_scale" not in pattern
+        ]
+        target_patterns = conversion._original_target_patterns
+        if operations:
+            # Transformers 5.15 predates the force_cpu constructor option.
+            options = (
+                {"force_cpu": conversion.force_cpu}
+                if hasattr(conversion, "force_cpu")
+                else {}
+            )
+            updated = WeightConverter(
+                source_patterns,
+                target_patterns,
+                operations,
+                **options,
+            )
+        elif [pattern.rstrip("$") for pattern in source_patterns] == target_patterns:
+            continue  # The pure dequantizer has no name/shape mapping to retain.
+        else:
+            updated = WeightRenaming(source_patterns, target_patterns)
+        updated.scope_prefix = conversion.scope_prefix
+        updated.base_model_prefix = conversion.base_model_prefix
+        conversions.append(updated)
+    model._weight_conversions = conversions
 
 
 def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
@@ -132,6 +205,25 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
 
+            # Resolve unloaded MTP before compressing or writing the backbone.
+            # Oneshot caches this metadata before calibration; standalone saves
+            # use the same preservation policy.
+            from llmcompressor.transformers.compression.mtp import (
+                prepare_mtp_save,
+                save_mtp_tensors,
+            )
+
+            if hasattr(model, "_llmcompressor_mtp_source"):
+                mtp_source = model._llmcompressor_mtp_source
+            else:
+                mtp_source = prepare_mtp_save(model)
+            if mtp_source is not None and os.path.realpath(
+                save_dir
+            ) == os.path.realpath(mtp_source.directory):
+                raise ValueError(
+                    "Save to a different directory to retain source MTP shards"
+                )
+
             # without this, quantization format will be inferred from the model
             if not save_compressed and quantization_format is None:
                 quantization_format = CompressionFormat.dense.value
@@ -143,12 +235,6 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
-            # Re-tie input and output embeddings before offload conversion so a
-            # shared table is written once. Offloading splits a tied weight into
-            # separate params, and quantized embeddings are untied during
-            # calibration; either way identical tensors would otherwise be saved
-            # twice. Doing this before `to_accelerate` keeps accelerate's
-            # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
             # convert to accelerate offloaded for optimal saving with transformers
@@ -171,16 +257,11 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
 
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
-
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
+
+            if mtp_source is not None:
+                save_mtp_tensors(model, save_dir, source=mtp_source)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
@@ -308,6 +389,11 @@ def resave_config(config: PretrainedConfig, save_dir: str):
 
     # modify config.json to reflect fields that llmcompressor has modified
     src_config = config.to_dict()
+    # A dequantizing load removes this field. Do not resurrect the source's
+    # native quantization metadata when the saved backbone is now dense.
+    # The model compressor and MTP saver each add their actual output schemes.
+    if src_config.get("quantization_config") is None:
+        tgt_config.pop("quantization_config", None)
     src_text_config = src_config.get("text_config", src_config)
     tgt_text_config = tgt_config.get("text_config", tgt_config)
 

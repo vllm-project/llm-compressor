@@ -109,6 +109,9 @@ def post_process(
     actions. The model is saved in a compressed format if specified in `model_args`.
     Additionally, the tokenizer or processor, if available, is also saved.
 
+    :param model_args: Model loading and saving arguments.
+    :param recipe_args: Recipe arguments used by the completed oneshot run.
+    :param output_dir: Directory where the compressed artifact is saved.
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """

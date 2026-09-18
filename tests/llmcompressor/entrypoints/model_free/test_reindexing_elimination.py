@@ -12,9 +12,10 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
 )
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.microscale import get_fused_names
 
 
 def _make_nvfp4_config():
@@ -35,6 +36,55 @@ def _make_nvfp4_config():
 
 def _rand_weight(*shape):
     return torch.randn(*shape, dtype=torch.float16)
+
+
+def test_feed_forward_gate_up_projections_are_fused():
+    """Dependency and in-memory fusion mappings use the same module aliases."""
+    names = [
+        "model.layers.0.feed_forward.gate_proj.weight",
+        "model.layers.0.feed_forward.up_proj.weight",
+    ]
+
+    matched, _ = get_fused_names(names)
+
+    assert [set(group.values()) for group in matched] == [set(names)]
+
+
+@pytest.mark.parametrize(
+    "modules",
+    [
+        (
+            "model.layers.0.self_attn.q_a_proj",
+            "model.layers.0.self_attn.kv_a_proj_with_mqa",
+        ),
+        (
+            "model.layers.0.mlp.experts.0.gate_proj",
+            "model.layers.0.mlp.experts.0.up_proj",
+        ),
+        (
+            "model.layers.0.feed_forward.gate_proj",
+            "model.layers.0.feed_forward.up_proj",
+        ),
+    ],
+    ids=["mla", "moe", "feed_forward"],
+)
+def test_cross_shard_backbone_fusion(tmp_path, mfptq, modules):
+    first, second = modules
+    shards = [tmp_path / f"shard-{index}.safetensors" for index in (1, 2)]
+    save_file({f"{first}.weight": _rand_weight(32, 32) * 0.1}, shards[0])
+    save_file({f"{second}.weight": _rand_weight(32, 32) * 10}, shards[1])
+    names = {f"{module}.weight": shard.name for module, shard in zip(modules, shards)}
+    files = {shard.name: str(shard) for shard in shards}
+
+    maps = build_inverse_weight_maps(names, files, [mfptq])
+    assert set(maps) == {shards[0].name}
+    output = tmp_path / "converted.safetensors"
+    convert_file(maps[shards[0].name], output, [mfptq])
+    tensors = load_file(output)
+    assert torch.equal(
+        tensors[f"{first}.weight_global_scale"],
+        tensors[f"{second}.weight_global_scale"],
+    )
 
 
 @pytest.fixture
