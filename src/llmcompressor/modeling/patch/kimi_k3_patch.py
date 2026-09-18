@@ -7,6 +7,10 @@ from transformers import CompressedTensorsConfig
 
 @contextmanager
 def patch_kimi_k3_ignore():
+    """
+    `moonshotai/Kimi-K3` has an incorrect ignore list. This context patches
+    the qconfig on load so that the unquantized modules are properly ignored
+    """
     original_init = CompressedTensorsConfig.__init__
 
     @wraps(original_init)
