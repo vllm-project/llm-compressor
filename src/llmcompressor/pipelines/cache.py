@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import sys
 import warnings
 from collections import defaultdict
@@ -28,6 +29,38 @@ class IntermediateValue:
 
 
 IntermediateValues = dict[str, IntermediateValue]
+
+
+def _replace_fields(instance: Any, values: dict[str, Any]) -> Any:
+    """
+    Build a copy of a dataclass instance carrying the given field values, without
+    running that class's own construction or attribute validation.
+
+    Offloading replaces each field with an `IntermediateValue` wrapper, which is an
+    internal and transient representation. Rebuilding through `type(value)(**values)`
+    runs the dataclass's `__init__`, and assigning fields afterwards runs its
+    `__setattr__`; a validating dataclass rejects the wrapper on either path.
+    `huggingface_hub`'s `@strict` dataclasses validate on both, and every
+    `transformers>=5` model config is one, so caching an activation that carries a
+    config raises:
+
+        StrictDataclassFieldValidationError: Validation error for field
+        'transformers_version': ... doesn't match any type in (str, NoneType)
+
+    Some dataclasses also cannot be rebuilt through their constructor at all
+    (`init=False` fields, non-init defaults), which the previous path depended on.
+
+    `object.__setattr__` on a shallow copy avoids both, and works for frozen
+    dataclasses. The original instance is left untouched.
+
+    :param instance: dataclass instance to copy
+    :param values: field values to set on the copy
+    :return: a copy of `instance` with `values` applied
+    """
+    new = copy.copy(instance)
+    for name, field_value in values.items():
+        object.__setattr__(new, name, field_value)
+    return new
 
 
 class IntermediatesCache:
@@ -329,11 +362,12 @@ class IntermediatesCache:
             case dict():
                 return {k: cls._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
-                return type(value)(
-                    **{
+                return _replace_fields(
+                    value,
+                    {
                         f.name: cls._onload_value(getattr(value, f.name))
                         for f in fields(value)
-                    }
+                    },
                 )
             case _:
                 # handles primitive values that should be returned as is.
@@ -392,11 +426,12 @@ class IntermediatesCache:
                 )
             case _ if is_dataclass(value):
                 return IntermediateValue(
-                    value=type(value)(
-                        **{
+                    value=_replace_fields(
+                        value,
+                        {
                             f.name: cls._offload_value(getattr(value, f.name), **kwargs)
                             for f in fields(value)
-                        }
+                        },
                     ),
                     device=None,
                 )
