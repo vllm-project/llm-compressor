@@ -21,7 +21,6 @@ import time
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import load_offloaded_model
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -30,6 +29,7 @@ from llmcompressor.modifiers.autoround.utils import (
     get_local_gpu_group_size,
     init_gpu_group_dist,
 )
+from llmcompressor.utils import load_context
 
 MODEL = "Qwen/Qwen3-235B-A22B-Instruct-2507"
 SCHEME = "W4A16"
@@ -46,7 +46,7 @@ logger.info(
 
 ###### MODEL LOAD #####
 load_start = time.perf_counter()
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL,
         dtype="auto",

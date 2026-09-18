@@ -4,7 +4,7 @@ Tests that compression algorithms work correctly with disk-offloaded models.
 
 import pytest
 import torch
-from compressed_tensors.offload import get_device_map, load_offloaded_model
+from compressed_tensors.offload import get_device_map, load_context
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
@@ -30,7 +30,7 @@ MAX_CPU_MEMORY = 6e5  # 600KB forces ~half the modules to disk on tinysmokellama
 @pytest.fixture
 def offloaded_model(tmp_path):
     offload_folder = tmp_path / "offload"
-    with load_offloaded_model():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             torch_dtype=torch.float32,

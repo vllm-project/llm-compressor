@@ -17,12 +17,13 @@ import tempfile
 import pytest
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import init_dist, load_offloaded_model
+from compressed_tensors.offload import init_dist
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
+from llmcompressor.utils import load_context
 from tests.testing_utils import requires_gpu, torchrun
 
 QWEN_MODEL = "inference-optimization/Qwen3.8-1.0B-A0.6B"
@@ -48,7 +49,7 @@ def test_reap_ddp_qwen3():
         torch.get_device_module().manual_seed_all(42)
 
         # Single-GPU reference (before init_dist)
-        with load_offloaded_model():
+        with load_context():
             model_ref = AutoModelForCausalLM.from_pretrained(
                 QWEN_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
             )
@@ -77,7 +78,7 @@ def test_reap_ddp_qwen3():
         torch.manual_seed(42)
         torch.get_device_module().manual_seed_all(42)
 
-        with load_offloaded_model():
+        with load_context():
             model_ddp = AutoModelForCausalLM.from_pretrained(
                 QWEN_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
             )

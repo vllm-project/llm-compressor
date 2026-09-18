@@ -15,23 +15,23 @@ However, there are some exceptions when it is required to change this logic to h
 
 Distributed=False | device_map="auto" | device_map="cuda" | device_map="cpu" | device_map="auto_offload"
 -- | -- | -- | -- | --
-`load_offloaded_model` context required? | No | No | No | Yes
+`load_context` context required? | No | No | No | Yes
 Behavior | Try to load model onto all visible cuda devices. Fallback to cpu and disk if model too large | Try to load model onto first cuda device only. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
 LLM Compressor Examples | This is the recommended load option when using the "basic" or "data_free" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 Distributed=True | device_map="auto" | device_map="cuda" | device_map="cpu" | device_map="auto_offload"
 -- | -- | -- | -- | --
-`load_offloaded_model` context required? | Yes | Yes | Yes | Yes
+`load_context` context required? | Yes | Yes | Yes | Yes
 Behavior | Try to load model onto device 0, then broadcast replicas to other devices. Fallback to cpu and disk if model is too large | Try to load model onto device 0 only, then broadcast replicas to other devices. Error if model is too large | Try to load model onto cpu. Error if the model is too large | Try to load model onto cpu. Fallback to disk if model is too large
 LLM Compressor Examples | This is the recommended load option when using the "basic" or "data_free" pipeline |   |   | This is the recommended load option when using the "sequential" pipeline
 
 ## Disk Offloading ##
-When compressing models which are larger than the available CPU memory, it is recommended to utilize disk offloading for any weights which cannot fit on the cpu. To enable disk offloading, use the `load_offloaded_model` context from `compressed_tensors` to load your model, along with `device_map="auto_offload"`.
+When compressing models which are larger than the available CPU memory, it is recommended to utilize disk offloading for any weights which cannot fit on the cpu. To enable disk offloading, use the `load_context` context from `compressed_tensors` to load your model, along with `device_map="auto_offload"`.
 
 ```python
-from compressed_tensors.offload import load_offloaded_model
+from llmcompressor.utils import load_context
 
-with load_offloaded_model():
+with load_context():
     model_id = "Qwen/Qwen3-0.6B"
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
@@ -46,13 +46,13 @@ In order to specify where disk-offloaded weights should be stored, please specif
 You can then call `oneshot` as usual to perform calibration and compression. Some operations may be slower due to disk offloading.
 
 ## Distributed Oneshot ##
-When performing `oneshot` with distributed computing, you will need to ensure that your model does not replicate offloaded values across ranks, otherwise this will create excess work and memory usage. Coordinated loading between ranks is automatically handled by the `load_offloaded_model` context, so long as it is entered after `torch.distributed` has been initialized.
+When performing `oneshot` with distributed computing, you will need to ensure that your model does not replicate offloaded values across ranks, otherwise this will create excess work and memory usage. Coordinated loading between ranks is automatically handled by the `load_context` context, so long as it is entered after `torch.distributed` has been initialized.
 
 ```python
-from compressed_tensors.offload import init_dist, load_offloaded_model
+from compressed_tensors.offload import init_dist, load_context
 
 init_dist()
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ```
 

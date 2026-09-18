@@ -16,7 +16,7 @@ init_dist()
 
 ### 2. Modify Model Loading ###
 
-In order to prevent separate processes from loading the model multiple times and creating excess work/memory usage, we must load our model using the `load_offloaded_model` context. For more information, see [Model Loading](./model_loading.md#distributed-oneshot).
+In order to prevent separate processes from loading the model multiple times and creating excess work/memory usage, we must load our model using the `load_context` context. For more information, see [Model Loading](./model_loading.md#distributed-oneshot).
 
 Before:
 ```python
@@ -25,9 +25,9 @@ model = AutoModelForCausalLM.from_pretrained(model_id)
 
 After:
 ```python
-from compressed_tensors.offload import load_offloaded_model
+from llmcompressor.utils import load_context
 
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ```
 
