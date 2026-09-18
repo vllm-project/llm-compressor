@@ -182,13 +182,12 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
     for backend in backends:
         pytest.importorskip(*backend.split(">="))
 
-    model_class = getattr(transformers, model_class)
-    trust_remote_code = False
-
-    # special case: kimi
     if "kimi" in model_id.lower():
         model_class = KimiK3ForConditionalGeneration
         trust_remote_code = True
+    else:
+        model_class = getattr(transformers, model_class)
+        trust_remote_code = False
 
     model, subgraphs, sample_input = trace(
         model_id,
