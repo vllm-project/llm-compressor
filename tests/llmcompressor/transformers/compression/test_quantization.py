@@ -144,6 +144,8 @@ def test_perplexity(setup_model_and_config):
     total_ppl = 0.0
     total_samples = 0
     for sample in dataloader:
+        if total_samples >= config["num_eval"]:
+            break
         # -100 in labels indicates that the token is not part of the loss calculation
         pct_labels_in_sample = (sample["labels"] != -100).to(torch.float).mean().item()
         if pct_labels_in_sample <= 0.25:
