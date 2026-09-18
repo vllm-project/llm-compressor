@@ -16,11 +16,11 @@ from tests.testing_utils import parse_params, requires_gpu
 CONFIGS_DIRECTORY = "tests/llmcompressor/transformers/compression/configs"
 
 
-def _get_dataloader(dataset_args, tokenizer):
+def _get_dataloader(dataset_args, tokenizer, num_eval):
     dataset_manager = TextGenerationDataset.load_from_registry(
         dataset_args.dataset,
         dataset_args=dataset_args,
-        split="train[:5%]",
+        split=f"train[:{num_eval}]",
         processor=tokenizer,
     )
     calib_dataset = dataset_manager(add_labels=True)
@@ -138,14 +138,12 @@ def test_perplexity(setup_model_and_config):
         splits="train[:512]",
         max_seq_length=config["max_seq_length"],
     )
-    dataloader = _get_dataloader(dataset_args, tokenizer)
+    dataloader = _get_dataloader(dataset_args, tokenizer, config["num_eval"])
     dispatch_model(model)
 
     total_ppl = 0.0
     total_samples = 0
     for sample in dataloader:
-        if total_samples >= config["num_eval"]:
-            break
         # -100 in labels indicates that the token is not part of the loss calculation
         pct_labels_in_sample = (sample["labels"] != -100).to(torch.float).mean().item()
         if pct_labels_in_sample <= 0.25:
