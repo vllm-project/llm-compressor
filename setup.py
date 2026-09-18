@@ -171,8 +171,10 @@ setup(
             "zensical",
             "markdown",
             "pymdown-extensions",
-        ],
-        "qwen": [
+            # model-specific dependencies
+            "fla-core",
+            "einops",
+            "tiktoken",
             "qwen_vl_utils",
         ],
     },
