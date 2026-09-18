@@ -1,3 +1,7 @@
+import builtins
+import pickle
+import sys
+
 import pytest
 import torch
 from compressed_tensors.offload import dispatch_model, set_onload_device
@@ -142,3 +146,57 @@ def test_import_from_path_missing_module():
 def test_import_from_path_missing_attribute(preprocess_file):
     with pytest.raises(AttributeError, match="Cannot find not_there in"):
         import_from_path(f"{preprocess_file}:not_there")
+
+
+@pytest.mark.unit
+def test_import_from_path_loads_the_file_once(preprocess_file, tmp_path):
+    counter = tmp_path / "counting_module.py"
+    counter.write_text(
+        "import builtins\n"
+        "builtins._llmcompressor_test_loads = "
+        "getattr(builtins, '_llmcompressor_test_loads', 0) + 1\n"
+        "def preprocess(example):\n    return example\n"
+    )
+
+    for _ in range(3):
+        import_from_path(f"{counter}:preprocess")
+
+    assert builtins._llmcompressor_test_loads == 1
+
+
+@pytest.mark.unit
+def test_import_from_path_result_is_picklable(preprocess_file):
+    # `preprocessing_func` is handed to `dataset.map(num_proc=...)`, which pickles it.
+    # That needs the loaded module registered in sys.modules.
+    func = import_from_path(f"{preprocess_file}:preprocess")
+
+    assert pickle.loads(pickle.dumps(func)) is func
+
+
+@pytest.mark.unit
+def test_import_from_path_keeps_same_named_files_apart(tmp_path):
+    for name in ("a", "b"):
+        directory = tmp_path / name
+        directory.mkdir()
+        (directory / "custom_preprocess.py").write_text(
+            f"def preprocess(example):\n    return '{name}'\n"
+        )
+
+    first = import_from_path(f"{tmp_path / 'a' / 'custom_preprocess.py'}:preprocess")
+    second = import_from_path(f"{tmp_path / 'b' / 'custom_preprocess.py'}:preprocess")
+
+    assert first({}) == "a"
+    assert second({}) == "b"
+    assert first.__module__ != second.__module__
+
+
+@pytest.mark.unit
+def test_import_from_path_does_not_leave_a_broken_module_registered(tmp_path):
+    broken = tmp_path / "broken_preprocess.py"
+    broken.write_text("raise RuntimeError('boom')\n")
+    before = set(sys.modules)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        import_from_path(f"{broken}:preprocess")
+
+    assert set(sys.modules) == before

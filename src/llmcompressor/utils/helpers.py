@@ -4,8 +4,10 @@ Common functions for interfacing with python primitives and directories/files.
 """
 
 import contextlib
+import hashlib
 import importlib
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -43,12 +45,31 @@ def _load_module(location: str) -> ModuleType:
     """
     for candidate in (Path(location), Path(f"{location}.py")):
         if candidate.is_file():
-            spec = importlib.util.spec_from_file_location(candidate.stem, candidate)
+            resolved = candidate.resolve()
+            # Name the module after a digest of its absolute path: two files that
+            # share a basename must not collide, and the same file must resolve to
+            # the same name so it is executed once rather than on every call.
+            digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:16]
+            module_name = f"{__name__}._loaded_{resolved.stem}_{digest}"
+
+            cached = sys.modules.get(module_name)
+            if cached is not None:
+                return cached
+
+            spec = importlib.util.spec_from_file_location(module_name, resolved)
             if spec is None or spec.loader is None:
                 break
 
             module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            # Register before executing, so that the loaded objects can be pickled -
+            # preprocessing functions are handed to `dataset.map(num_proc=...)`, which
+            # pickles them - and so that the module's own imports resolve.
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop(module_name, None)
+                raise
             return module
 
     try:
