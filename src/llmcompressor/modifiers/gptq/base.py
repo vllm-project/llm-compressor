@@ -360,7 +360,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
             batch_qparams = [module.weight_observer.get_qparams() for module in batch]
             names = [self._module_names[module] for module in batch]
-            logger.info(f"Quantizing {len(batch)} module(s): {names}")
+            # logger.info(f"Quantizing {len(batch)} module(s): {names}")
 
             with (
                 torch.no_grad(),
@@ -380,10 +380,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self._num_samples,
                 )
 
-                comp_loggers = [
-                    ctx_stack.enter_context(CompressionLogger(module))
-                    for module in batch
-                ]
                 quantized, losses, used_rtn_fallback = quantize_weight(
                     weights=weights,
                     hessians=hessians,
@@ -394,8 +390,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     blocksize=self.block_size,
                     percdamp=self.dampening_frac,
                 )
-                for index, comp_logger in enumerate(comp_loggers):
-                    comp_logger.set_results(name="GPTQ", loss=losses[index].item())
+                for index in range(len(batch)):
                     if used_rtn_fallback[index].item():
                         self._rtn_fallback_module_names.append(names[index])
 

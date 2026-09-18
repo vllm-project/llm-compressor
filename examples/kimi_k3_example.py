@@ -5,7 +5,7 @@ from transformers import AutoConfig, AutoProcessor, CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
-from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.utils import load_context
 
@@ -42,7 +42,7 @@ processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 recipe = [
     REAPPruningModifier(sparsity=0.10),
-    GPTQModifier(
+    QuantizationModifier(
         targets="re:.*block_sparse_moe.*",
         scheme="NVFP4",
         ignore=[
@@ -52,6 +52,7 @@ recipe = [
             "re:.*mlp_res_proj$",
             "re:.*routed_expert.*",
         ],
+        weight_observer="nvfp4_expanded_mse",
     ),
 ]
 
@@ -64,13 +65,16 @@ oneshot(
     max_seq_length=2048,
     trust_remote_code_model=True,
     pipeline="sequential",
-    batch_size=2,
+    batch_size=16,
     layerwise_decompression=True,
     layerwise_compression=True,
+    shuffle_calibration_samples=False,
+    # sequential_targets=["KimiMLAAttention", "KimiDeltaAttention", "ExpertMLPWithGate"],
+    # sequential_targets_per_subgraph=300,
 )
 
 SAVE_DIR = (
-    "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP10-GPTQ"
+    "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP10-new"
 )
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
