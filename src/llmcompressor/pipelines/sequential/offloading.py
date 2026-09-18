@@ -21,82 +21,34 @@ from compressed_tensors.offload.module import (
 
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 
-
-class OnloadWrapper:
+def onload(modules: dict[str, torch.nn.Module]) -> tuple[dict[str, str], dict[str, dict]]:
     """
-    Class for wrapping onloaded modules. This is the only way for
-    the disable_offloading_controlled context manager to work, since
-    it needs to keep track of modules after linearization/packing,
-    which creates new module instances.
+    Onload a list of modules, returning the device map and kwargs used for offloading
+    `device_map` and `kwargs` are keyed by the name, not the actual module itself. 
+    This simplifies swapping out modules during linearization and repacking, as the names remain consistent.
+    And also easier to control with less pointers.
     """
+    device_map = {}
+    kwargs = {}
+    for module in modules:
+        if isinstance(module._parameters, OffloadCache):
+            init_kwargs = get_cache_init_kwargs(module)
+            device_map[modules[module]] = init_kwargs["onload_device"]
+            kwargs[modules[module]] = init_kwargs
+            remove_module_offload(module, onload_tensors=True)
+    return device_map, kwargs
 
-    def __init__(
-        self,
-        module: torch.nn.Module,
-    ):
-        self.module = module
-        self.module._onload_wrapper = self
-
-        # Must be captured while the module is still offloaded: after onloading,
-        # get_offloaded_device would return the execution device instead
-        self.offloading_info = (
-            get_cache_init_kwargs(module)
-            if isinstance(module._parameters, OffloadCache)
-            else None
-        )
-
-    def onload(self):
-        """
-        Onload the module's parameters and buffers to the specified onload device.
-        """
-        if isinstance(self.module, LinearExperts2D):
-            for m in self.module.modules():
-                remove_module_offload(m, onload_tensors=True)
+def offload(modules: dict[str, torch.nn.Module], device_map: dict[str, str], kwargs: dict[str, dict]):
+    """
+    Offload a list of modules, using the provided device map and kwargs.
+    """
+    for module in modules:
+        if module in device_map:
+            offload_module(module, device_map[module], **kwargs[module])
         else:
-            remove_module_offload(self.module, onload_tensors=True)
+            raise ValueError(f"Module {module} not found in device_map. Cannot offload.")
 
-    def offload(self):
-        """
-        Offload the module's parameters and buffers to the specified offload device.
-        """
-        if isinstance(self.module, LinearExperts2D):
-            for m in self.module.modules():
-                # Nested modules can have their own wrapper in the active context.
-                # Skip those here so each module is offloaded exactly once.
-                if (
-                    m is not self.module
-                    and hasattr(m, "_onload_wrapper")
-                    and m._onload_wrapper is not self
-                ):
-                    continue
-                if self.offloading_info is not None:
-                    offload_module(m, **self.offloading_info)
-        else:
-            if self.offloading_info is not None:
-                offload_module(self.module, **self.offloading_info)
 
-        del self.module._onload_wrapper
-
-def replace_module(
-    model: torch.nn.Module,
-    name: str,
-    old_module: torch.nn.Module,
-    new_module: torch.nn.Module,
-) -> None:
-    """Replace a wrapped module and transfer its offload wrapper."""
-    wrapper = getattr(old_module, "_onload_wrapper", None)
-    if wrapper is None:
-        raise ValueError(f"Module {name} is not wrapped with OnloadWrapper")
-
-    model.set_submodule(name, new_module)
-    del old_module._onload_wrapper
-    wrapper.module = new_module
-    new_module._onload_wrapper = wrapper
-
-    if hasattr(model, "_moe_lookup"):
-        module_name = model._moe_lookup.pop(old_module, None)
-        if module_name is not None:
-            model._moe_lookup[new_module] = module_name
 
 
 def _log_cuda_memory(prefix: str):
@@ -116,47 +68,3 @@ def _log_cuda_memory(prefix: str):
         f"reserved={reserved:.2f} GiB peak_allocated={peak_allocated:.2f} GiB"
     )
 
-
-@contextlib.contextmanager
-def disable_offloading_controlled(
-    model: torch.nn.Module,
-    subgraph: Iterable[torch.nn.Module] | None = None,
-):
-    """
-    Context manager to disable offloading for a specific subgraph of the model.
-
-    Intended for sequential pipeline. Onload the entire subgraph, then offload it.
-
-    :param model: the full model
-    :param subgraph: iterable of modules in the subgraph to onload
-    """
-    # deduplicate in case the subgraph contains nested modules, since each unique
-    # module can only be offloaded once
-    modules = subgraph if subgraph is not None else model.modules()
-    modules_list = list(dict.fromkeys(modules))
-    wrapper_list = [OnloadWrapper(module) for module in modules_list]
-
-    try:
-        _log_cuda_memory("disable_offloading_controlled: before onload")
-        for wrapper in wrapper_list:
-            if wrapper.offloading_info is None:
-                continue
-            wrapper.onload()
-
-        _log_cuda_memory("disable_offloading_controlled: after onload")
-        yield
-
-    finally:
-        _log_cuda_memory("disable_offloading_controlled: before offload")
-        for wrapper in wrapper_list:
-            if wrapper.offloading_info is None:
-                continue
-            wrapper.offload()
-
-        # This is pretty much required since we don't create enough objects
-        # to trigger the garbage collector to run on its own,
-        # and we want to free memory as soon as possible
-        gc.collect()
-        if torch.accelerator.is_available():
-            torch.accelerator.empty_cache()
-        _log_cuda_memory("disable_offloading_controlled: after offload")

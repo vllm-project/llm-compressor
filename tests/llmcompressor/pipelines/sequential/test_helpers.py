@@ -216,6 +216,28 @@ def test_submodules_order_is_stable():
         assert first == second
 
 
+def test_submodule_dict_contains_qualified_names():
+    with skip_weights_initialize():
+        model = DummyModel()
+
+    graph_module = torch.fx.symbolic_trace(model)
+    subgraph = partition_graph(
+        model,
+        [
+            node
+            for node in graph_module.graph.nodes
+            if node.op == "call_module" and node.target == "seq"
+        ],
+    )[0]
+
+    assert subgraph.submodule_dict(model) == {
+        "seq": model.seq,
+        "seq.0": model.seq[0],
+        "seq.1": model.seq[1],
+    }
+    assert subgraph.submodule_dict(model, recurse=False) == {"seq": model.seq}
+
+
 def test_get_sequential_ancestors():
     with skip_weights_initialize():
         model = DummyModel()

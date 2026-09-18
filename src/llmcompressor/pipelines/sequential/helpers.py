@@ -80,6 +80,31 @@ class Subgraph:
 
         return modules
 
+    def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
+        """Return subgraph modules keyed by their qualified model names."""
+        nodes = self.graph.find_nodes(op="call_module")
+        module_dict: dict[str, Module] = {}
+        seen = set()
+
+        for node in nodes:
+            module_name = node.target
+            module = model.get_submodule(module_name)
+            named_modules = module.named_modules() if recurse else [("", module)]
+
+            for relative_name, submodule in named_modules:
+                if submodule in seen:
+                    continue
+
+                qualified_name = (
+                    module_name
+                    if not relative_name
+                    else f"{module_name}.{relative_name}"
+                )
+                module_dict[qualified_name] = submodule
+                seen.add(submodule)
+
+        return module_dict
+
 
 def trace_subgraphs(
     model: PreTrainedModel,
@@ -117,7 +142,7 @@ def trace_subgraphs(
         stack.enter_context(HooksMixin.disable_hooks())
 
         # flags useful for tracing
-        # note: eager attention is forced by `calibration_forward_context`
+        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
 
         # autowrap forwards

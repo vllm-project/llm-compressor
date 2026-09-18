@@ -24,7 +24,7 @@ from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
-from .offloading import disable_offloading_controlled
+from .offloading import offload, onload, replace_module
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -147,6 +147,7 @@ class SequentialPipeline(CalibrationPipeline):
             session.state.sequential_prefetch = sequential_prefetch
 
             for subgraph_index, subgraph in enumerate(subgraphs):
+                subgraph_modules = subgraph.submodule_dict(model)
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -154,55 +155,59 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
 
-                subgraph_modules = subgraph.submodules(model)
+                #######################
+                ### START OF ONLOAD ###
+                #######################
+                onload(subgraph_modules)
+                
+                # linearize moe layers just before calibration,
+                if dataset_args.moe_eager_linearization_and_repack:
+                    linearize_moe_subgraph(model, subgraph_modules)
 
-                # Everything onloaded in this context, offloaded outside
-                with disable_offloading_controlled(model, subgraph_modules):
-                    # linearize moe layers just before calibration,
-                    if dataset_args.moe_eager_linearization_and_repack:
-                        linearize_moe_subgraph(model, subgraph_modules)
+                # do a preliminary pass to trigger modifier hooks
+                for batch_idx, inputs in _get_batches(
+                    activations,
+                    num_batches,
+                    subgraph.input_names,
+                    calib_desc,
+                    sequential_prefetch,
+                ):
+                    session.state.current_batch_idx = batch_idx
+                    outputs = subgraph.forward(model, **inputs)
 
-                    # do a preliminary pass to trigger modifier hooks
-                    for batch_idx, inputs in _get_batches(
-                        activations,
-                        num_batches,
-                        subgraph.input_names,
-                        calib_desc,
-                        sequential_prefetch,
-                    ):
-                        session.state.current_batch_idx = batch_idx
-                        outputs = subgraph.forward(model, **inputs)
+                    if not dataset_args.propagate_error:
+                        if subgraph_index < num_subgraphs - 1:
+                            activations.update(batch_idx, outputs)
+                            activations.delete(batch_idx, subgraph.consumed_names)
 
-                        if not dataset_args.propagate_error:
+                LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+
+                if dataset_args.propagate_error:
+                    # this pass does not trigger modifier hooks
+                    # and is only used for capturing outputs of compressed modules
+                    with HooksMixin.disable_hooks():
+                        for batch_idx, inputs in _get_batches(
+                            activations,
+                            num_batches,
+                            subgraph.input_names,
+                            prop_desc,
+                            sequential_prefetch,
+                        ):
+                            output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, outputs)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                                activations.update(batch_idx, output)
+                                activations.delete(
+                                    batch_idx, subgraph.consumed_names
+                                )
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+                if (
+                    dataset_args.moe_eager_linearization_and_repack
+                    and dataset_args.repack_moe_layers
+                ):
+                    repack_moe_subgraph(model, subgraph.submodules(model))
 
-                    if dataset_args.propagate_error:
-                        # this pass does not trigger modifier hooks
-                        # and is only used for capturing outputs of compressed modules
-                        with HooksMixin.disable_hooks():
-                            for batch_idx, inputs in _get_batches(
-                                activations,
-                                num_batches,
-                                subgraph.input_names,
-                                prop_desc,
-                                sequential_prefetch,
-                            ):
-                                output = subgraph.forward(model, **inputs)
-                                if subgraph_index < num_subgraphs - 1:
-                                    activations.update(batch_idx, output)
-                                    activations.delete(
-                                        batch_idx, subgraph.consumed_names
-                                    )
-
-                    if (
-                        dataset_args.moe_eager_linearization_and_repack
-                        and dataset_args.repack_moe_layers
-                    ):
-                        repack_moe_subgraph(model, subgraph.submodules(model))
+                offload(subgraph_modules, device_map, kwargs)
+                ### END OF ONLOAD ###
 
             if (
                 not dataset_args.moe_eager_linearization_and_repack

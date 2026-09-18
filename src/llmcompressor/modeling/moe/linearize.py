@@ -227,7 +227,7 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
 
 def linearize_moe_subgraph(
     model: PreTrainedModel,
-    subgraph_modules: list[torch.nn.Module],
+    subgraph_modules: dict[str, torch.nn.Module],
 ) -> None:
     """
     Linearize MoE layers within a subgraph during sequential calibration.
@@ -237,7 +237,7 @@ def linearize_moe_subgraph(
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
     """
-    subgraph_set = set(subgraph_modules)
+    subgraph_set = set(subgraph_modules.values())
     moe_lookup = get_moe_linear_status(model)
     non_linearized = [
         (moe_lookup[module], module)
@@ -248,11 +248,11 @@ def linearize_moe_subgraph(
     for i in tqdm.tqdm(
         range(len(non_linearized)), desc="Linearizing experts in subgraph"
     ):
-        linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
+        linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1], subgraph_modules)
 
 
 def linearize_moe_layer(
-    model: PreTrainedModel, name: str, module: torch.nn.Module
+    model: PreTrainedModel, name: str, module: torch.nn.Module, subgraph_modules: dict[str, torch.nn.Module] | None = None
 ) -> None:
     """Linearize a single module within the model"""
 
@@ -264,4 +264,26 @@ def linearize_moe_layer(
     config = getattr(module, "config", model.config)
     linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
     linear_moe = linear_experts_cls.from_experts_module(module, config)
-    replace_module(model, name, module, linear_moe)
+
+    _replace(model, name, module, linear_moe, subgraph_modules)
+
+def _replace(model: PreTrainedModel, name: str, old_module: torch.nn.Module, new_module: torch.nn.Module, module_dict: dict[str, torch.nn.Module] | None = None):
+    """
+    Replace a module in a model by name
+    Also updates the module_dict if provided, which is used for subgraph operations
+    """
+
+    if hasattr(old_module, "_parameters") and isinstance(old_module._parameters, OffloadCache):
+        # move the offload cache to the new module
+        new_module._parameters = old_module._parameters
+
+    if module_dict is not None:
+        if module_dict.get(name) is not old_module:
+            raise ValueError(
+                f"Module {name} in module_dict does not match the old_module being replaced."
+                "Something went very wrong!"
+            )
+        module_dict[name] = new_module
+
+    model.set_submodule(name, new_module)
+    
