@@ -65,13 +65,13 @@ The Red Hat AI team has been using LLM Compressor to produce a fresh batch of pr
   - [GLM-5.3-Flash NVFP4 Example](examples/quantizing_moe/glm53_flash_example.py)
 * **Qwen3.8-Flash-Next NVFP4**: An NVFP4 quantized checkpoint for [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next).
   - [RedHatAI/Qwen3.8-Flash-Next-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-Flash-Next-NVFP4)
-* **Qwen3.8-27B INT4, NVFP4, and MXFP4**: Weight-only quantized checkpoints for [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) across three formats — INT4 (GPTQ/AWQ), NVFP4, and MXFP4 — covering a range of hardware and accuracy trade-offs.
+* **Qwen3.8-27B INT4, NVFP4, and MXFP4**: 4-bit quantized checkpoints for [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) across three formats — INT4, NVFP4, and MXFP4 — covering a range of hardware and accuracy trade-offs.
   - [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4)
   - [RedHatAI/Qwen3.8-27B-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-27B-NVFP4)
   - [RedHatAI/Qwen3.8-27B-MXFP4](https://huggingface.co/RedHatAI/Qwen3.8-27B-MXFP4)
-  - [Qwen3.8-27B INT4 (GPTQ/AWQ) Example](examples/quantization_w4a16/qwen3_8_gptq_awq_example.py)
-  - [NVFP4 W4A16 Example](examples/quantization_w4a16_fp4/nvfp4/qwen3.5_example.py)
-  - [MXFP4 W4A16 Example](examples/quantization_w4a16_fp4/mxfp4/qwen3.5_example.py)
+  - [Qwen3.8-27B INT4 Example](examples/quantization_w4a16/qwen3_8_gptq_awq_example.py)
+  - [Qwen3.8-27B NVFP4 Example](examples/quantization_w4a4_fp4/qwen3_8_gptq_awq_example.py)
+  - [Qwen3.8-27B MXFP4 Example](examples/quantization_w4a4_mxfp4/qwen3_8_gptq_awq_example.py)
 * **Nemotron 3.5 Lightning FP8**: An FP8 quantized checkpoint for [Nemotron 3.5 Lightning](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16), created using GPTQ-based FP8 quantization.
   - [RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8)
   - [Nemotron 3.5 Lightning FP8 Example](examples/quantization_w8a8_fp8/nemotron_3_5_lightning_example.py)
