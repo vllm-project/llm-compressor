@@ -4,8 +4,12 @@ Common functions for interfacing with python primitives and directories/files.
 """
 
 import contextlib
+import hashlib
 import importlib
-import re
+import importlib.util
+import sys
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import torch
@@ -31,7 +35,50 @@ __all__ = [
 ]
 
 
-def import_from_path(path: str) -> str:
+def _load_module(location: str) -> ModuleType:
+    """
+    Load a module from either a file system path or a dotted module name.
+
+    :param location: a path to a python file, with or without the `.py` suffix, or an
+        importable dotted module name
+    :return the loaded module
+    """
+    for candidate in (Path(location), Path(f"{location}.py")):
+        if candidate.is_file():
+            resolved = candidate.resolve()
+            # Name the module after a digest of its absolute path: two files that
+            # share a basename must not collide, and the same file must resolve to
+            # the same name so it is executed once rather than on every call.
+            digest = hashlib.sha256(str(resolved).encode()).hexdigest()[:16]
+            module_name = f"{__name__}._loaded_{resolved.stem}_{digest}"
+
+            cached = sys.modules.get(module_name)
+            if cached is not None:
+                return cached
+
+            spec = importlib.util.spec_from_file_location(module_name, resolved)
+            if spec is None or spec.loader is None:
+                break
+
+            module = importlib.util.module_from_spec(spec)
+            # Register before executing, so that the loaded objects can be pickled -
+            # preprocessing functions are handed to `dataset.map(num_proc=...)`, which
+            # pickles them - and so that the module's own imports resolve.
+            sys.modules[module_name] = module
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                sys.modules.pop(module_name, None)
+                raise
+            return module
+
+    try:
+        return importlib.import_module(location)
+    except ImportError:
+        raise ImportError(f"Cannot find module with path {location}")
+
+
+def import_from_path(path: str) -> Any:
     """
     Import the module and the name of the function/class separated by :
     Examples:
@@ -41,20 +88,14 @@ def import_from_path(path: str) -> str:
     :param path: path including the file path and object name
     :return Function or class object
     """
-    original_path, class_name = path.split(":")
-    _path = original_path
+    original_path, class_name = path.rsplit(":", 1)
 
-    path = original_path.split(".py")[0]
-    path = re.sub(r"/+", ".", path)
-    try:
-        module = importlib.import_module(path)
-    except ImportError:
-        raise ImportError(f"Cannot find module with path {_path}")
+    module = _load_module(original_path)
 
     try:
         return getattr(module, class_name)
     except AttributeError:
-        raise AttributeError(f"Cannot find {class_name} in {_path}")
+        raise AttributeError(f"Cannot find {class_name} in {original_path}")
 
 
 @contextlib.contextmanager
