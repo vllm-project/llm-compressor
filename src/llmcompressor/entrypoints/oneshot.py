@@ -144,8 +144,9 @@ class Oneshot:
         # Error if oneshot is called with `torchrun` but did not call `init_dist`
         if "TORCHELASTIC_RUN_ID" in os.environ and not is_distributed():
             raise ValueError(
-                "Detected torchrun environment variables, but "
-                "no distributed process group was found"
+                "Detected torchrun environment, but no distributed process group was "
+                "found. Please call `compressed_tensors.distributed::init_dist()` "
+                "before calling oneshot"
             )
 
         # Disable tokenizer parallelism to prevent warning when using
