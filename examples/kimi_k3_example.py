@@ -64,7 +64,7 @@ oneshot(
     max_seq_length=2048,
     trust_remote_code_model=True,
     pipeline="sequential",
-    batch_size=16,
+    batch_size=2,
     layerwise_decompression=True,
     layerwise_compression=True,
 )
