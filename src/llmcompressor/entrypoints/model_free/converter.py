@@ -121,8 +121,9 @@ class ModelFreePtqConverter(Converter):
         return config
 
     def update_model_config(self, model_config: dict) -> dict:
-        if QUANTIZATION_CONFIG_NAME in model_config:
-            model_config[QUANTIZATION_CONFIG_NAME].setdefault(TRANSFORM_CONFIG_NAME, {})
+        quant_config = model_config.get(QUANTIZATION_CONFIG_NAME)
+        if isinstance(quant_config, dict):
+            quant_config.setdefault(TRANSFORM_CONFIG_NAME, {})
         return model_config
 
     def _process_standard(
