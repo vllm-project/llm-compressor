@@ -161,6 +161,15 @@ from tests.testing_utils import requires_hf_token
             "vision",
             ["torchvision"],
         ),
+        # dense Qwen3-VL: the vision tower is not traceable and must stay out
+        # of the traced subgraphs (#3071)
+        (
+            "Qwen/Qwen3-VL-2B-Instruct",
+            Qwen3VLForConditionalGeneration,
+            ["Qwen3VLTextDecoderLayer"],
+            "vision",
+            ["torchvision"],
+        ),
         (
             "inference-optimization/GLM-5.3-Flash-0.1B-A0.1B",
             Glm5NextForConditionalGeneration,
