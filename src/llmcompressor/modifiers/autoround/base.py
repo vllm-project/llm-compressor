@@ -730,7 +730,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # AutoRound's weight-quantization layer configuration.
             if quant_scheme is None:
                 continue
-            if isinstance(quant_scheme, QuantizationScheme) and quant_scheme.weights is None:
+            if (
+                isinstance(quant_scheme, QuantizationScheme)
+                and quant_scheme.weights is None
+            ):
                 continue
 
             if not isinstance(quant_scheme, QuantizationScheme):
