@@ -99,7 +99,7 @@ The `oneshot` entrypoint runs three phases:
 | `sequential_targets` | `list[str] \| None` | `None` | Layer targets for the sequential pipeline (typically a single decoder layer class). Defaults to `no_split_modules` from the HF model definition |
 | `sequential_offload_device` | `str` | `"cpu"` | Device to offload intermediate activations between sequential layers. Use `"cuda:1"` if a second GPU is available |
 | `quantization_aware_calibration` | `bool` | `True` | Apply quantization during the calibration forward pass in the sequential pipeline |
-| `sequential_prefetch` | `bool` | `False` | Prefetch the next batch in a background thread during sequential pipeline calibration |
+| `sequential_activation_prefetch` | `bool` | `False` | Prefetch the next batch in a background thread during sequential pipeline calibration |
 
 ### Miscellaneous Arguments
 

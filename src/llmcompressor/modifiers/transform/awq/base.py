@@ -595,7 +595,7 @@ class AWQModifier(Modifier):
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
         cache = self._parent_args_cache[module]
-        use_prefetch = active_session().state.sequential_prefetch
+        use_prefetch = active_session().state.sequential_activation_prefetch
         batch_iter = cache.iter_prefetch() if use_prefetch else cache
         outputs = [module(**batch) for batch in batch_iter]
         return [

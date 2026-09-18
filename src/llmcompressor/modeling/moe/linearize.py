@@ -19,10 +19,6 @@ from transformers.conversion_mapping import (
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
-from llmcompressor.pipelines.sequential.offloading import (
-    offload,
-    onload,
-)
 
 from .conversion_mappings import (
     get_linearize_load_mappings,
@@ -138,6 +134,8 @@ def repack_moe_model(model: PreTrainedModel) -> None:
     :param model: model containing linearized MoE layers to repack
     :return: the same model with fused expert modules restored
     """
+    from llmcompressor.pipelines.sequential.offloading import offload, onload
+
     moe_lookup = get_moe_linear_status(model)
 
     linearized = [
@@ -148,16 +146,19 @@ def repack_moe_model(model: PreTrainedModel) -> None:
 
     # Use range because we want to avoid creating references to the
     # modules in the list, which would prevent them from being deleted
+    # No fancy threading here though to be safe
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts"):
         name, module = linearized[i]
         module_dict = {name: module}
-        device_map, kwargs = onload(module_dict)
+        offload_kwargs = onload(module_dict)
+
         try:
             repack_moe_layer(model, name, module, module_dict)
         finally:
-            offload(module_dict, device_map, kwargs)
+            offload(module_dict, offload_kwargs)
 
-        linearized[i] = None  # remove reference to module to allow deletion
+        # remove reference to original module to allow deletion
+        linearized[i] = None
 
 
 def repack_moe_subgraph(
@@ -171,6 +172,8 @@ def repack_moe_subgraph(
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
     :return: the same model with fused expert modules restored for the subgraph
+
+    Note that this function does not manage offloading
     """
     subgraph_set = set(subgraph_modules.values())
     moe_lookup = get_moe_linear_status(model)
@@ -209,6 +212,7 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
 
     :param model: model containing MoE layers to linearize
     """
+    from llmcompressor.pipelines.sequential.offloading import offload, onload
 
     moe_lookup = get_moe_linear_status(model)
     non_linearized = [
@@ -225,15 +229,15 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    # This is also sequential
+    # Managing offloading, follows same pattern as repack_moe_model
     for i in tqdm.tqdm(range(len(non_linearized)), desc="Linearizing experts"):
         name, module = non_linearized[i]
         module_dict = {name: module}
-        device_map, kwargs = onload(module_dict)
+        offload_kwargs = onload(module_dict)
         try:
             linearize_moe_layer(model, name, module, module_dict)
         finally:
-            offload(module_dict, device_map, kwargs)
+            offload(module_dict, offload_kwargs)
 
         non_linearized[i] = None
 
@@ -249,6 +253,8 @@ def linearize_moe_subgraph(
 
     :param model: the full model, used for config fallback and set_submodule
     :param subgraph_modules: modules in the subgraph to check for experts
+
+    Note that this function does not manage offloading
     """
     subgraph_set = set(subgraph_modules.values())
     moe_lookup = get_moe_linear_status(model)
@@ -294,8 +300,8 @@ def _replace(
     module_dict: dict[str, torch.nn.Module] | None = None,
 ):
     """
-    Replace a module in a model by name
-    Also updates the module_dict if provided, which is used for subgraph operations
+    Replace a module in a model by name. Also updates the module_dict if provided,
+    which is important for tracking modules in a subgraph during sequential calibration.
     """
 
     if hasattr(old_module, "_parameters") and isinstance(

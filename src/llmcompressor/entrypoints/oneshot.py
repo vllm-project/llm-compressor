@@ -20,7 +20,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD,
     QUANTIZATION_METHOD_NAME,
 )
-from compressed_tensors.utils import getattr_chain, match_named_modules
+from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import (
@@ -33,11 +33,14 @@ from transformers import (
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
-from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.entrypoints.utils import (
+    has_individual_expert_targets,
+    post_process,
+    pre_process,
+)
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
-from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -48,42 +51,6 @@ if TYPE_CHECKING:
 
 
 TOKENIZERS_PARALLELISM_ENV = "TOKENIZERS_PARALLELISM"
-
-
-def _has_individual_expert_targets(
-    model: PreTrainedModel,
-    sequential_targets: str | list[str] | None,
-) -> bool:
-    """Return whether targets select a descendant of an MoE experts module."""
-    from llmcompressor.modeling.moe.linearize import get_moe_linear_status
-
-    targets = infer_sequential_targets(model, sequential_targets)
-    moe_modules = get_moe_linear_status(model)
-
-    for target_name, target_module in match_named_modules(model, targets):
-        if target_module in moe_modules:
-            continue
-
-        ancestor_name = target_name
-        while "." in ancestor_name:
-            ancestor_name = ancestor_name.rsplit(".", 1)[0]
-            if model.get_submodule(ancestor_name) in moe_modules:
-                return True
-
-    return False
-
-
-def _force_non_eager_moe_linearization(model, dataset_args) -> None:
-    if not dataset_args.moe_eager_linearization_and_repack:
-        return
-
-    if _has_individual_expert_targets(model, dataset_args.sequential_targets):
-        logger.warning(
-            "Individual MoE experts were found in sequential_targets. Forcing "
-            "moe_eager_linearization_and_repack=False so the full MoE layer is "
-            "linearized before sequential processing."
-        )
-        dataset_args.moe_eager_linearization_and_repack = False
 
 
 class Oneshot:
@@ -223,8 +190,6 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        _force_non_eager_moe_linearization(self.model, self.dataset_args)
-
         self.validate_model(self.model)
 
     def __call__(self):
@@ -245,11 +210,26 @@ class Oneshot:
             calibration_dataloader=calibration_dataloader,
             recipe_stage=self.recipe_args.stage,
         )
+        self.resolve_eager_moe_linearization()
         post_process(
             model_args=self.model_args,
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
         )
+
+    def resolve_eager_moe_linearization(self):
+        if not self.dataset_args.moe_eager_linearization_and_repack:
+            return
+
+        if has_individual_expert_targets(
+            self.model, self.dataset_args.sequential_targets
+        ):
+            logger.warning(
+                "Individual MoE experts were found in sequential_targets. Forcing "
+                "moe_eager_linearization_and_repack=False so the full MoE layer is "
+                "linearized before sequential processing."
+            )
+            self.dataset_args.moe_eager_linearization_and_repack = False
 
     def apply_recipe_modifiers(
         self,
@@ -399,7 +379,8 @@ def oneshot(
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
-    sequential_prefetch: bool = False,
+    sequential_activation_prefetch: bool = False,
+    sequential_module_prefetch: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -490,9 +471,13 @@ def oneshot(
         than one gpu. Default is cpu.
     :param quantization_aware_calibration: Deprecated. This argument has no effect
         and will be removed in a future release.
-    :param sequential_prefetch: When using the sequential pipeline, prefetch the
-        next batch in a background thread to overlap onload with forward. Default
-        False; set True for faster calibration when GPU memory allows.
+    :param sequential_activation_prefetch: When using the sequential pipeline,
+        prefetch the next batch in a background thread to overlap activation data
+        movement with forward.
+        Default False.
+    :param sequential_module_prefetch: When using the sequential pipeline, prefetch
+        the next subgraph's modules and asynchronously offload completed subgraphs.
+        Default False; set True when GPU memory allows.
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.

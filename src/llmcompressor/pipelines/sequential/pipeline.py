@@ -52,7 +52,7 @@ def _get_batches(
     num_batches: int,
     input_names: list[str],
     desc: str,
-    sequential_prefetch: bool = False,
+    activation_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) with the next batch optionally prefetched in a
@@ -62,7 +62,7 @@ def _get_batches(
     """
     batch_source = (
         activations.iter_prefetch(input_names)
-        if sequential_prefetch
+        if activation_prefetch
         else activations.iter(input_names)
     )
     for batch_idx, inputs in tqdm(
@@ -158,32 +158,51 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
-            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
-            session.state.sequential_prefetch = sequential_prefetch
+            sequential_activation_prefetch = getattr(
+                dataset_args, "sequential_activation_prefetch", False
+            )
+            sequential_module_prefetch = getattr(
+                dataset_args, "sequential_module_prefetch", False
+            )
+            session.state.sequential_activation_prefetch = (
+                sequential_activation_prefetch
+            )
 
-            offload_executor = ThreadPoolExecutor(max_workers=1)
             pending_offloads: list[tuple[set[torch.nn.Module], Future]] = []
-
-            def finish_offloads():
-                try:
-                    for _, future in pending_offloads:
-                        future.result()
-                finally:
-                    offload_executor.shutdown(wait=True)
-
-            stack.callback(finish_offloads)
+            prefetched_onload: tuple[dict[str, torch.nn.Module], Future] | None = None
+            if sequential_module_prefetch:
+                offload_executor = ThreadPoolExecutor(max_workers=8)
+                onload_executor = ThreadPoolExecutor(max_workers=8)
+                stack.callback(offload_executor.shutdown, True)
+                stack.callback(onload_executor.shutdown, True)
+            else:
+                offload_executor = None
+                onload_executor = None
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                subgraph_modules = subgraph.submodule_dict(model)
+                if not sequential_module_prefetch or prefetched_onload is None:
+                    subgraph_modules = subgraph.submodule_dict(model)
+                    onload_future = None
+                else:
+                    subgraph_modules, onload_future = prefetched_onload
+                    prefetched_onload = None
+
+                if sequential_module_prefetch:
+                    pending_offloads = _wait_for_overlapping_offloads(
+                        pending_offloads, set(subgraph_modules.values())
+                    )
 
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                device_map, kwargs = onload(subgraph_modules)
+                if onload_future is None:
+                    offload_kwargs = onload(subgraph_modules)
+                else:
+                    offload_kwargs = onload_future.result()
+                # subgraph_modules and their corresponding offload_kwargs
+                # are now onloaded and ready for calibration. Be very
+                # careful with how you use subgraph_modules and offload_kwargs
 
-                pending_offloads = _wait_for_overlapping_offloads(
-                    pending_offloads, set(subgraph_modules.values())
-                )
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -195,13 +214,37 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.moe_eager_linearization_and_repack:
                     linearize_moe_subgraph(model, subgraph_modules)
 
+                # Start loading the next independent subgraph while this one is
+                # calibrating and propagating. Shared modules must remain synchronous
+                # to avoid racing this subgraph's use of their tensors.
+                if sequential_module_prefetch and subgraph_index + 1 < num_subgraphs:
+                    next_subgraph_modules = subgraphs[
+                        subgraph_index + 1
+                    ].submodule_dict(model)
+                    current_module_set = set(subgraph_modules.values())
+                    next_module_set = set(next_subgraph_modules.values())
+                    has_shared_modules = bool(current_module_set & next_module_set)
+                    has_conflicting_offload = any(
+                        not future.done() and bool(offloaded_modules & next_module_set)
+                        for offloaded_modules, future in pending_offloads
+                    )
+                    if not has_shared_modules and not has_conflicting_offload:
+                        onload_future = onload_executor.submit(
+                            onload, next_subgraph_modules
+                        )
+                        stack.callback(onload_future.result)
+                        prefetched_onload = (
+                            next_subgraph_modules,
+                            onload_future,
+                        )
+
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
                     activations,
                     num_batches,
                     subgraph.input_names,
                     calib_desc,
-                    sequential_prefetch,
+                    sequential_activation_prefetch,
                 ):
                     session.state.current_batch_idx = batch_idx
                     outputs = subgraph.forward(model, **inputs)
@@ -222,7 +265,7 @@ class SequentialPipeline(CalibrationPipeline):
                             num_batches,
                             subgraph.input_names,
                             prop_desc,
-                            sequential_prefetch,
+                            sequential_activation_prefetch,
                         ):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
@@ -238,26 +281,30 @@ class SequentialPipeline(CalibrationPipeline):
                 # Offloading is independent of the next subgraph unless modules are
                 # shared, so let it run while the next subgraph onloads and calibrates.
                 offload_modules = dict(subgraph_modules)
-                pending_offloads.append(
-                    (
-                        set(offload_modules.values()),
-                        offload_executor.submit(
-                            offload,
-                            offload_modules,
-                            dict(device_map),
-                            dict(kwargs),
-                        ),
+                if sequential_module_prefetch:
+                    offload_future = offload_executor.submit(
+                        offload,
+                        offload_modules,
+                        dict(offload_kwargs),
                     )
-                )
+                    stack.callback(offload_future.result)
+                    pending_offloads.append(
+                        (
+                            set(offload_modules.values()),
+                            offload_future,
+                        )
+                    )
+                else:
+                    offload(offload_modules, dict(offload_kwargs))
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
-
-            # Wait for offloads to finish
-            for _, future in pending_offloads:
-                future.result()
-            pending_offloads.clear()
+            if sequential_module_prefetch:
+                # Wait for offloads to finish before final model-wide repacking.
+                for _, future in pending_offloads:
+                    future.result()
+                pending_offloads.clear()
 
             if (
                 not dataset_args.moe_eager_linearization_and_repack

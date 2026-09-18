@@ -2,7 +2,7 @@
 """
 Example: sequential pipeline with prefetch.
 
-Runs the sequential pipeline (cache + subgraph passes) with sequential_prefetch=True
+Runs the sequential pipeline (cache + subgraph passes) with sequential_activation_prefetch=True
 and no quantization (recipe=None), useful for benchmarking prefetch or testing
 the pipeline in isolation.
 
@@ -31,7 +31,7 @@ oneshot(
     splits="train[:512]",
     recipe=None,
     pipeline="sequential",
-    sequential_prefetch=True,
+    sequential_activation_prefetch=True,
     max_seq_length=2048,
     num_calibration_samples=20,
 )

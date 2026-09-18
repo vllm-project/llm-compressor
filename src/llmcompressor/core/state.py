@@ -104,7 +104,7 @@ class State:
     hardware: Hardware = field(default_factory=Hardware)
     loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
-    sequential_prefetch: bool = False
+    sequential_activation_prefetch: bool = False
     enable_compile: bool = False
 
     @property
