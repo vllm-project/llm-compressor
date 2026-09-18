@@ -156,17 +156,20 @@ class TestvLLM:
 
             stub = f"{HF_MODEL_HUB_NAME}/{self.config.save_dir}-e2e"
 
-            self.api.create_repo(
-                repo_id=stub,
-                exist_ok=True,
-                repo_type="model",
-                private=False,
-            )
+            try:
+                self.api.create_repo(
+                    repo_id=stub,
+                    exist_ok=True,
+                    repo_type="model",
+                    private=False,
+                )
 
-            self.api.upload_folder(
-                repo_id=stub,
-                folder_path=self.config.save_dir,
-            )
+                self.api.upload_folder(
+                    repo_id=stub,
+                    folder_path=self.config.save_dir,
+                )
+            except ConnectionError:
+                logger.warning(f"Failed to upload model {stub}")
 
     def test_vllm(self, test_data_file: str):
         self.compress_model(test_data_file)
