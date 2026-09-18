@@ -5,6 +5,7 @@ from weakref import WeakKeyDictionary
 
 import torch
 import tqdm
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -19,8 +20,8 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from llmcompressor.pipelines.sequential.offloading import (
-    disable_offloading_controlled,
-    replace_module,
+    offload,
+    onload,
 )
 
 from .conversion_mappings import (
@@ -148,15 +149,20 @@ def repack_moe_model(model: PreTrainedModel) -> None:
     # Use range because we want to avoid creating references to the
     # modules in the list, which would prevent them from being deleted
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts"):
-        with disable_offloading_controlled(linearized[i][1]):
-            repack_moe_layer(model, linearized[i][0], linearized[i][1])
+        name, module = linearized[i]
+        module_dict = {name: module}
+        device_map, kwargs = onload(module_dict)
+        try:
+            repack_moe_layer(model, name, module, module_dict)
+        finally:
+            offload(module_dict, device_map, kwargs)
 
         linearized[i] = None  # remove reference to module to allow deletion
 
 
 def repack_moe_subgraph(
     model: PreTrainedModel,
-    subgraph_modules: list[torch.nn.Module],
+    subgraph_modules: dict[str, torch.nn.Module],
 ) -> None:
     """
     Repack linearized :class:`LinearExperts2D` modules back into native fused 3D expert
@@ -166,28 +172,30 @@ def repack_moe_subgraph(
     :param subgraph_modules: modules in the subgraph to check for experts
     :return: the same model with fused expert modules restored for the subgraph
     """
+    subgraph_set = set(subgraph_modules.values())
     moe_lookup = get_moe_linear_status(model)
     linearized = [
         (moe_lookup[module], module)
-        for module in model.modules()
-        if module in moe_lookup
-        and isinstance(module, LinearExperts2D)
-        and module in subgraph_modules
+        for module in subgraph_set
+        if module in moe_lookup and isinstance(module, LinearExperts2D)
     ]
 
     for i in tqdm.tqdm(range(len(linearized)), desc="Repacking experts in subgraph"):
-        repack_moe_layer(model, linearized[i][0], linearized[i][1])
+        repack_moe_layer(model, linearized[i][0], linearized[i][1], subgraph_modules)
 
 
 def repack_moe_layer(
-    model: PreTrainedModel, name: str, module: LinearExperts2D
+    model: PreTrainedModel,
+    name: str,
+    module: LinearExperts2D,
+    subgraph_modules: dict[str, torch.nn.Module] | None = None,
 ) -> None:
     """
     Repack a single linearized :class:`LinearExperts2D` module back into its native
     fused 3D expert module.
     """
     fused = module.to_experts_module()
-    replace_module(model, name, module, fused)
+    _replace(model, name, module, fused, subgraph_modules)
 
 
 def linearize_moe_model(model: PreTrainedModel) -> None:
@@ -219,8 +227,13 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
 
     # This is also sequential
     for i in tqdm.tqdm(range(len(non_linearized)), desc="Linearizing experts"):
-        with disable_offloading_controlled(non_linearized[i][1]):
-            linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1])
+        name, module = non_linearized[i]
+        module_dict = {name: module}
+        device_map, kwargs = onload(module_dict)
+        try:
+            linearize_moe_layer(model, name, module, module_dict)
+        finally:
+            offload(module_dict, device_map, kwargs)
 
         non_linearized[i] = None
 
@@ -248,11 +261,16 @@ def linearize_moe_subgraph(
     for i in tqdm.tqdm(
         range(len(non_linearized)), desc="Linearizing experts in subgraph"
     ):
-        linearize_moe_layer(model, non_linearized[i][0], non_linearized[i][1], subgraph_modules)
+        linearize_moe_layer(
+            model, non_linearized[i][0], non_linearized[i][1], subgraph_modules
+        )
 
 
 def linearize_moe_layer(
-    model: PreTrainedModel, name: str, module: torch.nn.Module, subgraph_modules: dict[str, torch.nn.Module] | None = None
+    model: PreTrainedModel,
+    name: str,
+    module: torch.nn.Module,
+    subgraph_modules: dict[str, torch.nn.Module] | None = None,
 ) -> None:
     """Linearize a single module within the model"""
 
@@ -267,23 +285,31 @@ def linearize_moe_layer(
 
     _replace(model, name, module, linear_moe, subgraph_modules)
 
-def _replace(model: PreTrainedModel, name: str, old_module: torch.nn.Module, new_module: torch.nn.Module, module_dict: dict[str, torch.nn.Module] | None = None):
+
+def _replace(
+    model: PreTrainedModel,
+    name: str,
+    old_module: torch.nn.Module,
+    new_module: torch.nn.Module,
+    module_dict: dict[str, torch.nn.Module] | None = None,
+):
     """
     Replace a module in a model by name
     Also updates the module_dict if provided, which is used for subgraph operations
     """
 
-    if hasattr(old_module, "_parameters") and isinstance(old_module._parameters, OffloadCache):
+    if hasattr(old_module, "_parameters") and isinstance(
+        old_module._parameters, OffloadCache
+    ):
         # move the offload cache to the new module
         new_module._parameters = old_module._parameters
 
     if module_dict is not None:
         if module_dict.get(name) is not old_module:
             raise ValueError(
-                f"Module {name} in module_dict does not match the old_module being replaced."
-                "Something went very wrong!"
+                f"Module {name} in module_dict does not match the old_module "
+                "being replaced. Something went very wrong!"
             )
         module_dict[name] = new_module
 
     model.set_submodule(name, new_module)
-    

@@ -1,22 +1,13 @@
+from unittest.mock import Mock
+
 import torch
-from torch.fx import Graph
 
 import llmcompressor.pipelines.sequential.offloading as offloading
-from llmcompressor.pipelines.sequential.helpers import Subgraph
-
-
-class _FakeLinearExperts2D(torch.nn.Module):
-    pass
+from llmcompressor.pipelines.sequential.pipeline import _wait_for_overlapping_offloads
 
 
 class _FakeOffloadCache(dict):
     pass
-
-
-class _NestedModule(_FakeLinearExperts2D):
-    def __init__(self):
-        super().__init__()
-        self.child = torch.nn.Linear(4, 4)
 
 
 class _IndividualExpert(torch.nn.Module):
@@ -36,8 +27,10 @@ class _IndividualExpertModel(torch.nn.Module):
         )
 
 
-def test_disable_offloading_controlled_uses_top_level_wrappers_only(monkeypatch):
-    root = _NestedModule()
+def test_onload_and_offload_only_transfer_offloaded_modules(monkeypatch):
+    root = torch.nn.Module()
+    root.child = torch.nn.Linear(4, 4)
+    root._parameters = _FakeOffloadCache()
 
     calls = []
 
@@ -51,50 +44,27 @@ def test_disable_offloading_controlled_uses_top_level_wrappers_only(monkeypatch)
     def fake_offload_module(module, **kwargs):
         calls.append(("offload", module))
 
-    class _FakeAccelerator:
-        @staticmethod
-        def is_available():
-            return False
-
-        @staticmethod
-        def empty_cache():
-            raise AssertionError("empty_cache should not be called when unavailable")
-
-    monkeypatch.setattr(offloading, "LinearExperts2D", _FakeLinearExperts2D)
     monkeypatch.setattr(offloading, "OffloadCache", _FakeOffloadCache)
     monkeypatch.setattr(offloading, "get_cache_init_kwargs", fake_get_cache_init_kwargs)
     monkeypatch.setattr(offloading, "remove_module_offload", fake_remove_module_offload)
     monkeypatch.setattr(offloading, "offload_module", fake_offload_module)
-    monkeypatch.setattr(
-        offloading.torch, "accelerator", _FakeAccelerator(), raising=False
-    )
-    monkeypatch.setattr(offloading, "_log_cuda_memory", lambda *_args, **_kwargs: None)
 
-    root._parameters = _FakeOffloadCache()
+    modules = {"root": root, "root.child": root.child}
+    device_map, kwargs = offloading.onload(modules)
+    offloading.offload(modules, device_map, kwargs)
 
-    with offloading.disable_offloading_controlled(root, [root, root.child]):
-        pass
-
-    assert calls[0] == ("init", root)
-    assert calls[1:4] == [
+    assert calls == [
+        ("init", root),
         ("onload", root),
-        ("onload", root.child),
         ("offload", root),
     ]
-    assert not any(call == ("init", root.child) for call in calls)
-    assert not hasattr(root, "_onload_wrapper")
 
 
 def test_individual_expert_sequential_target_can_be_onloaded(monkeypatch):
     model = _IndividualExpertModel()
     target = model.experts[1]
     target._parameters = _FakeOffloadCache()
-
-    graph = Graph()
-    inputs = graph.placeholder("inputs")
-    graph.call_module("experts.1", (inputs,))
-    subgraph = Subgraph(graph, {"inputs"}, set())
-    subgraph_modules = subgraph.submodules(model)
+    subgraph_modules = {"experts.1": target}
 
     calls = []
 
@@ -108,30 +78,36 @@ def test_individual_expert_sequential_target_can_be_onloaded(monkeypatch):
     def fake_offload_module(module, **kwargs):
         calls.append(("offload", module))
 
-    class _FakeAccelerator:
-        @staticmethod
-        def is_available():
-            return False
-
     monkeypatch.setattr(offloading, "get_cache_init_kwargs", fake_get_cache_init_kwargs)
     monkeypatch.setattr(offloading, "OffloadCache", _FakeOffloadCache)
     monkeypatch.setattr(offloading, "remove_module_offload", fake_remove_module_offload)
     monkeypatch.setattr(offloading, "offload_module", fake_offload_module)
-    monkeypatch.setattr(
-        offloading.torch, "accelerator", _FakeAccelerator(), raising=False
-    )
-    monkeypatch.setattr(offloading, "_log_cuda_memory", lambda *_args, **_kwargs: None)
-
-    assert subgraph_modules == [target]
-    with offloading.disable_offloading_controlled(model, subgraph_modules):
-        assert target(torch.tensor([3.0])) == torch.tensor([5.0])
-        assert hasattr(target, "_onload_wrapper")
-        assert not hasattr(model.experts[0], "_onload_wrapper")
-        assert not hasattr(model, "_onload_wrapper")
+    device_map, kwargs = offloading.onload(subgraph_modules)
+    assert target(torch.tensor([3.0])) == torch.tensor([5.0])
+    offloading.offload(subgraph_modules, device_map, kwargs)
 
     assert calls == [
         ("init", target),
         ("onload", target),
         ("offload", target),
     ]
-    assert not hasattr(target, "_onload_wrapper")
+
+
+def test_pipeline_waits_only_for_overlapping_offloads():
+    first_module = torch.nn.Linear(4, 4)
+    second_module = torch.nn.Linear(4, 4)
+    overlapping_future = Mock()
+    overlapping_future.done.return_value = False
+    independent_future = Mock()
+    independent_future.done.return_value = False
+
+    pending = [
+        ({first_module}, overlapping_future),
+        ({second_module}, independent_future),
+    ]
+
+    remaining = _wait_for_overlapping_offloads(pending, {first_module})
+
+    overlapping_future.result.assert_called_once_with()
+    independent_future.result.assert_not_called()
+    assert remaining == [({second_module}, independent_future)]

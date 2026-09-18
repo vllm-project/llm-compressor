@@ -169,20 +169,19 @@ def test_repack_then_transformers_reload(tmp_path: Path):
 
 
 @torch.no_grad()
-def test_repack_moe_subgraph_only_targets_selected_module(monkeypatch):
+def test_repack_moe_subgraph_only_targets_selected_module():
     model = _tiny_qwen3_moe_blocks()
     linearize_moe_model(model)
 
-    calls = []
-
-    def fake_repack_moe_layer(model_arg, name, module):
-        calls.append((name, module))
-
-    monkeypatch.setattr(
-        "llmcompressor.modeling.moe.linearize.repack_moe_layer",
-        fake_repack_moe_layer,
+    subgraph_modules = {
+        "block1.mlp.experts": model.block1.mlp.experts,
+        "block2": model.block2,
+    }
+    repack_moe_subgraph(
+        model,
+        subgraph_modules,
     )
 
-    repack_moe_subgraph(model, [model.block1.mlp.experts, model.block2])
-
-    assert calls == [("block1.mlp.experts", model.block1.mlp.experts)]
+    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+    assert isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts

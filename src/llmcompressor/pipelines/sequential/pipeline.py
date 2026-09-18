@@ -1,4 +1,5 @@
 import contextlib
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -24,12 +25,26 @@ from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
-from .offloading import offload, onload, replace_module
+from .offloading import offload, onload
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
+
+
+def _wait_for_overlapping_offloads(
+    pending_offloads: list[tuple[set[torch.nn.Module], Future]],
+    modules: set[torch.nn.Module],
+) -> list[tuple[set[torch.nn.Module], Future]]:
+    """Wait for offloads which could race with the next subgraph."""
+    remaining = []
+    for offloaded_modules, future in pending_offloads:
+        if future.done() or offloaded_modules & modules:
+            future.result()
+        else:
+            remaining.append((offloaded_modules, future))
+    return remaining
 
 
 def _get_batches(
@@ -146,8 +161,29 @@ class SequentialPipeline(CalibrationPipeline):
             sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
             session.state.sequential_prefetch = sequential_prefetch
 
+            offload_executor = ThreadPoolExecutor(max_workers=1)
+            pending_offloads: list[tuple[set[torch.nn.Module], Future]] = []
+
+            def finish_offloads():
+                try:
+                    for _, future in pending_offloads:
+                        future.result()
+                finally:
+                    offload_executor.shutdown(wait=True)
+
+            stack.callback(finish_offloads)
+
             for subgraph_index, subgraph in enumerate(subgraphs):
                 subgraph_modules = subgraph.submodule_dict(model)
+
+                #######################
+                ### START OF ONLOAD ###
+                #######################
+                device_map, kwargs = onload(subgraph_modules)
+
+                pending_offloads = _wait_for_overlapping_offloads(
+                    pending_offloads, set(subgraph_modules.values())
+                )
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -155,11 +191,6 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
 
-                #######################
-                ### START OF ONLOAD ###
-                #######################
-                onload(subgraph_modules)
-                
                 # linearize moe layers just before calibration,
                 if dataset_args.moe_eager_linearization_and_repack:
                     linearize_moe_subgraph(model, subgraph_modules)
@@ -196,18 +227,37 @@ class SequentialPipeline(CalibrationPipeline):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
-                                activations.delete(
-                                    batch_idx, subgraph.consumed_names
-                                )
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
                 if (
                     dataset_args.moe_eager_linearization_and_repack
                     and dataset_args.repack_moe_layers
                 ):
-                    repack_moe_subgraph(model, subgraph.submodules(model))
+                    repack_moe_subgraph(model, subgraph_modules)
 
-                offload(subgraph_modules, device_map, kwargs)
-                ### END OF ONLOAD ###
+                # Offloading is independent of the next subgraph unless modules are
+                # shared, so let it run while the next subgraph onloads and calibrates.
+                offload_modules = dict(subgraph_modules)
+                pending_offloads.append(
+                    (
+                        set(offload_modules.values()),
+                        offload_executor.submit(
+                            offload,
+                            offload_modules,
+                            dict(device_map),
+                            dict(kwargs),
+                        ),
+                    )
+                )
+                #######################
+                #### END OF ONLOAD ####
+                #######################
+
+
+            # Wait for offloads to finish
+            for _, future in pending_offloads:
+                future.result()
+            pending_offloads.clear()
 
             if (
                 not dataset_args.moe_eager_linearization_and_repack
