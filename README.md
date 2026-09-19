@@ -47,46 +47,57 @@
 
 Big updates have landed in LLM Compressor! To get a more in-depth look, check out the [LLM Compressor overview](https://docs.google.com/presentation/d/1WNkYBKv_CsrYs69lb7bJKjh2dWt8U1HXUw7Gr4Wn3gE/edit?usp=sharing).
 
-Some of the exciting new features include:
+Since the v0.13.0 release, a number of meaningful improvements have landed:
 
-* **MXFP4 Quantized GLM-5.3**: An MXFP4 quantized checkpoint for GLM-5.3 has been created by the Red Hat AI team. The linear operators within transformer blocks are quantized to MXFP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
+* **Batched GPTQ quantization with a new Triton GPTQ kernel**: GPTQ now ships a Triton-based quantization kernel (~15x faster than the previous eager path) together with the ability to batch layers that share the same shape (up to ~1.67x per batch, roughly ~30x end-to-end on MoE workloads). Activation-order (act-order) calibration is supported, hessian offloading has been removed, and the remaining eager path was also sped up by 1.5-2x on its own.
+* **Expanded MSE and iMatrix observers for FP4, with a new `fouroversix` default**: The MSE observer and the iMatrix observer gained a grid-search expansion factor that makes the search a strict superset of *fouroversix* (which chooses between the full `absmax` and `absmax * 1.5` scales for FP4 blocks). A new `fouroversix` observer built on this expanded search is now the **default observer for NVFP4 quantization**, and it outperforms GPTQ for NVFP4 on average across our internal perplexity benchmarks.
+* **Triton grid-search kernel for the MSE observer**: A Triton kernel now performs the MSE observer's scale grid search using buffered per-qparam patience and adaptive 512-value tiling. It reaches bitwise parity with the eager path when configured for full evaluation, supports INT, FP4, FP8, and FP16/BF16 (with E8M0 scales), and defaults `triton_error_buffer` to 100% for FP4 and 30% otherwise.
+
+### Model highlights
+
+The Red Hat AI team has been using LLM Compressor to produce a fresh batch of production-ready quantized checkpoints:
+
+* **GLM-5.3 MXFP4**: An MXFP4 quantized checkpoint for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to MXFP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
   - [RedHatAI/GLM-5.3-MXFP4](https://huggingface.co/RedHatAI/GLM-5.3-MXFP4)
   - [GLM-5.3 MXFP4 Example](examples/model_free_ptq/glm_5_3_mxfp4.py)
-* **NVFP4 Quantized GLM 5.3-Flash**: NVFP4 quantized checkpoint for GLM-5.3-Flash. Expert layers have been quantized to NVFP4 and MTP layers have been quantized to FP8 on a per-block basis
+* **GLM-5.3-Flash NVFP4**: An NVFP4 quantized checkpoint for [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash). The expert layers are quantized to NVFP4, while the MTP (multi-token prediction) layers are quantized to per-block FP8.
   - [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)
-* **Qwen3.8 NVFP4, FP8, and INT4 Quantized Checkpoints**: NVFP4 and FP8 quantized checkpoints for Qwen3.8-2.4T-A95B, along with an INT4 checkpoint for Qwen3.8-27B, have been created by the Red Hat AI team. Of particular note, `Qwen3.8-2.4T-A95B-NVFP4-REAP-25` combines REAP expert pruning with NVFP4 quantization — 25% of the least-salient experts are pruned prior to quantization, further reducing VRAM requirements while maintaining accuracy recovery.
-  - Models:
-    - [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4)
-    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25)
-    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8)
-    - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4)
-    - [RedHatAI/Qwen3.8-2.4T-A95B-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-FP8)
-  - Examples:
-    - [Qwen3.8-2.4T-A95B NVFP4+FP8 Example](examples/quantizing_moe/qwen_3_8_example.py)
-    - [Qwen3.8-2.4T-A95B REAP + NVFP4 Example](examples/reap_expert_pruning/qwen38_example.py)
-    - [Qwen3.8-27B INT4 Example](examples/quantization_w4a16/qwen3_8_gptq_awq_example.py)
-* **Nemotron 3.5 Lightning FP8 Quantized Checkpoint**: An FP8 quantized checkpoint for [Nemotron 3.5 Lightning](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16) has been created by the Red Hat AI team using GPTQ-based FP8 quantization.
+  - [GLM-5.3-Flash NVFP4 Example](examples/quantizing_moe/glm53_flash_example.py)
+* **Qwen3.8-Flash-Next NVFP4**: An NVFP4 quantized checkpoint for [Qwen3.8-Flash-Next](https://huggingface.co/Qwen/Qwen3.8-Flash-Next).
+  - [RedHatAI/Qwen3.8-Flash-Next-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-Flash-Next-NVFP4)
+* **Qwen3.8-27B INT4, NVFP4, and MXFP4**: 4-bit quantized checkpoints for [Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) across three formats — INT4, NVFP4, and MXFP4 — covering a range of hardware and accuracy trade-offs.
+  - [RedHatAI/Qwen3.8-27B-INT4](https://huggingface.co/RedHatAI/Qwen3.8-27B-INT4)
+  - [RedHatAI/Qwen3.8-27B-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-27B-NVFP4)
+  - [RedHatAI/Qwen3.8-27B-MXFP4](https://huggingface.co/RedHatAI/Qwen3.8-27B-MXFP4)
+  - [Qwen3.8-27B INT4 Example](examples/quantization_w4a16/qwen3_8_gptq_awq_example.py)
+  - [Qwen3.8-27B NVFP4 Example](examples/quantization_w4a4_fp4/qwen3_8_gptq_awq_example.py)
+  - [Qwen3.8-27B MXFP4 Example](examples/quantization_w4a4_mxfp4/qwen3_8_gptq_awq_example.py)
+* **Nemotron 3.5 Lightning FP8**: An FP8 quantized checkpoint for [Nemotron 3.5 Lightning](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16), created using GPTQ-based FP8 quantization.
   - [RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-FP8)
   - [Nemotron 3.5 Lightning FP8 Example](examples/quantization_w8a8_fp8/nemotron_3_5_lightning_example.py)
-* **Muse-Glimmer-30B FP8, NVFP4, and INT4 Quantized Checkpoints**: FP8, NVFP4, and INT4 checkpoints for [Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B) have been created by the Red Hat AI team, enabling single-GPU deployment of this multimodal model.
+* **Qwen3.8-2.4T-A95B NVFP4, NVFP4+FP8, and REAP+NVFP4**: NVFP4 and NVFP4+FP8 quantized checkpoints for [Qwen3.8-2.4T-A95B](https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B), along with `REAP-25` and `REAP-50` variants that combine [REAP](https://arxiv.org/pdf/2510.13999) expert pruning (25% and 50% of the least-salient experts pruned prior to quantization) with NVFP4, further reducing VRAM requirements while maintaining accuracy recovery.
+  - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4)
+  - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-FP8)
+  - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-25)
+  - [RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-50](https://huggingface.co/RedHatAI/Qwen3.8-2.4T-A95B-NVFP4-REAP-50)
+  - [Qwen3.8-2.4T-A95B NVFP4+FP8 Example](examples/quantizing_moe/qwen_3_8_example.py)
+  - [Qwen3.8 REAP + NVFP4 Example](examples/reap_expert_pruning/qwen38_example.py)
+* **Muse-Glimmer-30B FP8, NVFP4, and INT4**: FP8, NVFP4, and INT4 checkpoints for [Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B), enabling single-GPU deployment of this multimodal model.
   - [RedHatAI/Muse-Glimmer-30B-FP8-block](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-FP8-block)
   - [RedHatAI/Muse-Glimmer-30B-NVFP4](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-NVFP4)
-  - [RedHatAI/Muse-Glimmer-30B-W4A16](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-W4A16)
+  - [RedHatAI/Muse-Glimmer-30B-INT4](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-INT4)
   - [Muse-Glimmer FP8_Block Example](examples/model_free_ptq/muse_glimmer_fp8_block.py)
-* **Kimi-K3 NVFP4 and FP8 Quantized Checkpoints**: NVFP4 and FP8 quantized checkpoints for Kimi-K3 have been created by the Red Hat AI team.
+* **Kimi-K3 NVFP4 and FP8**: NVFP4 and per-block FP8 quantized checkpoints for [Kimi-K3](https://huggingface.co/moonshotai/Kimi-K3). A native `KimiK3ForConditionalGeneration` model definition is now shipped in the library to support quantizing this architecture.
   - [RedHatAI/Kimi-K3-NVFP4](https://huggingface.co/RedHatAI/Kimi-K3-NVFP4)
   - [RedHatAI/Kimi-K3-FP8-BLOCK](https://huggingface.co/RedHatAI/Kimi-K3-FP8-BLOCK)
-* **Hy3 NVFP4+FP8 Quantized Checkpoint**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) has been created by the Red Hat AI team, combining NVFP4 quantization of MoE layers with FP8 quantization of attention layers to significantly reduce VRAM requirements while maintaining accuracy recovery.
+  - [Kimi-K3 Quantization Example](examples/quantizing_moe/kimi_k3_example.py)
+* **Hy3 NVFP4+FP8**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) combining NVFP4 quantization of the MoE layers with FP8 quantization of the attention layers, significantly reducing VRAM requirements while maintaining accuracy recovery.
   - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
   - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
-* **GLM-5.2 NVFP4+FP8 Example and Checkpoints**: Quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2) have been created by the Red Hat AI team using DDP + disk offloading in under 2 hours. The full precision model requires 1.6T of VRAM, but NVFP4 quantization of MoE layers and FP8 quantization of attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
+* **GLM-5.2 NVFP4+FP8**: Mixed-precision quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2), created with DDP + disk offloading in under 2 hours. NVFP4 quantization of the MoE layers and FP8 quantization of the attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
   - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
+  - [RedHatAI/GLM-5.2-NVFP4](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4)
   - [GLM-5.2 Example Script](examples/quantizing_moe/glm5_example.py)
-* **REAP Expert Pruning Modifier**: [REAP](https://arxiv.org/pdf/2510.13999) reduces the VRAM requirements to run Mixture-of-Experts models by structurally removing less-relevant experts in each layer. With relevancy proxied by a saliency metric calculated from calibration forward pass data, REAP achieves a desired expert sparsity (set by the user) while aiming to minimize the impact of the pruned experts. The modifier implementation is in [`modifiers/pruning/reap`](src/llmcompressor/modifiers/pruning/reap) and can be used as a template for implementing other expert pruning algorithms. Examples and additional documentation can be found below:
-  - [REAP Pruning README](examples/reap_expert_pruning/README.md)
-  - [REAP Prune Qwen/Qwen3-30B-A3B-Instruct-2507 to 25% Sparsity](examples/reap_expert_pruning/reap_qwen3_30b.py)
-  - [REAP Prune moonshotai/Moonlight-16B-A3B-Instruct to 25% Sparsity](examples/reap_expert_pruning/reap_moonlight_16b.py)
-
 
 
 ### Supported Precisions and Types

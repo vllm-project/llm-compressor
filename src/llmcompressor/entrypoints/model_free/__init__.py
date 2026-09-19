@@ -10,6 +10,7 @@ from compressed_tensors.entrypoints.convert import (
     exec_jobs,
     exec_jobs_dynamic,
 )
+from compressed_tensors.entrypoints.convert.memory import TensorProfiler
 from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
     InverseWeightMap,
@@ -23,7 +24,6 @@ from loguru import logger
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
-from llmcompressor.entrypoints.model_free.memory import TensorProfiler
 from llmcompressor.entrypoints.model_free.save_utils import update_config
 from llmcompressor.entrypoints.model_free.validate import (
     validate_config,
