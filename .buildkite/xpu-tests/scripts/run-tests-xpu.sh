@@ -39,6 +39,7 @@ echo "--- Run XPU E2E tests..."
 docker exec -e NUMA_NODE=${NUMA_NODE} -e NUMA_CPUSET=${NUMA_CPUSET} -e ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK} "$CONTAINER_NAME" \
               bash -c "echo 'Installing stable vLLM XPU' && \
               uv pip install \
+              --extra-index-url https://wheels.vllm.ai/0.29.0/xpu \
               --extra-index-url https://download.pytorch.org/whl/xpu \
               --index-strategy unsafe-best-match \
               'vllm==0.29.0' \
