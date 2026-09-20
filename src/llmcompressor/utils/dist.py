@@ -83,10 +83,11 @@ def broadcast_qparams_and_cleanup(
     DistributedCPUCache physically impractical: for a 256-expert-per-layer model,
     DistributedCPUCache.offload() would create one POSIX shared-memory file per
     tensor (~36,864 files) and two collective ops per tensor (~73,728 blocking
-    collectives) during model load alone. Empirically on Qwen3.5-122B-A10B (L20×8),
-    /dev/shm grows from 231 GB to 351 GB (+120 GB) by the time ~55% of expert
-    tensors are loaded, at which point physical RAM is exhausted. In that case
-    callers patch ``LinearExperts2D.from_experts_module`` to use CPUCache directly.
+    collectives) during model load alone. /dev/shm is tmpfs backed by physical RAM,
+    so each shm file consumes physical RAM. Empirically on Qwen3.5-122B-A10B (L20×8),
+    /dev/shm grows from 231 GB to 351 GB (+120 GB) before physical RAM is exhausted
+    — the remaining expert tensors cannot be loaded. In that case callers patch
+    ``LinearExperts2D.from_experts_module`` to use CPUCache directly.
 
     Modules using DistributedCPUCache (shared storage) or no offloading at all
     do not require this writeback.

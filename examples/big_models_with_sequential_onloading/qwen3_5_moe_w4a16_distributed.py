@@ -14,11 +14,14 @@
 #   DistributedCPUCache.offload() creates one POSIX shared-memory file per
 #   tensor and two collective ops per tensor (broadcast_object_list + barrier).
 #   For 48 layers × 256 experts × 3 projections = 36,864 tensors this means
-#   ~120 GB of additional /dev/shm and 73,728 blocking collectives during model
-#   load alone (measured: /dev/shm grows from 231 GB to 351 GB by the time
-#   ~55% of expert tensors are loaded, at which point physical RAM is exhausted).
-#   CPUCache stores each tensor in regular pinned CPU memory (no /dev/shm,
-#   no per-tensor collectives).
+#   73,728 blocking collectives during model load alone. /dev/shm is tmpfs backed
+#   by physical RAM, so each shm file consumes physical RAM. On Qwen3.5-122B-A10B
+#   (L20×8): /dev/shm grows from 231 GB (non-expert modules) to 351 GB (+120 GB)
+#   before physical RAM is exhausted — the remaining expert tensors can never be
+#   loaded. CPUCache stores each tensor in regular pinned CPU memory (no /dev/shm,
+#   no per-tensor collectives). On Qwen3.5-35B-A3B (expert shm peaks at ~67 GB)
+#   either mode works; CPUCache is only needed when expert shm would exceed
+#   available physical RAM.
 #   broadcast_qparams_and_cleanup (PR #3066) handles the explicit writeback
 #   needed to synchronise quantization parameters across independent CPUCaches.
 #############################################################################
