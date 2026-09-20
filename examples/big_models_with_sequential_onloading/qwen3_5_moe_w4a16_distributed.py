@@ -14,17 +14,22 @@
 #   DistributedCPUCache.offload() creates one POSIX shared-memory file per
 #   tensor and two collective ops per tensor (broadcast_object_list + barrier).
 #   For 48 layers × 256 experts × 3 projections = 36,864 tensors this means
-#   ~216 GB of /dev/shm usage and 73,728 blocking collectives during model load,
-#   which is physically impractical. CPUCache stores each tensor in regular
-#   pinned CPU memory with no shared-memory overhead.
+#   ~120 GB of additional /dev/shm and 73,728 blocking collectives during model
+#   load alone (measured: /dev/shm grows from 231 GB to 351 GB by the time
+#   ~55% of expert tensors are loaded, at which point physical RAM is exhausted).
+#   CPUCache stores each tensor in regular pinned CPU memory (no /dev/shm,
+#   no per-tensor collectives).
 #   broadcast_qparams_and_cleanup (PR #3066) handles the explicit writeback
 #   needed to synchronise quantization parameters across independent CPUCaches.
 #############################################################################
 
+import os
+
 import torch
+import torch.distributed as dist
 import torch.multiprocessing as torch_mp
 from compressed_tensors.distributed import init_dist
-from compressed_tensors.offload.cache.base import OffloadCache
+from compressed_tensors.offload import get_execution_device
 from compressed_tensors.offload.cache.cpu import CPUCache
 from transformers import AutoTokenizer
 from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import (
@@ -32,38 +37,78 @@ from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.utils import load_context
+from llmcompressor.utils.dev import load_context, skip_weights_initialize
 
 # file_system IPC: expert weight pages are shared across ranks via tmpfs
 # mappings (zero-copy), avoiding descriptor-limit issues with fd-based shm.
 torch_mp.set_sharing_strategy("file_system")
+os.environ.setdefault("LINEARIZE_NO_COPY", "1")
 
 MODEL_ID = "Qwen/Qwen3.5-122B-A10B"
 
 init_dist()
+local_rank = int(os.environ["LOCAL_RANK"])
 
-# Override OffloadCache.cls_from_device to return CPUCache for CPU offload in
-# distributed context. DistributedCPUCache is correct for dense models, but
-# creates 36,864+ /dev/shm files (~216 GB) for this MoE model, exhausting
-# the tmpfs before GPTQ calibration can begin.
-_orig_cls_from_device = OffloadCache.cls_from_device.__func__
+
+def _cpu_offload_module(module: torch.nn.Module, execution_device: str) -> None:
+    """Wrap module parameters/buffers in CPUCache (pinned CPU, no /dev/shm)."""
+    module._parameters = CPUCache.from_mapping(
+        module._parameters,
+        onload_device=execution_device,
+        offload_device="cpu",
+    )
+    module._buffers = CPUCache.from_mapping(
+        module._buffers,
+        onload_device=execution_device,
+        offload_device="cpu",
+    )
 
 
 @classmethod
-def _moe_cls_from_device(cls, device=None):
-    cache_cls = _orig_cls_from_device(cls, device)
-    # Downgrade DistributedCPUCache → CPUCache for MoE scale.
-    # broadcast_qparams_and_cleanup writes quantization parameters back to
-    # each rank's independent CPUCache after the distributed broadcast.
-    from compressed_tensors.offload.cache.dist_cpu import DistributedCPUCache
+@torch.no_grad()
+def _ddp_from_experts_module(cls, experts, config):
+    """Build LinearExperts2D with CPUCache from the already-broadcast 3D tensors.
 
-    if cache_cls is DistributedCPUCache:
-        return CPUCache
-    return cache_cls
+    Called after the fused 3D expert tensors (gate_up_proj / down_proj) are
+    already present on all ranks (broadcast happened at the 3D level), so
+    CPUCache.from_mapping receives real tensors on every rank — not meta tensors.
+    This is why we patch from_experts_module rather than cls_from_device: the
+    cls_from_device path runs before tensors are broadcast and would fail on
+    non-rank-0 ranks with 'Cannot copy out of meta tensor'.
+    """
+    with skip_weights_initialize():
+        self = cls(config)
+
+    intermediate_size = self.intermediate_size
+    for index in range(self.num_experts):
+        expert = self[index]
+        if hasattr(expert, "gate_proj"):
+            expert.gate_proj._parameters["weight"] = experts.gate_up_proj[
+                index, :intermediate_size
+            ]
+            expert.up_proj._parameters["weight"] = experts.gate_up_proj[
+                index, intermediate_size:
+            ]
+            expert.down_proj._parameters["weight"] = experts.down_proj[index]
+        else:
+            expert.up_proj._parameters["weight"] = experts.up_proj[index]
+            expert.down_proj._parameters["weight"] = experts.down_proj[index]
+
+    if dist.is_initialized():
+        dist.barrier()
+
+    execution_device = get_execution_device(experts, default=f"cuda:{local_rank}")
+    for module in self.modules():
+        if module._parameters:
+            _cpu_offload_module(module, execution_device)
+    return self
 
 
-OffloadCache.cls_from_device = _moe_cls_from_device
+# Patch from_experts_module so expert Linear layers use CPUCache instead of
+# DistributedCPUCache. This must be set before from_pretrained is called.
+LinearExperts2D.from_experts_module = _ddp_from_experts_module
 
 with load_context(Qwen3_5MoeForConditionalGeneration):
     model = Qwen3_5MoeForConditionalGeneration.from_pretrained(
@@ -72,9 +117,6 @@ with load_context(Qwen3_5MoeForConditionalGeneration):
         torch_dtype="auto",
         trust_remote_code=True,
     )
-
-# Restore original cls_from_device after model loading.
-OffloadCache.cls_from_device = _orig_cls_from_device
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
 
