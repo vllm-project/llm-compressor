@@ -39,4 +39,4 @@ echo "--- Run XPU E2E tests..."
 docker exec -e NUMA_NODE=${NUMA_NODE} -e NUMA_CPUSET=${NUMA_CPUSET} -e ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK} "$CONTAINER_NAME" \
               bash -c "export CADENCE=nightly SKIP_HF_UPLOAD=yes; \
               numactl --physcpubind=${NUMA_CPUSET:-84-111} --membind=${NUMA_NODE:-3} \
-              tests/e2e/run_tests_in_python.sh -c tests/e2e/configs -f w4a16_grouped_quant"
+              bash tests/e2e/run_tests_in_python.sh -c tests/e2e/configs -f w4a16_grouped_quant"
