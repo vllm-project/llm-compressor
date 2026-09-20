@@ -30,7 +30,7 @@ docker exec "$CONTAINER_NAME" \
               --index-strategy unsafe-best-match \
               'vllm==0.29.1rc1.dev128+gcd10ed6f9.xpu' \
               'vllm-xpu-kernels==0.1.14.1' && \
-              python -c 'import vllm; print(f"vLLM {vllm.__version__} installed")' && \
+              python -c \"import vllm; print('vLLM', vllm.__version__, 'installed')\" && \
               echo 'Installing compressed-tensors (nightly)' && \
               git clone --quiet https://github.com/vllm-project/compressed-tensors.git && \
               uv pip uninstall compressed-tensors && \
