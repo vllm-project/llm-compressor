@@ -25,11 +25,10 @@ docker exec "$CONTAINER_NAME" \
               uv pip install .[dev] --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match && \
               echo 'Installing vLLM XPU' && \
               uv pip install \
-              --extra-index-url https://wheels.vllm.ai/nightly/xpu \
               --extra-index-url https://download.pytorch.org/whl/xpu \
               --index-strategy unsafe-best-match \
-              vllm \
-              vllm-xpu-kernels && \
+              'vllm==0.29.0' \
+              'vllm-xpu-kernels==0.1.14.1' && \
               python -c \"import vllm; print('vLLM', vllm.__version__, 'installed')\" && \
               echo 'Installing compressed-tensors (nightly)' && \
               git clone --quiet https://github.com/vllm-project/compressed-tensors.git && \
