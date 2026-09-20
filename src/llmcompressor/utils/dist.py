@@ -74,12 +74,20 @@ def broadcast_qparams_and_cleanup(
 ) -> None:
     """Broadcast quantization params from owning rank and clean up observer stats.
 
-    For modules with an independent per-rank CPUCache (selected when auto_offload
-    runs before dist.init_process_group()), ``dist.broadcast`` modifies a temporary
-    onloaded CUDA tensor rather than the underlying CPUCache storage. The explicit
-    ``update_offload_parameter`` calls after ``_wait_for_comms`` write the broadcast
-    result back to each rank's independent CPUCache. Modules using DistributedCPUCache
-    (shared storage) or no offloading at all do not require this writeback.
+    For modules with an independent per-rank CPUCache, ``dist.broadcast`` modifies
+    a temporary onloaded CUDA tensor rather than the underlying CPUCache storage.
+    The explicit ``update_offload_parameter`` calls after ``_wait_for_comms`` write
+    the broadcast result back to each rank's independent CPUCache.
+
+    CPUCache is selected instead of DistributedCPUCache when large MoE models make
+    DistributedCPUCache physically impractical: for a 256-expert-per-layer model,
+    DistributedCPUCache.offload() would create one POSIX shared-memory file per
+    tensor (~36,864 files, ~216 GB of /dev/shm) and two collective ops per tensor
+    (~73,728 blocking collectives) during model load alone. In that case callers
+    explicitly downgrade to CPUCache via ``OffloadCache.cls_from_device``.
+
+    Modules using DistributedCPUCache (shared storage) or no offloading at all
+    do not require this writeback.
 
     :param module_list: all modules across all ranks
     :param module_to_rank: mapping from module to the rank that computed its qparams
