@@ -1,18 +1,18 @@
 # See https://help.github.com/articles/about-codeowners/
 # for more info about CODEOWNERS file
 
-/src/llmcompressor/ @kylesayrs @dsikka @HDCharles
+/src/llmcompressor/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 /src/llmcompressor/args/ @kylesayrs
 /src/llmcompressor/core/ @kylesayrs @dsikka
 /src/llmcompressor/core/events/ @kylesayrs @dsikka
 /src/llmcompressor/datasets/ @HDCharles
 /src/llmcompressor/entrypoints/ @kylesayrs @dsikka
 /src/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka
-/src/llmcompressor/modeling/ @dsikka @kylesayrs @yiliu30
-/src/llmcompressor/modeling/deepseekv32/ @dsikka @kylesayrs
-/src/llmcompressor/modeling/moe/ @dsikka @kylesayrs
-/src/llmcompressor/modeling/patch/ @dsikka @kylesayrs
-/src/llmcompressor/observers/ @dsikka @kylesayrs @HDCharles
+/src/llmcompressor/modeling/ @dsikka @kylesayrs @yiliu30 @Roderick-Wu
+/src/llmcompressor/modeling/deepseekv32/ @dsikka @kylesayrs @Roderick-Wu
+/src/llmcompressor/modeling/moe/ @dsikka @kylesayrs @Roderick-Wu
+/src/llmcompressor/modeling/patch/ @dsikka @kylesayrs @Roderick-Wu
+/src/llmcompressor/observers/ @dsikka @kylesayrs @HDCharles @Roderick-Wu
 /src/llmcompressor/pytorch/ @kylesayrs
 /src/llmcompressor/pytorch/model_load/ @kylesayrs @HDCharles
 /src/llmcompressor/pytorch/utils/ @kylesayrs @HDCharles
@@ -21,9 +21,9 @@
 /src/llmcompressor/utils/ @kylesayrs @HDCharles @yiliu30
 /src/llmcompressor/utils/pytorch/ @kylesayrs @HDCharles @yiliu30
 
-/src/llmcompressor/modifiers/ @kylesayrs @dsikka @HDCharles
-/src/llmcompressor/modifiers/autoround/ @yiliu30 @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/awq/ @HDCharles @kylesayrs
+/src/llmcompressor/modifiers/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/autoround/ @yiliu30 @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/awq/ @HDCharles @kylesayrs @Roderick-Wu
 /src/llmcompressor/modifiers/experimental/ @kylesayrs @HDCharles @dsikka
 /src/llmcompressor/modifiers/logarithmic_equalization/ @kylesayrs @HDCharles
 /src/llmcompressor/modifiers/obcq/ @kylesayrs @HDCharles
@@ -35,75 +35,75 @@
 /src/llmcompressor/modifiers/pruning/utils/ @kylesayrs @HDCharles
 /src/llmcompressor/modifiers/pruning/utils/pytorch/ @kylesayrs @HDCharles
 /src/llmcompressor/modifiers/pruning/wanda/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles
-/src/llmcompressor/modifiers/quantization/gptq/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/quantization/quantization/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/smoothquant/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/awq/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/imatrix/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/quip/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/smoothquant/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/spinquant/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/transform/utils/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles
-/src/llmcompressor/modifiers/gptq/ @kylesayrs @HDCharles
+/src/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/quantization/gptq/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/quantization/quantization/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/smoothquant/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/awq/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/imatrix/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/quip/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/smoothquant/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/spinquant/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/transform/utils/ @kylesayrs @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/src/llmcompressor/modifiers/gptq/ @kylesayrs @HDCharles @Roderick-Wu
 
-/src/llmcompressor/transformers/ @kylesayrs @dsikka
+/src/llmcompressor/transformers/ @kylesayrs @dsikka @Roderick-Wu
 /src/llmcompressor/transformers/compression/ @kylesayrs @dsikka @HDCharles
 /src/llmcompressor/transformers/data/ @kylesayrs @dsikka
 /src/llmcompressor/transformers/tracing/ @kylesayrs @dsikka
 /src/llmcompressor/transformers/utils/ @kylesayrs @dsikka
 
-/src/llmcompressor/pipelines/ @kylesayrs @dsikka
-/src/llmcompressor/pipelines/basic/ @kylesayrs @dsikka
-/src/llmcompressor/pipelines/data_free/ @kylesayrs @dsikka
-/src/llmcompressor/pipelines/independent/ @kylesayrs @dsikka
-/src/llmcompressor/pipelines/sequential/ @kylesayrs @dsikka
-/src/llmcompressor/pipelines/sequential/ast_utils/ @kylesayrs @dsikka
+/src/llmcompressor/pipelines/ @kylesayrs @dsikka @Roderick-Wu
+/src/llmcompressor/pipelines/basic/ @kylesayrs @dsikka @Roderick-Wu
+/src/llmcompressor/pipelines/data_free/ @kylesayrs @dsikka @Roderick-Wu
+/src/llmcompressor/pipelines/independent/ @kylesayrs @dsikka @Roderick-Wu
+/src/llmcompressor/pipelines/sequential/ @kylesayrs @dsikka @Roderick-Wu
+/src/llmcompressor/pipelines/sequential/ast_utils/ @kylesayrs @dsikka @Roderick-Wu
 
-/tests/llmcompressor/ @kylesayrs @dsikka @HDCharles
+/tests/llmcompressor/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 /tests/llmcompressor/core/ @kylesayrs @dsikka
 /tests/llmcompressor/datasets/ @HDCharles @kylesayrs
 /tests/llmcompressor/entrypoints/ @kylesayrs @dsikka
 /tests/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka
-/tests/llmcompressor/modeling/ @dsikka @kylesayrs
-/tests/llmcompressor/observers/ @kylesayrs @HDCharles
+/tests/llmcompressor/modeling/ @dsikka @kylesayrs @Roderick-Wu
+/tests/llmcompressor/observers/ @kylesayrs @HDCharles @Roderick-Wu
 /tests/llmcompressor/recipe/ @kylesayrs @dsikka
 /tests/llmcompressor/utils/ @kylesayrs
 
-/tests/llmcompressor/modifiers/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/modifiers/autoround/ @yiliu30 @kylesayrs @HDCharles
-/tests/llmcompressor/modifiers/calibration/ @kylesayrs @dsikka
-/tests/llmcompressor/modifiers/gptq/ @kylesayrs @HDCharles
+/tests/llmcompressor/modifiers/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/autoround/ @yiliu30 @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/calibration/ @kylesayrs @dsikka @Roderick-Wu
+/tests/llmcompressor/modifiers/gptq/ @kylesayrs @HDCharles @Roderick-Wu
 /tests/llmcompressor/modifiers/logarithmic_equalization/ @kylesayrs @dsikka
 /tests/llmcompressor/modifiers/pruning/ @kylesayrs @dsikka
 /tests/llmcompressor/modifiers/pruning/reap/ @kylesayrs @dsikka
-/tests/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/modifiers/transform/ @kylesayrs @HDCharles
-/tests/llmcompressor/modifiers/transform/awq/ @kylesayrs @HDCharles
-/tests/llmcompressor/modifiers/transform/imatrix/ @kylesayrs @HDCharles
-/tests/llmcompressor/modifiers/transform/smoothquant/ @kylesayrs @HDCharles
-/tests/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles
+/tests/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/transform/ @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/transform/awq/ @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/transform/imatrix/ @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/transform/smoothquant/ @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 
-/tests/llmcompressor/transformers/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/transformers/autoround/ @yiliu30 @kylesayrs @HDCharles
-/tests/llmcompressor/transformers/compression/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/transformers/compression/configs/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/transformers/compression/decompression_configs/ @kylesayrs @dsikka @HDCharles
+/tests/llmcompressor/transformers/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/tests/llmcompressor/transformers/autoround/ @yiliu30 @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/transformers/compression/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/tests/llmcompressor/transformers/compression/configs/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/tests/llmcompressor/transformers/compression/decompression_configs/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 /tests/llmcompressor/transformers/compression/recipes/ @kylesayrs @dsikka @HDCharles
 /tests/llmcompressor/transformers/compression/run_compressed_configs/ @kylesayrs @dsikka @HDCharles
 /tests/llmcompressor/transformers/data/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/transformers/gptq/ @kylesayrs @HDCharles
-/tests/llmcompressor/transformers/kv_cache/ @kylesayrs @dsikka @HDCharles
-/tests/llmcompressor/transformers/smoothquant/ @HDCharles @kylesayrs
-/tests/llmcompressor/transformers/tracing/ @kylesayrs
+/tests/llmcompressor/transformers/gptq/ @kylesayrs @HDCharles @Roderick-Wu
+/tests/llmcompressor/transformers/kv_cache/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
+/tests/llmcompressor/transformers/smoothquant/ @HDCharles @kylesayrs @Roderick-Wu
+/tests/llmcompressor/transformers/tracing/ @kylesayrs @Roderick-Wu
 
-/tests/llmcompressor/pipelines/ @kylesayrs @dsikka
-/tests/llmcompressor/pipelines/sequential/ @kylesayrs @dsikka
-/tests/llmcompressor/pipelines/sequential/ast_utils.py/ @kylesayrs @dsikka
+/tests/llmcompressor/pipelines/ @kylesayrs @dsikka @Roderick-Wu
+/tests/llmcompressor/pipelines/sequential/ @kylesayrs @dsikka @Roderick-Wu
+/tests/llmcompressor/pipelines/sequential/ast_utils.py/ @kylesayrs @dsikka @Roderick-Wu
 
-/tests/e2e/ @dsikka @kylesayrs @HDCharles
+/tests/e2e/ @dsikka @kylesayrs @HDCharles @Roderick-Wu
 /tests/examples/ @kylesayrs @dsikka
 /tests/lmeval/ @dsikka @kylesayrs
 /tests/sparsity/ @kylesayrs @dsikka
