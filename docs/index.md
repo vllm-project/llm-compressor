@@ -21,7 +21,7 @@ For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md
 
 ## New in this release
 
-Review the [LLM Compressor v0.13.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.13.0) for details about new features. New features to be aware of include:
+Review the [LLM Compressor v0.14.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.14.0) for details about new features. New features to be aware of include:
 
 - **REAP Expert Pruning**:  New modifier for structurally pruning Mixture-of-Experts (MoE) models by removing individual experts based on calibration-based saliency scores. Based on the REAP the Experts paper.
 
@@ -43,6 +43,7 @@ Review the [LLM Compressor v0.13.0 release notes](https://github.com/vllm-projec
 | **SmoothQuant** | Outlier handling for W8A8 | Improved activation quantization |
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
+| **REAP** | Router-weighted expert activation pruning | Reduce the memory footprint of MoE models by removing low-saliency experts |
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
 | **AutoRound** | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 

@@ -26,6 +26,59 @@ model_free_ptq(
 )
 ```
 
+## QuantizationConfig
+
+Use `config` instead of `scheme` when different data-free schemes should be
+applied to different layers, or when the output should include an optional KV
+cache quantization scheme. `scheme` and `config` are mutually exclusive. Each
+config group provides its own targets and quantization scheme; when groups
+overlap, the first matching group wins.
+
+```python
+from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
+from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, MXFP4
+from llmcompressor import model_free_ptq
+
+model_free_ptq(
+    model_stub="inference-optimization/GLM-5.2-0.8B-A0.8B",
+    save_directory="GLM-5.2-0.8B-A0.8B-MXFP4-FP8-BLOCK",
+    config=QuantizationConfig(
+        config_groups={
+            "attention": QuantizationScheme(
+                targets=[r"re:.*self_attn.*"],
+                weights=FP8_BLOCK["weights"],
+                input_activations=FP8_BLOCK["input_activations"],
+            ),
+            "mlp": QuantizationScheme(
+                targets=[r"re:.*mlp.*"],
+                weights=MXFP4["weights"],
+                input_activations=FP8_BLOCK["input_activations"],
+            ),
+        }
+    ),
+    ignore=["lm_head", r"re:.*router.*"],
+)
+```
+
+## Multi-GPU Execution
+
+Pass a list of devices to use multiple GPUs:
+
+```python
+from llmcompressor import model_free_ptq
+
+model_free_ptq(
+    model_stub="meta-llama/Meta-Llama-3-8B-Instruct",
+    save_directory="Meta-Llama-3-8B-Instruct-FP8-BLOCK",
+    scheme="FP8_BLOCK",
+    ignore=["lm_head"],
+    device=["cuda:0", "cuda:1", "cuda:2", "cuda:3"],
+    max_workers=4,
+)
+```
+
+When `device=None`, all visible CUDA devices are selected automatically. 
+
 ## How It Works
 
 `model_free_ptq` processes each `.safetensors` file in the checkpoint independently, without ever loading the full model into memory as a `torch.nn.Module`. For each file:
@@ -33,8 +86,9 @@ model_free_ptq(
 1. **Validate** — check that all quantizable tensors can be quantized with the given scheme
 2. **Initialize** — create a minimal `torch.nn.Linear` module for each weight tensor
 3. **Calibrate** — compute scale and zero point directly from the weight tensor (data-free)
-4. **Compress** — call `compress_module` from `compressed-tensors` to pack/quantize the weights
-5. **Save** — write the compressed tensors back to disk
+4. **Estimate** — validate on the meta device and estimate each shard's peak memory
+5. **Compress** — schedule each shard on a suitable device and call `compress_module` from `compressed-tensors` to pack/quantize the weights
+6. **Save** — write the compressed tensors back to disk
 
 After all files are processed, the safetensors index and model config are updated with the quantization metadata.
 
@@ -46,10 +100,11 @@ Multiple files can be processed in parallel using the `max_workers` argument.
 |----------|------|---------|-------------|
 | `model_stub` | `str \| PathLike` | — | HuggingFace model ID or path to a local directory containing safetensors files |
 | `save_directory` | `str \| PathLike` | — | Directory to save the quantized checkpoint |
-| `scheme` | `QuantizationScheme \| str` | — | Quantization scheme to apply. Can be a preset string (e.g. `"FP8_BLOCK"`, `"NVFP4A16"`) or a `QuantizationScheme` object |
+| `scheme` | `QuantizationScheme \| str \| None` | `None` | One quantization scheme to apply. Mutually exclusive with `config` |
+| `config` | `QuantizationConfig \| None` | `None` | One or more data-free config groups, optionally including `kv_cache_scheme`; mutually exclusive with `scheme` |
 | `ignore` | `Iterable[str]` | `()` | Module names or regex patterns to skip. Modules ending in `"norm"` are always ignored automatically |
-| `max_workers` | `int` | `1` | Number of parallel worker threads for processing safetensors files |
-| `device` | `str \| torch.device \| None` | `None` | Device to use for quantization. Defaults to GPU if available, otherwise CPU |
+| `max_workers` | `int` | `1` | Upper bound on concurrent worker threads for processing safetensors shards. Effective concurrency may be lower when GPU memory is tight |
+| `device` | `str \| torch.device \| list[str \| torch.device] \| None` | `None` | Device or devices to use. A list enables multi-GPU shard scheduling; `None` automatically selects all visible CUDA devices, or CPU when no accelerator is available |
 | `converter` | `Converter \| None` | `None` | Optional `compressed-tensors` converter to apply before quantization, e.g. to convert modelopt-format checkpoints to compressed-tensors format |
 
 ## Standard Flow (Non-Microscale Schemes)
@@ -75,9 +130,12 @@ model_free_ptq(
 )
 ```
 
-## Microscale Flow (NVFP4)
+## Microscale Flow (NVFP4A16)
 
-NVFP4 requires a **global scale** that is fused across related weight groups (e.g. qkv projections, gate/up projections). `model_free_ptq` handles this fusion directly, so no preprocessing step is required — run it just like the non-microscale schemes above:
+NVFP4 weight-only quantization requires a **global scale** that is fused across
+related weight groups (e.g. qkv projections, gate/up projections).
+`model_free_ptq` handles this fusion directly, so no preprocessing step is
+required — run it just like the non-microscale schemes above:
 
 ```python
 from llmcompressor import model_free_ptq
