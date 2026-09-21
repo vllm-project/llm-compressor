@@ -108,6 +108,8 @@ class HiggsMSECollectorConverter(Converter):
         return resolved
 
     def validate(self, tensors: Dict[str, torch.Tensor]):
+        """Check that there are quantizable tensors in this shard. Note: this is currently
+           never called by the HIGGS workflow"""
         tensors = split_fused_moe_experts(tensors)
         count = sum(
             1 for _ in match_quantizable_tensors(tensors, self.ignore, self.targets)
