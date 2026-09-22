@@ -102,7 +102,7 @@ range. This lets the selected range be wider than the strict observed range, whi
 ##### FourOverSix comparison
 
 FourOverSix, introduced in the [Four Over Six paper](https://arxiv.org/pdf/2512.02010),
-is an NVFP4 quantization approach that attempts to mitigate for the fact that FP4 has a relatively large gap between representable values near 4 and 6. In some cases quantizing the max to 4 (a 1.5x decrease in range) rather than 6 (1x decrease) can be beneficial. However, rather than checking the 1x and 1.5x values, we found that searching a range of values (which includes 1x and 1.5x) yielded significantly better results. For this reason among others, we chose to implement the expand observer rather than adding explicit four over six support.
+is an NVFP4 quantization approach that attempts to mitigate for the fact that FP4 has a relatively large gap between representable values near 4 and 6. In some cases quantizing the max to 4 (a 1.5x decrease in range) rather than 6 (1x decrease) can be beneficial. However, rather than checking the 1x and 1.5x values, we found that searching a range of values (which includes 1x and 1.5x) yielded significantly better results. For this reason, among others, we chose to implement the expanded observer rather than adding explicit four over six support.
 
 The following results are from [PR #2950](https://github.com/vllm-project/llm-compressor/pull/2950).
 The table preserves the PR's reported `+delta` values i.e. increase in PPL above the baseline bf16 eval;
