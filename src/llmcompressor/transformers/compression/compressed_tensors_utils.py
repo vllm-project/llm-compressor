@@ -11,7 +11,8 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from compressed_tensors.quantization import QuantizationScheme
+from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -21,6 +22,7 @@ from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.transformers.compression.mtp import save_mtp_tensors
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
@@ -113,6 +115,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             quantization_format: str | None = None,
             save_compressed: bool = True,
+            mtp_quant_scheme: str | QuantizationScheme | None = None,
             **kwargs,
         ):
             """
@@ -126,6 +129,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param save_compressed: whether or not to compress the model. If true,
                 weights will be compressed. Otherwise, weights will remain in full
                 precision in the "FROZEN" state.
+            :param mtp_quant_scheme: optional data-free quantization preset for MTP
+                weights. ``None`` copies source MTP tensors unchanged; ``"bf16"``
+                dequantizes them to BF16.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -173,11 +179,13 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # copy mtp tensors (not loaded by transformers) and update config
                     text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
+                    has_mtp = (
+                        getattr(text_config, "num_mtp_layers", 0)
+                        or getattr(text_config, "mtp_num_hidden_layers", 0)
+                        or getattr(text_config, "num_nextn_predict_layers", 0)
                     )
                     if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
+                        save_mtp_tensors(model, save_dir, mtp_quant_scheme)
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)

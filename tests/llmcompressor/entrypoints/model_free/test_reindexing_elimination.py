@@ -37,6 +37,20 @@ def _rand_weight(*shape):
     return torch.randn(*shape, dtype=torch.float16)
 
 
+@pytest.mark.parametrize("expert", ["experts.0", "shared_experts"])
+def test_mtp_fused_dependencies(mfptq, expert):
+    gate = f"model.layers.2.mlp.{expert}.gate_proj.weight"
+    up = f"model.layers.2.mlp.{expert}.up_proj.weight"
+    assert mfptq.get_dependencies(gate) == {up}
+    assert mfptq.get_dependencies("model.layers.2.self_attn.q_a_proj.weight") == {
+        "model.layers.2.self_attn.kv_a_proj_with_mqa.weight"
+    }
+    assert mfptq.get_dependencies("mtp.layers.0.mixer.q_proj.weight") == {
+        "mtp.layers.0.mixer.k_proj.weight",
+        "mtp.layers.0.mixer.v_proj.weight",
+    }
+
+
 @pytest.fixture
 def mfptq():
     return ModelFreePtqConverter(config=_make_nvfp4_config())

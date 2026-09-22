@@ -19,6 +19,7 @@ When saving your compressed models, you can use the following extra arguments wi
 |-----------|------|---------|-------------|
 | `quantization_format` | `Optional[str]` | `None` | The on-disk serialization format for quantized weights, defined by `compressed_tensors.QuantizationFormat`. If not provided, it is inferred from the model's quantization scheme. See the compressed-tensors documentation for available formats. |
 | `save_compressed` | `bool` | `True` | Controls whether to save the model in a compressed format. Set to `False` to save in the original frozen state. |
+| `mtp_quant_scheme` | `Optional[str \| QuantizationScheme]` | `None` | Controls unloaded MTP weights. `None` copies them unchanged, `"bf16"` dequantizes them, and a data-free preset such as `"FP8_DYNAMIC"` quantizes them during saving. |
 
 ## Examples
 
@@ -77,6 +78,26 @@ model.save_pretrained(
 )
 tokenizer.save_pretrained(SAVE_DIR)
 ```
+
+### Saving MTP Weights
+
+MTP weights omitted by Transformers are handled directly by `save_pretrained`.
+They can be copied unchanged, converted to BF16, or quantized without adding an
+MTP argument to `oneshot`:
+
+```python
+# Preserve the source representation.
+model.save_pretrained(SAVE_DIR, mtp_quant_scheme=None)
+
+# Dequantize source MTP weights, such as native FP8, to BF16.
+model.save_pretrained(SAVE_DIR, mtp_quant_scheme="bf16")
+
+# Apply any model-free, data-free quantization preset.
+model.save_pretrained(SAVE_DIR, mtp_quant_scheme="NVFP4A16")
+```
+
+Schemes that require activation calibration are not accepted by
+`mtp_quant_scheme`.
 
 ## Notes
 
