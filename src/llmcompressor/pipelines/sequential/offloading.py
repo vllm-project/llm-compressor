@@ -26,8 +26,7 @@ def onload_modules(
     offload_kwargs = {}
     for name, module in modules.items():
         if isinstance(module._parameters, OffloadCache):
-            init_kwargs = get_cache_init_kwargs(module)
-            offload_kwargs[name] = init_kwargs
+            offload_kwargs[name] = get_cache_init_kwargs(module)
             remove_module_offload(module, onload_tensors=True)
     return offload_kwargs
 
