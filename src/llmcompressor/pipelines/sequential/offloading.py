@@ -17,7 +17,7 @@ from compressed_tensors.offload.module import (
 )
 
 
-def onload(
+def onload_modules(
     modules: dict[str, torch.nn.Module],
 ) -> dict[str, dict]:
     """
