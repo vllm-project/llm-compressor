@@ -97,7 +97,7 @@ Best used when:
 
 `nvfp4_expanded_mse` is a memoryless MSE observer with defaults tuned for NVFP4
 weight quantization. Its defaults search from 1.8x down to approximately 0.8x of the observed
-range. This lets the selected range be wider than the strict observed range which can be beneficial as observed in the Four Over Six paper.
+range. This lets the selected range be wider than the strict observed range, which can be beneficial as observed in the Four Over Six paper.
 
 ##### FourOverSix comparison
 
