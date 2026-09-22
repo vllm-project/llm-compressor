@@ -18,7 +18,7 @@ from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
-from .offloading import offload, onload
+from .offloading import offload_modules, onload_modules
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -181,10 +181,7 @@ class SequentialPipeline(CalibrationPipeline):
                             output = subgraph.forward(model, **inputs)
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
-                                activations.delete(
-                                    batch_idx, subgraph.consumed_names
-                                )
-
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
                 offload_modules(subgraph_modules, offload_kwargs)
                 #######################
