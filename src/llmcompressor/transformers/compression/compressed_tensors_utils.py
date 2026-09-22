@@ -21,6 +21,7 @@ from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.transformers.compression.mtp import save_mtp_tensors
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
@@ -113,6 +114,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             quantization_format: str | None = None,
             save_compressed: bool = True,
+            mtp_quant_scheme: str | None = None,
             **kwargs,
         ):
             """
@@ -126,6 +128,8 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param save_compressed: whether or not to compress the model. If true,
                 weights will be compressed. Otherwise, weights will remain in full
                 precision in the "FROZEN" state.
+            :param mtp_quant_scheme: for GLM, ``None`` copies MTP, ``"bf16"``
+                dequantizes it, and ``"NVFP4"`` saves attached calibrated MTP.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
@@ -151,36 +155,55 @@ def modify_save_pretrained(model: PreTrainedModel):
             # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
-            # convert to accelerate offloaded for optimal saving with transformers
-            to_accelerate(model)
+            glm_mtp = model.config.model_type == "glm4_moe" and getattr(
+                model.config.get_text_config(), "num_mtp_layers", 0
+            )
+            loaded_mtp = model._modules.pop("mtp", None) if glm_mtp else None
+            try:
+                # convert to accelerate offloaded for optimal saving with transformers
+                to_accelerate(model)
+                try:
+                    with suspend_distributed_timeout():
+                        if is_source_process():
+                            # save model structure
+                            original_save_fn.__get__(model, model_class)(
+                                save_dir, **kwargs
+                            )
 
-            with suspend_distributed_timeout():
-                if is_source_process():
-                    # save model structure
-                    original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
+                            # resave the config with original structure for vLLM
+                            resave_config(model.config, save_dir)
 
-                    # resave the config with original structure for better vLLM compat
-                    resave_config(model.config, save_dir)
+                            # update config to reflect quantization
+                            compressor.update_config(save_dir)
 
-                    # update config to reflect quantization
-                    compressor.update_config(save_dir)
+                            # update existing recipe
+                            update_and_save_recipe(model.name_or_path, save_dir)
 
-                    # update existing recipe
-                    update_and_save_recipe(model.name_or_path, save_dir)
+                            # copy python files from cache dir to save_path if any
+                            copy_python_files_from_model_cache(model, save_dir)
 
-                    # copy python files from cache dir to save_path if any
-                    copy_python_files_from_model_cache(model, save_dir)
-
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
-
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+                            text_config = model.config.get_text_config()
+                            has_mtp = getattr(
+                                text_config, "num_mtp_layers", 0
+                            ) or getattr(text_config, "mtp_num_hidden_layers", 0)
+                            if glm_mtp:
+                                save_mtp_tensors(
+                                    model, save_dir, mtp_quant_scheme, loaded_mtp
+                                )
+                            elif has_mtp:
+                                if mtp_quant_scheme is not None:
+                                    raise ValueError(
+                                        "MTP scheme is supported only for GLM"
+                                    )
+                                save_mtp_tensors_to_checkpoint(
+                                    model.name_or_path, save_dir
+                                )
+                finally:
+                    from_accelerate(model)
+            finally:
+                if loaded_mtp is not None:
+                    model.mtp = loaded_mtp
+                    loaded_mtp.tie_with_main_model(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
@@ -302,7 +325,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
             tgt_config: dict = json.load(file)
     except Exception:
         logger.warning(
-            "Failed to load config.json. " "Keeping the transformers-serialized config."
+            "Failed to load config.json. Keeping the transformers-serialized config."
         )
         return
 
