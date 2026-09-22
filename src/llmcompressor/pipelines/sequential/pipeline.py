@@ -259,8 +259,8 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
-                if dataset_args.moe_lazy_linearization_and_repack:
-                    linearize_moe_subgraph(model, subgraph_modules)
+                # This is a no-op for already-linearized MoE layers.
+                linearize_moe_subgraph(model, subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -318,10 +318,7 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
-                if (
-                    dataset_args.moe_lazy_linearization_and_repack
-                    and dataset_args.repack_moe_layers
-                ):
+                if dataset_args.repack_moe_layers:
                     repack_moe_subgraph(model, subgraph_modules)
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
@@ -330,7 +327,7 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
 
             if (
-                not dataset_args.moe_eager_linearization_and_repack
+                not dataset_args.moe_lazy_linearization_and_repack
                 and dataset_args.repack_moe_layers
             ):
                 repack_moe_model(model)
