@@ -139,11 +139,15 @@ required — run it just like the non-microscale schemes above:
 
 ```python
 from llmcompressor import model_free_ptq
+from compressed_tensors.quantization import preset_name_to_scheme
+
+nvfp4_scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
+nvfp4_scheme.weights.observer = "nvfp4_expanded_mse"
 
 model_free_ptq(
     model_stub="unsloth/Kimi-K2-Thinking-BF16",
     save_directory="Kimi-K2-Thinking-NVFP4A16",
-    scheme="NVFP4A16",
+    scheme=nvfp4_scheme, # "NVFP4A16"
     ignore=[
         "re:.*gate$",
         "lm_head",
@@ -155,6 +159,8 @@ model_free_ptq(
     device="cuda:0",
 )
 ```
+
+Note: The above setup changes the observer to our recommended NVFP4/NVFP4A16 observer though you can use the default observer if desired
 
 ## Ignoring Layers
 

@@ -140,46 +140,6 @@ importance like the normal ImatrixObserver
 | RTN `imatrix_mse` | 6.85 |
 | GPTQ + `imatrix_mse` | 6.83 |
 
-### NVFP4 Expanded Observer Configuration
-
-The two NVFP4 expanded observers are selected as weight observers:
-
-```python
-from llmcompressor.modifiers.quantization import QuantizationModifier
-
-recipe = QuantizationModifier(
-    scheme="NVFP4",
-    # Use "nvfp4_expanded_imatrix" when activation importance weighting is desired.
-    weight_observer="nvfp4_expanded_mse",
-)
-```
-
-To configure the search explicitly, pass the arguments through
-`QuantizationArgs.observer_kwargs`:
-
-```python
-from compressed_tensors.quantization import QuantizationArgs
-
-weights = QuantizationArgs(
-    num_bits=4,
-    type="float",
-    symmetric=True,
-    strategy="tensor_group",
-    group_size=16,
-    observer="nvfp4_expanded_imatrix",
-    observer_kwargs={"expand": 1.8, "strict": True},
-)
-```
-
-Both observers perform their local-range search with `global_scale=None`.
-After the final min/max values are selected, the normal observer flow computes
-NVFP4 `global_scale`; for fused `TENSOR_GROUP` layers it is still shared across
-the fused observers. Expansion therefore changes the local range search and
-not the fused-global-scale procedure. Using either observer as an NVFP4 weight
-observer does not remove NVFP4's normal calibration requirement for its
-activation scales; the IMatrix variant additionally uses those calibration
-inputs to collect importance statistics.
-
 ## Observer Fusion (global_scale)
 
 For TENSOR_GROUP quantization schemes (e.g., NVFP4), layers that are fused at inference time (Q/K/V projections, gate/up MLP projections) must share the same `global_scale`. This is handled automatically by observer fusion:
@@ -262,48 +222,8 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 | `grid`               | `100.0` | Resolution of the shrink search. Higher values give finer granularity. |
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
 | `expand`             | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; the NVFP4 expanded MSE observer defaults to `1.8`. |
-| `triton_error_buffer` | `0.30` for integer/FP8, `1.00` for FP4 | Relative error buffer used by the CUDA Triton implementation when applying per-group patience. The NVFP4 expanded MSE observer defaults to `1.00`. |
+| `triton_error_buffer` | `0.30` for integer/FP8, `1.00` for FP4 | Relative error buffer used by the CUDA Triton implementation when applying per-group patience. The NVFP4 expanded MSE observer defaults to `1.00` i.e. exhaustive search. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
-
-### MSE Triton Kernels and Error Buffer
-
-MSE observers dispatch their grid search through a CUDA Triton backend when the
-observed tensor is on CUDA with `float32`, `float16`, or `bfloat16` values and
-the quantization format is supported: integer quantization up to 8 bits, or
-floating-point quantization at 4 or 8 bits. Unsupported inputs automatically
-use the eager implementation instead.
-
-The Triton implementation uses two kernels depending on the amount of data in
-each quantization parameter:
-
-- For up to 512 values (`num_observations * group_size <= 512`), a packed kernel
-  evaluates several quantization parameters together in one program.
-- For larger inputs, a chunked kernel computes errors in 512-value chunks and a
-  reduction kernel combines the partial errors before selecting the best range.
-
-Both paths use the shared quantize/dequantize implementation and track
-`patience` independently for each quantization group. This allows groups whose
-search has converged to stop while other groups continue evaluating candidates.
-The Triton paths preserve the eager search's quantization arithmetic while
-reducing the cost of large MSE calibration searches, including packed BF16
-NVFP4 groups. Because patience is tracked per group and uses the error buffer,
-the Triton path can stop at a different grid point than the eager path when
-early stopping is reached.
-
-`triton_error_buffer` controls when a candidate resets the Triton patience
-counter. A candidate whose error is within the buffer of the best error so far
-is considered close enough to reset the counter:
-
-```text
-within_buffer = candidate_error <= best_error * (1 + triton_error_buffer)
-```
-
-For example, `triton_error_buffer=0.30` treats errors up to 30% above the
-current best as close enough to continue the search. A larger buffer makes
-early stopping more permissive and usually allows more grid points to be
-evaluated; a smaller buffer makes stopping more aggressive. The buffer affects
-only the Triton early-stopping logic, not the error objective itself, and is
-ignored by the eager implementation.
 
 MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `get_qparams()` from the final min/max values.
 
