@@ -94,7 +94,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                 )
 
 
-def get_moe_linear_status(
+def get_moe_modules(
     model: torch.nn.Module,
 ) -> WeakKeyDictionary:
     """
