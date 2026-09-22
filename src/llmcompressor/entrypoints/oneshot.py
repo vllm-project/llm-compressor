@@ -34,7 +34,11 @@ from transformers import (
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
-from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.entrypoints.utils import (
+    has_individual_expert_targets,
+    post_process,
+    pre_process,
+)
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
@@ -216,11 +220,26 @@ class Oneshot:
             calibration_dataloader=calibration_dataloader,
             recipe_stage=self.recipe_args.stage,
         )
+        self.resolve_eager_moe_linearization()
         post_process(
             model_args=self.model_args,
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
         )
+
+    def resolve_eager_moe_linearization(self):
+        if not self.dataset_args.moe_eager_linearization_and_repack:
+            return
+
+        if has_individual_expert_targets(
+            self.model, self.dataset_args.sequential_targets
+        ):
+            logger.warning(
+                "Individual MoE experts were found in sequential_targets. Forcing "
+                "moe_eager_linearization_and_repack=False so the full MoE layer is "
+                "linearized before sequential processing."
+            )
+            self.dataset_args.moe_eager_linearization_and_repack = False
 
     def apply_recipe_modifiers(
         self,
