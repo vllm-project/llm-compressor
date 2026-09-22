@@ -32,7 +32,7 @@ def onload(
     return offload_kwargs
 
 
-def offload(
+def offload_modules(
     modules: dict[str, torch.nn.Module],
     offload_kwargs: dict[str, dict],
 ):
