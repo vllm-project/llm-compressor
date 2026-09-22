@@ -260,7 +260,7 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
 
             if (
-                not dataset_args.moe_lazy_linearization_and_repack
+                not dataset_args.moe_eager_linearization_and_repack
                 and dataset_args.repack_moe_layers
             ):
                 repack_moe_model(model)
