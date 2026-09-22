@@ -168,7 +168,7 @@ class TestvLLM:
                     repo_id=stub,
                     folder_path=self.config.save_dir,
                 )
-            except ConnectionError:
+            except Exception:
                 logger.warning(f"Failed to upload model {stub}")
 
     def test_vllm(self, test_data_file: str):
