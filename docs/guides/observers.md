@@ -76,7 +76,7 @@ Best used for:
 
 ### MSE Observers
 
-MSE observers find the min/max range that minimizes the mean quantization error, using a grid search over candidate shrink factors. They are more expensive than MinMax observers but can yield better accuracy, particularly for low-bit quantization.
+MSE observers find the min/max range that minimizes the mean quantization error, using a grid search over candidate scaled min/max factors. They are more expensive than MinMax observers but can yield better accuracy, particularly for integer and low-bit floating point quantization.
 
 #### [memoryless_mse](../../src/llmcompressor/observers/mse.py)
 Performs an MSE grid search on each observed tensor independently, with no memory of past observations.
@@ -91,6 +91,27 @@ Performs an MSE grid search and maintains a moving average of the resulting min/
 Best used when:
 - Calibration accuracy is critical across multiple batches
 - Quantization error needs to be tightly controlled (e.g., 4-bit weight quantization)
+- You are doing NVFP4 (see expanded observer below) or integer quantization
+
+#### [NVFP4 expanded MSE](../../src/llmcompressor/observers/mse.py) (`nvfp4_expanded_mse`)
+
+`nvfp4_expanded_mse` is a memoryless MSE observer with defaults tuned for NVFP4
+weight quantization. Its defaults search from 1.8x down to approximately 0.8x of the observed
+range. This lets the selected range be wider than the strict observed range, which can be beneficial as observed in the Four Over Six paper.
+
+##### FourOverSix comparison
+
+FourOverSix, introduced in the [Four Over Six paper](https://arxiv.org/pdf/2512.02010),
+is an NVFP4 quantization approach that attempts to mitigate for the fact that FP4 has a relatively large gap between representable values near 4 and 6. In some cases quantizing the max to 4 (a 1.5x decrease in range) rather than 6 (1x decrease) can be beneficial. However, rather than checking the 1x and 1.5x values, we found that searching a range of values (which includes 1x and 1.5x) yielded significantly better results. For this reason, among others, we chose to implement the expanded observer rather than adding explicit four over six support.
+
+The following results are from [PR #2950](https://github.com/vllm-project/llm-compressor/pull/2950).
+The table preserves the PR's reported `+delta` values i.e. increase in PPL above the baseline bf16 eval;
+
+| Configuration | Llama-8B | Qwen3-8B | Qwen3-14B | Qwen3-32B | Llama-70B | MoE-30B | Avg Delta |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| minimax (RTN) | +0.333 | +0.284 | +0.138 | **+0.099** | +0.201 | +0.208 | +0.211 |
+| FourOverSix | **+0.230** | +0.098 | +0.128 | +0.183 | +0.261 | +0.300 | +0.200 |
+| `nvfp4_expanded_mse` | +0.242 | **+0.028** | **+0.093** | +0.171 | **+0.149** | **+0.149** | **+0.139** |
 
 ### IMatrix Observer
 
@@ -101,6 +122,12 @@ Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` mo
 Best used when:
 - 4-bit weight quantization accuracy is critical
 - You want to combine with GPTQ for further improvement
+
+#### [NVFP4 expanded IMatrix](../../src/llmcompressor/observers/imatrix.py) (`nvfp4_expanded_imatrix`)
+
+`nvfp4_expanded_imatrix` applies the same NVFP4 range expansion and search as
+`nvfp4_expanded_mse`, but weighs each quantization error by per-input-channel
+importance like the normal ImatrixObserver
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
 
@@ -139,8 +166,8 @@ Each observer subclass declares an `_act_sync_dict` mapping attribute names to D
 |----------|-------------------|-----------|
 | `static_minmax` | `min_vals`, `max_vals` | MIN, MAX |
 | `minmax` / `mse` | `min_vals`, `max_vals` | AVG |
-| `memoryless_minmax` / `memoryless_mse` | *(none)* | — |
-| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM |
+| `memoryless_minmax` / `memoryless_mse` / `nvfp4_expanded_mse` | *(none)* | — |
+| `imatrix_mse` / `nvfp4_expanded_imatrix` | `_imatrix_sum`, `_imatrix_count` | SUM |
 
 ## Quantization Strategies
 
@@ -152,7 +179,29 @@ Observers support multiple quantization strategies via the `QuantizationArgs.str
 - `TOKEN`: Per-token statistics along token or sequence dimensions.
 - `BLOCK`: Block-wise quantization with configurable block structure.
 
-Note: column reordering for actorder is handled by GPTQ at compression time, not during observer statistics accumulation.
+### GPTQ Activation Ordering (`actorder`)
+
+Column reordering for GPTQ `actorder` is handled at compression time, after
+observer statistics have been collected; it does not change observer ranges or
+the statistics accumulated during calibration. When enabled, GPTQ sorts the
+working weight columns by descending Hessian diagonal (activation importance),
+reorders both axes of the working Hessian, performs the solve, and restores the
+original column order before saving. The resulting checkpoint keeps the normal
+column order and runtime quantization format; any `g_idx` used to select group
+scales is an internal GPTQ work tensor, not a runtime activation-ordering
+requirement.
+
+The currently supported GPTQ values are:
+
+- `static`: the default for `GPTQModifier`; an alias for `weight`.
+- `weight`: activation ordering during the GPTQ solve only. It keeps the normal
+  runtime quantization format and typically gives a small accuracy improvement
+  over no activation ordering without adding runtime latency.
+- `None`: disables activation ordering.
+
+The older `group` and `dynamic` activation-ordering modes have been removed,
+and `actorder=true` is rejected. Set `actorder` on `GPTQModifier` or on the
+weight `QuantizationArgs`; conflicting values at both levels raise an error.
 
 ## Observer Configuration Parameters
 
@@ -172,6 +221,8 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 | `patience`           | `5`     | Number of consecutive steps without improvement before early stopping. |
 | `grid`               | `100.0` | Resolution of the shrink search. Higher values give finer granularity. |
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
+| `expand`             | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; the NVFP4 expanded MSE observer defaults to `1.8`. |
+| `triton_error_buffer` | `0.30` for integer/FP8, `1.00` for FP4 | Relative error buffer used by the CUDA Triton implementation when applying per-group patience. The NVFP4 expanded MSE observer defaults to `1.00` i.e. exhaustive search. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
 
 MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `get_qparams()` from the final min/max values.
@@ -184,6 +235,7 @@ MSE and iMatrix grid searches run with `global_scale=None` — the shrink search
 | `patience`    | `5`     | Number of consecutive steps without improvement before early stopping. |
 | `grid`        | `20`    | Number of grid steps. Higher values give finer granularity at the cost of speed. |
 | `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
+| `expand`      | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; `nvfp4_expanded_imatrix` defaults to `1.8`. |
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
 
 ## DDP (Distributed) Support
@@ -210,8 +262,8 @@ Only **activation** statistics are synchronized. Weight statistics are never syn
 | `minmax` (EMA) | `min_vals`, `max_vals` | AVG | Global min/max across all ranks |
 | `memoryless_minmax` | *(none)* | — | Stateless; each rank's data is independent |
 | `mse` (EMA) | `min_vals`, `max_vals` | AVG | Averages the per-rank MSE-optimal ranges |
-| `memoryless_mse` | *(none)* | — | Stateless; each rank's data is independent |
-| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM | Accumulates importance scores across ranks before normalization |
+| `memoryless_mse` / `nvfp4_expanded_mse` | *(none)* | — | Stateless; each rank's data is independent |
+| `imatrix_mse` / `nvfp4_expanded_imatrix` | `_imatrix_sum`, `_imatrix_count` | SUM | Accumulates importance scores across ranks before normalization |
 
 For more information on the distributed oneshot workflow, see [Distributed Oneshot](./big_models_and_distributed/distributed_oneshot.md).
 
