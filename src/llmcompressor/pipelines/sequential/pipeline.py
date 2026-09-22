@@ -383,7 +383,7 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(list(persistent_modules.values()))
                 subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
             if (
-                not dataset_args.moe_lazy_linearization_and_repack
+                not dataset_args.moe_eager_linearization_and_repack
                 and dataset_args.repack_moe_layers
             ):
                 repack_moe_model(model)
