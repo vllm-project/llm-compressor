@@ -143,7 +143,11 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                offload_kwargs = onload(subgraph_modules)
+
+                #######################
+                ### START OF ONLOAD ###
+                #######################
+                offload_kwargs = onload_modules(subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -181,7 +185,11 @@ class SequentialPipeline(CalibrationPipeline):
                                     batch_idx, subgraph.consumed_names
                                 )
 
-                offload(subgraph_modules, offload_kwargs)
+
+                offload_modules(subgraph_modules, offload_kwargs)
+                #######################
+                #### END OF ONLOAD ####
+                #######################
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
