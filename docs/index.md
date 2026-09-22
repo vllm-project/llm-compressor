@@ -23,15 +23,17 @@ For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md
 
 Review the [LLM Compressor v0.14.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.14.0) for details about new features. New features to be aware of include:
 
-- **REAP Expert Pruning**:  New modifier for structurally pruning Mixture-of-Experts (MoE) models by removing individual experts based on calibration-based saliency scores. Based on the REAP the Experts paper.
+- **GPTQ Performance Improvements**: The new GPTQ Triton kernel provides an approximately 15x end-to-end speedup on Llama-3-8B. The new batching functionality (useful for MoE models) provides a further approximately 2x end-to-end speedup (approximately 30x total) on Qwen3-30B-A3B.
 
-- **Arbitrary Bit-Width Quantization (Humming)**: Dense packing for non-power-of-2 bit widths (3, 5, 6, 7) with no wasted bits, plus 16 new WxAy presets covering W2–W8 weights with A4, A8, or A16 activations.
+- **New NVFP4 Observers**: The `nvfp4_expanded_mse` and `nvfp4_expanded_imatrix` observers utilize key insights from [Four Over Six](https://arxiv.org/abs/2512.02010) to improve accuracy for NVFP4 and NVFP4A16 quantization.
 
-- **Observer Fusion and Deletion**: Refactored observer lifecycle and significantly reduced memory usage for large models due to observer statistics persisting after calibration.
+- **MSE Performance Improvements**: The MSE observer now has a Triton kernel, improving grid-search speed by 10x, including for the new `nvfp4_expanded_mse` observer.
 
-- **Expanded MoE Architecture Support**: Extended MoE linearization to support a broader range of architectures
+- **REAP DDP**: REAP expert pruning now supports distributed (DDP) runs, with saliency statistics reduced across ranks before computation on rank 0, along with an optional e-score correction bias.
 
-- **Improved XPU Compatibility**: Migrated torch.cuda calls to torch.accelerator for Intel XPU support.
+- **Model-Free PTQ**: Replaced static round-robin GPU assignment with a dynamic, memory-aware scheduler; added mixed-precision and KV-cache quantization support.
+
+- **Expanded MoE Machinery**: Added `patch_moe_mappings()` for overriding 2D load mappings per checkpoint, `repack_moe()` for restoring native fused 3D expert modules after linearization, faster loading for `nemotron_h` (Nemotron 3 Ultra), and GPT-OSS expert linearization.
 
 ## Supported algorithms and techniques
 

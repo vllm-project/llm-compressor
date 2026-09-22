@@ -106,21 +106,6 @@ the model; pruning-only runs can set `moe_calibrate_all_experts=False`. If REAP
 is combined with quantization, keep all-expert calibration enabled when the
 quantizer needs statistics from every expert.
 
-For group-limited routers, the requested sparsity may be rounded so that the
-same number of experts is removed from every group. Sparsity is also rejected
-when pruning would leave fewer reachable experts than the router's `top_k`.
-Use a representative dataset and validate higher sparsity levels carefully.
-
-The [Qwen3.8 REAP + NVFP4/FP8 example](../../../examples/reap_expert_pruning/qwen38_example.py)
-initializes distributed execution and can be launched with, for example:
-
-```bash
-torchrun --nproc_per_node=2 examples/reap_expert_pruning/qwen38_example.py
-```
-
-If `report_path` is set on `REAPPruningModifier`, the source rank writes the
-retained-expert mapping after pruning.
-
 ### GPTQModifier ###
 
 GPTQ, being a more expensive technique, can make further use of parallelization by doing weight-parallel compression. Once each rank has accumulated a partial Hessian for every module during the forward pass on its data partition, the modifier then:
