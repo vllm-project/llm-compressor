@@ -1,9 +1,15 @@
 import contextlib
 from functools import wraps
 from typing import Type
+from weakref import WeakKeyDictionary
 
 import torch
 import tqdm
+from compressed_tensors.offload.cache import OffloadCache
+from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+)
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -29,20 +35,20 @@ from .linear_experts import LinearExperts2D
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
-    Context manager for loading MoE models with linearized experts for
-    efficient calibration and quantization.
+    Context manager for loading MoE models for calibration and quantization.
 
     This context manager patches the `from_pretrained` method of the given model class
-    to automatically linearize MoE (Mixture-of-Experts) layers during model loading.
-    Linearization converts 3D expert weight tensors into 2D format, enabling more
-    efficient calibration and quantization of individual experts.
+    to handle both 3D and 2D (linearized) MoE checkpoint formats.
 
-    Two loading pathways are supported:
-    1. Direct loading: If the model checkpoint contains 2D weights and conversion
-        mappings areregistered for the model type, weights are loaded directly in
-        linearized format.
-    2. Post-load conversion: If no conversion mappings exist, the model is loaded
-        normally and then linearized via `linearize_moe`.
+    For 3D checkpoints (model type without linearize mappings):
+      The model is loaded in original 3D format. Linearization is deferred
+      to the sequential pipeline for efficient per-subgraph conversion via
+      `linearize_moe_layer`.
+
+    For 2D checkpoints (model type with linearize mappings):
+      The checkpoint is loaded directly in linearized format by registering patch
+      mappings. Save conversion mappings are registered so the model can be saved
+      in the correct format after pipeline operations.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -58,14 +64,13 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         config = AutoConfig.from_pretrained(*args, **kwargs)
         model_type = config.model_type
 
-        # model is 3d (or otherwise doesn't have mappings)
-        # fall back to post-load conversion
+        # model is 3D (or otherwise doesn't have mappings)
+        # defer linearization to pipelines
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
-            linearize_moe(model)
             return model
 
-        # prepare to load linearized weights
+        # prepare to load linearized weights from 2D checkpoint
         experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
         linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
         register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
@@ -93,91 +98,166 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                 )
 
 
-def linearize_moe(model: PreTrainedModel):
+def get_moe_linear_status(
+    model: torch.nn.Module,
+) -> WeakKeyDictionary:
     """
-    Linearize a mixture-of-experts model after it has been loaded. For more
-    runtime-efficient loading, please see `load_quantizable_moe`.
-
-    Experts modules will be replaced by either two pathways:
-    1. The expert module has a registered replacement. This is required for
-    2. The expert module conforms to the standard transformers MoE format
-    (as designated by the `use_experts_implementation` decorator)
-
-    :param model: model containing MoE layers to linearize
+    Return all modules which are recognized to be experts layers.
+    Includes both 3D experts (which need linearization) and
+    already-linearized 2D experts. This lookup is used by the
+    repack_moe_* and linearize_moe_* functions to determine
+    which modules to operate on.
     """
-    non_linearized_moes = get_non_linearized_moes(model)
 
-    if len(non_linearized_moes) <= 0:
-        return model
+    if hasattr(model, "_moe_lookup"):
+        delattr(model, "_moe_lookup")
+
+    model._moe_lookup = WeakKeyDictionary(
+        {
+            module: name
+            for name, module in model.named_modules()
+            if isinstance(module, FusedExpertsProtocol)
+            or isinstance(module, LinearExperts2D)
+            or LinearExperts2D.get_registration(module.__class__) is not None
+        }
+    )
+
+    return model._moe_lookup
+
+
+def repack_moe_model(model: PreTrainedModel) -> None:
+    """Repack all linearized MoE modules in a model."""
+    moe_lookup = get_moe_linear_status(model)
+    linearized = [
+        (moe_lookup[module], module)
+        for module in model.modules()
+        if module in moe_lookup and isinstance(module, LinearExperts2D)
+    ]
+
+    for name, module in tqdm.tqdm(linearized, desc="Repacking experts"):
+        module_dict = {name: module}
+        offload_kwargs = subgraph_onload_modules(module_dict)
+        try:
+            repack_moe_layer(model, name, module, module_dict)
+        finally:
+            if offload_kwargs:
+                subgraph_offload_modules(module_dict, offload_kwargs)
+
+
+def repack_moe_subgraph(
+    model: PreTrainedModel,
+    subgraph_modules: dict[str, torch.nn.Module],
+) -> None:
+    """Repack linearized MoE modules contained in a subgraph."""
+    subgraph_set = set(subgraph_modules.values())
+    moe_lookup = get_moe_linear_status(model)
+    linearized = [
+        (moe_lookup[module], module)
+        for module in subgraph_set
+        if module in moe_lookup and isinstance(module, LinearExperts2D)
+    ]
+
+    for name, module in tqdm.tqdm(linearized, desc="Repacking experts in subgraph"):
+        repack_moe_layer(model, name, module, subgraph_modules)
+
+
+def repack_moe_layer(
+    model: PreTrainedModel,
+    name: str,
+    module: LinearExperts2D,
+    subgraph_modules: dict[str, torch.nn.Module] | None = None,
+) -> None:
+    fused = module.to_experts_module()
+    _replace(model, name, module, fused, subgraph_modules)
+
+
+def linearize_moe_model(model: PreTrainedModel) -> None:
+    """Linearize all recognized non-linearized MoE modules in a model."""
+    moe_lookup = get_moe_linear_status(model)
+    non_linearized = [
+        (moe_lookup[module], module)
+        for module in model.modules()
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
+    ]
 
     logger.warning(
         "MoE is being linearized after loading in order to support efficient "
         "calibration of experts. However, this may be inefficient if the model "
         "checkpoint is already linearized (2D -> 3D -> 2D). Consider registering "
         "a load converter for faster load times. See "
-        "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
+        "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"
     )
 
-    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = getattr(module, "config", model.config)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
-        model.set_submodule(name, linear_moe)
+    for name, module in tqdm.tqdm(non_linearized, desc="Linearizing experts"):
+        module_dict = {name: module}
+        offload_kwargs = subgraph_onload_modules(module_dict)
+        try:
+            linearize_moe_layer(model, name, module, module_dict)
+        finally:
+            if offload_kwargs:
+                subgraph_offload_modules(module_dict, offload_kwargs)
 
-    return model
 
-
-def get_linearized_moes(
-    model: torch.nn.Module,
-) -> list[tuple[str, LinearExperts2D]]:
-    """
-    Return all :class:`LinearExperts2D` modules in ``model`` (post-linearization).
-    """
-    return [
-        (name, module)
-        for name, module in model.named_modules()
-        if isinstance(module, LinearExperts2D)
+def linearize_moe_subgraph(
+    model: PreTrainedModel,
+    subgraph_modules: dict[str, torch.nn.Module],
+) -> None:
+    """Linearize recognized non-linearized MoE modules in a subgraph."""
+    subgraph_set = set(subgraph_modules.values())
+    moe_lookup = get_moe_linear_status(model)
+    non_linearized = [
+        (moe_lookup[module], module)
+        for module in subgraph_set
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
-
-def repack_moe(model: PreTrainedModel) -> PreTrainedModel:
-    """
-    Explicitly pack linearized :class:`LinearExperts2D` modules back into native
-    fused 3D expert modules.
-
-    Call this after calibration/quantization and before ``save_pretrained`` when
-    the target Transformers architecture expects packed expert weights (e.g.
-    ``qwen3_vl_moe``, ``qwen3_5_moe``). See
-    https://github.com/vllm-project/llm-compressor/issues/2699
-
-    :param model: model containing linearized MoE layers to repack
-    :return: the same model with fused expert modules restored
-    """
-    linearized = get_linearized_moes(model)
-    if len(linearized) <= 0:
-        return model
-
-    for name, module in tqdm.tqdm(linearized, desc="Repacking experts"):
-        fused = module.to_experts_module()
-        model.set_submodule(name, fused)
-
-    return model
+    for name, module in tqdm.tqdm(
+        non_linearized, desc="Linearizing experts in subgraph"
+    ):
+        linearize_moe_layer(model, name, module, subgraph_modules)
 
 
-def get_non_linearized_moes(
-    model: torch.nn.Module,
-) -> list[tuple[str, torch.nn.Module]]:
-    """
-    Return all modules which are recognized to be experts layers. A module is recognized
-    as an experts layer if it conforms to the `FusedExpertsProtocol` or is registered by
-    `LinearExperts2D`.
+def linearize_moe_layer(
+    model: PreTrainedModel,
+    name: str,
+    module: torch.nn.Module,
+    subgraph_modules: dict[str, torch.nn.Module] | None = None,
+) -> None:
+    """Linearize a single recognized MoE module."""
+    if not isinstance(module, FusedExpertsProtocol) and not LinearExperts2D.get_registration(
+        module.__class__
+    ):
+        raise ValueError(f"Module {name} is not a recognized MoE layer")
 
-    :param model: model with modules to check for experts
-    :return: list of named modules which are recognized as experts layers
-    """
-    return [
-        (name, module)
-        for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
-        or LinearExperts2D.get_registration(module.__class__) is not None
-    ]
+    config = getattr(module, "config", model.config)
+    linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
+    linear_moe = linear_experts_cls.from_experts_module(module, config)
+    _replace(model, name, module, linear_moe, subgraph_modules)
+
+
+def _replace(
+    model: PreTrainedModel,
+    name: str,
+    old_module: torch.nn.Module,
+    new_module: torch.nn.Module,
+    module_dict: dict[str, torch.nn.Module] | None = None,
+):
+    """Replace a module and keep offload/subgraph bookkeeping consistent."""
+    if isinstance(old_module._parameters, OffloadCache):
+        new_module._parameters = old_module._parameters
+        new_module._buffers = old_module._buffers
+
+    if module_dict is not None:
+        if module_dict.get(name) is not old_module:
+            raise ValueError(
+                f"Module {name} in module_dict does not match the old_module "
+                "being replaced. Something went very wrong."
+            )
+        module_dict[name] = new_module
+
+    model.set_submodule(name, new_module)
+
+
+# Backward-compatible names used by existing model integrations.
+linearize_moe = linearize_moe_model
+repack_moe = repack_moe_model
