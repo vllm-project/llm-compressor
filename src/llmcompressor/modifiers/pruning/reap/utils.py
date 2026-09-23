@@ -170,7 +170,7 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
                 continue
             if isinstance(experts, GptOssLinearExperts):
                 logger.warning(
-                    f"Skipping unsupported Llama4LinearExperts layer: {name}"
+                    f"Skipping unsupported GptOssLinearExperts layer: {name}"
                 )
                 continue
             moe_layer_names.append(name)
