@@ -42,7 +42,3 @@ def offload_modules(
     for name, module in modules.items():
         if name in offload_kwargs:
             offload_module(module, **offload_kwargs[name])
-
-    gc.collect()
-    if torch.accelerator.is_available():
-        torch.accelerator.empty_cache()
