@@ -145,7 +145,7 @@ class Oneshot:
         if "TORCHELASTIC_RUN_ID" in os.environ and not is_distributed():
             raise ValueError(
                 "Detected torchrun environment, but no distributed process group was "
-                "found. Please call `compressed_tensors.distributed::init_dist()` "
+                "found. Please call 'compressed_tensors.offload.init_dist()' "
                 "before calling oneshot"
             )
 
