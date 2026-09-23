@@ -11,7 +11,7 @@ Run with:
 
 from __future__ import annotations
 
-import json
+import pickle
 import tempfile
 
 import pytest
@@ -32,8 +32,8 @@ MAX_SEQ_LENGTH = 512
 
 
 def _load_report(path):
-    with open(path) as f:
-        return json.load(f)
+    with open(path, "rb") as f:
+        return pickle.load(f)
 
 
 @pytest.mark.integration
@@ -41,9 +41,9 @@ def _load_report(path):
 @requires_gpu(2)
 @torchrun(world_size=2)
 def test_reap_ddp_qwen3():
-    """REAP with DDP on Qwen3.8-1.0B-A0.6B retains the same experts as single-GPU."""
+    """REAP with DDP on Qwen3.8-1.0B-A0.6B scores the same experts as single-GPU."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        ref_report = f"{tmpdir}/ref_report.json"
+        ref_report = f"{tmpdir}/ref_report.pkl"
 
         torch.manual_seed(42)
         torch.get_device_module().manual_seed_all(42)
@@ -65,7 +65,7 @@ def test_reap_ddp_qwen3():
             pipeline="sequential",
         )
 
-        ref_retained = _load_report(ref_report)
+        ref_saliency = _load_report(ref_report)
         del model_ref
         torch.accelerator.empty_cache()
 
@@ -73,7 +73,7 @@ def test_reap_ddp_qwen3():
         init_dist()
         rank = dist.get_rank()
 
-        ddp_report = f"{tmpdir}/ddp_report.json"
+        ddp_report = f"{tmpdir}/ddp_report.pkl"
 
         torch.manual_seed(42)
         torch.get_device_module().manual_seed_all(42)
@@ -95,12 +95,23 @@ def test_reap_ddp_qwen3():
         )
 
         if rank == 0:
-            ddp_retained = _load_report(ddp_report)
-            assert ref_retained == ddp_retained, (
-                f"Retained experts differ between single-GPU and DDP.\n"
-                f"  ref: {ref_retained}\n"
-                f"  ddp: {ddp_retained}"
+            ddp_saliency = _load_report(ddp_report)
+            assert len(ref_saliency) == len(ddp_saliency), (
+                f"Number of MoE layers differ between single-GPU and DDP.\n"
+                f"  ref: {len(ref_saliency)}\n"
+                f"  ddp: {len(ddp_saliency)}"
             )
+            for layer_idx, (ref_layer, ddp_layer) in enumerate(
+                zip(ref_saliency, ddp_saliency)
+            ):
+                torch.testing.assert_close(
+                    torch.tensor(ref_layer),
+                    torch.tensor(ddp_layer),
+                    msg=lambda m, i=layer_idx: (
+                        f"Saliency scores differ between single-GPU and DDP "
+                        f"at layer {i}.\n{m}"
+                    ),
+                )
 
         del model_ddp
         torch.accelerator.empty_cache()
