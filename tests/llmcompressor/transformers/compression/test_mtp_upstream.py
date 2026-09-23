@@ -1,22 +1,29 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
 from compressed_tensors.quantization import preset_name_to_scheme
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
+from loguru import logger
 from safetensors.torch import load_file, save_file
 from transformers import (
     Glm4MoeConfig,
     Glm4MoeForCausalLM,
     InklingForCausalLM,
     InklingTextConfig,
+    PretrainedConfig,
 )
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers.compression.mtp import _mtp_weights
+from llmcompressor.transformers.compression.mtp import (
+    _mtp_weights,
+    load_mtp_model,
+    save_mtp_tensors,
+)
 
 MtpModel = getattr(
     pytest.importorskip("transformers.modeling_layers"), "MtpModel", None
@@ -102,8 +109,14 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
     oneshot(model=model, recipe=recipe)
     destination = tmp_path / "destination"
-    model.save_pretrained(destination)
+    logs = []
+    handler_id = logger.add(logs.append, format="{message}", level="WARNING")
+    try:
+        model.save_pretrained(destination)
+    finally:
+        logger.remove(handler_id)
 
+    assert any("MTP weights were not targeted" in log for log in logs)
     weights = get_weight_mappings(destination)
     assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight" in weights
     assert (
@@ -134,11 +147,26 @@ def test_config_hint_without_mtp_weights_does_not_copy(tmp_path):
     model = _source_model(tmp_path, with_mtp=False)
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
     destination = tmp_path / "destination"
-    model.save_pretrained(destination)
+    logs = []
+    handler_id = logger.add(logs.append, format="{message}", level="WARNING")
+    try:
+        model.save_pretrained(destination)
+    finally:
+        logger.remove(handler_id)
 
+    assert any("no MTP checkpoint weights" in log for log in logs)
     assert not any(
         name.startswith("model.mtp.") for name in get_weight_mappings(destination)
     )
+
+
+@pytest.mark.parametrize("patterns", [[], [r"unexpected.*"]])
+def test_non_mtp_config_does_not_require_layer_count(tmp_path, patterns):
+    model = SimpleNamespace(
+        config=PretrainedConfig(), _keys_to_ignore_on_load_unexpected=patterns
+    )
+    save_mtp_tensors(model, str(tmp_path))
+    assert not list(tmp_path.iterdir())
 
 
 def test_unsupported_mtp_target_points_to_fallback(tmp_path):
@@ -147,6 +175,42 @@ def test_unsupported_mtp_target_points_to_fallback(tmp_path):
     recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
     with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
         oneshot(model=model, recipe=recipe)
+
+
+def test_unsupported_untargeted_mtp_copies_with_fallback_warning(tmp_path):
+    model = _source_model(tmp_path)
+    model._keys_to_ignore_on_load_unexpected = []
+    oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
+    destination = tmp_path / "destination"
+    logs = []
+    handler_id = logger.add(logs.append, format="{message}", level="WARNING")
+    try:
+        model.save_pretrained(destination)
+    finally:
+        logger.remove(handler_id)
+
+    assert any("mtp_fp8_fallback.py" in log for log in logs)
+    assert (
+        "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
+        in get_weight_mappings(destination)
+    )
+
+
+def test_missing_mtp_weights_point_to_fallback(tmp_path):
+    model = _source_model(tmp_path)
+    with patch(
+        "transformers.modeling_layers.MtpModel.from_pretrained",
+        side_effect=RuntimeError("The following MtpModel weights are missing"),
+    ):
+        with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
+            load_mtp_model(model)
+
+    with patch(
+        "transformers.modeling_layers.MtpModel.from_pretrained",
+        side_effect=RuntimeError("device failure"),
+    ):
+        with pytest.raises(RuntimeError, match="device failure"):
+            load_mtp_model(model)
 
 
 def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
