@@ -98,15 +98,6 @@ def _mtp_weights(model: PreTrainedModel) -> tuple[dict[str, str], list[str]]:
 def load_mtp_model(model: PreTrainedModel) -> None:
     if hasattr(model, "mtp"):
         return
-    weights, patterns = _mtp_weights(model)
-    if not weights or not patterns:
-        message = (
-            "MTP was targeted, but this checkpoint has no MTP weights that "
-            "Transformers' MtpModel can identify. For unsupported FP8 layouts, see "
-            f"{FALLBACK_EXAMPLE}."
-        )
-        logger.warning(message)
-        raise ValueError(message)
 
     try:
         from transformers.modeling_layers import MtpModel
