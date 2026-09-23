@@ -141,9 +141,9 @@ setup(
         ),
         ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
-            "compressed-tensors==0.18.0"
+            "compressed-tensors==0.19.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.18.1a2"
+            else "compressed-tensors>=0.19.1a2"
         ),
     ],
     extras_require={
@@ -171,9 +171,14 @@ setup(
             "zensical",
             "markdown",
             "pymdown-extensions",
+            # model-specific dependencies
+            "fla-core",
+            "einops",
+            "tiktoken",
+            "qwen_vl_utils",
         ],
         "qwen": [
-            "qwen_vl_utils",
+            "qwen_vl_utils",  # TODO: remove
         ],
     },
     entry_points={
