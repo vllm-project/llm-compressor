@@ -35,12 +35,13 @@ def targets_mtp(targets: set[str]) -> bool:
 
 def _mtp_patterns(model: PreTrainedModel) -> list[str]:
     """Use the same checkpoint patterns and layer-count filter as MtpModel."""
-    num_layers = model.config.get_text_config().num_hidden_layers
+    num_layers = getattr(model.config.get_text_config(), "num_hidden_layers", None)
     patterns = model._keys_to_ignore_on_load_unexpected or []
     return [
         pattern
         for pattern in patterns
         if (match := re.search(r"\.(\d+)", pattern)) is None
+        or num_layers is None
         or int(match.group(1)) >= num_layers
     ]
 
@@ -77,7 +78,7 @@ def _mtp_weights(model: PreTrainedModel) -> tuple[dict[str, str], list[str]]:
         if decoder_prefix is not None
         else None
     )
-    num_layers = model.config.get_text_config().num_hidden_layers
+    num_layers = getattr(model.config.get_text_config(), "num_hidden_layers", None)
 
     def is_mtp(name: str) -> bool:
         if any(re.search(pattern, name) for pattern in patterns):
@@ -86,7 +87,9 @@ def _mtp_weights(model: PreTrainedModel) -> tuple[dict[str, str], list[str]]:
             return True
         if trailing_prefix and name.startswith(trailing_prefix):
             index = name[len(trailing_prefix) :].split(".", 1)[0]
-            return index.isdigit() and int(index) >= num_layers
+            return (
+                num_layers is not None and index.isdigit() and int(index) >= num_layers
+            )
         return False
 
     return {name: shard for name, shard in weights.items() if is_mtp(name)}, patterns
@@ -99,7 +102,7 @@ def load_mtp_model(model: PreTrainedModel) -> None:
     if not weights or not patterns:
         message = (
             "MTP was targeted, but this checkpoint has no MTP weights that "
-            "Transformers' MtpModel can identify. For unsupported layouts, see "
+            "Transformers' MtpModel can identify. For unsupported FP8 layouts, see "
             f"{FALLBACK_EXAMPLE}."
         )
         logger.warning(message)
@@ -110,7 +113,7 @@ def load_mtp_model(model: PreTrainedModel) -> None:
     except ImportError as error:
         message = (
             "This Transformers version has no MtpModel. Upgrade Transformers or "
-            f"use the manual route in {FALLBACK_EXAMPLE}."
+            f"use the manual FP8 route in {FALLBACK_EXAMPLE}."
         )
         logger.warning(message)
         raise ValueError(message) from error
@@ -130,10 +133,15 @@ def load_mtp_model(model: PreTrainedModel) -> None:
     try:
         try:
             model.mtp = MtpModel.from_pretrained(model)
-        except (AttributeError, ValueError) as error:
+        except (AttributeError, ValueError, RuntimeError) as error:
+            if isinstance(error, RuntimeError) and "weights are missing" not in str(
+                error
+            ):
+                raise
             message = (
                 "Transformers' MtpModel could not load this checkpoint's MTP "
-                f"layers. For unsupported layouts, see {FALLBACK_EXAMPLE}."
+                "layers. For unsupported FP8 layouts, see "
+                f"{FALLBACK_EXAMPLE}."
             )
             logger.warning(message)
             raise ValueError(message) from error
@@ -157,19 +165,34 @@ def save_mtp_tensors(
     """Save quantized MTP, or copy untouched MTP tensors from the checkpoint."""
     if loaded_mtp is None:
         text_config = model.config.get_text_config()
-        if not (
-            _mtp_patterns(model)
-            or getattr(text_config, "num_mtp_layers", 0)
-            or getattr(text_config, "mtp_num_hidden_layers", 0)
-            or getattr(text_config, "num_nextn_predict_layers", 0)
+        if not any(
+            getattr(text_config, name, 0)
+            for name in (
+                "num_mtp_layers",
+                "mtp_num_hidden_layers",
+                "num_nextn_predict_layers",
+            )
         ):
             return
         weights, patterns = _mtp_weights(model)
         if not weights:
-            logger.warning(
+            message = (
                 "Model config indicates MTP, but no MTP checkpoint weights were found"
             )
+            if not patterns:
+                message += f". For unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
+            logger.warning(message)
             return
+        message = (
+            "MTP weights were not targeted for quantization; copying them "
+            "unchanged from the source checkpoint"
+        )
+        if not patterns:
+            message += (
+                ". Transformers' MtpModel has no registered pattern for them; "
+                f"for unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
+            )
+        logger.warning(message)
         by_shard = defaultdict(list)
         for name, shard in weights.items():
             by_shard[shard].append(name)

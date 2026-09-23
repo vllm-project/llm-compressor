@@ -2,8 +2,10 @@
 
 Requires FP8Converter from compressed-tensors PR #902:
 https://github.com/vllm-project/compressed-tensors/pull/902
-This example converts the full FP8 checkpoint, then quantizes all 2D weights,
-including MTP, to FP8_DYNAMIC. It does not require MTP architecture support.
+FP8Converter normalizes the source FP8/packed-FP4 checkpoint to compressed-tensors.
+Model-free PTQ then dequantizes and requantizes eligible 2D text-layer weights,
+including MTP layer 45, to FP8_DYNAMIC. This processes the full checkpoint in
+two passes; it is not an MTP-only or Transformers MtpModel path.
 """
 
 import os
@@ -35,8 +37,10 @@ with TemporaryDirectory(prefix="mtp-fp8-", dir=os.environ.get("MTP_TMPDIR")) as 
     model_free_ptq(
         model_stub=ct_dir,
         save_directory=SAVE_DIR,
-        scheme=preset_name_to_scheme("FP8_DYNAMIC", targets=["Linear"]),
+        scheme=preset_name_to_scheme(
+            "FP8_DYNAMIC", targets=[r"re:^model\.language_model\.layers\."]
+        ),
         converter=CompressedTensorsDequantizer(ct_dir),
-        ignore=["lm_head"],
+        ignore=[r"re:.*_conv1d$"],
         max_workers=8,
     )
