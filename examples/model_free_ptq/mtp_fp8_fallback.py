@@ -11,10 +11,6 @@ two passes; it is not an MTP-only or Transformers MtpModel path.
 import os
 from tempfile import TemporaryDirectory
 
-from compressed_tensors.entrypoints.convert import (
-    CompressedTensorsDequantizer,
-    convert_checkpoint,
-)
 from compressed_tensors.quantization import preset_name_to_scheme
 
 from llmcompressor import model_free_ptq
@@ -23,7 +19,11 @@ MODEL_ID = "zai-org/GLM-5.3-Flash"
 SAVE_DIR = os.environ.get("MTP_OUTPUT_DIR", "GLM-5.3-Flash-FP8-Dynamic-MTP")
 
 try:
-    from compressed_tensors.entrypoints.convert import FP8Converter
+    from compressed_tensors.entrypoints.convert import (
+        CompressedTensorsDequantizer,
+        FP8Converter,
+        convert_checkpoint,
+    )
 except ImportError as error:
     raise ImportError("This example requires compressed-tensors PR #902") from error
 
