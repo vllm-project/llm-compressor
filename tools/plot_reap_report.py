@@ -26,24 +26,61 @@ def load_report(path: Path) -> list[list[float]]:
         return pickle.load(f)
 
 
-def plot_heatmap(report: list[list[float]], title: str, out_path: Path) -> None:
+def kurtosis(values: np.ndarray) -> float:
+    """Excess (Fisher) kurtosis of a 1-D array of values."""
+    mean = values.mean()
+    std = values.std()
+    if std == 0:
+        return float("nan")
+    return float(np.mean((values - mean) ** 4) / std**4 - 3)
+
+
+def plot_heatmap(
+    report: list[list[float]],
+    title: str,
+    out_path: Path,
+    layerwise_norm: bool = False,
+) -> None:
     # Sort each layer's experts by saliency, highest (left) to lowest (right).
     matrix = np.array([sorted(row, reverse=True) for row in report], dtype=float)
+
+    # Kurtosis is computed on the raw per-layer values (before normalization);
+    # it is scale-invariant, so normalizing would not change it.
+    kurtoses = [kurtosis(row) for row in matrix]
+
+    if layerwise_norm:
+        # Divide each layer's values by that layer's maximum value.
+        row_max = matrix.max(axis=1, keepdims=True)
+        matrix = np.divide(
+            matrix, row_max, out=np.zeros_like(matrix), where=row_max != 0
+        )
 
     fig, ax = plt.subplots(figsize=(10, 0.4 * len(report) + 2))
     cax = ax.imshow(matrix, aspect="auto", cmap="inferno", interpolation="nearest")
 
-    ax.set_title(title)
+    if layerwise_norm:
+        ax.set_title(title + "\nnormalized per layer (value / layer max)")
+    else:
+        ax.set_title(title)
     ax.set_xlabel("Expert rank by saliency (high -> low)")
     ax.set_ylabel("Layer")
     ax.set_xticks(range(matrix.shape[1]))
     ax.set_xticklabels(range(1, matrix.shape[1] + 1))
     ax.set_yticks(range(matrix.shape[0]))
     ax.set_yticklabels(range(matrix.shape[0]))
-    ax.set_xticks(np.arange(-0.5, matrix.shape[1], 1), minor=True)
-    ax.set_yticks(np.arange(-0.5, matrix.shape[0], 1), minor=True)
-    ax.grid(which="minor", color="w", linestyle="-", linewidth=0.5)
-    ax.tick_params(which="minor", bottom=False, left=False)
+
+    if layerwise_norm:
+        # Label each layer (row) with its kurtosis on the right-hand side.
+        for i, k in enumerate(kurtoses):
+            ax.text(
+                matrix.shape[1] - 0.3,
+                i,
+                f"k={k:.2f}",
+                va="center",
+                ha="left",
+                fontsize=7,
+                clip_on=False,
+            )
 
     fig.colorbar(cax, ax=ax, fraction=0.046, pad=0.04)
     fig.tight_layout()
@@ -63,12 +100,17 @@ def main() -> None:
         default=None,
         help="Output image path (default: <report>.png)",
     )
+    parser.add_argument(
+        "--layerwise-norm",
+        action="store_true",
+        help="Divide each saliency value by the highest value in its layer",
+    )
     args = parser.parse_args()
 
     report = load_report(args.report)
     out_path = args.output or args.report.with_suffix(".png")
     title = f"{args.report.stem} REAP Saliency"
-    plot_heatmap(report, title, out_path)
+    plot_heatmap(report, title, out_path, layerwise_norm=args.layerwise_norm)
 
 
 if __name__ == "__main__":
