@@ -28,6 +28,7 @@ def onload_modules(
         if isinstance(module._parameters, OffloadCache):
             init_kwargs = get_cache_init_kwargs(module)
             offload_kwargs[name] = init_kwargs
+            set_onload_device(module, "cpu_pin")
             remove_module_offload(module, onload_tensors=True)
     return offload_kwargs
 
