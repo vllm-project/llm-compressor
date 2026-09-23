@@ -47,8 +47,8 @@ def test_onload_and_offload_only_transfer_offloaded_modules(monkeypatch):
     monkeypatch.setattr(offloading, "offload_module", fake_offload_module)
 
     modules = {"root": root, "root.child": root.child}
-    offload_kwargs = offloading.onload(modules)
-    offloading.offload(modules, offload_kwargs)
+    offload_kwargs = offloading.onload_modules(modules)
+    offloading.offload_modules(modules, offload_kwargs)
 
     assert calls == [
         ("init", root),
@@ -79,9 +79,9 @@ def test_individual_expert_sequential_target_can_be_onloaded(monkeypatch):
     monkeypatch.setattr(offloading, "OffloadCache", _FakeOffloadCache)
     monkeypatch.setattr(offloading, "remove_module_offload", fake_remove_module_offload)
     monkeypatch.setattr(offloading, "offload_module", fake_offload_module)
-    offload_kwargs = offloading.onload(subgraph_modules)
+    offload_kwargs = offloading.onload_modules(subgraph_modules)
     assert target(torch.tensor([3.0])) == torch.tensor([5.0])
-    offloading.offload(subgraph_modules, offload_kwargs)
+    offloading.offload_modules(subgraph_modules, offload_kwargs)
 
     assert calls == [
         ("init", target),
