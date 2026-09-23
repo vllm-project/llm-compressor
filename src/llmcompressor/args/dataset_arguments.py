@@ -298,13 +298,6 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
-    enable_compile: bool = field(
-        default=False,
-        metadata={
-            "help": "If True, use torch.compiled functions where available"
-            "calibration. Default False."
-        },
-    )
     layerwise_decompression: bool = field(
         default=False,
         metadata={

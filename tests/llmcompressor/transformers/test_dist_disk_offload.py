@@ -5,13 +5,14 @@ import tempfile
 import pytest
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import init_dist, load_offloaded_model
+from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.utils import load_context
 from tests.testing_utils import requires_gpu, torchrun
 
 MODEL_ID = "nm-testing/tinysmokellama-3.2"
@@ -32,7 +33,7 @@ def _disk_offloaded_model():
     dist.broadcast_object_list(offload_dir, src=0)
 
     try:
-        with load_offloaded_model():
+        with load_context():
             model = AutoModelForCausalLM.from_pretrained(
                 MODEL_ID,
                 torch_dtype=torch.float32,

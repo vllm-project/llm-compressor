@@ -4,7 +4,7 @@ REAP (Router-weighted Expert Activation Pruning) modifier for MoE models.
 See: https://arxiv.org/abs/2510.13999
 """
 
-import json
+import pickle
 from functools import partial
 from pathlib import Path
 from typing import Any, Optional
@@ -57,8 +57,14 @@ class REAPPruningModifier(Modifier):
 
     :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
-    :param report_path: optional path to a ``.json`` file where the mapping of
-        retained expert indices per layer is written after pruning completes.
+    :param report_path: optional path to a ``.pkl`` file where the per-expert
+        saliency scores are written after calibration completes. The report is a
+        ``list[list[float]]`` (one inner list of per-expert saliency scores per
+        MoE layer, ordered by layer) serialized with ``pickle``.
+    :param prune: whether to structurally prune the model. When ``False`` the
+        model weights and config are never modified; saliency is still computed
+        so that a ``report_path`` can be written. At least one of ``report_path``
+        or ``prune`` must be set.
 
     Example recipe::
 
@@ -71,6 +77,7 @@ class REAPPruningModifier(Modifier):
     sparsity: float
     ignore: list[str] = Field(default_factory=list)
     report_path: Optional[str] = Field(default=None)
+    prune: bool = Field(default=True)
 
     _moe_attrs: MoeModelAttrs | None = PrivateAttr(default=None)
     _saliency_trackers: dict[str, REAPSaliencyTracker] = PrivateAttr(
@@ -82,7 +89,7 @@ class REAPPruningModifier(Modifier):
         default_factory=dict
     )
     _cpu_pg: Any = PrivateAttr(default=None)
-    _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
+    _saliency_report: dict[str, list[float]] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
@@ -93,11 +100,20 @@ class REAPPruningModifier(Modifier):
     @model_validator(mode="after")
     def _validate_report_path(self) -> "REAPPruningModifier":
         if self.report_path is not None:
-            if not self.report_path.endswith(".json"):
+            if not self.report_path.endswith(".pkl"):
                 raise ValueError(
-                    f"report_path must end with .json, got {self.report_path}"
+                    f"report_path must end with .pkl, got {self.report_path}"
                 )
             Path(self.report_path).parent.mkdir(parents=True, exist_ok=True)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_prune_or_report(self) -> "REAPPruningModifier":
+        if not self.prune and self.report_path is None:
+            raise ValueError(
+                "At least one of report_path or prune must be set; with "
+                "prune=False and no report_path, REAP would do nothing"
+            )
         return self
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -224,12 +240,18 @@ class REAPPruningModifier(Modifier):
 
         model = state.model
 
-        new_num_experts = self._moe_attrs.num_experts - self._n_experts_to_drop
-        update_model_config(model, self._moe_attrs, new_num_experts)
+        if self.prune:
+            new_num_experts = self._moe_attrs.num_experts - self._n_experts_to_drop
+            update_model_config(model, self._moe_attrs, new_num_experts)
 
         if self.report_path is not None and is_source_process():
-            with open(self.report_path, "w") as f:
-                json.dump(self._retained_experts, f)
+            report: list[list[float]] = [
+                self._saliency_report[layer_name]
+                for layer_name in self._moe_attrs.moe_layer_names
+                if layer_name in self._saliency_report
+            ]
+            with open(self.report_path, "wb") as f:
+                pickle.dump(report, f)
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
@@ -242,8 +264,9 @@ class REAPPruningModifier(Modifier):
     # -- decision finalization ----------------------------------------------
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """Prune any tracked layer whose saliency is
-        complete, then release its activation norm buffers."""
+        """Record saliency for (and, when ``prune`` is set, prune) any tracked
+        layer whose saliency is complete, then release its activation norm
+        buffers."""
 
         model = state.model
         expected = self._moe_attrs.num_experts - self._n_experts_to_drop
@@ -260,25 +283,30 @@ class REAPPruningModifier(Modifier):
         for layer_name, tracker in trackers:
             tracker.reduce_saliency_stats(device, group=self._cpu_pg)
 
+            # record per-expert saliency for the report (source rank holds the
+            # globally reduced statistics)
             if is_source_process():
-                retained = tracker.compute_retained_experts(
-                    self._n_experts_to_drop,
-                    self._n_experts_to_drop_per_group,
-                    self._moe_attrs,
-                )
-            else:
-                retained = torch.empty(expected, dtype=torch.int, device="cpu")
+                self._saliency_report[layer_name] = tracker.mean_saliency.tolist()
 
-            if is_distributed():
-                dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
+            if self.prune:
+                if is_source_process():
+                    retained = tracker.compute_retained_experts(
+                        self._n_experts_to_drop,
+                        self._n_experts_to_drop_per_group,
+                        self._moe_attrs,
+                    )
+                else:
+                    retained = torch.empty(expected, dtype=torch.int, device="cpu")
 
-            assert (
-                len(retained) == expected
-            ), f"Expected {expected} retained experts, got {len(retained)}"
+                if is_distributed():
+                    dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
 
-            retained = retained.tolist()
-            self._retained_experts[layer_name] = retained
-            prune_moe_layer(model, layer_name, retained, self._moe_attrs)
+                assert (
+                    len(retained) == expected
+                ), f"Expected {expected} retained experts, got {len(retained)}"
+
+                retained = retained.tolist()
+                prune_moe_layer(model, layer_name, retained, self._moe_attrs)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]
