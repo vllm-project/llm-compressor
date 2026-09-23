@@ -10,6 +10,7 @@ from compressed_tensors.offload import get_execution_device, set_onload_device
 from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
+    get_safetensors_header,
     get_weight_map,
     get_weight_mappings,
     update_safetensors_index,
@@ -46,25 +47,31 @@ def _mtp_patterns(model: PreTrainedModel) -> list[str]:
     ]
 
 
-def _checkpoint_weights(source: str) -> dict[str, str]:
+def _checkpoint_weights(
+    source: str, revision: str | None = None
+) -> dict[str, tuple[str, str | None]]:
     """Map tensor names to shards without downloading every Hub weight shard."""
     if os.path.isdir(source):
         files = get_checkpoint_files(source)
-        return {name: files[shard] for name, shard in get_weight_map(files).items()}
+        return {
+            name: (files[shard], None) for name, shard in get_weight_map(files).items()
+        }
 
-    metadata = HfApi().get_safetensors_metadata(source)
+    metadata = HfApi().get_safetensors_metadata(source, revision=revision)
     return {
-        name: shard
+        name: (shard, tensor.dtype)
         for shard, info in metadata.files_metadata.items()
-        for name in info.tensors
+        for name, tensor in info.tensors.items()
     }
 
 
-def _mtp_weights(model: PreTrainedModel) -> tuple[dict[str, str], list[str]]:
+def _mtp_weights(
+    model: PreTrainedModel,
+) -> tuple[dict[str, tuple[str, str | None]], list[str]]:
     source = model.name_or_path
     if not source:
         return {}, []
-    weights = _checkpoint_weights(source)
+    weights = _checkpoint_weights(source, getattr(model.config, "_commit_hash", None))
     patterns = _mtp_patterns(model)
     try:
         decoder = model.get_decoder()
@@ -92,7 +99,54 @@ def _mtp_weights(model: PreTrainedModel) -> tuple[dict[str, str], list[str]]:
             )
         return False
 
-    return {name: shard for name, shard in weights.items() if is_mtp(name)}, patterns
+    mtp_weights = {name: info for name, info in weights.items() if is_mtp(name)}
+    if os.path.isdir(source):
+        headers = {
+            shard: get_safetensors_header(shard)
+            for shard in {shard for shard, _ in mtp_weights.values()}
+        }
+        mtp_weights = {
+            name: (shard, headers[shard][name]["dtype"])
+            for name, (shard, _) in mtp_weights.items()
+        }
+    return mtp_weights, patterns
+
+
+def preflight_mtp_copy(
+    model: PreTrainedModel,
+) -> tuple[dict[str, tuple[str, str | None]], list[str]] | None:
+    text_config = model.config.get_text_config()
+    if not any(
+        getattr(text_config, name, 0)
+        for name in (
+            "num_mtp_layers",
+            "mtp_num_hidden_layers",
+            "num_nextn_predict_layers",
+        )
+    ):
+        return None
+
+    weights, patterns = _mtp_weights(model)
+    qparams = set(QuantizationMetadata.all_qparam_names()) | {
+        "weight_packed",
+        "weight_scale_inv",
+    }
+    quantized = any(
+        name.rpartition(".")[-1] in qparams
+        or (dtype is not None and dtype.startswith("F8"))
+        or (
+            name.endswith(".weight")
+            and dtype in ("I8", "U8")
+            and f"{name.removesuffix('.weight')}.scale" in weights
+        )
+        for name, (_, dtype) in weights.items()
+    )
+    if quantized:
+        raise ValueError(
+            "Cannot copy source-quantized MTP weights without their serving "
+            f"scheme. Convert them first; see {FALLBACK_EXAMPLE}."
+        )
+    return weights, patterns
 
 
 def load_mtp_model(model: PreTrainedModel) -> None:
@@ -159,20 +213,14 @@ def save_mtp_tensors(
     destination: str,
     loaded_mtp: torch.nn.Module | None = None,
     save_compressed: bool = True,
+    source_mtp: tuple[dict[str, tuple[str, str | None]], list[str]] | None = None,
 ) -> None:
     """Save quantized MTP, or copy untouched MTP tensors from the checkpoint."""
     if loaded_mtp is None:
-        text_config = model.config.get_text_config()
-        if not any(
-            getattr(text_config, name, 0)
-            for name in (
-                "num_mtp_layers",
-                "mtp_num_hidden_layers",
-                "num_nextn_predict_layers",
-            )
-        ):
+        source_mtp = source_mtp if source_mtp is not None else preflight_mtp_copy(model)
+        if source_mtp is None:
             return
-        weights, patterns = _mtp_weights(model)
+        weights, patterns = source_mtp
         if not weights:
             message = (
                 "Model config indicates MTP, but no MTP checkpoint weights were found"
@@ -192,42 +240,28 @@ def save_mtp_tensors(
             )
         logger.warning(message)
         by_shard = defaultdict(list)
-        for name, shard in weights.items():
+        for name, (shard, _) in weights.items():
             by_shard[shard].append(name)
         tensors = {}
         for shard, names in by_shard.items():
             path = (
                 shard
                 if os.path.isdir(model.name_or_path)
-                else hf_hub_download(model.name_or_path, shard)
+                else hf_hub_download(
+                    model.name_or_path,
+                    shard,
+                    revision=getattr(model.config, "_commit_hash", None),
+                )
             )
             with safe_open(path, framework="pt") as handle:
                 tensors.update({name: handle.get_tensor(name) for name in names})
-        qparams = set(QuantizationMetadata.all_qparam_names()) | {
-            "weight_packed",
-            "weight_scale_inv",
-        }
-        source_quantized = any(
-            name.rpartition(".")[-1] in qparams
-            or (tensor.is_floating_point() and tensor.element_size() == 1)
-            for name, tensor in tensors.items()
-        )
-        if source_quantized:
-            raise ValueError(
-                "Cannot copy source-quantized MTP weights without their serving "
-                f"scheme. Convert them first; see {FALLBACK_EXAMPLE}."
-            )
     else:
         from transformers.core_model_loading import revert_weight_conversion
 
         patterns = _mtp_patterns(model)
         qparams = set(QuantizationMetadata.all_qparam_names()) | {"weight_packed"}
         state = {
-            name: (
-                tensor.detach().to(model.dtype).cpu().contiguous()
-                if not save_compressed and tensor.is_floating_point()
-                else tensor.detach().cpu().contiguous()
-            )
+            name: tensor.detach().cpu().contiguous()
             for name, tensor in loaded_mtp.state_dict().items()
             if name.startswith(("layers.", "shared_post_norm."))
             and (save_compressed or name.rpartition(".")[-1] not in qparams)
@@ -286,12 +320,11 @@ def save_mtp_tensors(
     else:
         for group in quant["config_groups"].values():
             if targets_mtp(set(group["targets"])):
-                backbone_targets = [
-                    target for target in group["targets"] if "mtp" not in target.lower()
-                ]
-                group["targets"] = backbone_targets + [
-                    f"re:^{pattern}" for pattern in patterns
-                ]
+                group["targets"] = list(
+                    dict.fromkeys(
+                        [*group["targets"], *(f"re:^{pattern}" for pattern in patterns)]
+                    )
+                )
         ignores = [name for name in ignores if not name.startswith("mtp.")]
         compressed = {
             name.rpartition(".")[0]
