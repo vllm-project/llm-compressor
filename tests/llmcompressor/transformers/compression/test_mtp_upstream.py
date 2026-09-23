@@ -81,7 +81,11 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
         },
         ignore=["lm_head"],
     )
-    oneshot(model=model, recipe=recipe)
+    with patch(
+        "llmcompressor.transformers.compression.mtp._mtp_weights",
+        side_effect=AssertionError("load must not rescan checkpoint metadata"),
+    ):
+        oneshot(model=model, recipe=recipe)
     destination = tmp_path / "destination"
     model.save_pretrained(destination)
 
@@ -172,6 +176,13 @@ def test_non_mtp_config_does_not_require_layer_count(tmp_path, patterns):
 def test_unsupported_mtp_target_points_to_fallback(tmp_path):
     model = _source_model(tmp_path)
     model._keys_to_ignore_on_load_unexpected = []
+    recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
+    with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
+        oneshot(model=model, recipe=recipe)
+
+
+def test_missing_mtp_checkpoint_weights_point_to_fallback(tmp_path):
+    model = _source_model(tmp_path, with_mtp=False)
     recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
     with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
         oneshot(model=model, recipe=recipe)
