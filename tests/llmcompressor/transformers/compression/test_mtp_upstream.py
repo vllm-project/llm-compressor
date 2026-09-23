@@ -142,6 +142,7 @@ def test_dense_save_drops_mtp_qparams(tmp_path):
     name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
     assert name in weights
     assert name.replace(".weight", ".weight_scale") not in weights
+    assert load_file(destination / "model_mtp.safetensors")[name].dtype == model.dtype
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
     assert name.removesuffix(".weight") in quant["ignore"]
@@ -221,6 +222,18 @@ def test_missing_mtp_weights_point_to_fallback(tmp_path):
         side_effect=RuntimeError("device failure"),
     ):
         with pytest.raises(RuntimeError, match="device failure"):
+            load_mtp_model(model)
+
+
+@pytest.mark.parametrize(
+    "error", [AttributeError("bad attribute"), ValueError("invalid config")]
+)
+def test_unexpected_mtp_load_error_is_not_reframed(tmp_path, error):
+    model = _source_model(tmp_path)
+    with patch(
+        "transformers.modeling_layers.MtpModel.from_pretrained", side_effect=error
+    ):
+        with pytest.raises(type(error), match=str(error)):
             load_mtp_model(model)
 
 

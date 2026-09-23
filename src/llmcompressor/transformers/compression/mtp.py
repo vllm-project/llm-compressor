@@ -36,7 +36,7 @@ def targets_mtp(targets: set[str]) -> bool:
 def _mtp_patterns(model: PreTrainedModel) -> list[str]:
     """Use the same checkpoint patterns and layer-count filter as MtpModel."""
     num_layers = getattr(model.config.get_text_config(), "num_hidden_layers", None)
-    patterns = model._keys_to_ignore_on_load_unexpected or []
+    patterns = getattr(model, "_keys_to_ignore_on_load_unexpected", None) or []
     return [
         pattern
         for pattern in patterns
@@ -109,6 +109,15 @@ def load_mtp_model(model: PreTrainedModel) -> None:
         logger.warning(message)
         raise ValueError(message) from error
 
+    if not _mtp_patterns(model):
+        message = (
+            "Transformers' MtpModel has no registered MTP checkpoint patterns "
+            f"for {type(model).__name__}. For unsupported FP8 layouts, see "
+            f"{FALLBACK_EXAMPLE}."
+        )
+        logger.warning(message)
+        raise ValueError(message)
+
     from transformers.monkey_patching import (
         clear_patch_mapping,
         register_patch_mapping,
@@ -124,10 +133,8 @@ def load_mtp_model(model: PreTrainedModel) -> None:
     try:
         try:
             model.mtp = MtpModel.from_pretrained(model)
-        except (AttributeError, ValueError, RuntimeError) as error:
-            if isinstance(error, RuntimeError) and "weights are missing" not in str(
-                error
-            ):
+        except RuntimeError as error:
+            if "weights are missing" not in str(error):
                 raise
             message = (
                 "Transformers' MtpModel could not load this checkpoint's MTP "
@@ -226,7 +233,7 @@ def save_mtp_tensors(
         qparams = set(QuantizationMetadata.all_qparam_names()) | {"weight_packed"}
         state = {
             name: (
-                tensor.detach().to(torch.bfloat16).cpu().contiguous()
+                tensor.detach().to(model.dtype).cpu().contiguous()
                 if not save_compressed and tensor.is_floating_point()
                 else tensor.detach().cpu().contiguous()
             )
