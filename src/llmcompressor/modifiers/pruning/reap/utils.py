@@ -20,6 +20,7 @@ from loguru import logger
 from torch import distributed as dist
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
+from llmcompressor.modeling.moe.gpt_oss import GptOssLinearExperts
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
 
@@ -165,6 +166,11 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
             if isinstance(experts, Llama4LinearExperts):
                 logger.warning(
                     f"Skipping unsupported Llama4LinearExperts layer: {name}"
+                )
+                continue
+            if isinstance(experts, GptOssLinearExperts):
+                logger.warning(
+                    f"Skipping unsupported GptOssLinearExperts layer: {name}"
                 )
                 continue
             moe_layer_names.append(name)
