@@ -13,7 +13,6 @@ from compressed_tensors.utils.safetensors_load import (
 )
 from loguru import logger
 
-from .helpers import invert_mapping
 from .microscale import get_fused_names, has_microscale_scheme
 
 __all__ = ["validate_config", "validate_safetensors_index"]
@@ -87,13 +86,11 @@ def validate_safetensors_index(model_files: dict[str, str], config: Quantization
         with open(index_file_path, "r") as file:
             weights_map: dict[str, str] = json.load(file)["weight_map"]
 
-        file_map = invert_mapping(weights_map)
-        for file in sorted(file_map):
-            tensor_names = file_map[file]
-            _fused_sets, unmatched_sets = get_fused_names(tensor_names)
-            if len(unmatched_sets) > 0:
+        for fused_group in get_fused_names(weights_map.keys()):
+            files = {weights_map[name] for name in fused_group.values()}
+            if len(files) > 1:
                 logger.debug(
-                    f"{file} has fused weights split across shards: "
-                    f"{json.dumps(unmatched_sets, indent=4)}\n"
-                    "These will be resolved via precomputed inverse_weight_map."
+                    f"Fused weights {list(fused_group.values())} are split across "
+                    f"shards {sorted(files)}. These will be resolved via "
+                    "precomputed inverse_weight_map."
                 )
