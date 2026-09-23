@@ -8,28 +8,20 @@ from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.utils import load_context
+from llmcompressor.modeling.patch.kimi_k3_patch import patch_kimi_k3_ignore
 
 # Small representative model with same MXFP4 quantization
-MODEL_ID = "moonshotai/Kimi-K3"
-# MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
+# MODEL_ID = "moonshotai/Kimi-K3"
+MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
 
 # Patch quantization config to
 # 1. Fix an incomplete ignore list provided by the base checkpoint
 # 2. Disable decompression (for later step)
-config = AutoConfig.from_pretrained(MODEL_ID, trust_remote_code=True)
-qconfig = CompressedTensorsConfig(
-    **config.quantization_config, dequantize=False, use_optimized_inference=False
-)
-qconfig.quantization_config.ignore += [
-    "re:.*mlp_res_proj.*",
-    "re:.*self_attention_res_proj.*",
-    "re:.*routed_expert.*",
-    "re:.*output_attn_res_proj.*",
-]
+qconfig = CompressedTensorsConfig(dequantize=False, use_optimized_inference=False)
 
 # Load model with the modified quantization config and disk offloading
 init_dist()
-with load_context(KimiK3ForConditionalGeneration):
+with load_context(KimiK3ForConditionalGeneration), patch_kimi_k3_ignore():
     model = KimiK3ForConditionalGeneration.from_pretrained(
         MODEL_ID,
         quantization_config=qconfig,
@@ -41,40 +33,43 @@ with load_context(KimiK3ForConditionalGeneration):
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 recipe = [
-    REAPPruningModifier(sparsity=0.10),
-    QuantizationModifier(
-        targets="re:.*block_sparse_moe.*",
-        scheme="NVFP4",
-        ignore=[
-            "lm_head",
-            r"re:.*block_sparse_moe\.gate",
-            "re:.*vision_tower.*",
-            "re:.*mlp_res_proj$",
-            "re:.*routed_expert.*",
-        ],
-        weight_observer="nvfp4_expanded_mse",
-    ),
+    REAPPruningModifier(sparsity=0.30),
+    #QuantizationModifier(
+    #    targets="re:.*block_sparse_moe.*",
+    #    scheme="NVFP4",
+    #    ignore=[
+    #        "lm_head",
+    #        r"re:.*block_sparse_moe\.gate",
+    #        "re:.*vision_tower.*",
+    #        "re:.*mlp_res_proj$",
+    #        "re:.*routed_expert.*",
+    #    ],
+    #    weight_observer="nvfp4_expanded_mse",
+    #),
 ]
 
 oneshot(
     model=model,
     tokenizer=processor.tokenizer,
     dataset="perfectblend",
-    splits=get_rank_partition("train", 1024),
+    splits=get_rank_partition("train", int(1024 * 2)),
     recipe=recipe,
     max_seq_length=2048,
     trust_remote_code_model=True,
     pipeline="sequential",
-    batch_size=16,
-    layerwise_decompression=True,
-    layerwise_compression=True,
+    batch_size=64,
+    # The model is loaded pre-compressed (dequantize=False), so each subgraph must be
+    # decompressed before calibration (otherwise the quantized forward hits a missing
+    # `.weight`) and re-compressed afterwards to keep peak memory low.
+    layerwise_decompression=False,
+    layerwise_compression=False,
     shuffle_calibration_samples=False,
     # sequential_targets=["KimiMLAAttention", "KimiDeltaAttention", "ExpertMLPWithGate"],
     # sequential_targets_per_subgraph=300,
 )
 
 SAVE_DIR = (
-    "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4-REAP10-new"
+    "/data/kylesayrs/hub/" + MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4-REAP10"
 )
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
