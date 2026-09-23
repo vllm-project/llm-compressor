@@ -28,12 +28,19 @@ except ImportError as error:
     raise ImportError("This example requires compressed-tensors PR #902") from error
 
 with TemporaryDirectory(prefix="mtp-fp8-", dir=os.environ.get("MTP_TMPDIR")) as ct_dir:
+    fp8_converter = FP8Converter.from_pretrained(MODEL_ID)
     convert_checkpoint(
         model_stub=MODEL_ID,
         save_directory=ct_dir,
-        converter=FP8Converter.from_pretrained(MODEL_ID),
+        converter=fp8_converter,
         max_workers=8,
     )
+    # The output checkpoint adds language_model to the source exclusion paths.
+    ignore = [
+        pattern.replace(r"model\.layers\.", r"model\.language_model\.layers\.")
+        for pattern in fp8_converter.ignore
+    ]
+    ignore.append(r"re:.*_conv1d$")
     model_free_ptq(
         model_stub=ct_dir,
         save_directory=SAVE_DIR,
@@ -41,6 +48,6 @@ with TemporaryDirectory(prefix="mtp-fp8-", dir=os.environ.get("MTP_TMPDIR")) as 
             "FP8_DYNAMIC", targets=[r"re:^model\.language_model\.layers\."]
         ),
         converter=CompressedTensorsDequantizer(ct_dir),
-        ignore=[r"re:.*_conv1d$"],
+        ignore=ignore,
         max_workers=8,
     )

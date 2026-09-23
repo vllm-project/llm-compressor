@@ -103,7 +103,7 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
     assert any(
-        group["targets"] == [r"re:^model\.mtp\..*"]
+        r"re:^model\.mtp\..*" in group["targets"]
         for group in quant["config_groups"].values()
     )
     assert mtp_weight.removesuffix(".weight") not in quant["ignore"]
@@ -113,14 +113,17 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
     assert len(MtpModel.from_pretrained(reloaded).layers) == 1
 
 
-def test_mixed_target_group_keeps_backbone_target(tmp_path):
+@pytest.mark.parametrize(
+    "targets",
+    [
+        ["Linear", r"re:^mtp\.layers\."],
+        [r"re:^(?:model\.layers|mtp\.layers)\."],
+    ],
+)
+def test_mixed_target_group_keeps_backbone_target(tmp_path, targets):
     model = _source_model(tmp_path)
     recipe = QuantizationModifier(
-        config_groups={
-            "mixed": preset_name_to_scheme(
-                "FP8_DYNAMIC", ["Linear", r"re:^mtp\.layers\."]
-            )
-        },
+        config_groups={"mixed": preset_name_to_scheme("FP8_DYNAMIC", targets)},
         ignore=["lm_head"],
     )
     oneshot(model=model, recipe=recipe)
@@ -129,8 +132,12 @@ def test_mixed_target_group_keeps_backbone_target(tmp_path):
 
     with open(destination / "config.json", encoding="utf-8") as handle:
         groups = json.load(handle)["quantization_config"]["config_groups"]
-    targets = next(iter(groups.values()))["targets"]
-    assert targets == ["Linear", r"re:^model\.mtp\..*"]
+    saved_targets = next(iter(groups.values()))["targets"]
+    assert all(target in saved_targets for target in targets)
+    assert r"re:^model\.mtp\..*" in saved_targets
+    weights = get_weight_mappings(destination)
+    assert "model.layers.0.mlp.up_proj.weight_scale" in weights
+    assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight_scale" in weights
 
 
 def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
@@ -156,6 +163,41 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     assert r"re:^model\.mtp\..*" in quant["ignore"]
 
 
+def test_mtp_copy_uses_backbone_hub_revision(tmp_path):
+    model = _source_model(tmp_path)
+    source = tmp_path / "source" / "model.safetensors"
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+    model.name_or_path = "example/model"
+    model.config._commit_hash = "pinned-commit"
+    metadata = SimpleNamespace(
+        files_metadata={
+            "model.safetensors": SimpleNamespace(
+                tensors={
+                    name: SimpleNamespace(dtype="F32") for name in load_file(source)
+                }
+            )
+        }
+    )
+
+    with (
+        patch(
+            "llmcompressor.transformers.compression.mtp.HfApi.get_safetensors_metadata",
+            return_value=metadata,
+        ) as lookup,
+        patch(
+            "llmcompressor.transformers.compression.mtp.hf_hub_download",
+            return_value=str(source),
+        ) as download,
+    ):
+        save_mtp_tensors(model, str(destination))
+
+    lookup.assert_called_once_with("example/model", revision="pinned-commit")
+    download.assert_called_once_with(
+        "example/model", "model.safetensors", revision="pinned-commit"
+    )
+
+
 def test_unquantized_mtp_copy_from_quantized_backbone_config(tmp_path):
     model = _source_model(tmp_path)
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
@@ -168,7 +210,7 @@ def test_unquantized_mtp_copy_from_quantized_backbone_config(tmp_path):
     )
 
 
-@pytest.mark.parametrize("source_format", ["scale", "float8"])
+@pytest.mark.parametrize("source_format", ["scale", "float8", "packed_fp4"])
 def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
     model = _source_model(tmp_path)
     source = tmp_path / "source" / "model.safetensors"
@@ -176,19 +218,28 @@ def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
     name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
     if source_format == "scale":
         weights[f"{name}_scale"] = torch.ones(1)
-    else:
+    elif source_format == "float8":
         weights[name] = weights[name].to(torch.float8_e4m3fn)
+    else:
+        weights[name] = torch.zeros_like(weights[name], dtype=torch.int8)
+        weights[f"{name.removesuffix('.weight')}.scale"] = torch.ones(1)
     save_file(weights, source)
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
 
+    destination = tmp_path / "destination"
     with pytest.raises(ValueError, match="Cannot copy source-quantized MTP weights"):
-        model.save_pretrained(tmp_path / "destination")
+        model.save_pretrained(destination)
+    assert not destination.exists()
 
 
 def test_dense_save_drops_mtp_qparams(tmp_path):
-    model = _source_model(tmp_path)
+    model = _source_model(tmp_path).to(torch.bfloat16)
     recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
     oneshot(model=model, recipe=recipe)
+    model.mtp.to(torch.bfloat16)
+    model.mtp.layers[0].register_buffer(
+        "e_score_correction_bias", torch.ones(2, dtype=torch.float32)
+    )
     destination = tmp_path / "destination"
     model.save_pretrained(destination, save_compressed=False)
 
@@ -196,7 +247,9 @@ def test_dense_save_drops_mtp_qparams(tmp_path):
     name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
     assert name in weights
     assert name.replace(".weight", ".weight_scale") not in weights
-    assert load_file(destination / "model_mtp.safetensors")[name].dtype == model.dtype
+    tensors = load_file(destination / "model_mtp.safetensors")
+    assert tensors[name].dtype == model.dtype
+    assert tensors["model.mtp.layers.0.e_score_correction_bias"].dtype == torch.float32
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
     assert name.removesuffix(".weight") in quant["ignore"]

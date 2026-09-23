@@ -21,7 +21,10 @@ from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
-from llmcompressor.transformers.compression.mtp import save_mtp_tensors
+from llmcompressor.transformers.compression.mtp import (
+    preflight_mtp_copy,
+    save_mtp_tensors,
+)
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
@@ -130,6 +133,11 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
+            source_mtp = (
+                preflight_mtp_copy(model)
+                if is_source_process() and model._modules.get("mtp") is None
+                else None
+            )
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
 
@@ -177,7 +185,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                             copy_python_files_from_model_cache(model, save_dir)
 
                             save_mtp_tensors(
-                                model, save_dir, loaded_mtp, save_compressed
+                                model, save_dir, loaded_mtp, save_compressed, source_mtp
                             )
                 finally:
                     from_accelerate(model)
