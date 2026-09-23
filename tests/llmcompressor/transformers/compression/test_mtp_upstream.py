@@ -15,6 +15,11 @@ from transformers import (
     InklingTextConfig,
     PretrainedConfig,
 )
+from transformers.monkey_patching import (
+    get_patch_mapping,
+    register_patch_mapping,
+    unregister_patch_mapping,
+)
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
@@ -108,6 +113,26 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
     assert len(MtpModel.from_pretrained(reloaded).layers) == 1
 
 
+def test_mixed_target_group_keeps_backbone_target(tmp_path):
+    model = _source_model(tmp_path)
+    recipe = QuantizationModifier(
+        config_groups={
+            "mixed": preset_name_to_scheme(
+                "FP8_DYNAMIC", ["Linear", r"re:^mtp\.layers\."]
+            )
+        },
+        ignore=["lm_head"],
+    )
+    oneshot(model=model, recipe=recipe)
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+
+    with open(destination / "config.json", encoding="utf-8") as handle:
+        groups = json.load(handle)["quantization_config"]["config_groups"]
+    targets = next(iter(groups.values()))["targets"]
+    assert targets == ["Linear", r"re:^model\.mtp\..*"]
+
+
 def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     model = _source_model(tmp_path)
     recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
@@ -129,6 +154,35 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
     assert r"re:^model\.mtp\..*" in quant["ignore"]
+
+
+def test_unquantized_mtp_copy_from_quantized_backbone_config(tmp_path):
+    model = _source_model(tmp_path)
+    oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
+    model.config.quantization_config = {"quant_method": "fp8"}
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+
+    assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight" in (
+        get_weight_mappings(destination)
+    )
+
+
+@pytest.mark.parametrize("source_format", ["scale", "float8"])
+def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
+    model = _source_model(tmp_path)
+    source = tmp_path / "source" / "model.safetensors"
+    weights = load_file(source)
+    name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
+    if source_format == "scale":
+        weights[f"{name}_scale"] = torch.ones(1)
+    else:
+        weights[name] = weights[name].to(torch.float8_e4m3fn)
+    save_file(weights, source)
+    oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
+
+    with pytest.raises(ValueError, match="Cannot copy source-quantized MTP weights"):
+        model.save_pretrained(tmp_path / "destination")
 
 
 def test_dense_save_drops_mtp_qparams(tmp_path):
@@ -223,6 +277,50 @@ def test_missing_mtp_weights_point_to_fallback(tmp_path):
     ):
         with pytest.raises(RuntimeError, match="device failure"):
             load_mtp_model(model)
+
+
+def test_mtp_loader_accepts_string_execution_device(tmp_path):
+    model = _source_model(tmp_path)
+    with (
+        patch(
+            "llmcompressor.transformers.compression.mtp.get_execution_device",
+            return_value="cuda",
+        ),
+        patch(
+            "llmcompressor.transformers.compression.mtp.set_onload_device"
+        ) as set_device,
+    ):
+        load_mtp_model(model)
+
+    assert set_device.call_args.args[1] == torch.device("cuda")
+
+
+def test_mtp_load_preserves_unrelated_patch_mapping(tmp_path):
+    model = _source_model(tmp_path)
+    experts_cls = type("MtpTestExperts", (torch.nn.Module,), {})
+    register_patch_mapping({"UnrelatedMtpTestClass": torch.nn.Linear})
+    try:
+        with (
+            patch(
+                "llmcompressor.transformers.compression.mtp.has_linearize_load_mappings",
+                return_value=True,
+            ),
+            patch(
+                "llmcompressor.transformers.compression.mtp.get_linearize_load_mappings",
+                return_value=(experts_cls, None, None),
+            ),
+            patch(
+                "llmcompressor.transformers.compression.mtp.LinearExperts2D.get_linear_experts_cls",
+                return_value=experts_cls,
+            ),
+            patch("transformers.modeling_layers.MtpModel.from_pretrained") as load,
+        ):
+            load.return_value.use_shared_post_norm = False
+            load_mtp_model(model)
+        assert get_patch_mapping()["UnrelatedMtpTestClass"] is torch.nn.Linear
+        assert experts_cls.__name__ not in get_patch_mapping()
+    finally:
+        unregister_patch_mapping(["UnrelatedMtpTestClass"])
 
 
 @pytest.mark.parametrize(

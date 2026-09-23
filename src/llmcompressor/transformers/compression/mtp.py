@@ -119,8 +119,8 @@ def load_mtp_model(model: PreTrainedModel) -> None:
         raise ValueError(message)
 
     from transformers.monkey_patching import (
-        clear_patch_mapping,
         register_patch_mapping,
+        unregister_patch_mapping,
     )
 
     model_type = model.config.model_type
@@ -145,9 +145,9 @@ def load_mtp_model(model: PreTrainedModel) -> None:
             raise ValueError(message) from error
     finally:
         if patch_experts:
-            clear_patch_mapping()
+            unregister_patch_mapping([experts_cls.__name__])
 
-    device = get_execution_device(model.get_input_embeddings())
+    device = torch.device(get_execution_device(model.get_input_embeddings()))
     if device.type != "cpu":
         set_onload_device(model.mtp.layers, device)
         if model.mtp.use_shared_post_norm:
@@ -203,28 +203,19 @@ def save_mtp_tensors(
             )
             with safe_open(path, framework="pt") as handle:
                 tensors.update({name: handle.get_tensor(name) for name in names})
-        quant_config = (
-            getattr(model.config, "quantization_config", None)
-            or getattr(text_config, "quantization_config", None)
-            or {}
-        )
-        source_method = (
-            quant_config.get("quant_method") if isinstance(quant_config, dict) else None
-        )
-        source_quantized = source_method is not None or any(
-            name.endswith((".weight_packed", ".weight_scale", ".weight_scale_inv"))
-            for name in tensors
+        qparams = set(QuantizationMetadata.all_qparam_names()) | {
+            "weight_packed",
+            "weight_scale_inv",
+        }
+        source_quantized = any(
+            name.rpartition(".")[-1] in qparams
+            or (tensor.is_floating_point() and tensor.element_size() == 1)
+            for name, tensor in tensors.items()
         )
         if source_quantized:
-            if not save_compressed:
-                raise ValueError(
-                    "Dense MTP export cannot copy source-quantized weights. "
-                    f"Convert them first; see {FALLBACK_EXAMPLE}."
-                )
-            logger.warning(
-                "Copied MTP weights may retain source quantization, but are "
-                "excluded from the new quantization config. Verify serving "
-                f"compatibility or convert them; see {FALLBACK_EXAMPLE}."
+            raise ValueError(
+                "Cannot copy source-quantized MTP weights without their serving "
+                f"scheme. Convert them first; see {FALLBACK_EXAMPLE}."
             )
     else:
         from transformers.core_model_loading import revert_weight_conversion
@@ -295,7 +286,12 @@ def save_mtp_tensors(
     else:
         for group in quant["config_groups"].values():
             if targets_mtp(set(group["targets"])):
-                group["targets"] = [f"re:^{pattern}" for pattern in patterns]
+                backbone_targets = [
+                    target for target in group["targets"] if "mtp" not in target.lower()
+                ]
+                group["targets"] = backbone_targets + [
+                    f"re:^{pattern}" for pattern in patterns
+                ]
         ignores = [name for name in ignores if not name.startswith("mtp.")]
         compressed = {
             name.rpartition(".")[0]
