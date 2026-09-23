@@ -18,7 +18,7 @@ from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
-from .offloading import offload_modules, onload_modules
+from .offloading import offload_modules, onload_modules, stage_modules
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -134,6 +134,9 @@ class SequentialPipeline(CalibrationPipeline):
 
             sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
             session.state.sequential_prefetch = sequential_prefetch
+            sequential_offload_pinned_memory = getattr(
+                dataset_args, "sequential_offload_pinned_memory", False
+            )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 subgraph_modules = subgraph.submodule_dict(model)
@@ -149,6 +152,8 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = {}
                 try:
+                    if sequential_offload_pinned_memory and onload_device.type != "cpu":
+                        stage_modules(subgraph_modules, pin_memory=True)
                     offload_kwargs = onload_modules(subgraph_modules)
 
                     # do a preliminary pass to trigger modifier hooks

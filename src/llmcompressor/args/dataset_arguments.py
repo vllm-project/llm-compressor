@@ -299,5 +299,14 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
 
+    sequential_offload_pinned_memory: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, stage offloaded module "
+            "tensors in pinned CPU memory before onloading them to the execution "
+            "device. Default False."
+        },
+    )
+
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None

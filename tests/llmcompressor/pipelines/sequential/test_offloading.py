@@ -88,3 +88,71 @@ def test_individual_expert_sequential_target_can_be_onloaded(monkeypatch):
         ("onload", target),
         ("offload", target),
     ]
+
+
+class _StagingCache(_FakeOffloadCache):
+    def __init__(self, tensor):
+        super().__init__()
+        self.offloaded_values = {"weight": tensor}
+        self.onload_device = "cpu"
+        self.is_staged = False
+        self.stage_calls = []
+
+    def stage(self, tensor, pin_memory=False):
+        self.stage_calls.append((tensor.clone(), pin_memory))
+        self.is_staged = True
+        return tensor + (1 if pin_memory else 0)
+
+
+def test_stage_modules_are_consumed_by_onload(monkeypatch):
+    root = torch.nn.Module()
+    root._parameters = _StagingCache(torch.tensor([2.0]))
+    root._buffers = _StagingCache(torch.tensor([3.0]))
+    stage_calls = []
+
+    def fake_get_cache_init_kwargs(module):
+        return {"onload_device": "cpu", "offload_device": "cpu"}
+
+    def fake_remove_module_offload(module, onload_tensors=False):
+        assert onload_tensors is True
+        module._parameters = {
+            name: tensor + 10
+            for name, tensor in module._parameters.offloaded_values.items()
+        }
+        module._buffers = {
+            name: tensor + 20
+            for name, tensor in module._buffers.offloaded_values.items()
+        }
+
+    def fake_stage_module_offload(module, pin_memory=False):
+        stage_calls.append(pin_memory)
+        module._parameters.offloaded_values = {
+            name: module._parameters.stage(tensor, pin_memory=pin_memory)
+            for name, tensor in module._parameters.offloaded_values.items()
+        }
+        module._buffers.offloaded_values = {
+            name: module._buffers.stage(tensor, pin_memory=pin_memory)
+            for name, tensor in module._buffers.offloaded_values.items()
+        }
+        module._parameters.is_staged = True
+        module._buffers.is_staged = True
+
+    monkeypatch.setattr(offloading, "OffloadCache", _FakeOffloadCache)
+    monkeypatch.setattr(offloading, "get_cache_init_kwargs", fake_get_cache_init_kwargs)
+    monkeypatch.setattr(offloading, "remove_module_offload", fake_remove_module_offload)
+    monkeypatch.setattr(offloading, "stage_module_offload", fake_stage_module_offload)
+
+    modules = {"root": root}
+    result = offloading.stage_modules(modules, pin_memory=True)
+    assert result is None
+    offloading.onload_modules(modules)
+
+    assert root._parameters["weight"].item() == 12.0
+    assert root._buffers["weight"].item() == 23.0
+    assert stage_calls == [True]
+    assert len(root._parameters.stage_calls) == 1
+    assert len(root._buffers.stage_calls) == 1
+    assert torch.equal(root._parameters.stage_calls[0][0], torch.tensor([2.0]))
+    assert root._parameters.stage_calls[0][1] is True
+    assert torch.equal(root._buffers.stage_calls[0][0], torch.tensor([3.0]))
+    assert root._buffers.stage_calls[0][1] is True
