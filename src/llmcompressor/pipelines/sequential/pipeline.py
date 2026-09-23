@@ -147,43 +147,47 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = onload_modules(subgraph_modules)
+                offload_kwargs = {}
+                try:
+                    offload_kwargs = onload_modules(subgraph_modules)
 
-                # do a preliminary pass to trigger modifier hooks
-                for batch_idx, inputs in _get_batches(
-                    activations,
-                    num_batches,
-                    subgraph.input_names,
-                    calib_desc,
-                    sequential_prefetch,
-                ):
-                    session.state.current_batch_idx = batch_idx
-                    outputs = subgraph.forward(model, **inputs)
+                    # do a preliminary pass to trigger modifier hooks
+                    for batch_idx, inputs in _get_batches(
+                        activations,
+                        num_batches,
+                        subgraph.input_names,
+                        calib_desc,
+                        sequential_prefetch,
+                    ):
+                        session.state.current_batch_idx = batch_idx
+                        outputs = subgraph.forward(model, **inputs)
 
-                    if not dataset_args.propagate_error:
-                        if subgraph_index < num_subgraphs - 1:
-                            activations.update(batch_idx, outputs)
-                            activations.delete(batch_idx, subgraph.consumed_names)
-
-                LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
-
-                if dataset_args.propagate_error:
-                    # this pass does not trigger modifier hooks
-                    # and is only used for capturing outputs of compressed modules
-                    with HooksMixin.disable_hooks():
-                        for batch_idx, inputs in _get_batches(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            prop_desc,
-                            sequential_prefetch,
-                        ):
-                            output = subgraph.forward(model, **inputs)
+                        if not dataset_args.propagate_error:
                             if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, output)
+                                activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                offload_modules(subgraph_modules, offload_kwargs)
+                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+
+                    if dataset_args.propagate_error:
+                        # this pass does not trigger modifier hooks
+                        # and is only used for capturing outputs of compressed modules
+                        with HooksMixin.disable_hooks():
+                            for batch_idx, inputs in _get_batches(
+                                activations,
+                                num_batches,
+                                subgraph.input_names,
+                                prop_desc,
+                                sequential_prefetch,
+                            ):
+                                output = subgraph.forward(model, **inputs)
+                                if subgraph_index < num_subgraphs - 1:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
+                finally:
+                    offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################
