@@ -11,7 +11,7 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -21,6 +21,7 @@ from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.transformers.compression.mtp import save_mtp_tensors
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
@@ -151,36 +152,39 @@ def modify_save_pretrained(model: PreTrainedModel):
             # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
-            # convert to accelerate offloaded for optimal saving with transformers
-            to_accelerate(model)
+            loaded_mtp = model._modules.pop("mtp", None)
+            try:
+                # convert to accelerate offloaded for optimal saving with transformers
+                to_accelerate(model)
+                try:
+                    with suspend_distributed_timeout():
+                        if is_source_process():
+                            # save model structure
+                            original_save_fn.__get__(model, model_class)(
+                                save_dir, **kwargs
+                            )
 
-            with suspend_distributed_timeout():
-                if is_source_process():
-                    # save model structure
-                    original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
+                            # resave the config with original structure for vLLM
+                            resave_config(model.config, save_dir)
 
-                    # resave the config with original structure for better vLLM compat
-                    resave_config(model.config, save_dir)
+                            # update config to reflect quantization
+                            compressor.update_config(save_dir)
 
-                    # update config to reflect quantization
-                    compressor.update_config(save_dir)
+                            # update existing recipe
+                            update_and_save_recipe(model.name_or_path, save_dir)
 
-                    # update existing recipe
-                    update_and_save_recipe(model.name_or_path, save_dir)
+                            # copy python files from cache dir to save_path if any
+                            copy_python_files_from_model_cache(model, save_dir)
 
-                    # copy python files from cache dir to save_path if any
-                    copy_python_files_from_model_cache(model, save_dir)
-
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
-
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+                            save_mtp_tensors(
+                                model, save_dir, loaded_mtp, save_compressed
+                            )
+                finally:
+                    from_accelerate(model)
+            finally:
+                if loaded_mtp is not None:
+                    model.mtp = loaded_mtp
+                    loaded_mtp.tie_with_main_model(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
