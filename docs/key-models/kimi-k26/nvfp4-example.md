@@ -50,7 +50,7 @@ Because the model is one trillion parameters, we leverage the `compressed_tensor
 through the model. The snippet below was run successfully on a single H100x80GB GPU and 500GB CPU RAM.
 
 ```python
-from compressed_tensors.offload import load_offloaded_model
+from llmcompressor.utils import load_context
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -59,7 +59,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 SAVE_DIR = "Kimi-K2.6-NVFP4"
 
 # Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB
-with load_offloaded_model():
+with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         DEQUANTIZED_SAVE_DIR,
         device_map="auto_offload",
