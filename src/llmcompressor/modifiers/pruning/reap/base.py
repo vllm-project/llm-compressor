@@ -61,6 +61,7 @@ class REAPPruningModifier(Modifier):
         saliency scores are written after calibration completes. The report is a
         ``list[list[float]]`` (one inner list of per-expert saliency scores per
         MoE layer, ordered by layer) serialized with ``pickle``.
+        Use ``tools/plot_reap_report.py`` to generate a saliency visualization.
     :param prune: whether to structurally prune the model. When ``False`` the
         model weights and config are never modified; saliency is still computed
         so that a ``report_path`` can be written. At least one of ``report_path``
