@@ -56,3 +56,7 @@ def offload_modules(
     for name, module in modules.items():
         if name in offload_kwargs:
             offload_module(module, **offload_kwargs[name])
+        else:
+            warnings.warn(f"No offload kwargs provided for module {name}. Using defaults.")
+            offload_kwargs = get_cache_init_kwargs(module)
+            offload_module(module)
