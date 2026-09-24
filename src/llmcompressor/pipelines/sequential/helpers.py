@@ -81,7 +81,7 @@ class Subgraph:
         return modules
 
     def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
-        """Return subgraph modules keyed by their qualified model names."""
+        """Return subgraph modules keyed by their fully qualified model names."""
         nodes = self.graph.find_nodes(op="call_module")
         module_dict: dict[str, Module] = {}
         seen = set()
