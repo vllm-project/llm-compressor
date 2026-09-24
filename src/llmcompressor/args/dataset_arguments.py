@@ -7,6 +7,7 @@ sources and processing pipelines. Supports various input formats including
 HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -62,9 +63,9 @@ class CustomDatasetArguments(DVCDatasetArguments):
         default=None,
         metadata={
             "help": (
-                "Typically a function which applies a chat template. Can take the form "
-                "of either a function to apply to the dataset or "
-                "a path to a function definition of the form /path/to/file.py:func"
+                "Deprecated. Preprocess and tokenize custom datasets before passing "
+                "them to oneshot(); see examples/custom_dataset_example.py. "
+                "This argument will be removed in a future release."
             )
         },
     )
@@ -91,6 +92,16 @@ class CustomDatasetArguments(DVCDatasetArguments):
             )
         },
     )
+
+    def __post_init__(self):
+        if self.preprocessing_func is not None:
+            warnings.warn(
+                "`preprocessing_func` is deprecated and will be removed in a future "
+                "release. Preprocess and tokenize the dataset before passing it to "
+                "oneshot(); see examples/custom_dataset_example.py.",
+                FutureWarning,
+                stacklevel=2,
+            )
 
 
 @dataclass
