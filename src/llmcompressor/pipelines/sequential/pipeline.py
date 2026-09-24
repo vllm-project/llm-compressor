@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING, Iterator
 import torch
 from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
     subgraph_stage_modules,
-    subgraph_offload_modules, 
-    subgraph_onload_modules
 )
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm

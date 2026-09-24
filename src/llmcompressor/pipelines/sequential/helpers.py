@@ -98,7 +98,6 @@ class Subgraph:
                 qualified_name = (
                     relative_name
                     if not module_name
-
                     else f"{module_name}.{relative_name}"
                 )
                 module_dict[qualified_name] = submodule
