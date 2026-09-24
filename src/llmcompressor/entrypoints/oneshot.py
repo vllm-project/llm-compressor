@@ -20,6 +20,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD,
     QUANTIZATION_METHOD_NAME,
 )
+from compressed_tensors.distributed import is_distributed
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -140,6 +141,14 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # Error if oneshot is called with `torchrun` but did not call `init_dist`
+        if "TORCHELASTIC_RUN_ID" in os.environ and not is_distributed():
+            raise ValueError(
+                "Detected torchrun environment, but no distributed process group was "
+                "found. Please call 'compressed_tensors.offload.init_dist()' "
+                "before calling oneshot"
+            )
+
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
         # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
