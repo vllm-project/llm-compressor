@@ -304,7 +304,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": "When using the sequential pipeline, stage offloaded module "
             "tensors in pinned CPU memory before onloading them to the execution "
-            "device. Default False."
+            "device. Only moves weights. Default False."
         },
     )
 
