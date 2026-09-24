@@ -1,39 +1,30 @@
 # requires: einops, fla-core, tiktoken
 from compressed_tensors.distributed import init_dist
-from transformers import AutoConfig, AutoProcessor, CompressedTensorsConfig
+from transformers import AutoModelForCausalLM, AutoProcessor, CompressedTensorsConfig
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.utils import load_context
 from llmcompressor.modeling.patch.kimi_k3_patch import patch_kimi_k3_ignore
 
 # Small representative model with same MXFP4 quantization
-MODEL_ID = "moonshotai/Kimi-K3"
-# MODEL_ID = "inference-optimization/Kimi-K3-0.40B-MXFP4"
-
-# Patch quantization config to
-# 1. Fix an incomplete ignore list provided by the base checkpoint
-# 2. Disable decompression (for later step)
-qconfig = CompressedTensorsConfig(dequantize=False, use_optimized_inference=False)
+MODEL_ID = "zai-org/GLM-5.3-Flash"
 
 # Load model with the modified quantization config and disk offloading
 init_dist()
-with load_context(KimiK3ForConditionalGeneration), patch_kimi_k3_ignore():
-    model = KimiK3ForConditionalGeneration.from_pretrained(
+with load_context():
+    model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        quantization_config=qconfig,
         device_map="auto_offload",
-        trust_remote_code=True,
         max_memory={},
         offload_folder="/data/kylesayrs/hub/offload_folder",
     )
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 recipe = [
-    REAPPruningModifier(sparsity=0.30, report_path="kimi_report.pkl", prune=False),
+    REAPPruningModifier(sparsity=0.30, report_path="glm53_flash_report.pkl", prune=False),
     #QuantizationModifier(
     #    targets="re:.*block_sparse_moe.*",
     #    scheme="NVFP4",
