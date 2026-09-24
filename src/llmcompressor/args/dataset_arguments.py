@@ -100,7 +100,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
                 "release. Preprocess and tokenize the dataset before passing it to "
                 "oneshot(); see examples/custom_dataset_example.py.",
                 FutureWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
 
 

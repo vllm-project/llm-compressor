@@ -13,10 +13,13 @@ from llmcompressor.args.dataset_arguments import (
 @pytest.mark.parametrize("arguments", [CustomDatasetArguments, DatasetArguments])
 @pytest.mark.parametrize("preprocessing_func", [lambda row: row, "prep.py:process"])
 def test_preprocessing_func_warns_without_changing_value(arguments, preprocessing_func):
-    with pytest.warns(FutureWarning, match="`preprocessing_func` is deprecated"):
+    with pytest.warns(
+        FutureWarning, match="`preprocessing_func` is deprecated"
+    ) as caught:
         dataset_args = arguments(preprocessing_func=preprocessing_func)
 
     assert dataset_args.preprocessing_func is preprocessing_func
+    assert caught[0].filename == __file__
 
 
 @pytest.mark.unit
