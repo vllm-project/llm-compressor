@@ -299,7 +299,7 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
 
-    sequential_offload_pinned_memory: bool = field(
+    stage_weights_in_pinned_memory: bool = field(
         default=False,
         metadata={
             "help": "When using the sequential pipeline, stage offloaded module "

@@ -3,6 +3,11 @@ from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import set_onload_device
+from compressed_tensors.offload.module import (
+    subgraph_stage_modules,
+    subgraph_offload_modules, 
+    subgraph_onload_modules
+)
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -17,8 +22,6 @@ from llmcompressor.pipelines.sequential.helpers import (
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
-
-from .offloading import offload_modules, onload_modules, stage_modules
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -134,8 +137,8 @@ class SequentialPipeline(CalibrationPipeline):
 
             sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
             session.state.sequential_prefetch = sequential_prefetch
-            sequential_offload_pinned_memory = getattr(
-                dataset_args, "sequential_offload_pinned_memory", False
+            stage_weights_in_pinned_memory = getattr(
+                dataset_args, "stage_weights_in_pinned_memory", False
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
@@ -150,12 +153,10 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = {}
-                if sequential_offload_pinned_memory and onload_device.type != "cpu":
-                    stage_modules(
-                        subgraph_modules, pin_memory=sequential_offload_pinned_memory
-                    )
-                offload_kwargs = onload_modules(subgraph_modules)
+                subgraph_stage_modules(
+                    subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                )
+                offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -190,7 +191,7 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
-                offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################
