@@ -6,8 +6,8 @@
 /src/llmcompressor/core/ @kylesayrs @dsikka
 /src/llmcompressor/core/events/ @kylesayrs @dsikka
 /src/llmcompressor/datasets/ @HDCharles
-/src/llmcompressor/entrypoints/ @kylesayrs @dsikka
-/src/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka
+/src/llmcompressor/entrypoints/ @kylesayrs @dsikka @HDCharles
+/src/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka @HDCharles
 /src/llmcompressor/modeling/ @dsikka @kylesayrs @yiliu30 @Roderick-Wu
 /src/llmcompressor/modeling/deepseekv32/ @dsikka @kylesayrs @Roderick-Wu
 /src/llmcompressor/modeling/moe/ @dsikka @kylesayrs @Roderick-Wu
@@ -65,8 +65,8 @@
 /tests/llmcompressor/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 /tests/llmcompressor/core/ @kylesayrs @dsikka
 /tests/llmcompressor/datasets/ @HDCharles @kylesayrs
-/tests/llmcompressor/entrypoints/ @kylesayrs @dsikka
-/tests/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka
+/tests/llmcompressor/entrypoints/ @kylesayrs @dsikka @HDCharles
+/tests/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka @HDCharles
 /tests/llmcompressor/modeling/ @dsikka @kylesayrs @Roderick-Wu
 /tests/llmcompressor/observers/ @kylesayrs @HDCharles @Roderick-Wu
 /tests/llmcompressor/recipe/ @kylesayrs @dsikka
