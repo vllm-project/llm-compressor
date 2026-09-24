@@ -33,7 +33,7 @@ def stage_modules(
 def onload_modules(
     modules: dict[str, torch.nn.Module],
 ) -> dict[str, dict]:
-    """Onload modules, optionally consuming tensors staged in CPU memory."""
+    """Onload modules, consuming staged tensors in CPU memory where applicable."""
     offload_kwargs = {}
     for name, module in modules.items():
         if isinstance(module._parameters, OffloadCache):
