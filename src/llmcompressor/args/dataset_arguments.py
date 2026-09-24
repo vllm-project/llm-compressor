@@ -307,6 +307,14 @@ class DatasetArguments(CustomDatasetArguments):
             "device. Only moves weights. Default False."
         },
     )
+    sequential_module_prefetch: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, stage the next subgraph's "
+            "offloaded module tensors in a background thread while the current "
+            "subgraph is calibrated and propagated. Default False."
+        },
+    )
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None

@@ -100,6 +100,8 @@ The `oneshot` entrypoint runs three phases:
 | `sequential_offload_device` | `str` | `"cpu"` | Device to offload intermediate activations between sequential layers. Use `"cuda:1"` if a second GPU is available |
 | `quantization_aware_calibration` | `bool` | `True` | Apply quantization during the calibration forward pass in the sequential pipeline |
 | `sequential_prefetch` | `bool` | `False` | Prefetch the next batch in a background thread during sequential pipeline calibration |
+| `stage_weights_in_pinned_memory` | `bool` | `False` | Stage offloaded module tensors in pinned CPU memory before onloading them |
+| `sequential_module_prefetch` | `bool` | `False` | Stage the next subgraph's module tensors in a background thread during calibration and propagation |
 
 ### Miscellaneous Arguments
 
