@@ -65,8 +65,8 @@
 /tests/llmcompressor/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 /tests/llmcompressor/core/ @kylesayrs @dsikka
 /tests/llmcompressor/datasets/ @HDCharles @kylesayrs
-/tests/llmcompressor/entrypoints/ @kylesayrs @dsikka
-/tests/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka
+/tests/llmcompressor/entrypoints/ @kylesayrs @dsikka @HDCharles
+/tests/llmcompressor/entrypoints/model_free/ @kylesayrs @dsikka @HDCharles
 /tests/llmcompressor/modeling/ @dsikka @kylesayrs @Roderick-Wu
 /tests/llmcompressor/observers/ @kylesayrs @HDCharles @Roderick-Wu
 /tests/llmcompressor/recipe/ @kylesayrs @dsikka
