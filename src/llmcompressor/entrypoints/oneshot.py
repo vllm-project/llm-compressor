@@ -378,6 +378,7 @@ def oneshot(
     quantization_aware_calibration: bool = True,
     sequential_prefetch: bool = False,
     stage_weights_in_pinned_memory: bool = False,
+    sequential_module_prefetch: bool = False,
     log_sequential_error: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
@@ -474,6 +475,9 @@ def oneshot(
     :param stage_weights_in_pinned_memory: When using the sequential pipeline, stage
         offloaded module tensors in pinned CPU memory before onloading them to the
         execution device. Default False.
+    :param sequential_module_prefetch: When using the sequential pipeline, stage the
+        next subgraph's offloaded module tensors in a background thread while the
+        current subgraph is calibrated and propagated. Default False.
     :param log_sequential_error: Only relevant for the sequential pipeline. If True,
         compute and log the SQNR between each subgraph's pre-compression
         and post-compression outputs, independent of propagate_error.
