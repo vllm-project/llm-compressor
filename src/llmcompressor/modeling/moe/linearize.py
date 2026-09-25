@@ -125,6 +125,18 @@ def get_moe_linear_status(
     return model._moe_lookup
 
 
+
+def get_non_linearized_moes(
+    model: torch.nn.Module,
+) -> list[tuple[str, torch.nn.Module]]:
+    """Return recognized MoE modules that still need linearization."""
+    moe_lookup = get_moe_linear_status(model)
+    return [
+        (moe_lookup[module], module)
+        for module in model.modules()
+        if module in moe_lookup and not isinstance(module, LinearExperts2D)
+    ]
+
 def repack_moe_model(model: PreTrainedModel) -> None:
     """Repack all linearized MoE modules in a model."""
     moe_lookup = get_moe_linear_status(model)
@@ -140,7 +152,10 @@ def repack_moe_model(model: PreTrainedModel) -> None:
         try:
             repack_moe_layer(model, name, module, module_dict)
         finally:
-            if offload_kwargs:
+            if (
+                offload_kwargs
+                and not isinstance(module_dict[name]._parameters, OffloadCache)
+            ):
                 subgraph_offload_modules(module_dict, offload_kwargs)
 
 
@@ -194,7 +209,10 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
         try:
             linearize_moe_layer(model, name, module, module_dict)
         finally:
-            if offload_kwargs:
+            if (
+                offload_kwargs
+                and not isinstance(module_dict[name]._parameters, OffloadCache)
+            ):
                 subgraph_offload_modules(module_dict, offload_kwargs)
 
 

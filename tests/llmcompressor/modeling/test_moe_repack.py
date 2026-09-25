@@ -8,11 +8,14 @@ from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
 from transformers import Qwen3VLMoeConfig, Qwen3VLMoeForConditionalGeneration
+from transformers import initialization as init
 from transformers.conversion_mapping import get_checkpoint_conversion_mapping
 from transformers.core_model_loading import (
     WeightRenaming,
     revert_weight_conversion,
 )
+from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from llmcompressor.modeling.moe.linear_experts import (
@@ -48,6 +51,32 @@ def _tiny_qwen3_vl_moe():
     )
     with skip_weights_initialize():
         model = Qwen3VLMoeForConditionalGeneration(config)
+    return model
+
+
+def _tiny_qwen3_moe_blocks():
+    config = Qwen3MoeConfig(
+        hidden_size=16,
+        intermediate_size=32,
+        num_experts=4,
+        num_experts_per_tok=2,
+    )
+    with skip_weights_initialize():
+        block1 = Qwen3MoeExperts(config)
+        block2 = Qwen3MoeExperts(config)
+    init.normal_(block1.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block1.down_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block2.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block2.down_proj, mean=0.0, std=config.initializer_range)
+
+    model = torch.nn.Module()
+    model.config = config
+    model.block1 = torch.nn.Module()
+    model.block1.mlp = torch.nn.Module()
+    model.block1.mlp.experts = block1
+    model.block2 = torch.nn.Module()
+    model.block2.mlp = torch.nn.Module()
+    model.block2.mlp.experts = block2
     return model
 
 
@@ -488,3 +517,19 @@ def test_llama4_from_experts_accepts_text_config():
     parent = Llama4Config(text_config=text_config)
     from_parent = Llama4LinearExperts.from_experts_module(experts, parent)
     assert from_parent._source_config is parent.text_config
+
+
+@torch.no_grad()
+def test_repack_moe_subgraph_only_targets_selected_module():
+    model = _tiny_qwen3_moe_blocks()
+    linearize_moe_model(model)
+
+    subgraph_modules = {
+        "block1.mlp.experts": model.block1.mlp.experts,
+        "block2": model.block2,
+    }
+    repack_moe_subgraph(model, subgraph_modules)
+
+    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+    assert isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts
