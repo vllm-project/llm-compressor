@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+import re
 import tempfile
 from functools import wraps
 from typing import Type
@@ -8,7 +9,7 @@ from typing import Type
 import torch
 from compressed_tensors.offload import dispatch_model, load_offloaded_model
 from compressed_tensors.utils import deprecated, patch_attr
-from huggingface_hub import snapshot_download
+from huggingface_hub import HfApi, snapshot_download
 from loguru import logger
 from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
@@ -32,15 +33,80 @@ __all__ = [
 ]
 
 
+# a 40-character hex string is already an immutable commit, so needs no resolving
+_COMMIT_HASH = re.compile(r"^[0-9a-f]{40}$")
+
+
+@contextlib.contextmanager
+def pin_checkpoint_revision(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+    """
+    Context manager which resolves a symbolic revision to an immutable commit hash
+    before any rank loads the checkpoint.
+
+    `huggingface_hub` rewrites `refs/<revision>` on every `snapshot_download` where
+    the caller passes a symbolic revision such as `main`, using a non-atomic
+    truncate-then-write. Ranks resolving the same cache read that ref with a plain
+    `open`, so a rank landing inside the write window reads an empty string and
+    reports shards as missing even though they are present on disk. This happens on
+    an already-downloaded model, since the ref is rewritten whether or not anything
+    needs fetching. See https://github.com/vllm-project/llm-compressor/issues/2984
+
+    Loading by commit hash avoids the write entirely, because `snapshot_download`
+    only touches the ref when `revision != commit_hash`. The revision is resolved
+    once and broadcast so that ranks cannot pin different commits if the branch moves
+    between resolutions.
+
+    :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    """
+    if (
+        not torch.distributed.is_initialized()
+        or torch.distributed.get_world_size() <= 1
+    ):
+        yield
+        return
+
+    original_from_pretrained = model_cls.from_pretrained
+
+    @classmethod
+    @wraps(original_from_pretrained)
+    def patched(cls, *args, **kwargs):
+        stub = args[0] if args else kwargs.get("pretrained_model_name_or_path")
+        revision = kwargs.get("revision")
+
+        # local checkpoints have no hub cache, and a commit hash is already immutable
+        if stub is None or os.path.isdir(stub) or _COMMIT_HASH.match(revision or ""):
+            return original_from_pretrained(*args, **kwargs)
+
+        # resolved once and shared, so that ranks cannot pin different commits
+        commit = [None]
+        if torch.distributed.get_rank() == 0:
+            with contextlib.suppress(Exception):
+                api = HfApi(token=kwargs.get("token"))
+                commit[0] = api.model_info(stub, revision=revision).sha
+        torch.distributed.broadcast_object_list(commit, src=0)
+
+        if commit[0] is None:
+            # offline, gated, or otherwise unresolvable: leave the revision alone and
+            # let transformers report whatever the underlying problem is
+            logger.warning(f"Could not resolve a commit hash for {stub}")
+        else:
+            kwargs["revision"] = commit[0]
+
+        return original_from_pretrained(*args, **kwargs)
+
+    with patch_attr(model_cls, "from_pretrained", patched):
+        yield
+
+
 @contextlib.contextmanager
 def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
     Context manager for loading HuggingFace models with both offloading and
     MoE linearization support.
 
-    This context manager combines `load_offloaded_model` and `load_quantizable_moe`
-    contexts to provide a unified interface for loading models that may require
-    either or both capabilities.
+    This context manager combines `pin_checkpoint_revision`, `load_offloaded_model`
+    and `load_quantizable_moe` contexts to provide a unified interface for loading
+    models that may require any of those capabilities.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -49,6 +115,8 @@ def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     with contextlib.ExitStack() as stack:
         stack.enter_context(load_offloaded_model(model_cls))
         stack.enter_context(load_quantizable_moe(model_cls))
+        # entered last so the revision is pinned before any other patch resolves it
+        stack.enter_context(pin_checkpoint_revision(model_cls))
         yield
 
 
