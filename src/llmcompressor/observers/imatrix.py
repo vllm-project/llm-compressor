@@ -1,16 +1,17 @@
 import math
 
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
-from compressed_tensors.quantization.lifecycle import fake_quantize
-from compressed_tensors.quantization.utils import calculate_qparams
-from compressed_tensors.utils import patch_attr
+from compressed_tensors.quantization import QuantizationStrategy
 from loguru import logger
 from torch import distributed as dist
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.base import Observer
+from llmcompressor.observers.grid_search import (
+    _default_triton_error_buffer,
+    _grid_search_observer,
+)
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["IMatrixMSEObserver"]
@@ -49,6 +50,9 @@ class IMatrixMSEObserver(Observer):
         self.norm = kw.get("norm", 3.0)
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
+        self.triton_error_buffer = kw.get(
+            "triton_error_buffer", _default_triton_error_buffer(self.args)
+        )
 
         self._imatrix_sum: torch.Tensor | None = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
@@ -124,14 +128,16 @@ class IMatrixMSEObserver(Observer):
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         importance_weights = self._prepare_importance(observed)
-        self.min_vals, self.max_vals = _grid_search(
+        self.min_vals, self.max_vals = _grid_search_observer(
             observed,
             self.args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
+            self.triton_error_buffer,
             expand=self.expand,
+            token_args=None,
             importance_weights=importance_weights,
         )
 
@@ -241,88 +247,6 @@ class IMatrixMSEObserver(Observer):
             )
             return None
         return imp
-
-
-# ---------------------------------------------------------------------------
-# TODO: refactor to replace memoryless_mse's grid search, this function
-# subsumes it when importance_weights=None.
-# ---------------------------------------------------------------------------
-
-
-def _grid_search(
-    observed: torch.Tensor,
-    args: QuantizationArgs,
-    maxshrink: float,
-    patience: int,
-    grid: int,
-    norm: float,
-    expand: float = 1.0,
-    importance_weights: torch.Tensor | None = None,
-) -> MinMaxTuple:
-    """Grid search for min/max minimizing (importance-weighted) quant error.
-
-    Note: global_scale is NOT used during optimization since it cancels out when
-    using FP32 scales. After optimization, global_scale is computed from the final
-    min/max values in get_qparams().
-    """
-    if (
-        args.strategy == QuantizationStrategy.TENSOR_GROUP
-        and args.scale_dtype is not None
-    ):
-        args = args.model_copy(update={"scale_dtype": None})
-
-    min_val = torch.amin(observed, dim=(0, -1)) * expand
-    max_val = torch.amax(observed, dim=(0, -1)) * expand
-    best_error = torch.full(
-        min_val.shape,
-        torch.finfo(torch.float32).max,
-        device=min_val.device,
-        dtype=torch.float32,
-    )
-    best_min = min_val.clone()
-    best_max = max_val.clone()
-
-    no_improve = 0
-    observed_f = observed.float()
-
-    shrink_steps = max(1, int(maxshrink * grid))
-    for i in range(shrink_steps + 1):
-        p = 1 - i / grid
-        shrink_min = p * min_val
-        shrink_max = p * max_val
-
-        scales, zps = calculate_qparams(
-            min_vals=shrink_min,
-            max_vals=shrink_max,
-            quantization_args=args,
-            global_scale=None,
-        )
-
-        with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
-            q = fake_quantize(
-                observed,
-                scales.unsqueeze(-1),
-                zps.unsqueeze(-1),
-                args,
-            ).float()
-
-        q.sub_(observed_f).abs_().pow_(norm)
-        if importance_weights is not None:
-            q.mul_(importance_weights)
-        err = q.sum(dim=(0, -1))
-
-        improved = err < best_error
-        if torch.any(improved):
-            best_error[improved] = err[improved]
-            best_min[improved] = shrink_min[improved]
-            best_max[improved] = shrink_max[improved]
-            no_improve = 0
-        else:
-            no_improve += 1
-            if patience > 0 and no_improve >= patience:
-                break
-
-    return best_min, best_max
 
 
 @Observer.register("nvfp4_expanded_imatrix")
