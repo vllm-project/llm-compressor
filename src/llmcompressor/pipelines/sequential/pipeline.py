@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import disable_offloading, set_onload_device
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -10,6 +11,11 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines.sequential.error_logging import (
+    cache_pre_compression_output,
+    compute_subgraph_sqnr,
+    record_batch_error,
+)
 from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     trace_subgraphs,
@@ -79,6 +85,8 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
+
         session = active_session()
 
         # prepare model for sequential onloading
@@ -120,6 +128,14 @@ class SequentialPipeline(CalibrationPipeline):
                 dataloader, onload_device, offload_device
             )
 
+            # prepare error-logging cache (separate from activations so that
+            # log_sequential_error does not force propagate_error=True)
+            seq_error_cache = (
+                IntermediatesCache.empty(len(dataloader), offload_device)
+                if dataset_args.log_sequential_error
+                else None
+            )
+
             # Populate loss_masks once from cached activations for AWQ masking support
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
             if use_loss_mask:
@@ -138,6 +154,9 @@ class SequentialPipeline(CalibrationPipeline):
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
+                # whether a downstream subgraph still needs this subgraph's outputs
+                has_next_subgraph = subgraph_index < num_subgraphs - 1
+
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
                 with disable_offloading():
@@ -152,16 +171,32 @@ class SequentialPipeline(CalibrationPipeline):
                         session.state.current_batch_idx = batch_idx
                         outputs = subgraph.forward(model, **inputs)
 
+                        # update activations immediately only when no pass 2
+                        # is needed; otherwise defer to after pass 2
                         if not dataset_args.propagate_error:
-                            if subgraph_index < num_subgraphs - 1:
+                            if (
+                                not dataset_args.log_sequential_error
+                                and has_next_subgraph
+                            ):
                                 activations.update(batch_idx, outputs)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
+                        if seq_error_cache is not None and has_next_subgraph:
+                            cache_pre_compression_output(
+                                seq_error_cache, batch_idx, outputs
+                            )
+
                     LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
-                    if dataset_args.propagate_error:
-                        # this pass does not trigger modifier hooks
-                        # and is only used for capturing outputs of compressed modules
+                    if (
+                        dataset_args.propagate_error
+                        or dataset_args.log_sequential_error
+                    ):
+                        # this pass does not trigger modifier hooks; it captures
+                        # outputs of compressed modules (for propagate_error) and/or
+                        # per-batch signal/noise power for SQNR (for
+                        # log_sequential_error)
+                        batch_powers: list[tuple[float, float]] = []
                         with HooksMixin.disable_hooks():
                             for batch_idx, inputs in _get_batches(
                                 activations,
@@ -171,11 +206,31 @@ class SequentialPipeline(CalibrationPipeline):
                                 sequential_prefetch,
                             ):
                                 output = subgraph.forward(model, **inputs)
-                                if subgraph_index < num_subgraphs - 1:
+                                if dataset_args.propagate_error and has_next_subgraph:
                                     activations.update(batch_idx, output)
                                     activations.delete(
                                         batch_idx, subgraph.consumed_names
                                     )
+
+                                if seq_error_cache is not None and has_next_subgraph:
+                                    batch_power = record_batch_error(
+                                        seq_error_cache,
+                                        activations,
+                                        batch_idx,
+                                        output,
+                                        dataset_args.propagate_error,
+                                        subgraph.consumed_names,
+                                    )
+                                    if batch_power is not None:
+                                        batch_powers.append(batch_power)
+
+                        if batch_powers:
+                            sqnr = compute_subgraph_sqnr(batch_powers)
+                            _logger.log(
+                                "METRIC",
+                                f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
+                                f"sequential error (SQNR dB): {sqnr:.2f}",
+                            )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
