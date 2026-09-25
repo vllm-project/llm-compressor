@@ -85,11 +85,32 @@ SPINQUANT_MAPPING_REGISTRY: dict[str, SpinQuantMapping] = {
 
 
 def infer_mapping_from_model(model: PreTrainedModel) -> SpinQuantMapping:
-    architecture = model.__class__.__name__
-    if architecture not in SPINQUANT_MAPPING_REGISTRY:
-        logger.info(
-            f"Unrecognized model architecture {architecture}. "
-            "Falling back to default mappings"
-        )
+    """
+    Infer a SpinQuantMapping from a model. Checks the dynamic mapping registry
+    first (for models needing runtime-generated mappings, e.g. Qwen3.5 hybrid
+    attention), then falls back to the static registry, then to defaults.
 
-    return SPINQUANT_MAPPING_REGISTRY.get(architecture, _default_mappings)
+    :param model: the model to infer mappings for
+    :return: SpinQuantMapping for the model
+    """
+    # Imported lazily to avoid a circular import: dynamic_mappings imports the
+    # static registry and SpinQuantMapping from this module.
+    from llmcompressor.modifiers.transform.spinquant.dynamic_mappings import (
+        SPINQUANT_DYNAMIC_MAPPING_REGISTRY,
+    )
+
+    architecture = model.__class__.__name__
+
+    if architecture in SPINQUANT_DYNAMIC_MAPPING_REGISTRY:
+        mapping = SPINQUANT_DYNAMIC_MAPPING_REGISTRY[architecture](model)
+        if mapping is not None:
+            return mapping
+
+    if architecture in SPINQUANT_MAPPING_REGISTRY:
+        return SPINQUANT_MAPPING_REGISTRY[architecture]
+
+    logger.info(
+        f"Architecture {architecture} not found in mappings. "
+        f"Using default mappings: {_default_mappings}"
+    )
+    return _default_mappings

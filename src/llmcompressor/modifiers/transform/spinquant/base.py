@@ -128,7 +128,11 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self.mappings = infer_mapping_from_model(state.model)
         self.norm_mappings = infer_norm_mapping_from_model(state.model)
-        head_dim = get_head_dim(state.model.config)
+        # Heterogeneous configs (e.g. Qwen3.5) keep attention geometry on a
+        # nested `text_config` rather than the top-level config.
+        config = state.model.config
+        text_config = getattr(config, "text_config", None)
+        head_dim = get_head_dim(text_config if text_config is not None else config)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:

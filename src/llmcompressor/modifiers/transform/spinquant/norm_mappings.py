@@ -2,7 +2,7 @@ from loguru import logger
 from pydantic import BaseModel, field_validator
 from transformers import PreTrainedModel
 
-__all__ = ["infer_norm_mapping_from_model"]
+__all__ = ["NormMapping", "infer_norm_mapping_from_model"]
 
 
 class NormMapping(BaseModel):
@@ -62,11 +62,31 @@ NORM_MAPPING_REGISTRY: dict[str, list[NormMapping]] = {
 
 
 def infer_norm_mapping_from_model(model: PreTrainedModel) -> list[NormMapping]:
-    architecture = model.__class__.__name__
-    if architecture not in NORM_MAPPING_REGISTRY:
-        logger.info(
-            f"Unrecognized model architecture {architecture}. "
-            "Falling back to default mappings"
-        )
+    """
+    Infer norm mappings from a model. Checks the dynamic norm mapping registry
+    first, then falls back to the static registry, then to defaults.
 
-    return NORM_MAPPING_REGISTRY.get(architecture, _default_mappings)
+    :param model: the model to infer norm mappings for
+    :return: list of NormMapping for the model
+    """
+    # Imported lazily to avoid a circular import: dynamic_mappings imports the
+    # static registry and NormMapping from this module.
+    from llmcompressor.modifiers.transform.spinquant.dynamic_mappings import (
+        NORM_DYNAMIC_MAPPING_REGISTRY,
+    )
+
+    architecture = model.__class__.__name__
+
+    if architecture in NORM_DYNAMIC_MAPPING_REGISTRY:
+        mappings = NORM_DYNAMIC_MAPPING_REGISTRY[architecture](model)
+        if mappings is not None:
+            return mappings
+
+    if architecture in NORM_MAPPING_REGISTRY:
+        return NORM_MAPPING_REGISTRY[architecture]
+
+    logger.info(
+        f"Architecture {architecture} not found in norm mappings. "
+        f"Using default norm mappings: {_default_mappings}"
+    )
+    return _default_mappings
