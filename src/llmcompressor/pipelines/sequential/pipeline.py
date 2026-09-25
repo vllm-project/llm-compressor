@@ -13,6 +13,12 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe_model,
+    linearize_moe_subgraph,
+    repack_moe_model,
+    repack_moe_subgraph,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -139,6 +145,10 @@ class SequentialPipeline(CalibrationPipeline):
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
+
+            # Linearize MoE layers upfront when lazy linearization is disabled.
+            if not dataset_args.moe_lazy_linearization_and_repack:
+                linearize_moe_model(model)
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
@@ -191,6 +201,9 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
+                # This is a no-op for already-linearized MoE layers.
+                linearize_moe_subgraph(model, subgraph_modules)
+
                 if stage_executor is not None and subgraph_index + 1 < num_subgraphs:
                     next_subgraph_modules = subgraphs[
                         subgraph_index + 1
@@ -235,10 +248,19 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+                if dataset_args.repack_moe_layers:
+                    repack_moe_subgraph(model, subgraph_modules)
+
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################
+
+            if (
+                not dataset_args.moe_lazy_linearization_and_repack
+                and dataset_args.repack_moe_layers
+            ):
+                repack_moe_model(model)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

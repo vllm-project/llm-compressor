@@ -298,6 +298,22 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
+    moe_lazy_linearization_and_repack: bool = field(
+        default=True,
+        metadata={
+            "help": "When using the sequential pipeline, linearize MoE layers to 2D "
+            "before calibration. Set False to linearize upfront. If you intend to "
+            "use individual experts as sequential targets, set this to False"
+        },
+    )
+    repack_moe_layers: bool = field(
+        default=True,
+        metadata={"help": "Repack moe layers to 3D after calibration."},
+    )
+    enable_compile: bool = field(
+        default=False,
+        metadata={"help": "If True, use torch.compile where available."},
+    )
     sequential_module_prefetch: bool = field(
         default=True,
         metadata={
