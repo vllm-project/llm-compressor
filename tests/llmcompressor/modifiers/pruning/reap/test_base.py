@@ -710,6 +710,17 @@ def test_reap_validation():
     with pytest.raises(ValueError, match="sparsity"):
         REAPPruningModifier(sparsity=-0.1)
 
+    # report_path must end with .pkl
+    with pytest.raises(ValueError, match=".pkl"):
+        REAPPruningModifier(sparsity=0.5, report_path="report.json")
+
+    # at least one of report_path or prune must be set
+    with pytest.raises(ValueError, match="report_path or prune"):
+        REAPPruningModifier(sparsity=0.5, prune=False)
+
+    # prune=False with a report_path is valid
+    REAPPruningModifier(sparsity=0.5, prune=False, report_path="report.pkl")
+
 
 def _make_state(model):
     return State(
@@ -831,6 +842,57 @@ def test_reap_full_lifecycle():
         out = model(x)
         assert out.shape == (2, 4, config.hidden_size)
         assert not torch.isnan(out).any()
+
+
+@pytest.mark.unit
+def test_reap_report_only_does_not_modify_model(tmp_path):
+    """With prune=False, saliency is reported but weights/config are untouched."""
+    import pickle
+
+    torch.manual_seed(42)
+
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    report_path = str(tmp_path / "report.pkl")
+    modifier = REAPPruningModifier(sparsity=0.5, prune=False, report_path=report_path)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with torch.no_grad():
+        for _ in range(5):
+            x = torch.randn(2, 8, config.hidden_size)
+            model(x)
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    # Model config and weights are unchanged
+    assert model.config.num_experts == 8
+    for layer in model.layers:
+        assert layer.num_experts == 8
+        expert_count = sum(
+            1 for m in layer.experts.children() if isinstance(m, ExpertMLP)
+        )
+        assert expert_count == 8
+        assert layer.gate.weight.shape[0] == 8
+
+    # Report contains per-expert saliency scores for each MoE layer
+    with open(report_path, "rb") as f:
+        report = pickle.load(f)
+
+    assert isinstance(report, list)
+    assert len(report) == 2
+    for layer_saliency in report:
+        assert isinstance(layer_saliency, list)
+        assert len(layer_saliency) == 8
+        assert all(isinstance(s, float) for s in layer_saliency)
 
 
 @pytest.mark.unit
