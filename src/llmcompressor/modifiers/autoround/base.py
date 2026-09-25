@@ -630,10 +630,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 group_size = -1
             elif weight_args.strategy == QuantizationStrategy.TENSOR:
                 group_size = 0
+            elif weight_args.strategy == QuantizationStrategy.BLOCK:
+                group_size = tuple(weight_args.block_structure)
             else:
                 raise ValueError(
-                    "AutoRoundModifier only supports channel-wise and tensor-wise "
-                    "weight quantization"
+                    "AutoRoundModifier only supports channel-wise, tensor-wise, "
+                    "and block-wise weight quantization"
                 )
 
         if data_type == "float":
@@ -723,7 +725,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 continue
 
             quant_scheme = getattr(module, "quantization_scheme", None)
+            # KV-cache-only schemes quantize module outputs and intentionally have
+            # no weight arguments. They are handled by QuantizationModifier, not
+            # AutoRound's weight-quantization layer configuration.
             if quant_scheme is None:
+                continue
+            if (
+                isinstance(quant_scheme, QuantizationScheme)
+                and quant_scheme.weights is None
+            ):
                 continue
 
             if not isinstance(quant_scheme, QuantizationScheme):
