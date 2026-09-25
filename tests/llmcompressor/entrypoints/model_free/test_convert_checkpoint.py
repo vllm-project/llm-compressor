@@ -15,14 +15,11 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.quant_scheme import NVFP4
 
-from tests.testing_utils import requires_cadence
-
 # NOTE: This file contains tests for compressed_tensors.entrypoints.convert
 # that are either long-running or involve larger models. They have been placed
 # here to leverage llm-compressor's nightly testing CI/CD.
 
 
-@requires_cadence("nightly")
 def test_convert_nvfp4_checkpoint(tmp_path):
     """
     Test that compressed-tensors convert_checkpoint entrypoint
@@ -109,7 +106,6 @@ def test_convert_nvfp4_checkpoint(tmp_path):
             ), f"Unexpected key found: {key}"
 
 
-@requires_cadence("nightly")
 def test_dequantize_fp8block_checkpoint(tmp_path):
     """
     Test that compressed-tensors convert_checkpoint entrypoint
@@ -175,7 +171,6 @@ def test_dequantize_fp8block_checkpoint(tmp_path):
             ), f"Found disallowed key (should have been removed): {key}"
 
 
-@requires_cadence("nightly")
 @pytest.mark.parametrize(
     "model_id",
     (
