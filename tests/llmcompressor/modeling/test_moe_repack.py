@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import torch
 from compressed_tensors.offload import disable_onloading, offload_module
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
@@ -23,7 +24,14 @@ from llmcompressor.modeling.moe.linear_experts import (
     CompressedFusedLinear,
     LinearExperts2D,
 )
-from llmcompressor.modeling.moe.linearize import linearize_moe, repack_moe
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe,
+    linearize_moe_model,
+    linearize_moe_subgraph,
+    repack_moe,
+    repack_moe_model,
+    repack_moe_subgraph,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
@@ -127,6 +135,21 @@ def test_repack_disk_offloaded_experts_does_not_construct_on_meta(tmp_path: Path
     repacked = model.model.language_model.layers[0].mlp.experts
     assert repacked.gate_up_proj.device.type == "cpu"
     assert repacked.down_proj.device.type == "cpu"
+
+
+@torch.no_grad()
+def test_linearize_and_repack_preserve_offload_cache():
+    model = _tiny_qwen3_vl_moe()
+    experts = model.model.language_model.layers[0].mlp.experts
+    offload_module(experts, onload_device="cpu", offload_device="cpu")
+
+    linearize_moe_model(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts._parameters, OffloadCache)
+
+    repack_moe_model(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts._parameters, OffloadCache)
 
 
 def test_repack_packs_weight_qparams():
@@ -546,6 +569,16 @@ def test_llama4_from_experts_accepts_text_config():
 
 
 @torch.no_grad()
+def test_linearize_moe_subgraph_traverses_nested_modules():
+    model = _tiny_qwen3_moe_blocks()
+    subgraph_modules = {"block1": model.block1}
+
+    linearize_moe_subgraph(model, subgraph_modules)
+
+    assert isinstance(model.block1.mlp.experts, LinearExperts2D)
+    assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
+
+@torch.no_grad()
 def test_repack_moe_subgraph_only_targets_selected_module():
     model = _tiny_qwen3_moe_blocks()
     linearize_moe_model(model)
@@ -557,5 +590,5 @@ def test_repack_moe_subgraph_only_targets_selected_module():
     repack_moe_subgraph(model, subgraph_modules)
 
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
-    assert isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
     assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts
