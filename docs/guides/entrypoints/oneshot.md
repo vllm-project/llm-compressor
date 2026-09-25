@@ -84,12 +84,18 @@ The `oneshot` entrypoint runs three phases:
 | `data_collator` | `str \| Callable` | `"truncation"` | Batch collation strategy. `"truncation"` or `"padding"`, or a custom callable |
 | `shuffle_calibration_samples` | `bool` | `True` | Whether to shuffle the dataset before selecting calibration samples |
 | `text_column` | `str` | `"text"` | Dataset column to use as text input to the tokenizer/processor |
+| `preprocessing_func` | `str \| Callable \| None` | `None` | Deprecated. Preprocess and tokenize custom datasets before passing them to `oneshot()`; see the [custom dataset example](https://github.com/vllm-project/llm-compressor/blob/main/examples/custom_dataset_example.py). This argument will be removed in a future release |
 | `concatenate_data` | `bool` | `False` | Whether to concatenate samples to fill `max_seq_length` |
 | `streaming` | `bool` | `False` | Stream data from a cloud-hosted dataset |
 | `preprocessing_num_workers` | `int \| None` | `None` | Number of workers for dataset preprocessing |
 | `dataloader_num_workers` | `int` | `0` | Number of workers for the DataLoader. Set to 2+ for faster loading if RAM allows |
 | `moe_calibrate_all_experts` | `bool` | `True` | Route all tokens through all experts during calibration. Required for accurate MoE quantization |
 | `min_tokens_per_module` | `float \| None` | `None` | Minimum fraction of tokens a module must receive. Logs a warning if unmet. Mainly relevant for MoE models |
+
+For custom calibration data, apply formatting and tokenization with `Dataset.map()`
+before calling `oneshot(dataset=processed_dataset, ...)`. The
+[custom dataset example](https://github.com/vllm-project/llm-compressor/blob/main/examples/custom_dataset_example.py)
+shows how to migrate from `preprocessing_func`.
 
 ### Pipeline Arguments
 
