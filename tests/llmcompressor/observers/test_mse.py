@@ -127,19 +127,12 @@ def test_mse_triton_matches_eager_when_tile_fits_group(
     observed = flatten_for_calibration(
         torch.randn(8, 1024, device="cuda"), "weight", args
     )
-    search_args = (
-        observed,
-        args,
-        token_args,
-        0.5,
-        5,
-        100.0,
-        2.4,
-        1.0,
-        1.0,
+    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_kwargs = {"expand": 1.0, "token_args": token_args}
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
     )
-    eager = ImplBackend.call("_grid_search_mse", *search_args)
-    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
     assert torch.equal(eager[0], triton[0])
     assert torch.equal(eager[1], triton[1])
 
@@ -159,9 +152,12 @@ def test_mse_triton_matches_eager_for_packed_nvfp4_groups():
     observed = flatten_for_calibration(
         torch.randn(8, 1024, device="cuda", dtype=torch.bfloat16), "weight", args
     )
-    search_args = (observed, args, token_args, 0.5, 5, 100.0, 2.4, 1.0, 1.0)
-    eager = ImplBackend.call("_grid_search_mse", *search_args)
-    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
+    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_kwargs = {"expand": 1.0, "token_args": token_args}
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
     assert torch.equal(eager[0], triton[0])
     assert torch.equal(eager[1], triton[1])
 

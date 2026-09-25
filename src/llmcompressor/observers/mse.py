@@ -1,19 +1,17 @@
 import warnings
 
 import torch
-from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
+from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.grid_search import (
+    _default_triton_error_buffer,
+    _grid_search_observer,
+)
 from llmcompressor.observers.helpers import lerp
-from llmcompressor.observers.mse_quant import _grid_search_mse
 
 __all__ = ["MovingAverageMSEObserver"]
-
-
-def _default_triton_error_buffer(args) -> float:
-    """Return the format-specific default for Triton per-group patience."""
-    return 1.00 if args.type == QuantizationType.FLOAT and args.num_bits == 4 else 0.30
 
 
 @Observer.register("memoryless_mse")
@@ -46,16 +44,16 @@ class MemorylessMSEObserver(Observer):
         )
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
-        self.min_vals, self.max_vals = _grid_search_mse(
+        self.min_vals, self.max_vals = _grid_search_observer(
             observed,
             self.args,
-            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
             self.triton_error_buffer,
-            self.expand,
+            expand=self.expand,
+            token_args=self._token_args,
         )
 
 
@@ -93,16 +91,16 @@ class MovingAverageMSEObserver(Observer):
         )
 
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
-        min_vals, max_vals = _grid_search_mse(
+        min_vals, max_vals = _grid_search_observer(
             observed,
             self.args,
-            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
             self.triton_error_buffer,
-            self.expand,
+            expand=self.expand,
+            token_args=self._token_args,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:

@@ -1,9 +1,12 @@
 import pytest
 import torch
+from compressed_tensors.quantization import QuantizationStrategy
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.utils.impl_backend import ImplBackend
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.helpers import flatten_for_calibration
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -499,3 +502,80 @@ class TestHookDisabling:
 
         module(torch.randn(2, 8))
         assert observer._imatrix_count.item() > 0
+
+
+@pytest.mark.parametrize(
+    "quant_type,strategy",
+    [
+        ("int", QuantizationStrategy.GROUP),
+        ("int", QuantizationStrategy.TENSOR_GROUP),
+        ("float", QuantizationStrategy.GROUP),
+        ("float", QuantizationStrategy.TENSOR_GROUP),
+    ],
+)
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_imatrix_triton_matches_eager_when_tile_fits_group(quant_type, strategy):
+    """A full buffer preserves eager choices when an imatrix group fits one tile."""
+    args = QuantizationArgs(
+        num_bits=4,
+        type=quant_type,
+        symmetric=True,
+        strategy=strategy,
+        group_size=512,
+    )
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(8, 1024, device="cuda"), "weight", args
+    )
+    importance = flatten_for_calibration(
+        torch.linspace(0.2, 2.0, 1024, device="cuda").unsqueeze(0).expand(8, -1),
+        "weight",
+        args,
+    )
+    search_args = (observed, args, 0.5, 100, 100.0, 2.4)
+    search_kwargs = {
+        "importance_weights": importance,
+        "triton_error_buffer": 1.0,
+    }
+
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_imatrix_bfloat16_triton_matches_eager_for_packed_group():
+    """BF16 weighted errors compile and preserve choices in the packed kernel."""
+    args = QuantizationArgs(
+        num_bits=4,
+        type="int",
+        symmetric=True,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=128,
+    )
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(16, 128, device="cuda", dtype=torch.bfloat16), "weight", args
+    )
+    importance = flatten_for_calibration(
+        torch.linspace(0.2, 2.0, 128, device="cuda").expand(16, -1),
+        "weight",
+        args,
+    )
+    search_args = (observed, args, 0.95, 5, 20.0, 3.0)
+    search_kwargs = {
+        "importance_weights": importance,
+        "triton_error_buffer": 1.0,
+    }
+
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
