@@ -40,7 +40,7 @@ class SanityPrompt(NamedTuple):
 
 
 SANITY_PROMPTS = [
-    SanityPrompt("The capital of France is", "paris"),
+    SanityPrompt("The capital city of France is named", "paris"),
     SanityPrompt("The creator of the theory of relativity was Albert", "einstein"),
     SanityPrompt("The classic game is called rock, paper,", "scissors"),
 ]
