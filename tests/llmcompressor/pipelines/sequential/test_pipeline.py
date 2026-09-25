@@ -2,8 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import torch
 
-from llmcompressor.args import DatasetArguments
 import llmcompressor.pipelines.sequential.pipeline as pipeline
+from llmcompressor.args import DatasetArguments
 
 
 def test_submit_subgraph_staging_runs_for_disjoint_modules(monkeypatch):

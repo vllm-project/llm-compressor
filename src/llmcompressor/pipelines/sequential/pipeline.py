@@ -177,7 +177,7 @@ class SequentialPipeline(CalibrationPipeline):
                     )
                 else:
                     subgraph_modules, stage_future = prefetched_staging
-                    stage_future.result() # block until staging is complete
+                    stage_future.result()  # block until staging is complete
                     prefetched_staging = None
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
