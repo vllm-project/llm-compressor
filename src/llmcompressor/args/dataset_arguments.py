@@ -333,6 +333,17 @@ class DatasetArguments(CustomDatasetArguments):
         default=False,
         metadata={"help": "If True, use torch.compile where available."},
     )
+<<<<<<< HEAD
+=======
+    sequential_module_prefetch: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, stage the next subgraph's "
+            "offloaded module tensors in a background thread while the current "
+            "subgraph is calibrated and propagated. Default False."
+        },
+    )
+>>>>>>> fb21b1efb (Address MoE linearization review feedback)
     stage_weights_in_pinned_memory: bool = field(
         default=False,
         metadata={

@@ -216,11 +216,11 @@ class Oneshot:
         calibration_dataloader = get_calibration_dataloader(
             self.dataset_args, self.processor
         )
+        self.resolve_eager_moe_linearization()
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
             recipe_stage=self.recipe_args.stage,
         )
-        self.resolve_eager_moe_linearization()
         post_process(
             model_args=self.model_args,
             recipe_args=self.recipe_args,
@@ -228,7 +228,7 @@ class Oneshot:
         )
 
     def resolve_eager_moe_linearization(self):
-        if not self.dataset_args.moe_eager_linearization_and_repack:
+        if not self.dataset_args.moe_lazy_linearization_and_repack:
             return
 
         if has_individual_expert_targets(
@@ -236,10 +236,10 @@ class Oneshot:
         ):
             logger.warning(
                 "Individual MoE experts were found in sequential_targets. Forcing "
-                "moe_eager_linearization_and_repack=False so the full MoE layer is "
+                "moe_lazy_linearization_and_repack=False so the full MoE layer is "
                 "linearized before sequential processing."
             )
-            self.dataset_args.moe_eager_linearization_and_repack = False
+            self.dataset_args.moe_lazy_linearization_and_repack = False
 
     def apply_recipe_modifiers(
         self,
