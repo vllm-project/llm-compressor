@@ -468,9 +468,9 @@ def oneshot(
         than one gpu. Default is cpu.
     :param quantization_aware_calibration: Deprecated. This argument has no effect
         and will be removed in a future release.
-    :param sequential_prefetch: When using the sequential pipeline, prefetch the
-        next batch in a background thread to overlap onload with forward. Default
-        False; set True for faster calibration when GPU memory allows.
+    :param sequential_activation_prefetch: When using the sequential pipeline,
+        prefetch the next batch in a background thread to overlap onload with forward.
+        Default False; set True for faster calibration when GPU memory allows.
     :param stage_weights_in_pinned_memory: When using the sequential pipeline, stage
         offloaded module tensors in pinned CPU memory before onloading them to the
         execution device. Default False.

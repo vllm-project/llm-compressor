@@ -154,7 +154,9 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
-            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
+            sequential_prefetch = getattr(
+                dataset_args, "sequential_activation_prefetch", False
+            )
             session.state.sequential_prefetch = sequential_prefetch
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
