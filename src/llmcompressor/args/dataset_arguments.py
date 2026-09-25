@@ -315,7 +315,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={"help": "If True, use torch.compile where available."},
     )
     sequential_module_prefetch: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "When using the sequential pipeline, stage the next subgraph's "
             "offloaded module tensors in a background thread while the current "
@@ -323,7 +323,7 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     stage_weights_in_pinned_memory: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "When using the sequential pipeline, stage offloaded module "
             "tensors in pinned CPU memory before onloading them to the execution "

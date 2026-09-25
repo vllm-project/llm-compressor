@@ -3,6 +3,8 @@
 from pathlib import Path
 
 import torch
+from compressed_tensors.offload import offload_module
+from compressed_tensors.offload.cache import OffloadCache
 from safetensors import safe_open
 from transformers import Qwen3VLMoeConfig, Qwen3VLMoeForConditionalGeneration
 from transformers import initialization as init
@@ -13,6 +15,7 @@ from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modeling.moe.linearize import (
     linearize_moe_model,
+    linearize_moe_subgraph,
     repack_moe_model,
     repack_moe_subgraph,
 )
@@ -94,6 +97,21 @@ def test_repack_restores_fused_experts_and_weights():
     assert not isinstance(experts, LinearExperts2D)
     assert torch.allclose(experts.gate_up_proj, ref_gate_up)
     assert torch.allclose(experts.down_proj, ref_down)
+
+
+@torch.no_grad()
+def test_linearize_and_repack_preserve_offload_cache():
+    model = _tiny_qwen3_vl_moe()
+    experts = model.model.language_model.layers[0].mlp.experts
+    offload_module(experts, onload_device="cpu", offload_device="cpu")
+
+    linearize_moe_model(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts._parameters, OffloadCache)
+
+    repack_moe_model(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts._parameters, OffloadCache)
 
 
 def test_repack_packs_weight_qparams():
@@ -183,5 +201,17 @@ def test_repack_moe_subgraph_only_targets_selected_module():
     )
 
     assert not isinstance(model.block1.mlp.experts, LinearExperts2D)
-    assert isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts
+
+
+@torch.no_grad()
+def test_linearize_moe_subgraph_traverses_nested_modules():
+    model = _tiny_qwen3_moe_blocks()
+    subgraph_modules = {"block1": model.block1}
+
+    linearize_moe_subgraph(model, subgraph_modules)
+
+    assert isinstance(model.block1.mlp.experts, LinearExperts2D)
+    assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
     assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts

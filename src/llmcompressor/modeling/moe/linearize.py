@@ -125,7 +125,6 @@ def get_moe_linear_status(
     return model._moe_lookup
 
 
-
 def get_non_linearized_moes(
     model: torch.nn.Module,
 ) -> list[tuple[str, torch.nn.Module]]:
@@ -136,6 +135,18 @@ def get_non_linearized_moes(
         for module in model.modules()
         if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
+
+
+def _get_subgraph_modules(
+    subgraph_modules: dict[str, torch.nn.Module],
+) -> set[torch.nn.Module]:
+    """Return subgraph modules and all of their descendants."""
+    return {
+        submodule
+        for module in subgraph_modules.values()
+        for submodule in module.modules()
+    }
+
 
 def repack_moe_model(model: PreTrainedModel) -> None:
     """Repack all linearized MoE modules in a model."""
@@ -152,9 +163,8 @@ def repack_moe_model(model: PreTrainedModel) -> None:
         try:
             repack_moe_layer(model, name, module, module_dict)
         finally:
-            if (
-                offload_kwargs
-                and not isinstance(module_dict[name]._parameters, OffloadCache)
+            if offload_kwargs and not isinstance(
+                module_dict[name]._parameters, OffloadCache
             ):
                 subgraph_offload_modules(module_dict, offload_kwargs)
 
@@ -164,7 +174,7 @@ def repack_moe_subgraph(
     subgraph_modules: dict[str, torch.nn.Module],
 ) -> None:
     """Repack linearized MoE modules contained in a subgraph."""
-    subgraph_set = set(subgraph_modules.values())
+    subgraph_set = _get_subgraph_modules(subgraph_modules)
     moe_lookup = get_moe_linear_status(model)
     linearized = [
         (moe_lookup[module], module)
@@ -209,9 +219,8 @@ def linearize_moe_model(model: PreTrainedModel) -> None:
         try:
             linearize_moe_layer(model, name, module, module_dict)
         finally:
-            if (
-                offload_kwargs
-                and not isinstance(module_dict[name]._parameters, OffloadCache)
+            if offload_kwargs and not isinstance(
+                module_dict[name]._parameters, OffloadCache
             ):
                 subgraph_offload_modules(module_dict, offload_kwargs)
 
@@ -221,7 +230,7 @@ def linearize_moe_subgraph(
     subgraph_modules: dict[str, torch.nn.Module],
 ) -> None:
     """Linearize recognized non-linearized MoE modules in a subgraph."""
-    subgraph_set = set(subgraph_modules.values())
+    subgraph_set = _get_subgraph_modules(subgraph_modules)
     moe_lookup = get_moe_linear_status(model)
     non_linearized = [
         (moe_lookup[module], module)
@@ -242,9 +251,9 @@ def linearize_moe_layer(
     subgraph_modules: dict[str, torch.nn.Module] | None = None,
 ) -> None:
     """Linearize a single recognized MoE module."""
-    if not isinstance(module, FusedExpertsProtocol) and not LinearExperts2D.get_registration(
-        module.__class__
-    ):
+    if not isinstance(
+        module, FusedExpertsProtocol
+    ) and not LinearExperts2D.get_registration(module.__class__):
         raise ValueError(f"Module {name} is not a recognized MoE layer")
 
     config = getattr(module, "config", model.config)
@@ -261,12 +270,10 @@ def _replace(
     module_dict: dict[str, torch.nn.Module] | None = None,
 ):
     """Replace a module and keep offload/subgraph bookkeeping consistent."""
-    if isinstance(old_module._parameters, OffloadCache):
-        new_module._parameters = old_module._parameters
-        new_module._buffers = old_module._buffers
-
+    # Conversion creates a new cache with the replacement module's parameter schema.
+    # Reusing the old cache would associate the wrong names and tensor layouts.
     if module_dict is not None:
-        if module_dict.get(name) is not old_module:
+        if name in module_dict and module_dict[name] is not old_module:
             raise ValueError(
                 f"Module {name} in module_dict does not match the old_module "
                 "being replaced. Something went very wrong."
