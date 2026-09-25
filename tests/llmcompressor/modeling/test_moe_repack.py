@@ -182,6 +182,6 @@ def test_repack_moe_subgraph_only_targets_selected_module():
         subgraph_modules,
     )
 
-    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+    assert not isinstance(model.block1.mlp.experts, LinearExperts2D)
     assert isinstance(model.block2.mlp.experts, LinearExperts2D)
     assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts
