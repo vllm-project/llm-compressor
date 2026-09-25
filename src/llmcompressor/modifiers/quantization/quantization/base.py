@@ -70,6 +70,15 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
+        if any("mtp" in target.lower() for target in self.resolved_targets):
+            if self.requires_calibration_data:
+                raise ValueError(
+                    "MTP calibration in oneshot is deferred; MTP targets currently "
+                    "support data-free schemes only."
+                )
+            from llmcompressor.transformers.compression.mtp import load_mtp_model
+
+            load_mtp_model(state.model)
         QuantizationMixin.initialize_quantization(self, state.model)
 
         return True
