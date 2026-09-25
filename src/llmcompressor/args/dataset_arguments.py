@@ -298,7 +298,6 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
-
     stage_weights_in_pinned_memory: bool = field(
         default=False,
         metadata={
