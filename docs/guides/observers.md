@@ -152,11 +152,14 @@ For TENSOR_GROUP quantization schemes (e.g., NVFP4), layers that are fused at in
 
 This design eliminates the need to explicitly observe all fused modules before calling `get_qparams()` - unobserved fused modules are handled on-demand. The weak references prevent circular reference cycles between observers and modules. It also handles situations where the subgraphs being quantized at the same time don't include all fused modules.
 
-The fused layer groups are defined in `FUSED_LAYER_NAMES`:
-- `gate_proj` / `up_proj` (MLP)
-- `q_proj` / `k_proj` / `v_proj` (attention)
-- `q_a_proj` / `kv_a_proj_with_mqa` (DeepSeek multi-latent attention)
-- `w1` / `w3` (MoE expert layers)
+The fused layer groups are defined in `FUSED_MODULE_MAPPINGS` (`llmcompressor.observers.fused_mappings`), which `model_free_ptq` uses as well. A group applies to a parent module when all of its required layers are present, and its optional layers join when present:
+- `gate_proj` / `up_proj`, `w1` / `w3` (MLP and MoE expert layers)
+- `q_proj` / `k_proj`, optional `v_proj` (attention; Gemma 4 `attention_k_eq_v` layers have no `v_proj`)
+- `q_proj` / `k_proj` / `v_proj` / `b_proj` / `f_a_proj`, optional `g_proj` (Kimi delta attention)
+- `q_a_proj` / `kv_a_proj_with_mqa`, optional `g_proj` (multi-latent attention; Kimi MLA output gate)
+- `wq_a` / `wkv_a_with_mqa` (multi-latent attention, Mistral checkpoint names)
+- `q_a_proj` / `kv_proj` and `kv_proj` / `gate_proj` (DeepSeek V4 attention and compressors; checkpoint names `wq_a` / `wkv` and `wkv` / `wgate`)
+- `wk` / `weights_proj` (DeepSeek sparse attention indexer)
 
 ## DDP Synchronization
 

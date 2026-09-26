@@ -135,7 +135,9 @@ model_free_ptq(
 NVFP4 weight-only quantization requires a **global scale** that is fused across
 related weight groups (e.g. qkv projections, gate/up projections).
 `model_free_ptq` handles this fusion directly, so no preprocessing step is
-required — run it just like the non-microscale schemes above:
+required — run it just like the non-microscale schemes above. The fused groups
+are defined by `FUSED_MODULE_MAPPINGS` in `llmcompressor.observers.fused_mappings`,
+which `oneshot` uses as well.
 
 ```python
 from llmcompressor import model_free_ptq
