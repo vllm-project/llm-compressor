@@ -8,8 +8,7 @@ from llmcompressor.pipelines.cache import IntermediatesCache
 __all__ = [
     "compute_sqnr",
     "compute_subgraph_sqnr",
-    "cache_pre_compression_output",
-    "record_batch_error",
+    "process_batch_error",
 ]
 
 
@@ -37,7 +36,7 @@ def compute_sqnr(signal_power_sum: float, noise_power_sum: float) -> float:
     Compute the Signal-to-Quantization-Noise Ratio (SQNR), in decibels, from
     accumulated signal and noise power sums; higher values indicate less
     distortion. Callers should sum power across every batch in a subgraph
-    (see :func:`accumulate_batch_power`) and call this once on the totals,
+    (see :func:`_accumulate_batch_power`) and call this once on the totals,
     since SQNR is a logarithmic ratio and cannot be meaningfully averaged
     batch-by-batch.
 
@@ -56,30 +55,12 @@ def compute_subgraph_sqnr(batch_powers: list[tuple[float, float]]) -> float:
     overall SQNR in one call.
 
     :param batch_powers: list of (signal power sum, noise power sum) tuples,
-        one per batch, as returned by :func:`accumulate_batch_power`
+        one per batch, as returned by :func:`process_batch_error`
     :return: SQNR in dB, or ``inf`` if there is no noise
     """
     signal_power_sum = sum(signal for signal, _ in batch_powers)
     noise_power_sum = sum(noise for _, noise in batch_powers)
     return compute_sqnr(signal_power_sum, noise_power_sum)
-
-
-def cache_pre_compression_output(
-    cache: IntermediatesCache,
-    batch_idx: int,
-    outputs: dict[str, Any],
-) -> None:
-    """
-    Save a subgraph's pre-compression outputs into the error-logging cache,
-    for later comparison against its post-compression outputs and, when
-    propagate_error is disabled, for feeding the next subgraph (see
-    :func:`flush_to_activations`).
-
-    :param cache: intermediates cache dedicated to log_sequential_error
-    :param batch_idx: index of the current calibration batch
-    :param outputs: subgraph output dict from the calibration (pre-compression) pass
-    """
-    cache.update(batch_idx, outputs)
 
 
 def _accumulate_batch_power(
@@ -114,28 +95,7 @@ def _accumulate_batch_power(
     return signal_power_sum, noise_power_sum
 
 
-def _flush_to_activations(
-    cache: IntermediatesCache,
-    activations: IntermediatesCache,
-    batch_idx: int,
-    consumed_names: set[str],
-) -> None:
-    """
-    Copy a batch's cached pre-compression outputs into the shared
-    activations cache, feeding the next subgraph with unquantized outputs
-    when propagate_error is disabled.
-
-    :param cache: intermediates cache holding the pre-compression outputs
-    :param activations: intermediates cache shared across the pipeline
-    :param batch_idx: index of the current batch
-    :param consumed_names: names no longer needed by any subsequent subgraph
-    """
-    pre_outputs = cache.fetch(batch_idx)
-    activations.update(batch_idx, pre_outputs)
-    activations.delete(batch_idx, consumed_names)
-
-
-def record_batch_error(
+def process_batch_error(
     cache: IntermediatesCache,
     activations: IntermediatesCache,
     batch_idx: int,
@@ -144,11 +104,11 @@ def record_batch_error(
     consumed_names: set[str],
 ) -> tuple[float, float] | None:
     """
-    Record SQNR tracking for a single batch during the propagation pass. When
-    propagate_error is disabled, first feed this subgraph's unquantized
-    outputs forward to the next subgraph (see :func:`_flush_to_activations`),
-    since pass 2 doesn't do so itself in that case. Then compare pre/post-
-    compression outputs to accumulate this batch's signal/noise power (see
+    Process SQNR tracking for a single batch during the propagation pass. When
+    propagate_error is disabled, first transfer this subgraph's unquantized
+    outputs into activations for the next subgraph, since pass 2 doesn't do
+    so itself in that case. Then compare pre/post-compression outputs to
+    accumulate this batch's signal/noise power (see
     :func:`_accumulate_batch_power`).
 
     :param cache: intermediates cache dedicated to log_sequential_error
@@ -161,6 +121,7 @@ def record_batch_error(
         either tensor is unavailable
     """
     if not propagate_error:
-        _flush_to_activations(cache, activations, batch_idx, consumed_names)
+        activations.transfer(cache, batch_idx)
+        activations.delete(batch_idx, consumed_names)
 
     return _accumulate_batch_power(cache, batch_idx, output)

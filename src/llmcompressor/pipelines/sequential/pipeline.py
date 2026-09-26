@@ -17,9 +17,8 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.error_logging import (
-    cache_pre_compression_output,
     compute_subgraph_sqnr,
-    record_batch_error,
+    process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
     find_modules_outside_subgraphs,
@@ -139,6 +138,16 @@ class SequentialPipeline(CalibrationPipeline):
 
             # prepare error-logging cache (separate from activations so that
             # log_sequential_error does not force propagate_error=True)
+            #
+            # how activations are updated per (propagate_error, log_sequential_error):
+            #
+            #   (True,  False) - pass 2 overwrites activations with quantized outputs
+            #   (False, False) - pass 1 overwrites activations immediately, no pass 2
+            #   (True,  True)  - same as (True, False) + SQNR measured from
+            #                    seq_error_cache
+            #   (False, True)  - pass 2 transfers unquantized outputs from
+            #                    seq_error_cache into activations (zero-copy) +
+            #                    SQNR measured
             seq_error_cache = (
                 IntermediatesCache.empty(len(dataloader), offload_device)
                 if dataset_args.log_sequential_error
@@ -203,9 +212,7 @@ class SequentialPipeline(CalibrationPipeline):
                             activations.delete(batch_idx, subgraph.consumed_names)
 
                     if seq_error_cache is not None and has_next_subgraph:
-                        cache_pre_compression_output(
-                            seq_error_cache, batch_idx, outputs
-                        )
+                        seq_error_cache.update(batch_idx, outputs)
 
                 LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
@@ -231,7 +238,7 @@ class SequentialPipeline(CalibrationPipeline):
                                 )
 
                             if seq_error_cache is not None and has_next_subgraph:
-                                batch_power = record_batch_error(
+                                batch_power = process_batch_error(
                                     seq_error_cache,
                                     activations,
                                     batch_idx,

@@ -1,109 +1,178 @@
 import math
+from dataclasses import dataclass, field
+from unittest.mock import patch
 
+import pytest
+import torch
 from loguru import logger
+from torch.utils.data import DataLoader
 
-from llmcompressor import oneshot
-from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.core import active_session
+from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 
-MODEL = "nm-testing/tinysmokellama-3.2"
-NUM_SAMPLES = 8
-MAX_SEQ_LENGTH = 128
+# known signal and noise for predictable SQNR
+SIGNAL = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+NOISE = torch.tensor([[0.1, -0.1, 0.05, -0.05]])
+# smaller than SIGNAL (1 element vs 4); never the largest tensor, so it
+# should never affect the SQNR below
+DECOY = torch.tensor([[99.0]])
+NUM_BATCHES = 2
+NUM_SUBGRAPHS = 3
+
+# SQNR = 10 * log10(signal_power / noise_power)
+#   signal_power = 1^2 + 2^2 + 3^2 + 4^2 = 30
+#   noise_power  = 0.1^2 + 0.1^2 + 0.05^2 + 0.05^2 = 0.025
+#   SQNR = 10 * log10(30 / 0.025) ≈ 30.79 dB
+EXPECTED_SQNR = 10 * math.log10(30.0 / 0.025)
+
+_PIPELINE = "llmcompressor.pipelines.sequential.pipeline"
 
 
-def _run_oneshot_and_capture_metrics(
-    log_sequential_error: bool, propagate_error: bool = True
-) -> list[str]:
+@dataclass
+class FakeSubgraph:
     """
-    Run GPTQ oneshot calibration and capture all METRIC-level log messages.
-
-    Uses a temporary loguru sink (rather than capsys/capfd) since
-    `llmcompressor` binds its console sink to `sys.stdout` at import time,
-    before any per-test stdout capturing fixture is installed.
+    Returns SIGNAL in pass 1 and SIGNAL+NOISE in pass 2, alongside a
+    smaller decoy tensor and a non-tensor value. This exercises
+    _get_largest_tensor's "pick the biggest among several, skip
+    non-tensors" branch: "h" (4 elements) must be selected over
+    "decoy" (1 element) and "note" (not a tensor at all).
     """
+
+    input_names: set[str]
+    consumed_names: set[str]
+    _call_count: int = field(default=0, repr=False)
+
+    def forward(self, model, **kwargs):
+        self._call_count += 1
+        h = SIGNAL if self._call_count <= NUM_BATCHES else SIGNAL + NOISE
+        return {"h": h, "decoy": DECOY, "note": "not a tensor"}
+
+    def submodules(self, model):
+        return []
+
+
+def _sqnr_values(messages):
+    """Extract SQNR floats from captured METRIC log messages."""
+    tag = "(SQNR dB): "
+    values = []
+    for msg in messages:
+        pos = msg.find(tag)
+        if pos >= 0:
+            values.append(float(msg[pos + len(tag) :]))
+    return values
+
+
+@pytest.fixture()
+def fake_subgraphs():
+    return [
+        FakeSubgraph(input_names={"h"}, consumed_names=set())
+        for _ in range(NUM_SUBGRAPHS)
+    ]
+
+
+@pytest.fixture()
+def fake_dataloader():
+    samples = [{"h": SIGNAL} for _ in range(NUM_BATCHES)]
+    return DataLoader(samples, batch_size=1, collate_fn=lambda b: b[0])
+
+
+@pytest.fixture()
+def fake_pipeline():
+    """Set up model, session, and log capture for pipeline tests."""
+    model = torch.nn.Linear(4, 4)
+
+    session = active_session()
+    session.reset()
+    session.initialize(model=model, start=-1)
+
     messages = []
-    handler_id = logger.add(messages.append, level="METRIC", format="{message}")
-    try:
-        oneshot(
-            model=MODEL,
-            dataset="open_platypus",
-            splits=f"train[:{NUM_SAMPLES}]",
-            # W8A8 (per-channel weights) avoids a group_size divisibility
-            # error: this model's hidden_size=64 isn't divisible by W4A16's
-            # default group_size of 128
-            recipe=GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
-            num_calibration_samples=NUM_SAMPLES,
-            max_seq_length=MAX_SEQ_LENGTH,
-            pipeline="sequential",
-            log_sequential_error=log_sequential_error,
-            propagate_error=propagate_error,
-        )
-    finally:
-        logger.remove(handler_id)
+    sink = logger.add(messages.append, level="METRIC", format="{message}")
 
-    return messages
+    yield model, messages
+
+    logger.remove(sink)
+    session.finalize()
 
 
-def _parse_sqnr_lines(messages: list[str]) -> list[tuple[int, int, float]]:
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.trace_subgraphs")
+def test_enabled_propagate_true(
+    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+):
     """
-    Extract (subgraph_index, num_subgraphs, sqnr_value) from METRIC lines
-    formatted like "subgraph 2/7 | sequential error (SQNR dB): 84.91"
-    (or "... dB): inf").
+    SQNR = 10 * log10(signal_power / noise_power)
+         = 10 * log10(30 / 0.025) ≈ 30.79 dB
+
+    signal_power = 1^2 + 2^2 + 3^2 + 4^2 = 30
+    noise_power  = 0.1^2 + 0.1^2 + 0.05^2 + 0.05^2 = 0.025
     """
-    parsed = []
-    for message in messages:
-        if not message.startswith("subgraph "):
-            continue
-        tokens = message.split()
-        subgraph_index, num_subgraphs = tokens[1].split("/")
-        sqnr_value = tokens[-1]
-        parsed.append((int(subgraph_index), int(num_subgraphs), float(sqnr_value)))
-    return parsed
+    mock_trace.return_value = fake_subgraphs
+    model, messages = fake_pipeline
 
-
-def _assert_sqnr_reported_for_every_subgraph(messages: list[str]) -> None:
-    """Assert one non-NaN SQNR METRIC line per subgraph (except the last)."""
-    sqnr_lines = _parse_sqnr_lines(messages)
-    assert sqnr_lines, "Expected at least one SQNR METRIC line"
-
-    num_subgraphs = sqnr_lines[0][1]
-    reported_indices = {subgraph_index for subgraph_index, _, _ in sqnr_lines}
-    assert reported_indices == set(range(1, num_subgraphs)), (
-        f"Expected SQNR for subgraphs 1..{num_subgraphs - 1}, "
-        f"got {sorted(reported_indices)}"
+    SequentialPipeline()(
+        model,
+        fake_dataloader,
+        DatasetArguments(log_sequential_error=True, propagate_error=True),
     )
 
-    # SQNR has no lower bound (unlike KL divergence): a negative value is
-    # valid if compression noise exceeds the signal. Only NaN is a bug.
-    for subgraph_index, _, sqnr in sqnr_lines:
-        assert not math.isnan(sqnr), f"subgraph {subgraph_index} SQNR is NaN"
+    sqnr_values = _sqnr_values(messages)
+    assert len(sqnr_values) == NUM_SUBGRAPHS - 1
+    assert sqnr_values[0] == pytest.approx(EXPECTED_SQNR, abs=0.01)
 
 
-def test_log_sequential_error_reports_sqnr():
-    """
-    Enabling log_sequential_error should log one SQNR value per subgraph,
-    except the last (which has no downstream consumer to compare against).
-    """
-    messages = _run_oneshot_and_capture_metrics(log_sequential_error=True)
-    _assert_sqnr_reported_for_every_subgraph(messages)
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.trace_subgraphs")
+def test_enabled_propagate_false(
+    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+):
+    """Same SQNR as test_enabled_propagate_true, via the decoupled
+    code path (zero-copy transfer + SQNR)."""
+    mock_trace.return_value = fake_subgraphs
+    model, messages = fake_pipeline
 
-
-def test_log_sequential_error_independent_of_propagate_error():
-    """
-    Enabling log_sequential_error should not force propagate_error=True:
-    SQNR should still be reported for every subgraph even when
-    propagate_error is explicitly disabled, since error logging uses its
-    own cache rather than the shared activations cache.
-    """
-    messages = _run_oneshot_and_capture_metrics(
-        log_sequential_error=True, propagate_error=False
+    SequentialPipeline()(
+        model,
+        fake_dataloader,
+        DatasetArguments(log_sequential_error=True, propagate_error=False),
     )
-    _assert_sqnr_reported_for_every_subgraph(messages)
+
+    sqnr_values = _sqnr_values(messages)
+    assert len(sqnr_values) == NUM_SUBGRAPHS - 1
+    assert sqnr_values[0] == pytest.approx(EXPECTED_SQNR, abs=0.01)
 
 
-def test_log_sequential_error_disabled_by_default():
-    """
-    With log_sequential_error at its default (False), no SQNR METRIC lines
-    should be emitted.
-    """
-    messages = _run_oneshot_and_capture_metrics(log_sequential_error=False)
-    assert not _parse_sqnr_lines(messages), "Expected no SQNR METRIC lines"
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.trace_subgraphs")
+def test_disabled_propagate_true(
+    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+):
+    """No SQNR when disabled, propagate_error=True."""
+    mock_trace.return_value = fake_subgraphs
+    model, messages = fake_pipeline
+
+    SequentialPipeline()(
+        model,
+        fake_dataloader,
+        DatasetArguments(log_sequential_error=False, propagate_error=True),
+    )
+
+    assert _sqnr_values(messages) == []
+
+
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.trace_subgraphs")
+def test_disabled_propagate_false(
+    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+):
+    """No SQNR when disabled, propagate_error=False."""
+    mock_trace.return_value = fake_subgraphs
+    model, messages = fake_pipeline
+
+    SequentialPipeline()(
+        model,
+        fake_dataloader,
+        DatasetArguments(log_sequential_error=False, propagate_error=False),
+    )
+
+    assert _sqnr_values(messages) == []
