@@ -298,6 +298,14 @@ class DatasetArguments(CustomDatasetArguments):
             "for faster calibration when GPU memory allows (two batches on device)."
         },
     )
+    stage_weights_in_pinned_memory: bool = field(
+        default=False,
+        metadata={
+            "help": "When using the sequential pipeline, stage offloaded module "
+            "tensors in pinned CPU memory before onloading them to the execution "
+            "device. Only moves weights. Default False."
+        },
+    )
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None
