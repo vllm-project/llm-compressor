@@ -5,6 +5,7 @@ See: https://arxiv.org/abs/2510.13999
 """
 
 import json
+from collections import defaultdict
 from functools import partial
 from pathlib import Path
 from typing import Any, Optional
@@ -58,10 +59,10 @@ class REAPPruningModifier(Modifier):
     :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
     :param report_path: optional path to a ``.json`` file where the per-expert
-        saliency scores are written after calibration completes. The report is a
-        ``list[list[float]]`` (one inner list of per-expert saliency scores per
-        MoE layer, ordered by layer) serialized with ``pickle``.
-        Use ``tools/plot_reap_report.py`` to generate a saliency visualization.
+        statistics are written after calibration completes. The report is a JSON
+        object mapping ``topk_weights``, ``count``, and ``saliency`` to one inner
+        list per MoE layer (ordered by layer). Use
+        ``tools/plot_reap_report.py`` to generate a saliency visualization.
     :param prune: whether to structurally prune the model. When ``False`` the
         model weights and config are never modified; saliency is still computed
         so that a ``report_path`` can be written. At least one of ``report_path``
@@ -75,7 +76,7 @@ class REAPPruningModifier(Modifier):
 
     requires_calibration_data: bool = True
 
-    sparsity: float
+    sparsity: float = 0.0
     ignore: list[str] = Field(default_factory=list)
     report_path: Optional[str] = Field(default=None)
     prune: bool = Field(default=True)
@@ -90,11 +91,11 @@ class REAPPruningModifier(Modifier):
         default_factory=dict
     )
     _cpu_pg: Any = PrivateAttr(default=None)
-    _report: dict = PrivateAttr(default_factory=dict)
+    _report: dict = PrivateAttr(default_factory=lambda: defaultdict(dict))
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
-        if not 0.0 < self.sparsity < 1.0:
+        if self.prune and not 0.0 < self.sparsity < 1.0:
             raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
         return self
 
@@ -253,8 +254,8 @@ class REAPPruningModifier(Modifier):
                 ]
                 for key in ("topk_weights", "count", "saliency")
             }
-            with open(self.report_path, "wb") as file:
-                json.dump(report)
+            with open(self.report_path, "w") as file:
+                json.dump(report, file)
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()

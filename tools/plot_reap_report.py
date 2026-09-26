@@ -1,29 +1,36 @@
-"""Plot a REAP expert-saliency report (`.pkl`) as a heatmap.
+"""Plot a REAP expert-saliency report (`.json`) as a heatmap.
 
-The report is a `list[list[float]]`: the first dimension is the layer index
-and the second is the per-expert saliency value. Each row of the heatmap is a
-layer (lowest index at the top), and the columns within a row are that layer's
-experts sorted by saliency (highest on the left, lowest on the right).
+The report is a JSON object whose values are lists of per-MoE-layer lists (one
+inner list per layer, ordered by layer). The per-expert fields available for
+plotting are:
+
+- ``saliency``: REAP saliency ``S_j = mean(g_j * ||f_j||_2)`` per expert
+- ``count``: number of tokens routed to each expert
+
+Each row of the heatmap is a layer (lowest index at the top), and the columns
+within a row are that layer's experts sorted by the chosen metric (highest on
+the left, lowest on the right).
 
 Usage::
 
-    python plot_reap_report.py report.pkl
-    python plot_reap_report.py report.pkl -o saliency.png
+    python plot_reap_report.py report.json
+    python plot_reap_report.py report.json --metric count -o count.png
 """
 
 import argparse
-import pickle
+import json
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
 
-def load_report(path: Path) -> list[list[float]]:
-    with open(path, "rb") as f:
-        return pickle.load(f)
+def load_report(path: Path) -> dict:
+    with open(path) as f:
+        return json.load(f)
 
 
 def kurtosis(values: np.ndarray) -> float:
@@ -36,13 +43,14 @@ def kurtosis(values: np.ndarray) -> float:
 
 
 def plot_heatmap(
-    report: list[list[float]],
+    rows: list[list[float]],
     title: str,
     out_path: Path,
+    metric: str,
     layerwise_norm: bool = False,
 ) -> None:
-    # Sort each layer's experts by saliency, highest (left) to lowest (right).
-    matrix = np.array([sorted(row, reverse=True) for row in report], dtype=float)
+    # Sort each layer's experts by the metric, highest (left) to lowest (right).
+    matrix = np.array([sorted(row, reverse=True) for row in rows], dtype=float)
 
     # Kurtosis is computed on the raw per-layer values (before normalization);
     # it is scale-invariant, so normalizing would not change it.
@@ -55,14 +63,14 @@ def plot_heatmap(
             matrix, row_max, out=np.zeros_like(matrix), where=row_max != 0
         )
 
-    fig, ax = plt.subplots(figsize=(10, 0.4 * len(report) + 2))
+    fig, ax = plt.subplots(figsize=(10, 0.4 * len(rows) + 2))
     cax = ax.imshow(matrix, aspect="auto", cmap="inferno", interpolation="nearest")
 
     if layerwise_norm:
         ax.set_title(title + "\nnormalized per layer (value / layer max)")
     else:
         ax.set_title(title)
-    ax.set_xlabel("Expert rank by saliency (high -> low)")
+    ax.set_xlabel(f"Expert rank by {metric} (high -> low)")
     ax.set_ylabel("Layer")
     ax.set_xticks(range(matrix.shape[1]))
     ax.set_xticklabels(range(1, matrix.shape[1] + 1))
@@ -89,10 +97,14 @@ def plot_heatmap(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Plot a REAP saliency report as a heatmap"
+    parser = argparse.ArgumentParser(description="Plot a REAP report as a heatmap")
+    parser.add_argument("report", type=Path, help="Path to the .json REAP report")
+    parser.add_argument(
+        "--metric",
+        choices=("saliency", "count"),
+        default="saliency",
+        help="Per-expert field to plot (default: saliency)",
     )
-    parser.add_argument("report", type=Path, help="Path to the .pkl REAP report")
     parser.add_argument(
         "-o",
         "--output",
@@ -103,14 +115,26 @@ def main() -> None:
     parser.add_argument(
         "--layerwise-norm",
         action="store_true",
-        help="Divide each saliency value by the highest value in its layer",
+        help="Divide each value by the highest value in its layer",
     )
     args = parser.parse_args()
 
     report = load_report(args.report)
+    if args.metric not in report:
+        raise SystemExit(
+            f"Report {args.report} has no '{args.metric}' field; "
+            f"available: {', '.join(sorted(report))}"
+        )
+    rows = report[args.metric]
     out_path = args.output or args.report.with_suffix(".png")
-    title = f"{args.report.stem} REAP Saliency"
-    plot_heatmap(report, title, out_path, layerwise_norm=args.layerwise_norm)
+    title = f"{args.report.stem} REAP {args.metric}"
+    plot_heatmap(
+        rows,
+        title,
+        out_path,
+        metric=args.metric,
+        layerwise_norm=args.layerwise_norm,
+    )
 
 
 if __name__ == "__main__":
