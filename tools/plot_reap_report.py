@@ -6,6 +6,8 @@ plotting are:
 
 - ``saliency``: REAP saliency ``S_j = mean(g_j * ||f_j||_2)`` per expert
 - ``count``: number of tokens routed to each expert
+- ``layerwise``: ``saliency`` normalized by each layer's maximum value, with a
+  per-layer excess-kurtosis label at the right of each row
 
 Each row of the heatmap is a layer (lowest index at the top), and the columns
 within a row are that layer's experts sorted by the chosen metric (highest on
@@ -15,6 +17,7 @@ Usage::
 
     python plot_reap_report.py report.json
     python plot_reap_report.py report.json --metric count -o count.png
+    python plot_reap_report.py report.json --metric layerwise -o layerwise.png
 """
 
 import argparse
@@ -47,8 +50,9 @@ def plot_heatmap(
     title: str,
     out_path: Path,
     metric: str,
-    layerwise_norm: bool = False,
 ) -> None:
+    layerwise_norm = metric == "layerwise"
+
     # Sort each layer's experts by the metric, highest (left) to lowest (right).
     matrix = np.array([sorted(row, reverse=True) for row in rows], dtype=float)
 
@@ -101,9 +105,12 @@ def main() -> None:
     parser.add_argument("report", type=Path, help="Path to the .json REAP report")
     parser.add_argument(
         "--metric",
-        choices=("saliency", "count"),
+        choices=("saliency", "count", "layerwise"),
         default="saliency",
-        help="Per-expert field to plot (default: saliency)",
+        help=(
+            "Per-expert field to plot; 'layerwise' is saliency normalized "
+            "by each layer's maximum (default: saliency)"
+        ),
     )
     parser.add_argument(
         "-o",
@@ -112,29 +119,18 @@ def main() -> None:
         default=None,
         help="Output image path (default: <report>.png)",
     )
-    parser.add_argument(
-        "--layerwise-norm",
-        action="store_true",
-        help="Divide each value by the highest value in its layer",
-    )
     args = parser.parse_args()
 
     report = load_report(args.report)
-    if args.metric not in report:
+    if args.metric != "layerwise" and args.metric not in report:
         raise SystemExit(
             f"Report {args.report} has no '{args.metric}' field; "
             f"available: {', '.join(sorted(report))}"
         )
-    rows = report[args.metric]
+    rows = report["saliency"] if args.metric == "layerwise" else report[args.metric]
     out_path = args.output or args.report.with_suffix(".png")
     title = f"{args.report.stem} REAP {args.metric}"
-    plot_heatmap(
-        rows,
-        title,
-        out_path,
-        metric=args.metric,
-        layerwise_norm=args.layerwise_norm,
-    )
+    plot_heatmap(rows, title, out_path, metric=args.metric)
 
 
 if __name__ == "__main__":
