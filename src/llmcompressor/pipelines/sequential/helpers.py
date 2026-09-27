@@ -20,7 +20,10 @@ from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
-from llmcompressor.utils.helpers import calibration_forward_context
+from llmcompressor.utils.helpers import (
+    calibration_forward_context,
+    use_traceable_attention,
+)
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 
@@ -117,7 +120,8 @@ def trace_subgraphs(
         stack.enter_context(HooksMixin.disable_hooks())
 
         # flags useful for tracing
-        # note: eager attention is forced by `calibration_forward_context`
+        # note: eager attention masks are forced by `calibration_forward_context`
+        stack.enter_context(use_traceable_attention(model))
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
 
         # autowrap forwards

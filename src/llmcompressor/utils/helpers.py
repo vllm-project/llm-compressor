@@ -9,10 +9,15 @@ import re
 from typing import Any
 
 import torch
+from compressed_tensors.modeling.attention import (
+    HOOKED_ATTENTION_NAME,
+    QuantizedAttentionImpl,
+)
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import PreTrainedModel
+from transformers.masking_utils import ALL_MASK_ATTENTION_FUNCTIONS, eager_mask
 
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils import get_embeddings
@@ -132,7 +137,7 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
     - Disable lm head (input and weights can still be calibrated, output will be meta)
-    - Force eager attention (see `use_eager_attention`)
+    - Force eager attention masks (see `use_eager_attention_mask`)
     """
     with contextlib.ExitStack() as stack:
         stack.enter_context(torch.no_grad())
@@ -140,26 +145,82 @@ def calibration_forward_context(model: torch.nn.Module):
         stack.enter_context(eval_context(model))
         stack.enter_context(disable_hf_kernels(model))
         stack.enter_context(disable_lm_head(model))
-        stack.enter_context(use_eager_attention(model))
+        stack.enter_context(use_eager_attention_mask(model))
         yield
 
 
 @contextlib.contextmanager
-def use_eager_attention(model: torch.nn.Module):
+def use_eager_attention_mask(model: torch.nn.Module):
     """
-    Temporarily force eager attention for the duration of calibration.
+    Temporarily force eager attention masks for the duration of calibration.
 
-    The sequential pipeline traces subgraphs under eager attention, which bakes an
+    The sequential pipeline traces subgraphs under this context, which bakes an
     unconditional causal-mask add into the traced graph. Runtime calibration must match
     so that ``create_causal_mask`` uses the eager path and always returns a mask tensor;
     otherwise (e.g. sdpa) it returns ``None`` for unpadded batches and the baked-in add
     fails. This matters when samples are not padded to a fixed length.
+
+    Only the mask function is replaced. The model's attention implementation is
+    unchanged, so that hooked attention implementations (such as the one which
+    calibrates query quantization and applies online query transforms) are not
+    bypassed, so that efficient kernels such as sdpa can still be used, and so that
+    model code which depends on the attention implementation behaves as it does at
+    runtime.
     """
-    if isinstance(model, PreTrainedModel):
+    if not isinstance(model, PreTrainedModel):
+        yield
+        return
+
+    impl = model.config._attn_implementation
+    if impl == HOOKED_ATTENTION_NAME:
+        kernel = QuantizedAttentionImpl._original_impl
+    else:
+        kernel = impl
+
+    # the attention kernel must accept the 4D additive mask produced by `eager_mask`
+    if kernel != "sdpa":
+        # other kernels (e.g. flash attention) may not support 4D masks
+        if impl == HOOKED_ATTENTION_NAME:
+            logger.warning(
+                f"Calibrating with `{kernel}` attention is not supported, falling back "
+                "to eager attention. Attention quantization and online query "
+                "transforms will not be calibrated. Please load the model with "
+                "`attn_implementation='sdpa'`"
+            )
         with patch_attr(model.config, "_attn_implementation", "eager"):
             yield
-    else:
+        return
+
+    if ALL_MASK_ATTENTION_FUNCTIONS[impl] is eager_mask:
+        # already within a calibration context
         yield
+        return
+
+    # local override of the mask function, which is removed upon exit
+    ALL_MASK_ATTENTION_FUNCTIONS[impl] = eager_mask
+    try:
+        yield
+    finally:
+        del ALL_MASK_ATTENTION_FUNCTIONS[impl]
+
+
+@contextlib.contextmanager
+def use_traceable_attention(model: torch.nn.Module):
+    """
+    Temporarily use an attention implementation which can be traced, for the duration
+    of subgraph tracing.
+
+    Attention modules are traced when they are ancestors of sequential targets (e.g.
+    `sequential_targets=["Linear"]`). The sdpa attention function contains control flow
+    which cannot be traced, so eager attention is used instead. Hooked attention can be
+    traced as-is, since it calls its implementation as a leaf module.
+    """
+    impl = getattr(getattr(model, "config", None), "_attn_implementation", None)
+    if impl is None or impl == HOOKED_ATTENTION_NAME:
+        yield
+    else:
+        with patch_attr(model.config, "_attn_implementation", "eager"):
+            yield
 
 
 @contextlib.contextmanager

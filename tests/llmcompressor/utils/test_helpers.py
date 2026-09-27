@@ -1,9 +1,18 @@
 import pytest
 import torch
+from compressed_tensors.modeling.attention import (
+    IMPL_ATTR,
+    initialize_hooked_attention,
+)
 from compressed_tensors.offload import dispatch_model, set_onload_device
 from transformers import (
     AutoModelForCausalLM,
     MllamaForConditionalGeneration,
+)
+from transformers.masking_utils import (
+    ALL_MASK_ATTENTION_FUNCTIONS,
+    create_causal_mask,
+    eager_mask,
 )
 
 from llmcompressor.utils import (
@@ -41,6 +50,64 @@ def test_calibration_forward_context():
     assert model.config.use_cache
     assert model.training
     assert model.lm_head.forward.__name__ == "forward"
+
+
+@pytest.mark.unit
+def test_calibration_forward_context_attention_mask():
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
+    model.config._attn_implementation = "sdpa"
+    original_mask = ALL_MASK_ATTENTION_FUNCTIONS["sdpa"]
+    inputs_embeds = torch.zeros(1, 4, model.config.hidden_size)
+
+    def causal_mask():
+        return create_causal_mask(
+            config=model.config,
+            inputs_embeds=inputs_embeds,
+            attention_mask=torch.ones(1, 4, dtype=torch.long),
+            past_key_values=None,
+            position_ids=torch.arange(4).unsqueeze(0),
+        )
+
+    # sdpa skips the mask for unpadded inputs
+    assert causal_mask() is None
+
+    with calibration_forward_context(model):
+        # the attention implementation is unchanged, only the mask function
+        assert model.config._attn_implementation == "sdpa"
+        assert ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] is eager_mask
+        assert isinstance(causal_mask(), torch.Tensor)
+
+        # nested contexts (e.g. AWQ within the sequential pipeline) are no-ops
+        with calibration_forward_context(model):
+            assert ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] is eager_mask
+        assert ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] is eager_mask
+
+    assert model.config._attn_implementation == "sdpa"
+    assert ALL_MASK_ATTENTION_FUNCTIONS["sdpa"] is original_mask
+    assert causal_mask() is None
+
+
+@pytest.mark.unit
+def test_calibration_forward_context_hooked_attention():
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
+    # the hooked attention implementation calibrates query quantization and applies
+    # online query transforms, so it must not be bypassed during calibration
+    calls = 0
+
+    def hook(*_):
+        nonlocal calls
+        calls += 1
+
+    for layer in model.model.layers:
+        initialize_hooked_attention(model, layer.self_attn)
+        getattr(layer.self_attn, IMPL_ATTR).register_forward_pre_hook(hook)
+
+    with calibration_forward_context(model):
+        model(**model.dummy_inputs)
+
+    assert calls == len(model.model.layers)
 
 
 @requires_gpu
