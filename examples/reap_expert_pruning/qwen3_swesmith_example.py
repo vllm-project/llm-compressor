@@ -16,13 +16,16 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 
 # Prune 25% of the experts in each MoE layer, based on saliency.
 # You can adjust this value to prune more or less aggressively.
-recipe = REAPPruningModifier(prune=False, report_path="qwen3_report.json")
+recipe = REAPPruningModifier(prune=False, report_path="qwen3_swesmith_report.json")
 
 # Apply algorithms.
+# "swe_smith" calibrates on SWE-agent trajectories from
+# SWE-bench/SWE-smith-trajectories. The "tool" split renders the agent's reasoning
+# as thinking content and its actions as tool calls using the model's chat template
 oneshot(
     model=model,
-    dataset="perfectblend",
-    splits="train[:1024]",
+    dataset="swe_smith",
+    splits="tool[:1024]",
     recipe=recipe,
     max_seq_length=2048,
     num_calibration_samples=1024,
