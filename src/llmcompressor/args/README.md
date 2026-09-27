@@ -34,7 +34,9 @@ These input arguments can be overloaded into the function signature and will be 
 Handles model loading and saving. For example, `ModelArguments.model` can be a Hugging Face model identifier or an instance of `AutoModelForCausalLM`. The `save_compressed` flag is a boolean that determines whether the model is saved in compressed safetensors format to minimize disk usage.
 
 ## DataArguments
-Manages data loading and preprocessing. The dataset argument can specify a Hugging Face dataset stub or a local dataset compatible with [`load_dataset`](https://github.com/huggingface/datasets/blob/3a4e74a9ace62ecd5c9cde7dcb6bcabd65cc7857/src/datasets/load.py#L1905). The preprocessing_func is a callable function that applies custom logic, such as formatting the data using a chat template.
+Manages data loading and preprocessing. The dataset argument can specify a Hugging Face dataset stub or a local dataset compatible with [`load_dataset`](https://github.com/huggingface/datasets/blob/3a4e74a9ace62ecd5c9cde7dcb6bcabd65cc7857/src/datasets/load.py#L1905).
+
+`preprocessing_func` is deprecated and will be removed in a future release. For custom formatting or tokenization, process the dataset before passing it to `oneshot()`. See the [custom dataset example](../../../examples/custom_dataset_example.py) for a complete calibration workflow.
 
 ## RecipeArguments
 Defines the model recipe. A `recipe` consists of user-defined instructions for optimizing the model. Examples of recipes can be found in the `/examples` directory.
