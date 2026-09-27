@@ -5,7 +5,10 @@ import torch
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.entrypoints.convert.convert_checkpoint import convert_checkpoint
 from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
-from compressed_tensors.utils.safetensors_load import get_checkpoint_files
+from compressed_tensors.utils.safetensors_load import (
+    get_checkpoint_files,
+    get_weight_map,
+)
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
 from llmcompressor.entrypoints.model_free.validate import (
@@ -57,7 +60,8 @@ def model_free_ptq(
     config = validate_config(config, scheme, ignore)
     validate_safetensors_index(model_files, config)
 
-    mfptq = ModelFreePtqConverter(config)
+    weight_map = get_weight_map(model_files)
+    mfptq = ModelFreePtqConverter(config, weight_names=weight_map.keys())
     converters = ([converter] if converter is not None else []) + [mfptq]
 
     convert_checkpoint(

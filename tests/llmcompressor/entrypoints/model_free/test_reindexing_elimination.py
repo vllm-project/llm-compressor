@@ -42,8 +42,13 @@ def mfptq():
     return ModelFreePtqConverter(config=_make_nvfp4_config())
 
 
+def _mfptq_for(weight_map):
+    """Converter that resolves fused weights against the given checkpoint"""
+    return ModelFreePtqConverter(config=_make_nvfp4_config(), weight_names=weight_map)
+
+
 class TestBuildInverseWeightMaps:
-    def test_single_file(self, tmp_path, mfptq):
+    def test_single_file(self, tmp_path):
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
             "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
@@ -56,7 +61,7 @@ class TestBuildInverseWeightMaps:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [mfptq]
+            weight_map, model_files, [_mfptq_for(weight_map)]
         )
         inverse_weight_maps["shard-00001.safetensors"][
             str(tmp_path / "shard-00001.safetensors")
@@ -74,18 +79,44 @@ class TestBuildInverseWeightMaps:
             }
         }
 
-    def test_missing_dependency(self, tmp_path, mfptq):
+    def test_optional_partner_missing(self, tmp_path):
+        """
+        Gemma 4 `attention_k_eq_v` layers have q_proj and k_proj but no v_proj.
+        q_proj should load only the partners that exist in the checkpoint
+        """
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
-            "model.layers.0.self_attn.k_proj.weight": "shard-00001.safetensors",
+            "model.layers.0.self_attn.k_proj.weight": "shard-00002.safetensors",
+        }
+        model_files = {
+            "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
+            "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
+        }
+        inverse_weight_maps = build_inverse_weight_maps(
+            weight_map, model_files, [_mfptq_for(weight_map)]
+        )
+        assert inverse_weight_maps == {
+            "shard-00001.safetensors": {
+                str(tmp_path / "shard-00001.safetensors"): [
+                    "model.layers.0.self_attn.q_proj.weight"
+                ],
+                str(tmp_path / "shard-00002.safetensors"): [
+                    "model.layers.0.self_attn.k_proj.weight"
+                ],
+            }
+        }
+
+    def test_requires_weight_names(self, tmp_path, mfptq):
+        weight_map = {
+            "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
         }
         model_files = {
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="weight_names"):
             build_inverse_weight_maps(weight_map, model_files, [mfptq])
 
-    def test_invalid_weight_map(self, tmp_path, mfptq):
+    def test_invalid_weight_map(self, tmp_path):
         weight_map = {
             "tensor.a": "shard-00001.safetensors",
             "tensor.b": "shard-00002.safetensors",
@@ -94,9 +125,9 @@ class TestBuildInverseWeightMaps:
             "shard-00001.safetensors": str(tmp_path / "shard-00001.safetensors"),
         }
         with pytest.raises(KeyError):
-            build_inverse_weight_maps(weight_map, model_files, [mfptq])
+            build_inverse_weight_maps(weight_map, model_files, [_mfptq_for(weight_map)])
 
-    def test_all_colocated(self, tmp_path, mfptq):
+    def test_all_colocated(self, tmp_path):
         """All fused weights in same shard — no cross-shard fetching needed."""
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
@@ -111,7 +142,7 @@ class TestBuildInverseWeightMaps:
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [mfptq]
+            weight_map, model_files, [_mfptq_for(weight_map)]
         )
         assert set(
             inverse_weight_maps["shard-00001.safetensors"][
@@ -132,7 +163,7 @@ class TestBuildInverseWeightMaps:
             "model.layers.1.self_attn.v_proj.weight",
         }
 
-    def test_cross_shard_partners_found(self, tmp_path, mfptq):
+    def test_cross_shard_partners_found(self, tmp_path):
         """q_proj on shard1, k/v on shard2 — shard1 should fetch from shard2."""
         weight_map = {
             "model.layers.0.self_attn.q_proj.weight": "shard-00001.safetensors",
@@ -147,7 +178,7 @@ class TestBuildInverseWeightMaps:
             "shard-00002.safetensors": str(tmp_path / "shard-00002.safetensors"),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [mfptq]
+            weight_map, model_files, [_mfptq_for(weight_map)]
         )
         assert set(
             inverse_weight_maps["shard-00001.safetensors"][
@@ -207,7 +238,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
     """Tests for cross-shard fused weights using precomputed inverse_weight_map."""
 
     @pytest.fixture
-    def split_shards(self, tmp_path, mfptq):
+    def split_shards(self, tmp_path):
         """q_proj on shard-1, k_proj + v_proj + down_proj on shard-2."""
         shard1_tensors = {
             "model.layers.0.self_attn.q_proj.weight": _rand_weight(32, 32),
@@ -233,7 +264,7 @@ class TestProcessFileMicroscaleSchemeCrossShardInverseMap:
             "shard-00002.safetensors": str(shard2_path),
         }
         inverse_weight_maps = build_inverse_weight_maps(
-            weight_map, model_files, [mfptq]
+            weight_map, model_files, [_mfptq_for(weight_map)]
         )
         return (
             shard1_path,
