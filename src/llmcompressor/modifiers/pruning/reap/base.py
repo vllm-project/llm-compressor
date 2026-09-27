@@ -4,7 +4,8 @@ REAP (Router-weighted Expert Activation Pruning) modifier for MoE models.
 See: https://arxiv.org/abs/2510.13999
 """
 
-import pickle
+import json
+from collections import defaultdict
 from functools import partial
 from pathlib import Path
 from typing import Any, Optional
@@ -57,10 +58,11 @@ class REAPPruningModifier(Modifier):
 
     :param sparsity: fraction of experts to remove per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
-    :param report_path: optional path to a ``.pkl`` file where the per-expert
-        saliency scores are written after calibration completes. The report is a
-        ``list[list[float]]`` (one inner list of per-expert saliency scores per
-        MoE layer, ordered by layer) serialized with ``pickle``.
+    :param report_path: optional path to a ``.json`` file where the per-expert
+        statistics are written after calibration completes. The report is a JSON
+        object mapping ``topk_weights``, ``count``, and ``saliency`` to one inner
+        list per MoE layer (ordered by layer). Use
+        ``tools/plot_reap_report.py`` to generate a saliency visualization.
     :param prune: whether to structurally prune the model. When ``False`` the
         model weights and config are never modified; saliency is still computed
         so that a ``report_path`` can be written. At least one of ``report_path``
@@ -74,7 +76,7 @@ class REAPPruningModifier(Modifier):
 
     requires_calibration_data: bool = True
 
-    sparsity: float
+    sparsity: float = 0.0
     ignore: list[str] = Field(default_factory=list)
     report_path: Optional[str] = Field(default=None)
     prune: bool = Field(default=True)
@@ -89,20 +91,20 @@ class REAPPruningModifier(Modifier):
         default_factory=dict
     )
     _cpu_pg: Any = PrivateAttr(default=None)
-    _saliency_report: dict[str, list[float]] = PrivateAttr(default_factory=dict)
+    _report: dict = PrivateAttr(default_factory=lambda: defaultdict(dict))
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
-        if not 0.0 < self.sparsity < 1.0:
+        if self.prune and not 0.0 < self.sparsity < 1.0:
             raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
         return self
 
     @model_validator(mode="after")
     def _validate_report_path(self) -> "REAPPruningModifier":
         if self.report_path is not None:
-            if not self.report_path.endswith(".pkl"):
+            if not self.report_path.endswith(".json"):
                 raise ValueError(
-                    f"report_path must end with .pkl, got {self.report_path}"
+                    f"report_path must end with .json, got {self.report_path}"
                 )
             Path(self.report_path).parent.mkdir(parents=True, exist_ok=True)
         return self
@@ -122,7 +124,7 @@ class REAPPruningModifier(Modifier):
         self._moe_attrs = get_moe_attrs(model, self.ignore)
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
-        if self._n_experts_to_drop == 0:
+        if self.prune and self._n_experts_to_drop == 0:
             raise ValueError(
                 f"sparsity={self.sparsity} results in 0 "
                 f"experts to drop (out of {self._moe_attrs.num_experts}). "
@@ -152,7 +154,7 @@ class REAPPruningModifier(Modifier):
         else:
             available = self._moe_attrs.num_experts - self._n_experts_to_drop
 
-        if self._moe_attrs.top_k > available:
+        if self.prune and self._moe_attrs.top_k > available:
             raise ValueError(
                 f"REAP sparsity is too aggressive: the router selects "
                 f"top_k={self._moe_attrs.top_k} experts per token, "
@@ -166,7 +168,7 @@ class REAPPruningModifier(Modifier):
             f"{self._moe_attrs.num_experts} experts/layer, will drop "
             f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
         )
-        if self._n_experts_to_drop_per_group is not None:
+        if self.prune and self._n_experts_to_drop_per_group is not None:
             logger.info(
                 f"Group-limited router detected: will drop "
                 f"{self._n_experts_to_drop_per_group} experts/group "
@@ -245,13 +247,15 @@ class REAPPruningModifier(Modifier):
             update_model_config(model, self._moe_attrs, new_num_experts)
 
         if self.report_path is not None and is_source_process():
-            report: list[list[float]] = [
-                self._saliency_report[layer_name]
-                for layer_name in self._moe_attrs.moe_layer_names
-                if layer_name in self._saliency_report
-            ]
-            with open(self.report_path, "wb") as f:
-                pickle.dump(report, f)
+            report = {
+                key: [
+                    self._report[layer_name][key]
+                    for layer_name in self._moe_attrs.moe_layer_names
+                ]
+                for key in ("topk_weights", "count", "saliency")
+            }
+            with open(self.report_path, "w") as file:
+                json.dump(report, file)
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
@@ -286,7 +290,9 @@ class REAPPruningModifier(Modifier):
             # record per-expert saliency for the report (source rank holds the
             # globally reduced statistics)
             if is_source_process():
-                self._saliency_report[layer_name] = tracker.mean_saliency.tolist()
+                self._report[layer_name]["count"] = tracker.count.tolist()
+                self._report[layer_name]["topk_weights"] = tracker.topk_weights.tolist()
+                self._report[layer_name]["saliency"] = tracker.mean_saliency.tolist()
 
             if self.prune:
                 if is_source_process():
