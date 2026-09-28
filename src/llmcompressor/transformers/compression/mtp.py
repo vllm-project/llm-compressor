@@ -6,7 +6,11 @@ import re
 from collections import defaultdict
 
 import torch
-from compressed_tensors.offload import get_execution_device, set_onload_device
+from compressed_tensors.offload import (
+    disable_onloading,
+    get_execution_device,
+    set_onload_device,
+)
 from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
@@ -19,7 +23,7 @@ from huggingface_hub import HfApi, hf_hub_download
 from loguru import logger
 from safetensors import safe_open
 from safetensors.torch import save_file
-from transformers import PreTrainedModel
+from transformers import AutoConfig, PreTrainedModel
 
 from llmcompressor.modeling.moe.conversion_mappings import (
     get_linearize_load_mappings,
@@ -32,6 +36,106 @@ FALLBACK_EXAMPLE = "examples/model_free_ptq/mtp_fp8_fallback.py"
 
 def targets_mtp(targets: set[str]) -> bool:
     return any("mtp" in target.lower() for target in targets)
+
+
+@disable_onloading()
+def is_dequantized_glm53(model: PreTrainedModel) -> bool:
+    """Recognize a GLM-5.3 backbone explicitly dequantized by Transformers."""
+    dense_dtypes = (torch.float16, torch.bfloat16, torch.float32)
+    return (
+        model.config.model_type == "glm_moe_dsa"
+        and getattr(model, "is_quantized", None) is False
+        and getattr(model, "hf_quantizer", None) is None
+        and getattr(model.config, "quantization_config", None) is None
+        and all(p.dtype in dense_dtypes for p in model.parameters())
+        and not any(
+            name.endswith("weight_scale_inv") for name, _ in model.named_buffers()
+        )
+    )
+
+
+@torch.no_grad()
+def _dequantize_glm53_mtp(model: PreTrainedModel, mtp: torch.nn.Module) -> None:
+    """Apply source block scales which MtpModel currently leaves unloaded."""
+    from compressed_tensors.entrypoints.convert import FP8BlockDequantizer
+    from transformers.core_model_loading import WeightRenaming, rename_source_key
+
+    config = AutoConfig.from_pretrained(
+        model.name_or_path, revision=getattr(model.config, "_commit_hash", None)
+    )
+    quant = getattr(config, "quantization_config", None) or {}
+    if quant.get("quant_method") != "fp8":
+        return
+    block = quant.get("weight_block_size") or (128, 128)
+    if (
+        not isinstance(block, (list, tuple))
+        or len(block) != 2
+        or any(
+            not isinstance(size, int) or isinstance(size, bool) or size <= 0
+            for size in block
+        )
+    ):
+        raise ValueError("GLM-5.3 FP8 weight_block_size needs two positive integers")
+
+    weights, _ = _mtp_weights(model)
+    fp8_weights = {
+        name
+        for name, (_, dtype) in weights.items()
+        if name.endswith(".weight") and dtype is not None and dtype.startswith("F8")
+    }
+    scales = {name for name in weights if name.endswith(".weight_scale_inv")}
+    if scales != {
+        name.removesuffix(".weight") + ".weight_scale_inv" for name in fp8_weights
+    }:
+        raise ValueError(
+            "GLM-5.3 MTP FP8 weights require matching weight_scale_inv tensors"
+        )
+    by_shard = defaultdict(list)
+    for name in scales:
+        by_shard[weights[name][0]].append(name)
+    renamings = [c for c in mtp._weight_conversions if isinstance(c, WeightRenaming)]
+    if len(renamings) != len(mtp._weight_conversions):
+        raise ValueError(
+            "Load GLM-5.3 with load_context() before quantizing its MTP layer"
+        )
+    state = mtp.state_dict()
+    for shard, names in by_shard.items():
+        path = (
+            shard
+            if os.path.isdir(model.name_or_path)
+            else hf_hub_download(
+                model.name_or_path,
+                shard,
+                revision=getattr(model.config, "_commit_hash", None),
+            )
+        )
+        with safe_open(path, framework="pt") as handle:
+            for scale_name in names:
+                name = scale_name.removesuffix("_scale_inv")
+                target, _ = rename_source_key(
+                    name, renamings, [], mtp.base_model_prefix, state
+                )
+                weight = mtp.get_parameter(target)
+                scale = handle.get_tensor(scale_name)
+                expected = tuple(
+                    (dim + size - 1) // size for dim, size in zip(weight.shape, block)
+                )
+                if (
+                    weight.ndim != 2
+                    or tuple(scale.shape) != expected
+                    or not (torch.isfinite(scale).all() and (scale > 0).all())
+                ):
+                    raise ValueError(
+                        f"Invalid GLM-5.3 MTP FP8 block scales: {scale_name}"
+                    )
+                # Casting FP8 to the model's dense dtype is exact. Read only the
+                # missing scales again, and reuse the already loaded weights.
+                tensors = FP8BlockDequantizer(
+                    targets=[name.removesuffix(".weight")],
+                    weight_block_size=tuple(block),
+                    dtype=weight.dtype,
+                ).validate({name: weight, scale_name: scale})
+                weight.copy_(tensors[name])
 
 
 def _mtp_patterns(model: PreTrainedModel) -> list[str]:
@@ -178,6 +282,11 @@ def load_mtp_model(model: PreTrainedModel) -> None:
     )
 
     model_type = model.config.model_type
+    if model_type == "glm_moe_dsa":
+        config = model.config
+        config.num_mtp_layers = config.num_nextn_predict_layers
+        config.mtp_layer_types = ["deepseek_sparse_attention"] * config.num_mtp_layers
+        config.mtp_mlp_layer_types = ["sparse"] * config.num_mtp_layers
     patch_experts = has_linearize_load_mappings(model_type)
     if patch_experts:
         experts_cls, _, _ = get_linearize_load_mappings(model_type)
@@ -186,7 +295,10 @@ def load_mtp_model(model: PreTrainedModel) -> None:
         )
     try:
         try:
-            model.mtp = MtpModel.from_pretrained(model)
+            mtp = MtpModel.from_pretrained(model)
+            if model_type == "glm_moe_dsa":
+                _dequantize_glm53_mtp(model, mtp)
+            model.mtp = mtp
         except RuntimeError as error:
             if "weights are missing" not in str(error):
                 raise
