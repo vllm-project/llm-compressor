@@ -365,6 +365,13 @@ class LinearExperts2D(torch.nn.ModuleList):
         return experts_cls, config
 
     def _expert_pack_mode(self) -> _ExpertPackMode:
+        """Select dense vs compressed fused packing.
+
+        Unquantized expert Linears (no ``quantization_status``) use the dense
+        fused-Parameter path. That includes recipes that never quantize, such
+        as ``REAPPruningModifier`` only. Quantized experts must be compressed
+        before repack.
+        """
         linears = [
             linear
             for expert_index in range(self.num_experts)
@@ -372,6 +379,7 @@ class LinearExperts2D(torch.nn.ModuleList):
             if isinstance(linear, torch.nn.Linear)
         ]
         statuses = {getattr(linear, "quantization_status", None) for linear in linears}
+        # Dense / unquantized (e.g. REAP-only): restore native fused Parameters.
         if not linears or statuses == {None}:
             return _ExpertPackMode.DENSE
         if QuantizationStatus.COMPRESSED in statuses and statuses <= {

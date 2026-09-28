@@ -165,8 +165,9 @@ def repack_moe(model: PreTrainedModel) -> PreTrainedModel:
     Explicitly pack linearized :class:`LinearExperts2D` modules back into native
     fused 3D expert modules.
 
-    Call this after calibration/quantization. For compressed checkpoints,
-    compress first, then repack:
+    Call this after linearization. Unquantized recipes (for example
+    ``REAPPruningModifier`` only) restore native fused Parameters. For
+    compressed checkpoints, compress first, then repack:
 
     ```python
     compressor.compress_model(model)
