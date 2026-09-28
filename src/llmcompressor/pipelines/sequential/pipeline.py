@@ -183,17 +183,16 @@ class SequentialPipeline(CalibrationPipeline):
 
             stage_executor = ThreadPoolExecutor(max_workers=1)
             stack.callback(stage_executor.shutdown, wait=True)
+            subgraph_modules = subgraphs[0].submodule_dict(model)
+            subgraph_stage_modules(
+                subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+            )
             prefetched_staging: tuple[dict[str, torch.nn.Module], Future] | None = None
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                if prefetched_staging is None:
-                    subgraph_modules = subgraph.submodule_dict(model)
-                    subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
-                    )
-                else:
+                if prefetched_staging is not None:
                     subgraph_modules, stage_future = prefetched_staging
-                    stage_future.result()  # block until staging is complete
+                    stage_future.result()
                     prefetched_staging = None
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
