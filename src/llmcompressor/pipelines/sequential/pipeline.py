@@ -155,9 +155,20 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(
+            session.state.sequential_activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
             )
+            activations = session.state.sequential_activations
+            # When propagate_error=True or log_sequential_error=True, the
+            # activations cache does NOT hold the current subgraph's outputs at
+            # sequential_epoch_end time (pass 1 defers or skips the update), so
+            # AutoRound must fall back to collect_reference in both cases.
+            session.state.sequential_propagate_error = (
+                dataset_args.propagate_error
+                or getattr(dataset_args, "log_sequential_error", False)
+            )
+            stack.callback(setattr, session.state, "sequential_activations", None)
+            stack.callback(setattr, session.state, "sequential_propagate_error", True)
 
             # prepare error-logging cache (separate from activations so that
             # log_sequential_error does not force propagate_error=True)
@@ -268,6 +279,13 @@ class SequentialPipeline(CalibrationPipeline):
 
                     if seq_error_cache is not None and has_next_subgraph:
                         seq_error_cache.update(batch_idx, outputs)
+
+                # For the last subgraph its outputs are not cached (no next
+                # layer to feed), so the cache holds stale inputs rather than
+                # outputs. Clear state so AutoRound falls back to
+                # collect_reference instead of using wrong tensors as fp_ref.
+                if not has_next_subgraph:
+                    session.state.sequential_activations = None
 
                 LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
