@@ -10,5 +10,6 @@ from .gsm8k import GSM8KDataset
 from .open_platypus import OpenPlatypusDataset
 from .peoples_speech import PeoplesSpeech
 from .perfectblend import PerfectBlendDataset
+from .swe_smith import SWESmithDataset
 from .ultrachat_200k import UltraChatDataset
 from .wikitext import WikiTextDataset
