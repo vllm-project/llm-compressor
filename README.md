@@ -16,7 +16,7 @@
   >
 </picture>
 
-[![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/)
+[![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/) [![slack](https://img.shields.io/badge/slack-llm--compressor-green)](https://inviter.co/vllm-slack) [![huggingface](https://img.shields.io/badge/huggingface-RedHatAI-red)](https://huggingface.co/RedHatAI)
 
 </div>
 
