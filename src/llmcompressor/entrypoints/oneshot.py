@@ -39,6 +39,7 @@ from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.transformers.compression.mtp import is_dequantized_glm53
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -307,6 +308,9 @@ class Oneshot:
             "main/examples/convert_checkpoint/kimi_k26_example.py"
         )
         if quant_method is None:
+            return
+
+        elif quant_method == "fp8" and is_dequantized_glm53(model):
             return
 
         elif quant_method == QUANTIZATION_METHOD:
