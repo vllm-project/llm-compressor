@@ -41,4 +41,5 @@ recipe = QuantizationModifier(
     ],
 )
 oneshot(model=model, recipe=recipe, output_dir=SAVE_DIR)
-torch.distributed.destroy_process_group()
+if torch.distributed.is_initialized():
+    torch.distributed.destroy_process_group()
