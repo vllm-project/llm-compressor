@@ -53,5 +53,5 @@ def test_submit_subgraph_staging_skips_shared_modules(monkeypatch):
     assert calls == []
 
 
-def test_module_prefetch_is_disabled_by_default():
-    assert DatasetArguments().sequential_module_prefetch is False
+def test_activation_prefetch_is_disabled_by_default():
+    assert DatasetArguments().sequential_activation_prefetch is False

@@ -190,12 +190,9 @@ class SequentialPipeline(CalibrationPipeline):
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
-            module_prefetch = getattr(dataset_args, "sequential_module_prefetch", False)
-            stage_executor = (
-                ThreadPoolExecutor(max_workers=1) if module_prefetch else None
-            )
-            if stage_executor is not None:
-                stack.callback(stage_executor.shutdown, wait=True)
+
+            stage_executor = ThreadPoolExecutor(max_workers=1)
+            stack.callback(stage_executor.shutdown, wait=True)
             prefetched_staging: tuple[dict[str, torch.nn.Module], Future] | None = None
 
             for subgraph_index, subgraph in enumerate(subgraphs):
@@ -223,7 +220,7 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
-                if stage_executor is not None and subgraph_index + 1 < num_subgraphs:
+                if subgraph_index + 1 < num_subgraphs:
                     next_subgraph_modules = subgraphs[
                         subgraph_index + 1
                     ].submodule_dict(model)
