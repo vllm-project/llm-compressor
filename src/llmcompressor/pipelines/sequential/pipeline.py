@@ -22,7 +22,6 @@ from llmcompressor.pipelines.sequential.error_logging import (
     process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
-    Subgraph,
     find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
@@ -53,40 +52,6 @@ def _submit_subgraph_staging(
         pin_memory=pin_memory,
     )
     return modules, future
-
-
-def _iter_staged_subgraphs(
-    model: torch.nn.Module,
-    subgraphs: list[Subgraph],
-    executor: ThreadPoolExecutor,
-    pin_memory: bool,
-) -> Iterator[tuple[int, Subgraph, dict[str, torch.nn.Module]]]:
-    """Yield subgraphs after staging their modules with one-step lookahead."""
-    subgraph_modules = subgraphs[0].submodule_dict(model)
-    subgraph_stage_modules(subgraph_modules, pin_memory=pin_memory)
-
-    for subgraph_index, subgraph in enumerate(subgraphs):
-        next_subgraph_modules = None
-        prefetched_staging = None
-        if subgraph_index + 1 < len(subgraphs):
-            next_subgraph_modules = subgraphs[subgraph_index + 1].submodule_dict(model)
-            prefetched_staging = _submit_subgraph_staging(
-                executor,
-                next_subgraph_modules,
-                subgraph_modules,
-                pin_memory,
-            )
-
-        yield subgraph_index, subgraph, subgraph_modules
-
-        if next_subgraph_modules is None:
-            continue
-        if prefetched_staging is None:
-            subgraph_stage_modules(next_subgraph_modules, pin_memory=pin_memory)
-        else:
-            _, stage_future = prefetched_staging
-            stage_future.result()
-        subgraph_modules = next_subgraph_modules
 
 
 def _get_batches(
@@ -218,10 +183,18 @@ class SequentialPipeline(CalibrationPipeline):
 
             stage_executor = ThreadPoolExecutor(max_workers=1)
             stack.callback(stage_executor.shutdown, wait=True)
+            prefetched_staging: tuple[dict[str, torch.nn.Module], Future] | None = None
 
-            for subgraph_index, subgraph, subgraph_modules in _iter_staged_subgraphs(
-                model, subgraphs, stage_executor, stage_weights_in_pinned_memory
-            ):
+            for subgraph_index, subgraph in enumerate(subgraphs):
+                if prefetched_staging is None:
+                    subgraph_modules = subgraph.submodule_dict(model)
+                    subgraph_stage_modules(
+                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                    )
+                else:
+                    subgraph_modules, stage_future = prefetched_staging
+                    stage_future.result()  # block until staging is complete
+                    prefetched_staging = None
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -236,6 +209,17 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
+
+                if subgraph_index + 1 < num_subgraphs:
+                    next_subgraph_modules = subgraphs[
+                        subgraph_index + 1
+                    ].submodule_dict(model)
+                    prefetched_staging = _submit_subgraph_staging(
+                        stage_executor,
+                        next_subgraph_modules,
+                        subgraph_modules,
+                        stage_weights_in_pinned_memory,
+                    )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
