@@ -16,6 +16,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.helpers import (
+    find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
 )
@@ -114,6 +115,9 @@ class SequentialPipeline(CalibrationPipeline):
             dataset_args.sequential_targets_per_subgraph,
         )
         num_subgraphs = len(subgraphs)
+        persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        if persistent_modules:
+            subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
 
