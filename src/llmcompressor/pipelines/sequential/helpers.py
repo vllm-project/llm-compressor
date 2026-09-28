@@ -46,9 +46,7 @@ class Subgraph:
     consumed_names: set[str]
     _code: PythonCode | None = None
 
-    def _subgraph_module_names(
-        self, model: Module, recurse: bool = True
-    ) -> list[str]:
+    def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
         nodes = self.graph.find_nodes(op="call_module")
         ordered_names: list[str] = []
         seen_modules: set[Module] = set()
