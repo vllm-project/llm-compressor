@@ -50,15 +50,16 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 Since the v0.13.0 release, a number of meaningful improvements have landed:
 
 * **Batched GPTQ quantization with a new Triton GPTQ kernel**: GPTQ now ships a Triton-based quantization kernel (~15x faster than the previous eager path) together with the ability to batch layers that share the same shape (up to ~1.67x per batch, roughly ~30x end-to-end on MoE workloads). Activation-order (act-order) calibration is supported, hessian offloading has been removed, and the remaining eager path was also sped up by 1.5-2x on its own.
-* **Expanded MSE and iMatrix observers for FP4, with a new `fouroversix` default**: The MSE observer and the iMatrix observer gained a grid-search expansion factor that makes the search a strict superset of *fouroversix* (which chooses between the full `absmax` and `absmax * 1.5` scales for FP4 blocks). A new `fouroversix` observer built on this expanded search is now the **default observer for NVFP4 quantization**, and it outperforms GPTQ for NVFP4 on average across our internal perplexity benchmarks.
+* **Expanded MSE and iMatrix observers for FP4**: The MSE observer and the iMatrix observer gained a grid-search expansion factor that makes the search a strict superset of *fouroversix* (which chooses between the full `absmax` and `absmax * 1.5` scales for FP4 blocks). These observers outperform GPTQ for NVFP4 on average across our internal perplexity benchmarks.
 * **Triton grid-search kernel for the MSE observer**: A Triton kernel now performs the MSE observer's scale grid search using buffered per-qparam patience and adaptive 512-value tiling. It reaches bitwise parity with the eager path when configured for full evaluation, supports INT, FP4, FP8, and FP16/BF16 (with E8M0 scales), and defaults `triton_error_buffer` to 100% for FP4 and 30% otherwise.
 
 ### Model highlights
 
 The Red Hat AI team has been using LLM Compressor to produce a fresh batch of production-ready quantized checkpoints:
 
-* **GLM-5.3 MXFP4**: An MXFP4 quantized checkpoint for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to MXFP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
+* **GLM-5.3 FP4 Checkpoints**: NVFP4 and MXFP4 quantized checkpoints for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to FP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
   - [RedHatAI/GLM-5.3-MXFP4](https://huggingface.co/RedHatAI/GLM-5.3-MXFP4)
+  - [RedHatAI/GLM-5.3-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-NVFP4)
   - [GLM-5.3 MXFP4 Example](examples/model_free_ptq/glm_5_3_mxfp4.py)
 * **GLM-5.3-Flash NVFP4**: An NVFP4 quantized checkpoint for [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash). The expert layers are quantized to NVFP4, while the MTP (multi-token prediction) layers are quantized to per-block FP8.
   - [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)

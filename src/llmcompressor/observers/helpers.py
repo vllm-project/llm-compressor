@@ -15,10 +15,11 @@ from compressed_tensors.quantization.utils import (
 )
 from torch.nn import Module
 
+from llmcompressor.observers.fused_mappings import get_fused_layers
+
 __all__ = [
     "flatten_for_calibration",
     "fuse_weight_observers",
-    "FUSED_LAYER_NAMES",
     "ACTIVATION_OBS",
 ]
 
@@ -157,20 +158,6 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-# Defines which layer names should have their global_scale fused together.
-# These sets are used for TENSOR_GROUP quantization (e.g., NVFP4).
-FUSED_LAYER_NAMES = [
-    # MLP / expert layers have fused gate_up_proj
-    ("gate_proj", "up_proj"),
-    # Attention layers have fused qkv_proj
-    ("q_proj", "k_proj", "v_proj"),
-    # DeepSeek multi-latent attention has fused_qkv_a_proj
-    ("q_a_proj", "kv_a_proj_with_mqa"),
-    # MoE expert layers may use w1/w3 naming
-    ("w1", "w3"),
-]
-
-
 def fuse_weight_observers(model: Module):
     """
     Link weight observers across fused layer groups for shared global_scale.
@@ -179,23 +166,21 @@ def fuse_weight_observers(model: Module):
     layers (Q/K/V attention, gate/up MLP) share the same global_scale.
     This function links their observers so that get_qparams() computes
     global_scale from the combined statistics of all observers in the group.
+    Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
     """
     from llmcompressor.observers.fusion import FusionHandler
 
     for submodule in model.modules():
-        for fusion_name_group in FUSED_LAYER_NAMES:
-            if not all(hasattr(submodule, name) for name in fusion_name_group):
-                continue
-            layers_to_fuse = [getattr(submodule, name) for name in fusion_name_group]
+        for fused_layers in get_fused_layers(submodule):
+            fusion_name_group = tuple(fused_layers.keys())
+            layers_to_fuse = list(fused_layers.values())
 
             only_obs = True
             only_tensor_group = True
             observers_and_modules = []
             for layer in layers_to_fuse:
-                if layer is None:
-                    continue
                 obs = getattr(layer, "weight_observer", None)
                 if obs is None:
                     only_obs = False

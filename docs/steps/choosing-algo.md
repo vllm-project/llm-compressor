@@ -24,6 +24,38 @@ Weight and activation quantization is best for maximum throughput on modern hard
 !!! note
     AWQ and GPTQ are typically used for weight-only quantization but can also be applied to weight and activation quantization workflows.
 
+## MoE expert pruning
+
+| Algorithm | Best for | Description |
+|-----------|----------|-------------|
+| REAP | Reducing the memory footprint of MoE models | Uses calibration data to score experts by router-weighted activation saliency, then structurally removes the least-salient experts from each MoE layer |
+
+REAP (`REAPPruningModifier`) is intended for Mixture-of-Experts models. Its
+`sparsity` value is the fraction of experts to remove per MoE layer; it does
+not create a dense-model 2:4 or unstructured sparsity pattern. Because the
+pruning decision depends on routed activations, use a representative
+calibration dataset and validate the resulting model on the workloads that
+matter to you. Excessive pruning can remove experts that are important for
+your domain.
+
+```python
+from llmcompressor import oneshot
+from llmcompressor.modifiers.pruning import REAPPruningModifier
+
+oneshot(
+    model=model,
+    dataset="perfectblend",
+    recipe=REAPPruningModifier(sparsity=0.25, report_path="reap.json"),
+    num_calibration_samples=512,
+    max_seq_length=2048,
+    moe_calibrate_all_experts=False,
+)
+```
+
+REAP can be combined with quantization in the same `oneshot` recipe. See the
+[REAP examples](../../examples/reap_expert_pruning/README.md), including the
+combined REAP + FP8/NVFP4 example.
+
 ## KV cache and attention quantization
 
 KV cache quantization reduces memory usage for long context inference:
@@ -52,6 +84,7 @@ Use the table below to select the algorithm that best matches your deployment re
 | RTN | Fast and simple compression |
 | GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
 | SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
+| REAP | Lower VRAM requirements for MoE models by pruning low-saliency experts |
 | SparseGPT | sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |

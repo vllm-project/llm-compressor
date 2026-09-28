@@ -10,6 +10,7 @@ and other compression techniques.
 """
 
 from .fusion import *
+from .fused_mappings import *
 from .helpers import *
 from .base import *
 from .min_max import *
