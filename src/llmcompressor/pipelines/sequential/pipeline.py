@@ -190,10 +190,18 @@ class SequentialPipeline(CalibrationPipeline):
             prefetched_staging: tuple[dict[str, torch.nn.Module], Future] | None = None
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                if prefetched_staging is not None:
-                    subgraph_modules, stage_future = prefetched_staging
-                    stage_future.result()
-                    prefetched_staging = None
+                if subgraph_index > 0:
+                    if prefetched_staging is None:
+                        # Shared modules cannot be staged concurrently with the
+                        # previous subgraph, so stage this subgraph synchronously.
+                        subgraph_modules = subgraph.submodule_dict(model)
+                        subgraph_stage_modules(
+                            subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                        )
+                    else:
+                        subgraph_modules, stage_future = prefetched_staging
+                        stage_future.result()
+                        prefetched_staging = None
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
