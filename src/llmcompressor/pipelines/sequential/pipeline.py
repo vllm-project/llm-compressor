@@ -125,9 +125,13 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(
+            session.state.sequential_activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
             )
+            activations = session.state.sequential_activations
+            session.state.sequential_propagate_error = dataset_args.propagate_error
+            stack.callback(setattr, session.state, "sequential_activations", None)
+            stack.callback(setattr, session.state, "sequential_propagate_error", True)
 
             # Populate loss_masks once from cached activations for AWQ masking support
             use_loss_mask = getattr(dataset_args, "use_loss_mask", False)
@@ -178,6 +182,13 @@ class SequentialPipeline(CalibrationPipeline):
                             activations.update(batch_idx, outputs)
                             activations.delete(batch_idx, subgraph.consumed_names)
 
+                # For the last subgraph its outputs are not cached (no next
+                # layer to feed), so the cache holds stale inputs rather than
+                # outputs. Clear the state so AutoRound falls back to
+                # collect_reference instead of using the wrong tensors as fp_ref.
+                if subgraph_index == num_subgraphs - 1:
+                    session.state.sequential_activations = None
+
                 LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                 if dataset_args.propagate_error:
@@ -195,6 +206,7 @@ class SequentialPipeline(CalibrationPipeline):
                             if subgraph_index < num_subgraphs - 1:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
+
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
