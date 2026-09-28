@@ -183,25 +183,21 @@ class SequentialPipeline(CalibrationPipeline):
 
             stage_executor = ThreadPoolExecutor(max_workers=1)
             stack.callback(stage_executor.shutdown, wait=True)
-            subgraph_modules = subgraphs[0].submodule_dict(model)
-            subgraph_stage_modules(
-                subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+
+            # Prefetch first subgraph modules
+            next_subgraph_modules = subgraphs[0].submodule_dict(model)
+            prefetched_staging = _submit_subgraph_staging(
+                stage_executor,
+                next_subgraph_modules,
+                {},
+                stage_weights_in_pinned_memory,
             )
-            prefetched_staging: tuple[dict[str, torch.nn.Module], Future] | None = None
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                if subgraph_index > 0:
-                    if prefetched_staging is None:
-                        # Shared modules cannot be staged concurrently with the
-                        # previous subgraph, so stage this subgraph synchronously.
-                        subgraph_modules = subgraph.submodule_dict(model)
-                        subgraph_stage_modules(
-                            subgraph_modules, pin_memory=stage_weights_in_pinned_memory
-                        )
-                    else:
-                        subgraph_modules, stage_future = prefetched_staging
-                        stage_future.result()
-                        prefetched_staging = None
+                subgraph_modules, stage_future = prefetched_staging
+                stage_future.result()
+                prefetched_staging = None
+
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
