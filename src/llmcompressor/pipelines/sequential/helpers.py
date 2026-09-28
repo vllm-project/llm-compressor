@@ -46,13 +46,7 @@ class Subgraph:
     consumed_names: set[str]
     _code: PythonCode | None = None
 
-<<<<<<< HEAD
     def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
-=======
-    def _subgraph_module_names(
-        self, model: Module, recurse: bool = True
-    ) -> list[str]:
->>>>>>> c65887706 (revert traced subgraph wrapper)
         nodes = self.graph.find_nodes(op="call_module")
         ordered_names: list[str] = []
         seen_modules: set[Module] = set()
