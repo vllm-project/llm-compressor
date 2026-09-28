@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 from compressed_tensors.compressors import BaseCompressor
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.quantization import QuantizationScheme
 from compressed_tensors.utils.match import match_name
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
@@ -14,7 +15,10 @@ from llmcompressor import oneshot, reset_session
 from llmcompressor.entrypoints.oneshot import Oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers.compression.mtp import load_mtp_model
+from llmcompressor.transformers.compression.mtp import (
+    is_dequantized_glm53,
+    load_mtp_model,
+)
 from llmcompressor.utils import load_context
 
 PREFIX = "model.layers.2."
@@ -231,3 +235,15 @@ def test_glm53_recipe_loads_mtp(tmp_path):
         ),
     )
     assert hasattr(model.mtp.layers[0].mtp_block.self_attn.q_a_proj, "weight_scale")
+
+
+def test_glm53_validation_does_not_onload_weights(tmp_path, mocker):
+    model, _ = _source_model(tmp_path, True)
+    assert isinstance(model.model.embed_tokens._parameters, OffloadCache)
+    for module in model.modules():
+        for cache in (module._parameters, module._buffers):
+            if isinstance(cache, OffloadCache):
+                mocker.patch.object(
+                    cache, "onload", side_effect=AssertionError("onloaded weights")
+                )
+    assert is_dequantized_glm53(model)

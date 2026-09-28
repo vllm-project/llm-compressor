@@ -6,7 +6,11 @@ import re
 from collections import defaultdict
 
 import torch
-from compressed_tensors.offload import get_execution_device, set_onload_device
+from compressed_tensors.offload import (
+    disable_onloading,
+    get_execution_device,
+    set_onload_device,
+)
 from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
@@ -34,6 +38,7 @@ def targets_mtp(targets: set[str]) -> bool:
     return any("mtp" in target.lower() for target in targets)
 
 
+@disable_onloading()
 def is_dequantized_glm53(model: PreTrainedModel) -> bool:
     """Recognize a GLM-5.3 backbone explicitly dequantized by Transformers."""
     dense_dtypes = (torch.float16, torch.bfloat16, torch.float32)
