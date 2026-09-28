@@ -377,7 +377,6 @@ def oneshot(
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     stage_weights_in_pinned_memory: bool = False,
-    sequential_activation_prefetch: bool = False,
     log_sequential_error: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
