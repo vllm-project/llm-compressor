@@ -59,19 +59,12 @@ def _get_batches(
     num_batches: int,
     input_names: list[str],
     desc: str,
-    sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
-    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
-    background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass. Delegates to
-    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
+    Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
+    overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = (
-        activations.iter_prefetch(input_names)
-        if sequential_prefetch
-        else activations.iter(input_names)
-    )
+    batch_source = activations.iter_prefetch(input_names)
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -183,10 +176,7 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
-            sequential_prefetch = getattr(
-                dataset_args, "sequential_activation_prefetch", False
-            )
-            session.state.sequential_prefetch = sequential_prefetch
+            session.state.sequential_prefetch = True
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
@@ -237,7 +227,6 @@ class SequentialPipeline(CalibrationPipeline):
                     num_batches,
                     subgraph.input_names,
                     calib_desc,
-                    sequential_prefetch,
                 ):
                     session.state.current_batch_idx = batch_idx
                     outputs = subgraph.forward(model, **inputs)
@@ -262,11 +251,7 @@ class SequentialPipeline(CalibrationPipeline):
                     batch_powers: list[tuple[float, float]] = []
                     with HooksMixin.disable_hooks():
                         for batch_idx, inputs in _get_batches(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            prop_desc,
-                            sequential_prefetch,
+                            activations, num_batches, subgraph.input_names, prop_desc
                         ):
                             output = subgraph.forward(model, **inputs)
                             if dataset_args.propagate_error and has_next_subgraph:

@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 
 import llmcompressor.pipelines.sequential.pipeline as pipeline
-from llmcompressor.args import DatasetArguments
 
 
 def test_submit_subgraph_staging_runs_for_disjoint_modules(monkeypatch):
@@ -51,7 +50,3 @@ def test_submit_subgraph_staging_skips_shared_modules(monkeypatch):
 
     assert result is None
     assert calls == []
-
-
-def test_activation_prefetch_is_disabled_by_default():
-    assert DatasetArguments().sequential_activation_prefetch is False
