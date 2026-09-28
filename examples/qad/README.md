@@ -43,9 +43,48 @@ python llama3_example.py --quantizer rtn --output ./llama-rtn-qad
 python llama3_example.py --quantizer gptq --output ./llama-gptq-qad
 ```
 
-The example uses one UltraChat dataset for calibration and QAD. Override it with
+The example defaults to one UltraChat dataset for calibration and QAD. Override it with
 `--dataset`, `--split`, and `--text-column`; `--samples` and `--max-seq-length`
 apply to both stages. Chat datasets use the model's chat template.
+
+## ModelOpt data mix
+
+Use `--dataset modelopt_qad_mix` to load the seven-source blend from
+[NVIDIA Model Optimizer's QAT/QAD example](https://github.com/NVIDIA/Model-Optimizer/blob/6e4789fa43726f800b6d6f63d6611b6472b00ba0/examples/llm_qat/configs/dataset/blend.yaml).
+The loader lives in [modelopt_mix.py](modelopt_mix.py); both the preceding
+quantizer and QAD receive the resulting dataset.
+
+| Hugging Face dataset | Split | Relative weight | Samples when requesting 1024 |
+| --- | --- | ---: | ---: |
+| `nvidia/Nemotron-SWE-v1` | `r2e_gym` | 6000 | 323 |
+| `nvidia/Nemotron-Math-v2` | `medium` | 2500 | 135 |
+| `nvidia/Nemotron-Science-v1` | `MCQ` | 1500 | 81 |
+| `nvidia/Nemotron-Science-v1` | `RQA` | 1500 | 81 |
+| `nvidia/Nemotron-Instruction-Following-Chat-v1` | `chat_if` | 5000 | 269 |
+| `nvidia/Nemotron-Post-Training-Dataset-v2` | `chat` | 1500 | 81 |
+| `nvidia/Nemotron-Competitive-Programming-v1` | `competitive_coding_python_part00` | 1000 | 54 |
+
+Run from this directory, selecting the sample count and epoch budget:
+
+```bash
+python llama3_example.py --dataset modelopt_qad_mix --quantizer gptq --samples 512 --epochs 3 --max-seq-length 2048 --output ./llama-mix-512-e3
+python llama3_example.py --dataset modelopt_qad_mix --quantizer gptq --samples 1024 --epochs 7 --max-seq-length 2048 --output ./llama-mix-1024-e7
+```
+
+Weights specify proportions of conversations, not tokens. The loader rounds
+allocations to exactly `--samples`, streams pinned dataset revisions with seed
+42 and a bounded shuffle buffer, applies the model's chat template, and truncates
+to `--max-seq-length`. It records source revisions and counts in
+`dataset.info.description`. `--split` and `--text-column` apply only to a single
+Hugging Face dataset, not this preset. Access to
+`nvidia/Nemotron-Post-Training-Dataset-v2` requires an authorized Hugging Face
+token; loading fails if any required source is inaccessible or too short.
+
+This example adopts the upstream sources and mixture weights. QAD uses its own
+validation split and early stopping described below; `--epochs` is a per-block
+maximum, with the best validation weights restored before propagation. These
+commands demonstrate loading and training, not the full configuration used for
+the long-context epoch-ablation benchmark results.
 
 ## Execution
 
@@ -146,7 +185,6 @@ sequential error propagation do not satisfy the contract automatically.
   weight scales, zero points, and global scales. Final re-observation can change
   validation MSE again; the final loss is logged separately from the best loss.
 
-`optimizer_steps`, `epochs_completed`, `best_validation_losses`, and
-`validation_histories`, and `reobservations` are keyed by target module name. Save the resulting model
-through the normal compressed checkpoint path. `LayerwiseQADModifier` remains
-an alias for `QADModifier`.
+`optimizer_steps`, `epochs_completed`, `best_validation_losses`,
+`validation_histories`, and `reobservations` are keyed by target module name.
+Save the resulting model through the normal compressed checkpoint path.

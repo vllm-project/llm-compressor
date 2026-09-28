@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch
 from datasets import Dataset, load_dataset
+from modelopt_mix import MODELOPT_QAD_MIX, load_modelopt_qad_mix
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 
 from llmcompressor import oneshot
@@ -14,6 +15,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 
 def prepare_dataset(tokenizer, name, split, samples, length, text_column):
+    if name == MODELOPT_QAD_MIX:
+        return load_modelopt_qad_mix(tokenizer, samples, length)
     stream = load_dataset(name, split=split, streaming=True)
     rows = []
     for example in stream.take(samples):
@@ -41,7 +44,11 @@ def parse_args(argv=None):
     parser.add_argument("--output", required=True)
     parser.add_argument("--samples", type=int, default=512)
     parser.add_argument("--max-seq-length", type=int, default=2048)
-    parser.add_argument("--dataset", default="HuggingFaceH4/ultrachat_200k")
+    parser.add_argument(
+        "--dataset",
+        default="HuggingFaceH4/ultrachat_200k",
+        help="Hugging Face dataset ID or modelopt_qad_mix for the seven-source blend",
+    )
     parser.add_argument("--split", default="train_sft")
     parser.add_argument("--text-column", default="text")
     parser.add_argument("--epochs", type=int, default=3)

@@ -10,7 +10,6 @@ from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import Event, EventType, State, create_session
 from llmcompressor.modifiers import ModifierFactory
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.modifiers.layerwise_qad import LayerwiseQADModifier
 from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.qad.base import _masked_mse, _output_loss
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -289,14 +288,12 @@ def test_output_loss_uses_all_float_leaves():
         _output_loss(pred, target, torch.zeros(1, 2))
 
 
-def test_factory_and_old_name_compatibility():
+def test_factory():
     ModifierFactory.refresh()
-    for name in ["QADModifier", "LayerwiseQADModifier"]:
-        modifier = ModifierFactory.create(
-            name, allow_registered=True, allow_experimental=True
-        )
-        assert isinstance(modifier, QADModifier)
-    assert LayerwiseQADModifier is QADModifier
+    modifier = ModifierFactory.create(
+        "QADModifier", allow_registered=True, allow_experimental=True
+    )
+    assert isinstance(modifier, QADModifier)
 
 
 def test_validation_split():
