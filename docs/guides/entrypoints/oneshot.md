@@ -107,7 +107,6 @@ shows how to migrate from `preprocessing_func`.
 | `quantization_aware_calibration` | `bool` | `True` | Apply quantization during the calibration forward pass in the sequential pipeline |
 | `sequential_activation_prefetch` | `bool` | `False` | Prefetch the next batch in a background thread during sequential pipeline calibration |
 | `stage_weights_in_pinned_memory` | `bool` | `False` | Stage offloaded module tensors in pinned CPU memory before onloading them |
-| `sequential_module_prefetch` | `bool` | `False` | Stage the next subgraph's module tensors in a background thread during calibration and propagation |
 
 ### Miscellaneous Arguments
 
