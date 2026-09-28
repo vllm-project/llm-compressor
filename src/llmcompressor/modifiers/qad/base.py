@@ -1,11 +1,12 @@
 import math
-from dataclasses import dataclass
 from functools import partial
-from typing import Any
 
 import torch
+from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import disable_onloading, get_execution_device
 from compressed_tensors.quantization import QuantizationStatus, enable_quantization
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
+from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import (
     getattr_chain,
     match_named_modules,
@@ -13,81 +14,38 @@ from compressed_tensors.utils import (
 )
 from loguru import logger
 from pydantic import Field, PrivateAttr
+from torch.utils._pytree import tree_flatten
 
 from llmcompressor.core import State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["QADModifier"]
 
 
-@dataclass
-class _BlockBatch:
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
-    target: Any
-    loss_mask: torch.Tensor | None
-
-
-def _map_tensors(value: Any, transform):
-    if isinstance(value, torch.Tensor):
-        return transform(value)
-    if isinstance(value, tuple):
-        items = [_map_tensors(item, transform) for item in value]
-        return type(value)(*items) if hasattr(value, "_fields") else tuple(items)
-    if isinstance(value, list):
-        return [_map_tensors(item, transform) for item in value]
-    if isinstance(value, dict):
-        return {key: _map_tensors(item, transform) for key, item in value.items()}
-    return value
-
-
-def _masked_mse(prediction, target, loss_mask):
+def _mse(prediction, target):
     if prediction.shape != target.shape:
         raise ValueError("Student and teacher output shapes differ")
     error = (prediction.float() - target.float()).square()
     per_token_loss = error.mean(dim=-1) if error.ndim else error
-    if loss_mask is None:
-        return per_token_loss.mean()
-    mask = loss_mask.to(device=prediction.device, dtype=per_token_loss.dtype)
-    while mask.ndim < per_token_loss.ndim:
-        mask = mask.unsqueeze(-1)
-    try:
-        mask = torch.broadcast_to(mask, per_token_loss.shape)
-    except RuntimeError as error:
-        raise ValueError(
-            f"Loss mask shape {tuple(loss_mask.shape)} cannot broadcast to "
-            f"output loss shape {tuple(per_token_loss.shape)}"
-        ) from error
-    if mask.sum().item() == 0:
-        raise ValueError("Loss mask does not contain any valid tokens")
-    return (per_token_loss * mask).sum() / mask.sum()
+    return per_token_loss.mean()
 
 
-def _output_loss(prediction, target, loss_mask):
-    """Average MSE over floating output leaves; ignore structural metadata."""
+def _output_loss(prediction, target):
+    """Validate output structure and average MSE over floating output leaves."""
+    predictions, prediction_spec = tree_flatten(prediction)
+    targets, target_spec = tree_flatten(target)
+    if prediction_spec != target_spec:
+        raise ValueError("Student and teacher output structures differ")
     losses = []
-
-    def visit(pred, ref):
-        if isinstance(ref, torch.Tensor):
-            if ref.is_floating_point() and ref.numel():
-                if not isinstance(pred, torch.Tensor):
-                    raise ValueError("Student and teacher output structures differ")
-                losses.append(_masked_mse(pred, ref.to(pred.device), loss_mask))
-        elif isinstance(ref, dict):
-            if not isinstance(pred, dict) or pred.keys() != ref.keys():
+    for pred, ref in zip(predictions, targets):
+        if isinstance(ref, torch.Tensor) and ref.is_floating_point() and ref.numel():
+            if not isinstance(pred, torch.Tensor):
                 raise ValueError("Student and teacher output structures differ")
-            for key in ref:
-                visit(pred[key], ref[key])
-        elif isinstance(ref, (tuple, list)):
-            if not isinstance(pred, (tuple, list)) or len(pred) != len(ref):
-                raise ValueError("Student and teacher output structures differ")
-            for p, r in zip(pred, ref):
-                visit(p, r)
-
-    visit(prediction, target)
+            losses.append(_mse(pred, ref))
     if not losses:
         raise ValueError("QAD requires a floating output affected by quantized weights")
     return torch.stack(losses).mean()
@@ -136,13 +94,13 @@ class QADModifier(Modifier):
     validation_relative_min_delta: float = Field(default=1.0e-3, ge=0)
 
     _blocks: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _captured: dict[torch.nn.Module, list[_BlockBatch]] = PrivateAttr(
+    _captured: dict[torch.nn.Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
-    _pending: dict[torch.nn.Module, _BlockBatch] = PrivateAttr(default_factory=dict)
     _block: torch.nn.Module | None = PrivateAttr(default=None)
     _weight_modules: list[torch.nn.Module] = PrivateAttr(default_factory=list)
-    _batches: list[_BlockBatch] = PrivateAttr(default_factory=list)
+    _batches: IntermediatesCache = PrivateAttr(default_factory=IntermediatesCache)
+    _sequential_prefetch: bool = PrivateAttr(default=False)
     _name: str = PrivateAttr(default="")
     _device: torch.device = PrivateAttr(default_factory=lambda: torch.device("cpu"))
     _optimizer_steps: dict[str, int] = PrivateAttr(default_factory=dict)
@@ -174,6 +132,18 @@ class QADModifier(Modifier):
         return {name: list(stages) for name, stages in self._reobservations.items()}
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        pipeline = kwargs.get("pipeline")
+        if pipeline and standardize_lookup_name(pipeline) != "sequential":
+            raise ValueError(
+                'QADModifier requires pipeline="sequential" so the preceding '
+                "weight quantization modifier and QAD share each block's "
+                f"calibration stage; got pipeline={pipeline!r}"
+            )
+        if not kwargs.get("propagate_error", True):
+            raise ValueError(
+                "QADModifier requires propagate_error=True so each block receives "
+                "the preceding blocks' final quantized outputs"
+            )
         modules = _quantized_modules(state.model.modules())
         if not modules:
             raise ValueError(
@@ -185,10 +155,7 @@ class QADModifier(Modifier):
             for m in modules
         ):
             raise ValueError("QAD needs floating weights before weight compression")
-        if (
-            torch.distributed.is_initialized()
-            and torch.distributed.get_world_size() > 1
-        ):
+        if is_distributed() and torch.distributed.get_world_size() > 1:
             raise ValueError("QAD currently supports single-process calibration")
         targets = infer_sequential_targets(
             state.model, kwargs.get("sequential_targets")
@@ -200,16 +167,16 @@ class QADModifier(Modifier):
         }
         owners = {}
         covered = set()
-        for block in self._blocks:
-            for module in _quantized_modules(block.modules()):
-                # Inspect parameter identity without onloading the entire model.
-                owner = owners.setdefault(id(module._parameters["weight"]), block)
-                if owner is not block:
-                    raise ValueError(
-                        "QAD does not support overlapping targets or quantized "
-                        "weights shared across blocks"
-                    )
-                covered.add(module)
+        with disable_onloading():
+            for block in self._blocks:
+                for module in _quantized_modules(block.modules()):
+                    owner = owners.setdefault(id(module.weight), block)
+                    if owner is not block:
+                        raise ValueError(
+                            "QAD does not support overlapping targets or quantized "
+                            "weights shared across blocks"
+                        )
+                    covered.add(module)
         if covered != set(modules):
             raise ValueError(
                 "QAD requires all quantized weights inside sequential target modules; "
@@ -227,17 +194,16 @@ class QADModifier(Modifier):
             )
             self.register_hook(block, self._capture_output, "forward", with_kwargs=True)
 
-    def _cache_tensor(self, tensor):
-        if tensor.is_meta:
-            raise ValueError("QAD cannot cache meta tensors; ignore the output LM head")
-        return tensor.detach().to(self.target_offload_device, copy=True)
-
     def _capture_inputs(self, module, args, kwargs, *, state):
         try:
             index = state.current_batch_idx
             if index < 0:
                 raise ValueError('QADModifier requires pipeline="sequential"')
-            batches = self._captured.setdefault(module, [])
+            if module not in self._captured:
+                self._captured[module] = IntermediatesCache(
+                    offload_device=self.target_offload_device
+                )
+            batches = self._captured[module]
             if self._blocks[module] in self._optimizer_steps or index != len(batches):
                 raise ValueError(
                     "QAD requires each target to run once per calibration batch "
@@ -248,22 +214,15 @@ class QADModifier(Modifier):
                 for m in _quantized_modules(module.modules())
             ):
                 raise ValueError("QAD teacher capture requires quantization disabled")
-            mask = state.loss_masks[index] if state.loss_masks is not None else None
-            self._pending[module] = _BlockBatch(
-                _map_tensors(args, self._cache_tensor),
-                _map_tensors(kwargs, self._cache_tensor),
-                None,
-                self._cache_tensor(mask) if mask is not None else None,
-            )
+            batches.append({"args": args, "kwargs": kwargs}, copy=True)
         except Exception:
             self._clear_cache()
             raise
 
     def _capture_output(self, module, args, kwargs, output):
         try:
-            batch = self._pending.pop(module)
-            batch.target = _map_tensors(output, self._cache_tensor)
-            self._captured[module].append(batch)
+            batches = self._captured[module]
+            batches.update(len(batches) - 1, {"target": output}, copy=True)
         except Exception:
             self._clear_cache()
             raise
@@ -280,7 +239,11 @@ class QADModifier(Modifier):
                 )
             self._block = blocks[0]
             self._name = self._blocks[self._block]
-            self._batches = self._captured.pop(self._block, [])
+            self._batches = self._captured.pop(self._block, IntermediatesCache())
+            self._sequential_prefetch = state.sequential_prefetch
+            if self._sequential_prefetch and torch.accelerator.is_available():
+                for index in range(len(self._batches)):
+                    self._batches.pin_memory(index)
             self._split_batch_indices(len(self._batches))
             logger.info(
                 "QAD cached {} local teacher batches for {}",
@@ -294,7 +257,8 @@ class QADModifier(Modifier):
             self._clear_cache()
             raise
         finally:
-            self._batches.clear()
+            self._batches = IntermediatesCache()
+            self._sequential_prefetch = False
             self._block = None
             self._weight_modules = []
 
@@ -324,7 +288,7 @@ class QADModifier(Modifier):
                     )
             trainable.append(module.weight)
         trainable = list(dict.fromkeys(trainable))
-        self._device = trainable[0].device
+        self._device = get_execution_device(modules[0])
         # FP32 optimizer state/master weights avoid Adam's epsilon underflow and
         # sub-ULP updates when the model's execution weights are FP16/BF16.
         masters = [
@@ -475,8 +439,8 @@ class QADModifier(Modifier):
                     optimizer.zero_grad(set_to_none=True)
                     for parameter in trainable:
                         parameter.grad = None
-                    for index in group:
-                        loss = self._batch_loss(self._batches[index]) / len(group)
+                    for batch in self._iter_batches(group):
+                        loss = self._batch_loss(batch) / len(group)
                         scaler.scale(loss).backward()
                     for parameter, master in zip(trainable, masters):
                         if parameter.grad is not None and master is not parameter:
@@ -531,15 +495,21 @@ class QADModifier(Modifier):
 
     @torch.no_grad()
     def _evaluate(self, indices):
-        return sum(self._batch_loss(self._batches[i]).item() for i in indices) / len(
-            indices
+        return sum(
+            self._batch_loss(batch).item() for batch in self._iter_batches(indices)
+        ) / len(indices)
+
+    def _iter_batches(self, indices):
+        # Share offloaded entries while retaining split, shuffle, and retry order.
+        cache = IntermediatesCache(
+            [self._batches.batch_intermediates[i] for i in indices],
+            self._batches.offload_device,
         )
+        return cache.iter_prefetch() if self._sequential_prefetch else cache.iter()
 
     def _batch_loss(self, batch):
-        args = _map_tensors(batch.args, lambda t: t.to(self._device))
-        kwargs = _map_tensors(batch.kwargs, lambda t: t.to(self._device))
-        prediction = self._block(*args, **kwargs)
-        loss = _output_loss(prediction, batch.target, batch.loss_mask)
+        prediction = self._block(*batch["args"], **batch["kwargs"])
+        loss = _output_loss(prediction, batch["target"])
         if not torch.isfinite(loss):
             raise ValueError(f"Nonfinite QAD loss in {self._name}")
         return loss
@@ -556,8 +526,8 @@ class QADModifier(Modifier):
     def _clear_cache(self):
         self.remove_hooks()
         self._captured.clear()
-        self._pending.clear()
-        self._batches.clear()
+        self._batches = IntermediatesCache()
+        self._sequential_prefetch = False
         self._block = None
         self._weight_modules = []
 

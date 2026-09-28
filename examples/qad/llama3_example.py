@@ -1,4 +1,4 @@
-"""RTN/GPTQ + block-wise QAD, saved as NVFP4 weights with FP16 activations."""
+"""RTN/GPTQ + block-wise QAD, saved as NVFP4 weights with BF16 activations."""
 
 import argparse
 from pathlib import Path
@@ -74,7 +74,7 @@ def main():
     )
     # Resolve dataset access before allocating model weights on the GPU.
     model = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.float16, attn_implementation="sdpa"
+        args.model, dtype=torch.bfloat16, attn_implementation="sdpa"
     ).to("cuda")
     kwargs = dict(targets="Linear", scheme="NVFP4A16", ignore=["lm_head"])
     quantizer = (

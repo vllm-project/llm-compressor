@@ -163,15 +163,19 @@ class IntermediatesCache:
                 for field in fields(value):
                     cls._pin_intermediate(getattr(value, field.name))
 
-    def update(self, batch_index: int, values: dict[str, Any]):
+    def update(self, batch_index: int, values: dict[str, Any], *, copy: bool = False):
         """
         Update/put values belonging to a batch
 
         :param batch_index: index of batch whose values will be updated
         :param values: dictionary mapping keys to values used for update
+        :param copy: store independent, detached tensor snapshots, including when
+            the tensors already reside on the offload device
         """
         device = self.offload_device
-        intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
+        intermediates = {
+            k: self._offload_value(v, device, copy=copy) for k, v in values.items()
+        }
         self.batch_intermediates[batch_index].update(intermediates)
 
     def delete(self, batch_index: int, consumed_names: list[str] | None = None):
@@ -190,16 +194,17 @@ class IntermediatesCache:
         for name in consumed_names:
             del intermediates[name]
 
-    def append(self, values: dict[str, Any]):
+    def append(self, values: dict[str, Any], *, copy: bool = False):
         """
         Append new values to the cache. The new values will be assigned the next
         available batch index
 
         :param values: dictionary mapping keys to values used for update
+        :param copy: store independent, detached tensor snapshots
         """
         batch_index = len(self.batch_intermediates)
         self.batch_intermediates.append({})
-        self.update(batch_index, values)
+        self.update(batch_index, values, copy=copy)
 
     def size(self) -> dict[torch.device, int]:
         """
@@ -325,7 +330,10 @@ class IntermediatesCache:
             case list():
                 return [cls._onload_value(v) for v in value]
             case tuple():
-                return tuple(cls._onload_value(v) for v in value)
+                items = [cls._onload_value(v) for v in value]
+                return (
+                    type(value)(*items) if hasattr(value, "_fields") else tuple(items)
+                )
             case dict():
                 return {k: cls._onload_value(v) for k, v in value.items()}
             case _ if is_dataclass(value):
@@ -346,6 +354,8 @@ class IntermediatesCache:
         value: Any,
         offload_device: torch.device | None,
         onload_device: torch.device | None = None,
+        *,
+        copy: bool = False,
     ) -> IntermediateValue:
         """
         Offload a value's tensors to the offload device
@@ -354,14 +364,23 @@ class IntermediatesCache:
         :param offload_device: device to offload `torch.Tensor` values to
         :param onload_device: device used when onloading `torch.Tensor` values.
             If None is provided, use the tensor's current device
+        :param copy: store independent, detached tensor snapshots
         :return: Instance of IntermediateValue representing the offloaded value
         """
-        kwargs = {"offload_device": offload_device, "onload_device": onload_device}
+        kwargs = {
+            "offload_device": offload_device,
+            "onload_device": onload_device,
+            "copy": copy,
+        }
         match value:
             case torch.Tensor():
                 with OverrideEqMode():
                     # check for cache hit between shared tensors
-                    if value in cls.offload_values:
+                    if copy:
+                        if value.is_meta:
+                            raise ValueError("Cannot cache meta tensors")
+                        offloaded = value.detach().to(device=offload_device, copy=True)
+                    elif value in cls.offload_values:
                         offloaded = cls.offload_values[value]
                     else:
                         # move to offload if no hit
@@ -379,8 +398,13 @@ class IntermediatesCache:
                     device=None,
                 )
             case tuple():
+                items = [cls._offload_value(v, **kwargs) for v in value]
                 return IntermediateValue(
-                    value=tuple(cls._offload_value(v, **kwargs) for v in value),
+                    value=(
+                        type(value)(*items)
+                        if hasattr(value, "_fields")
+                        else tuple(items)
+                    ),
                     device=None,
                 )
             case dict():

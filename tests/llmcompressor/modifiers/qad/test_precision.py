@@ -4,8 +4,10 @@ import pytest
 import torch
 
 from llmcompressor.modifiers.qad import QADModifier
-from llmcompressor.modifiers.qad.base import _masked_mse
+from llmcompressor.modifiers.qad.base import _mse
 from llmcompressor.utils.dev import get_main_device
+
+from .test_base import _target_cache
 
 
 def test_fp16_long_sequence_gradients_match_fp32():
@@ -24,13 +26,13 @@ def test_fp16_long_sequence_gradients_match_fp32():
         master = torch.nn.Parameter(parameter.detach().float().clone())
         target = torch.zeros(shape, dtype=dtype, device=device)
         qad = QADModifier(gradient_accumulation_steps=4, max_grad_norm=0.001)
-        qad._batches = [None] * 5
+        qad._batches = _target_cache([None] * 5)
         optimizer = torch.optim.SGD([master], lr=0.1)
         scaler = torch.amp.GradScaler(device.type, enabled=enabled)
         with patch.object(
             qad,
             "_batch_loss",
-            side_effect=lambda _: _masked_mse(parameter.expand(shape), target, None),
+            side_effect=lambda _: _mse(parameter.expand(shape), target),
         ):
             steps = qad._train_epoch(
                 optimizer, [parameter], [master], list(range(5)), scaler
@@ -45,21 +47,25 @@ def test_fp16_long_sequence_gradients_match_fp32():
     assert results[torch.float16, True].item() < initial * 0.9
 
 
-def test_fp16_overflow_retries_accumulation_group():
+@pytest.mark.parametrize("sequential_prefetch", [False, True])
+def test_fp16_overflow_retries_accumulation_group(sequential_prefetch):
     device = get_main_device()
     parameter = torch.nn.Parameter(
         torch.tensor([1.0], dtype=torch.float16, device=device)
     )
     master = torch.nn.Parameter(parameter.detach().float().clone())
     qad = QADModifier(gradient_accumulation_steps=2, max_grad_norm=None)
-    qad._batches = [1.0, 3.0, 5.0]
+    qad._batches = _target_cache([1.0, 3.0, 5.0])
+    qad._sequential_prefetch = sequential_prefetch
     optimizer = torch.optim.SGD([master], lr=0.1)
     scaler = torch.amp.GradScaler(device.type)
     with (
         patch.object(
             qad,
             "_batch_loss",
-            side_effect=lambda target: (parameter.float() - target).square().sum(),
+            side_effect=lambda batch: (
+                (parameter.float() - batch["target"]).square().sum()
+            ),
         ),
         patch.object(optimizer, "step", wraps=optimizer.step) as step,
     ):
@@ -78,7 +84,7 @@ def test_nonfinite_gradients_fail_without_updating_weights(dtype):
     master = torch.nn.Parameter(parameter.detach().float().clone())
     parameter.register_hook(lambda grad: torch.full_like(grad, float("nan")))
     qad = QADModifier()
-    qad._batches = [None]
+    qad._batches = _target_cache([None])
     optimizer = torch.optim.AdamW([master])
     scaler = torch.amp.GradScaler(device.type, enabled=dtype == torch.float16)
     with patch.object(

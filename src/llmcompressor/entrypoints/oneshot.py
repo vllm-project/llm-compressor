@@ -266,6 +266,8 @@ class Oneshot:
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
+                pipeline=self.dataset_args.pipeline,
+                propagate_error=self.dataset_args.propagate_error,
             )
 
             user_pipeline = self.dataset_args.pipeline

@@ -1,19 +1,23 @@
+from collections import namedtuple
 from copy import deepcopy
 from unittest.mock import patch
 
 import pytest
 import torch
+from compressed_tensors.offload import offload_module
 from pydantic import ValidationError
 from transformers import LlamaConfig, LlamaForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import Event, EventType, State, create_session
+from llmcompressor.entrypoints.oneshot import Oneshot
 from llmcompressor.modifiers import ModifierFactory
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.qad import QADModifier
-from llmcompressor.modifiers.qad.base import _masked_mse, _output_loss
+from llmcompressor.modifiers.qad.base import _output_loss
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
@@ -93,6 +97,13 @@ def _calibrate(model, batches, state):
             model(**batch)
 
 
+def _target_cache(targets):
+    cache = IntermediatesCache()
+    for target in targets:
+        cache.append({"target": target})
+    return cache
+
+
 def _tiny_llama(layers=2):
     model = LlamaForCausalLM(
         LlamaConfig(
@@ -110,7 +121,7 @@ def _tiny_llama(layers=2):
 
 
 @pytest.mark.parametrize("kind", ["rtn", "gptq"])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
     model, reference, batches, state, quant, qad = _prepare(
         kind,
@@ -125,9 +136,9 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         for batch, cached in zip(batches, qad._captured[model.block]):
-            torch.testing.assert_close(cached.target, reference(**batch))
-            torch.testing.assert_close(cached.args[0], batch["x"])
-            torch.testing.assert_close(cached.kwargs["residual"], batch["residual"])
+            torch.testing.assert_close(cached["target"], reference(**batch))
+            torch.testing.assert_close(cached["args"][0], batch["x"])
+            torch.testing.assert_close(cached["kwargs"]["residual"], batch["residual"])
         quant.on_sequential_epoch_end(state, None, modules)
         qparams = {
             name: param.detach().clone()
@@ -157,7 +168,8 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
 
 @pytest.mark.parametrize("kind", ["rtn", "gptq", "awq"])
 @pytest.mark.parametrize("scheme", ["NVFP4A16", "W4A16"])
-def test_real_llama_sequential_pipeline(kind, scheme):
+@pytest.mark.parametrize("sequential_prefetch", [False, True])
+def test_real_llama_sequential_pipeline(kind, scheme, sequential_prefetch):
     if kind == "awq" and not torch.accelerator.is_available():
         pytest.skip("AWQ calibration requires an accelerator for pinned memory")
     torch.manual_seed(21)
@@ -166,7 +178,6 @@ def test_real_llama_sequential_pipeline(kind, scheme):
         {
             "input_ids": torch.randint(0, 64, (1, 8)),
             "attention_mask": torch.ones(1, 8, dtype=torch.long),
-            "loss_mask": torch.tensor([[1, 1, 1, 1, 1, 1, 0, 0]]),
         }
         for _ in range(4)
     ]
@@ -185,7 +196,7 @@ def test_real_llama_sequential_pipeline(kind, scheme):
     args = DatasetArguments(
         sequential_targets=["LlamaDecoderLayer"],
         sequential_targets_per_subgraph=1,
-        use_loss_mask=True,
+        sequential_prefetch=sequential_prefetch,
     )
     with create_session() as session:
         recipe = [AWQModifier(n_grid=4)] if kind == "awq" else []
@@ -200,35 +211,53 @@ def test_real_llama_sequential_pipeline(kind, scheme):
         assert torch.isfinite(model(input_ids=ids).logits).all()
 
 
-def test_teacher_cache_is_independent_and_masked():
+def test_teacher_cache_is_independent():
     model, reference, batches, state, quant, qad = _prepare()
-    state.loss_masks = [torch.tensor([[1, 1, 0, 0]]) for _ in batches]
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-    stored = qad._captured[model.block][0]
-    saved_input, saved_target = stored.args[0].clone(), stored.target["hidden"].clone()
+    cache = qad._captured[model.block]
+    assert isinstance(cache, IntermediatesCache)
+    stored = cache.fetch(0)
+    saved_input = stored["args"][0].clone()
+    saved_target = stored["target"]["hidden"].clone()
     batches[0]["x"].zero_()
-    state.loss_masks[0].zero_()
     with torch.no_grad():
         model.block.left.weight.zero_()
-    torch.testing.assert_close(stored.args[0], saved_input)
-    torch.testing.assert_close(stored.target["hidden"], saved_target)
-    prediction = saved_target.clone()
-    prediction[:, 2:] += 100
-    assert _masked_mse(prediction, saved_target, stored.loss_mask) == 0
+    stored = cache.fetch(0)
+    torch.testing.assert_close(stored["args"][0], saved_input)
+    torch.testing.assert_close(stored["target"]["hidden"], saved_target)
     qad.on_finalize(state)
     assert not qad._captured and not qad._hooks
 
 
-def test_partial_accumulation_matches_large_batch():
+@pytest.mark.parametrize("sequential_prefetch", [False, True])
+def test_cache_replay_preserves_selected_batch_order(sequential_prefetch):
+    model, reference, batches, state, quant, qad = _prepare()
+    with DisableQuantization(model):
+        _calibrate(model, batches, state)
+    qad._batches = qad._captured[model.block]
+    qad._sequential_prefetch = sequential_prefetch
+    indices = [4, 1, 5, 1]
+    replayed = list(qad._iter_batches(indices))
+    assert len(replayed) == len(indices)
+    for index, batch in zip(indices, replayed):
+        torch.testing.assert_close(batch["args"][0], batches[index]["x"])
+        torch.testing.assert_close(batch["target"], reference(**batches[index]))
+    qad.on_finalize(state)
+    assert not qad._batches and not qad._captured
+
+
+@pytest.mark.parametrize("sequential_prefetch", [False, True])
+def test_partial_accumulation_matches_large_batch(sequential_prefetch):
     parameter = torch.nn.Parameter(torch.tensor([1.0]))
     qad = QADModifier(gradient_accumulation_steps=2, max_grad_norm=None)
-    qad._batches = [1.0, 3.0, 5.0]
+    qad._batches = _target_cache([1.0, 3.0, 5.0])
+    qad._sequential_prefetch = sequential_prefetch
     optimizer = torch.optim.SGD([parameter], lr=0.1)
     with patch.object(
         qad,
         "_batch_loss",
-        side_effect=lambda target: (parameter - target).square().sum(),
+        side_effect=lambda batch: (parameter - batch["target"]).square().sum(),
     ):
         steps = qad._train_epoch(
             optimizer,
@@ -280,12 +309,49 @@ def test_early_stopping_restores_best_including_initial(
     assert qad.validation_histories["test"] == losses
 
 
-def test_output_loss_uses_all_float_leaves():
-    pred = {"a": torch.ones(1, 2, 4), "b": (torch.full((1, 2, 4), 2.0), None)}
-    target = {"a": torch.zeros(1, 2, 4), "b": (torch.zeros(1, 2, 4), None)}
-    assert _output_loss(pred, target, None) == 2.5
-    with pytest.raises(ValueError, match="valid tokens"):
-        _output_loss(pred, target, torch.zeros(1, 2))
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+def test_output_loss_uses_all_float_leaves(dtype):
+    output = namedtuple("Output", ["hidden", "metadata"])
+    first = torch.ones(1, 2, 4, dtype=dtype, requires_grad=True)
+    second = torch.full((1, 3, 2), 2.0, dtype=dtype, requires_grad=True)
+    pred = {
+        "a": first,
+        "b": (second, None),
+        "c": output(torch.empty(0), torch.tensor([1])),
+        "metadata": "student",
+    }
+    target = {
+        "a": torch.zeros_like(first),
+        "b": (torch.zeros_like(second), None),
+        "c": output(torch.empty(0), torch.tensor([2])),
+        "metadata": "teacher",
+    }
+    loss = _output_loss(pred, target)
+    assert loss.dtype == torch.float32
+    assert loss == 2.5
+    grads = torch.autograd.grad(loss, [first, second])
+    torch.testing.assert_close(grads[0], torch.full_like(first, 1 / first.numel()))
+    torch.testing.assert_close(grads[1], torch.full_like(second, 2 / second.numel()))
+
+
+@pytest.mark.parametrize(
+    "prediction,target",
+    [
+        ([0], (0,)),
+        ({"a": 0}, {"b": 0}),
+        ((0,), (0, 0)),
+        ({"a": [0]}, {"a": 0}),
+        (None, torch.ones(1)),
+    ],
+)
+def test_output_loss_rejects_mismatched_structures(prediction, target):
+    with pytest.raises(ValueError, match="output structures differ"):
+        _output_loss(prediction, target)
+
+
+def test_output_loss_rejects_mismatched_tensor_shapes():
+    with pytest.raises(ValueError, match="output shapes differ"):
+        _output_loss({"hidden": torch.ones(2)}, {"hidden": torch.zeros(3)})
 
 
 def test_factory():
@@ -313,13 +379,94 @@ def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
         QADModifier(teacher_mode="full")
 
 
-def test_cross_block_shared_weights_rejected():
+@pytest.mark.parametrize(
+    "distributed,world_size", [(False, None), (True, 1), (True, 2)]
+)
+def test_qad_requires_single_process_calibration(distributed, world_size):
+    state = State(model=BranchModel())
+    _quantizer("rtn").on_initialize(state)
+    qad = QADModifier()
+    with (
+        patch(
+            "llmcompressor.modifiers.qad.base.is_distributed", return_value=distributed
+        ),
+        patch("torch.distributed.get_world_size", return_value=world_size) as get_size,
+    ):
+        if world_size == 2:
+            with pytest.raises(ValueError, match="single-process calibration"):
+                qad.on_initialize(state)
+        else:
+            assert qad.on_initialize(state)
+    if not distributed:
+        get_size.assert_not_called()
+
+
+@pytest.mark.parametrize("pipeline", ["independent", "basic", "datafree", "default"])
+def test_oneshot_rejects_nonsequential_qad_before_calibration(pipeline, tmp_path):
+    model = _tiny_llama()
+    model.config.save_pretrained(tmp_path)
+    model.config.name_or_path = str(tmp_path)
+    qad = QADModifier()
+    pipeline_kwargs = {} if pipeline == "default" else {"pipeline": pipeline}
+    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+        entrypoint = Oneshot(
+            model=model, recipe=[_quantizer("rtn"), qad], **pipeline_kwargs
+        )
+    with create_session(), patch.object(model, "forward") as forward:
+        with pytest.raises(ValueError, match='requires pipeline="sequential"'):
+            entrypoint.apply_recipe_modifiers(calibration_dataloader=[])
+    forward.assert_not_called()
+    assert not qad._hooks and not qad._captured
+
+
+@pytest.mark.parametrize("pipeline", ["sequential", "SEQUENTIAL", None])
+def test_oneshot_accepts_sequential_qad(pipeline, tmp_path):
+    model = _tiny_llama(layers=1).to(get_main_device())
+    model.config.save_pretrained(tmp_path)
+    model.config.name_or_path = str(tmp_path)
+    qad = QADModifier(num_epochs=1)
+    data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
+    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+        entrypoint = Oneshot(
+            model=model, recipe=[_quantizer("rtn"), qad], pipeline=pipeline
+        )
+    with create_session():
+        entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
+    assert qad.optimizer_steps == {"model.layers.0": 1}
+    assert not qad._hooks and not qad._captured
+
+
+def test_oneshot_rejects_qad_without_error_propagation_before_calibration(tmp_path):
+    model = _tiny_llama()
+    model.config.save_pretrained(tmp_path)
+    model.config.name_or_path = str(tmp_path)
+    qad = QADModifier()
+    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+        entrypoint = Oneshot(
+            model=model,
+            recipe=[_quantizer("rtn"), qad],
+            pipeline="sequential",
+            propagate_error=False,
+        )
+    with create_session(), patch.object(model, "forward") as forward:
+        with pytest.raises(ValueError, match="requires propagate_error=True"):
+            entrypoint.apply_recipe_modifiers(calibration_dataloader=[])
+    forward.assert_not_called()
+    assert not qad._hooks and not qad._captured
+
+
+@pytest.mark.parametrize("offloaded", [False, True])
+def test_cross_block_shared_weights_rejected(offloaded):
     model = _tiny_llama()
     model.model.layers[1].self_attn.q_proj.weight = model.model.layers[
         0
     ].self_attn.q_proj.weight
     state = State(model=model)
     _quantizer("rtn").on_initialize(state)
+    if offloaded:
+        for module in model.modules():
+            if isinstance(module, torch.nn.Linear):
+                offload_module(module, onload_device="meta", offload_device="cpu")
     with pytest.raises(ValueError, match="shared across blocks"):
         QADModifier().on_initialize(state)
 
@@ -349,7 +496,7 @@ def test_training_failure_releases_cache_and_restores_grad_flags():
         ):
             with pytest.raises(RuntimeError, match="failed"):
                 qad.on_sequential_epoch_end(state, None, modules)
-    assert not qad._hooks and not qad._captured and not qad._pending
+    assert not qad._hooks and not qad._captured
     assert qad._block is None and not qad._batches
     for name, flag in flags.items():
         assert model.get_parameter(name).requires_grad == flag
@@ -365,7 +512,7 @@ def test_repeated_block_call_rejected():
     assert not qad._hooks and not qad._captured
 
 
-@pytest.mark.parametrize("dtype", [torch.float32, torch.float16])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 def test_joint_training_reduces_reconstruction_error_with_fixed_scales(dtype):
     model, reference, batches, state, quant, qad = _prepare(
         dtype=dtype,

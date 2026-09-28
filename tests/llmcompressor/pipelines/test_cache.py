@@ -1,3 +1,4 @@
+from collections import namedtuple
 from dataclasses import dataclass, fields, is_dataclass
 from typing import Optional
 
@@ -13,6 +14,9 @@ class SampleDataclass:
     a: int
     b: Optional[torch.Tensor] = None
     c: Optional["SampleDataclass"] = None
+
+
+SampleNamedTuple = namedtuple("SampleNamedTuple", ["a", "b"])
 
 
 @pytest.fixture
@@ -38,6 +42,7 @@ def sample_cache(sample_dataloader):
 values_to_test = [
     torch.randn(2, 3).to("cpu"),
     SampleDataclass(a=42, b=torch.randn(2, 3), c=SampleDataclass(a=64)),
+    SampleNamedTuple(a=42, b=torch.randn(2, 3)),
     torch.float32,
     [1, 2, 3],
 ]
@@ -137,6 +142,30 @@ def test_offload_and_onload(value):
     offloaded = cache._offload_value(value, torch.device("cpu"))
     onloaded = cache._onload_value(offloaded)
     assert deep_equal(onloaded, value)
+
+
+@pytest.mark.parametrize("value_type", [SampleDataclass, SampleNamedTuple])
+def test_copied_snapshots_remain_detached_and_independent(value_type):
+    tensor = torch.arange(6.0, requires_grad=True).reshape(2, 3)
+    output = tensor * 2
+    expected = tensor.detach().clone()
+    cache = IntermediatesCache(offload_device="cpu")
+    cache.append({"args": (value_type(a=42, b=tensor),)}, copy=True)
+    cache.update(0, {"target": {"hidden": output, "metadata": [None, 3]}}, copy=True)
+    # A later snapshot of the same tensor must reflect its current contents.
+    with torch.no_grad():
+        tensor.add_(10)
+        output.zero_()
+    cache.append({"args": (value_type(a=42, b=tensor),)}, copy=True)
+    for _ in range(2):
+        first = cache.fetch(0)
+        assert isinstance(first["args"][0], value_type)
+        torch.testing.assert_close(first["args"][0].b, expected)
+        torch.testing.assert_close(first["target"]["hidden"], expected * 2)
+        assert not first["args"][0].b.requires_grad
+        assert first["target"]["hidden"].grad_fn is None
+        assert first["target"]["metadata"] == [None, 3]
+        torch.testing.assert_close(cache.fetch(1)["args"][0].b, expected + 10)
 
 
 @pytest.mark.unit

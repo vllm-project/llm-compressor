@@ -36,7 +36,8 @@ oneshot(
 )
 ```
 
-See [llama3_example.py](llama3_example.py) for a complete NVFP4A16 example:
+See [llama3_example.py](llama3_example.py) for a complete NVFP4A16 example with
+BF16 model execution and activations:
 
 ```bash
 python llama3_example.py --quantizer rtn --output ./llama-rtn-qad
@@ -94,7 +95,7 @@ For each decoder block:
    The preceding method collects its statistics in the same forward pass.
 2. At the existing `sequential_epoch_end` event, preceding modifiers finish
    preparing the block's quantized weights and quantization parameters.
-3. QAD replays the block with fake quantization and minimizes masked output MSE.
+3. QAD replays the block with fake quantization and minimizes output MSE.
    Only weights configured for quantization are trained. Calibration and capture
    hooks are disabled throughout QAD training and validation. Weight observers
    update qparams before training and after each epoch.
@@ -171,8 +172,10 @@ sequential error propagation do not satisfy the contract automatically.
 - Inputs, targets, and best-weight snapshots default to CPU storage through
   `target_offload_device="cpu"`. QAD still needs memory for a block's backward
   pass and optimizer state.
-- With `use_loss_mask=True`, QAD reuses the pipeline's per-batch `loss_mask`.
-  Without it, all output positions contribute to MSE.
+- QAD stores independent input and teacher snapshots in the shared
+  `IntermediatesCache`. Set `sequential_prefetch=True` to prefetch QAD batches
+  while preserving the training shuffle and validation split.
+- QAD computes reconstruction MSE over all output positions.
 - Weight re-observation follows [Charles's schedule](https://github.com/vllm-project/llm-compressor/pull/3051): before training,
   after every epoch, and before final materialization. Set
   `reobserve_weights=False` for fixed weight qparams. Scales are not optimized

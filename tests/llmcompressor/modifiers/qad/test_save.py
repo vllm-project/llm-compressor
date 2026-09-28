@@ -21,7 +21,8 @@ from .test_base import _quantizer
 
 @pytest.mark.parametrize("kind", ["rtn", "gptq"])
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_fp16_nvfp4_save_reload(kind, device, tmp_path):
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_nvfp4_save_reload(kind, device, dtype, tmp_path):
     has_cuda = (
         torch.accelerator.is_available()
         and torch.accelerator.current_accelerator().type == "cuda"
@@ -41,7 +42,7 @@ def test_fp16_nvfp4_save_reload(kind, device, tmp_path):
             num_key_value_heads=2,
             max_position_embeddings=32,
         )
-    ).to(device=device, dtype=torch.float16)
+    ).to(device=device, dtype=dtype)
     # Use a local source config for entrypoints that inspect the on-disk config.
     source = tmp_path / "source"
     model.config.save_pretrained(source)
@@ -99,10 +100,11 @@ def test_fp16_nvfp4_save_reload(kind, device, tmp_path):
     assert len(list(tmp_path.glob("*.safetensors"))) > 1
     loaded = AutoModelForCausalLM.from_pretrained(
         tmp_path,
-        dtype=torch.float16,
+        dtype=dtype,
         device_map=device,
         quantization_config=CompressedTensorsConfig(run_compressed=False),
-    ).to(dtype=torch.float16)
+    ).to(dtype=dtype)
+    assert loaded.dtype == dtype
     with torch.no_grad():
         ids = data[0]["input_ids"].to(device)
         assert torch.isfinite(loaded(input_ids=ids).logits).all()
