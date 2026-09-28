@@ -17,12 +17,14 @@ class SWESmithDataset(TextGenerationDataset):
     Child text generation class for the SWE-smith agent trajectories dataset. Use
     the `tool` split (for instance `tool[:512]`) for OpenAI-style tool calling.
 
-    Each trajectory is converted to standard chat messages so that reasoning and tool
-    calling are rendered by the model's chat template:
-    * assistant `thought` -> `reasoning_content`
-    * assistant `tool_calls` -> `tool_calls` with parsed (dict) arguments
-    * `tool` observations -> `tool` messages
+    Each trajectory is converted to standard chat messages so that tool calling is
+    rendered by the model's chat template:
     * list-of-parts content -> plain string content
+    * assistant `tool_calls` -> `tool_calls` with parsed (dict) arguments
+    * `tool` observations `tool_call_ids` -> `tool_call_id`
+    * dataset-specific fields (`agent`, `message_type`, `action`, ...) are dropped.
+      Assistant `thought` is dropped rather than mapped to `reasoning_content`, since
+      it always duplicates the assistant `content`
 
     :param dataset_args: configuration settings for dataset loading
     :param split: split from dataset to load, for instance `tool` or `tool[:5%]`
@@ -48,10 +50,37 @@ class SWESmithDataset(TextGenerationDataset):
             )
 
     def dataset_template(self, sample):
+        messages = [_to_chat_message(msg) for msg in json.loads(sample["messages"])]
         return {
             "text": self.processor.apply_chat_template(
-                json.loads(sample["messages"]),
+                messages,
                 tokenize=False,
                 add_generation_prompt=False,
             )
         }
+
+
+def _to_chat_message(message: dict) -> dict:
+    content = message.get("content")
+    if isinstance(content, list):
+        content = "".join(part["text"] for part in content if part["type"] == "text")
+
+    chat_message = {"role": message["role"], "content": content}
+
+    if message.get("tool_calls"):
+        chat_message["tool_calls"] = [
+            {
+                "id": tool_call["id"],
+                "type": "function",
+                "function": {
+                    "name": tool_call["function"]["name"],
+                    "arguments": json.loads(tool_call["function"]["arguments"]),
+                },
+            }
+            for tool_call in message["tool_calls"]
+        ]
+
+    if message.get("tool_call_ids"):
+        chat_message["tool_call_id"] = message["tool_call_ids"][0]
+
+    return chat_message
