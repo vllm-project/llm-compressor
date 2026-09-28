@@ -7,12 +7,6 @@ from compressed_tensors.utils import get_direct_state_dict, replace_direct_state
 
 from .helpers import FusedExpertsProtocol
 
-# Keep in sync with compressed_tensors QuantizationMetadata weight_* names.
-WEIGHT_QPARAM_NAMES = [
-    f"weight_{suffix}"
-    for suffix in ("global_scale", "scale", "shape", "zero_point", "g_idx")
-]
-
 
 class ExpertPackMode(Enum):
     DENSE = auto()
@@ -32,6 +26,18 @@ class CompressedFusedLinear(torch.nn.Module):
     def __init__(self, state: dict[str, torch.Tensor]):
         super().__init__()
         replace_direct_state_dict(self, state)
+
+
+def has_dense_weight(linear: torch.nn.Linear) -> bool:
+    return "weight" in dict(get_direct_state_dict(linear))
+
+
+def extra_param_names(linear: torch.nn.Linear) -> set[str]:
+    return set(get_direct_state_dict(linear)) - {"weight", "bias"}
+
+
+def fused_qparam_suffix(name: str) -> str:
+    return name.removeprefix("weight_") if name.startswith("weight_") else name
 
 
 def set_fused_param(

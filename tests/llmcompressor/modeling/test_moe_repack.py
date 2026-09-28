@@ -234,17 +234,32 @@ def test_repack_packs_compressed_nested_modules():
     assert not any(key.startswith("0.") for key in keys)
 
 
-def test_repack_rejects_quantized_but_uncompressed_experts():
+def test_repack_fuses_frozen_qparams_alongside_weight():
     model = _tiny_qwen3_vl_moe()
     linearize_moe(model)
     lin = model.model.language_model.layers[0].mlp.experts
+    intermediate = lin.intermediate_size
+    hidden = lin[0].gate_proj.in_features
     for i in range(lin.num_experts):
         lin[i].gate_proj.quantization_status = QuantizationStatus.FROZEN
         lin[i].up_proj.quantization_status = QuantizationStatus.FROZEN
         lin[i].down_proj.quantization_status = QuantizationStatus.FROZEN
+        lin[i].gate_proj.weight_scale = torch.nn.Parameter(
+            torch.full((intermediate,), float(i + 1)), requires_grad=False
+        )
+        lin[i].up_proj.weight_scale = torch.nn.Parameter(
+            torch.full((intermediate,), float(i + 10)), requires_grad=False
+        )
+        lin[i].down_proj.weight_scale = torch.nn.Parameter(
+            torch.full((hidden,), float(i + 100)), requires_grad=False
+        )
 
-    with pytest.raises(RuntimeError, match="before they are compressed"):
-        repack_moe(model)
+    repack_moe(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts.gate_up_proj, torch.nn.Parameter)
+    assert not isinstance(experts.gate_up_proj, CompressedFusedLinear)
+    assert experts.gate_up_proj_scale.shape == (lin.num_experts, 2 * intermediate)
+    assert experts.down_proj_scale.shape == (lin.num_experts, hidden)
 
 
 def test_repack_rejects_mismatched_compressed_keys():
@@ -374,17 +389,6 @@ def test_repack_rejects_mixed_compressed_and_uncompressed():
         {"weight_packed": packed.clone(), "weight_scale": scale.clone()},
     )
     with pytest.raises(RuntimeError, match="mix of compressed and uncompressed"):
-        repack_moe(model)
-
-
-def test_repack_rejects_compressed_status_with_dense_weight():
-    model = _tiny_qwen3_vl_moe()
-    linearize_moe(model)
-    lin = model.model.language_model.layers[0].mlp.experts
-    for i in range(lin.num_experts):
-        for proj in (lin[i].gate_proj, lin[i].up_proj, lin[i].down_proj):
-            proj.quantization_status = QuantizationStatus.COMPRESSED
-    with pytest.raises(RuntimeError, match="still have a dense"):
         repack_moe(model)
 
 

@@ -3,7 +3,6 @@ from typing import Any, Callable, ClassVar
 
 import torch
 from compressed_tensors.offload import get_cache_init_kwargs, offload_module
-from compressed_tensors.quantization import QuantizationStatus
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -17,10 +16,12 @@ from .helpers import (
     get_use_experts_implementation_args,
 )
 from .pack_helpers import (
-    WEIGHT_QPARAM_NAMES,
     CompressedFusedLinear,
     ExpertPackMode,
     combine_gate_up,
+    extra_param_names,
+    fused_qparam_suffix,
+    has_dense_weight,
     linear_direct_state,
     require_identical_keys,
     set_fused_param,
@@ -290,12 +291,10 @@ class LinearExperts2D(torch.nn.ModuleList):
         Pack this linearized experts module back into the native fused 3D experts
         module it was created from.
 
-        Dense experts restore native ``gate_up_proj`` / ``down_proj`` Parameters
-        (and sibling ``weight_*`` qparams when present). Compressed experts
-        replace those Parameters with serialization-only nested modules that
-        own packed tensors and qparams. Call after
-        ``ModelCompressor.compress_model`` when saving compressed 3D
-        checkpoints.
+        Dense experts (still have ``weight``) restore native fused Parameters
+        and fuse any extra qparams alongside. Compressed experts (no
+        ``weight``, packed tensors present) replace those Parameters with
+        serialization-only nested modules.
         """
         experts_cls, config = self._require_source_metadata()
         pack_mode = self._expert_pack_mode()
@@ -346,56 +345,51 @@ class LinearExperts2D(torch.nn.ModuleList):
             )
         return experts_cls, config
 
-    def _expert_pack_mode(self) -> ExpertPackMode:
-        """Select dense vs compressed fused packing.
-
-        Unquantized expert Linears (no ``quantization_status``) use the dense
-        fused-Parameter path. That includes recipes that never quantize, such
-        as ``REAPPruningModifier`` only. Quantized experts must be compressed
-        before repack.
-        """
-        linears = [
+    def _expert_linears(self) -> list[torch.nn.Linear]:
+        return [
             linear
             for expert_index in range(self.num_experts)
             for linear in self[expert_index].modules()
             if isinstance(linear, torch.nn.Linear)
         ]
-        statuses = {getattr(linear, "quantization_status", None) for linear in linears}
-        # Dense / unquantized (e.g. REAP-only): restore native fused Parameters.
-        if not linears or statuses == {None}:
+
+    def _expert_pack_mode(self) -> ExpertPackMode:
+        """Select dense vs compressed packing from tensors on the Linears.
+
+        Presence of a dense ``weight`` (including REAP-only or frozen
+        quantized experts) uses fused Parameters. Extra qparams on those
+        Linears are fused alongside. Packed tensors with no ``weight`` use
+        nested compressed modules. Quantization status is not consulted.
+        """
+        linears = self._expert_linears()
+        if not linears:
             return ExpertPackMode.DENSE
-        if QuantizationStatus.COMPRESSED in statuses and statuses <= {
-            QuantizationStatus.COMPRESSED,
-            None,
-        }:
-            if None in statuses:
-                raise RuntimeError(
-                    "Cannot repack a mix of compressed and uncompressed expert "
-                    "Linears. Compress all targeted experts before calling "
-                    "repack_moe()."
-                )
+        dense = [has_dense_weight(linear) for linear in linears]
+        if all(dense):
+            return ExpertPackMode.DENSE
+        if not any(dense):
             return ExpertPackMode.COMPRESSED
-        if statuses & {
-            QuantizationStatus.INITIALIZED,
-            QuantizationStatus.CALIBRATION,
-            QuantizationStatus.FROZEN,
-        }:
-            raise RuntimeError(
-                "Cannot repack quantized expert Linears before they are "
-                "compressed. Call ModelCompressor.compress_model(model) "
-                "before repack_moe()."
-            )
         raise RuntimeError(
-            f"Cannot repack experts with quantization statuses {statuses}."
+            "Cannot repack a mix of compressed and uncompressed expert "
+            "Linears. All targeted experts must either keep a dense "
+            "`weight` or already be packed."
         )
 
     def _pack_weight_qparams(self, fused: FusedExpertsProtocol) -> None:
+        """Fuse extra Linear parameters alongside dense ``weight``.
+
+        ``weight_*`` names become ``{gate_up,up,down}_proj_{suffix}`` to match
+        the native HF / compressed-tensors layout.
         """
-        Pack per-expert Linear ``weight_*`` qparams onto the fused experts module
-        as ``{gate_up,up,down}_proj_{suffix}`` (HF / CT native key layout).
-        """
-        for qparam in WEIGHT_QPARAM_NAMES:
-            suffix = qparam.removeprefix("weight_")
+        qparams = sorted(
+            {
+                name
+                for linear in self._expert_linears()
+                for name in extra_param_names(linear)
+            }
+        )
+        for qparam in qparams:
+            suffix = fused_qparam_suffix(qparam)
             if self.has_gate:
                 gate = self._stack_proj_attr("gate_proj", qparam)
                 up = self._stack_proj_attr("up_proj", qparam)

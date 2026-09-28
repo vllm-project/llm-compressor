@@ -166,8 +166,10 @@ def repack_moe(model: PreTrainedModel) -> PreTrainedModel:
     fused 3D expert modules.
 
     Call this after linearization. Unquantized recipes (for example
-    ``REAPPruningModifier`` only) restore native fused Parameters. For
-    compressed checkpoints, compress first, then repack:
+    ``REAPPruningModifier`` only) and frozen quantized experts restore
+    native fused Parameters, fusing extra qparams alongside ``weight``.
+    If experts are already compressed (no dense ``weight``), nested packed
+    projections are written instead. For compressed 3D checkpoints:
 
     ```python
     compressor.compress_model(model)
