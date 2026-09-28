@@ -310,7 +310,6 @@ def test_trace_subgraphs(targets_per_subgraph):
         assert num_targets_present == targets_per_subgraph
 
 
-
 @pytest.mark.parametrize(
     "input_names,expected_consumed_names",
     [
