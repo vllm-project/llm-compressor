@@ -23,6 +23,8 @@ from llmcompressor.utils.triton_utils import (
     scale_round_config,
 )
 
+_GRID_SEARCH_TILE_SIZE = 512
+
 
 def _default_triton_error_buffer(args) -> float:
     """Return the format-specific default for Triton per-group patience."""
@@ -38,7 +40,6 @@ def _grid_search_observer_eager(
     grid: float,
     norm: float,
     expand: float = 1.0,
-    token_args: QuantizationArgs | None = None,
     importance_weights: torch.Tensor | None = None,
     use_imatrix_error: bool = False,
 ) -> MinMaxTuple:
@@ -48,7 +49,10 @@ def _grid_search_observer_eager(
 
     total_values = observed.shape[0] * observed.shape[-1]
     if use_imatrix_error:
-        if total_values <= 512 and observed.dtype in (torch.float16, torch.bfloat16):
+        if total_values <= _GRID_SEARCH_TILE_SIZE and observed.dtype in (
+            torch.float16,
+            torch.bfloat16,
+        ):
             error_dtype = observed.dtype
         else:
             error_dtype = torch.float32
@@ -56,8 +60,6 @@ def _grid_search_observer_eager(
         if error_dtype != torch.float32:
             error_norm = torch.tensor(norm, dtype=error_dtype).item()
     else:
-        if token_args is None:
-            raise ValueError("MSE eager search requires token_args")
         error_dtype = min_vals.dtype
         error_norm = norm
 
@@ -90,7 +92,6 @@ def _grid_search_observer_eager(
             error = _calculate_mse_error(
                 observed,
                 args,
-                token_args,
                 shrink_min,
                 shrink_max,
                 norm,
@@ -113,7 +114,6 @@ def _grid_search_observer_eager(
 def _calculate_mse_error(
     observed: torch.Tensor,
     args: QuantizationArgs,
-    token_args: QuantizationArgs,
     shrink_min: torch.Tensor,
     shrink_max: torch.Tensor,
     norm: float,
@@ -125,13 +125,27 @@ def _calculate_mse_error(
         quantization_args=args,
         global_scale=None,
     )
-    quantized = fake_quantize(
-        observed,
-        scales.unsqueeze(-1),
-        zero_points.unsqueeze(-1),
-        token_args,
-    ).to(observed.dtype)
+    quantized = _fake_quantize_with_observer_qparams(
+        observed, args, scales, zero_points
+    )
     return (quantized - observed).abs().pow(norm).sum(dim=(0, -1))
+
+
+def _fake_quantize_with_observer_qparams(
+    observed: torch.Tensor,
+    args: QuantizationArgs,
+    scales: torch.Tensor,
+    zero_points: torch.Tensor,
+) -> torch.Tensor:
+    """Fake-quantize calibrated groups using the shared TOKEN-strategy path."""
+    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+        quantized = fake_quantize(
+            observed,
+            scales.unsqueeze(-1),
+            zero_points.unsqueeze(-1),
+            args,
+        )
+    return quantized.to(observed.dtype)
 
 
 def _calculate_imatrix_error(
@@ -151,13 +165,9 @@ def _calculate_imatrix_error(
         quantization_args=args,
         global_scale=None,
     )
-    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
-        quantized = fake_quantize(
-            observed,
-            scales.unsqueeze(-1),
-            zero_points.unsqueeze(-1),
-            args,
-        ).to(observed.dtype)
+    quantized = _fake_quantize_with_observer_qparams(
+        observed, args, scales, zero_points
+    )
 
     error = (quantized - observed).abs().float().pow(error_norm)
     if error_dtype != torch.float32:
@@ -165,7 +175,7 @@ def _calculate_imatrix_error(
     if importance_weights is not None:
         error.mul_(importance_weights)
 
-    if total_values <= 512:
+    if total_values <= _GRID_SEARCH_TILE_SIZE:
         result = error.sum(dim=(0, -1))
     else:
         num_observations = observed.shape[0]
@@ -177,8 +187,10 @@ def _calculate_imatrix_error(
             .reshape(num_qparams, total_values)
         )
         partial_errors = [
-            errors_by_qparam[:, offset : offset + 512].sum(dim=-1)
-            for offset in range(0, total_values, 512)
+            errors_by_qparam[
+                :, offset : offset + _GRID_SEARCH_TILE_SIZE
+            ].sum(dim=-1)
+            for offset in range(0, total_values, _GRID_SEARCH_TILE_SIZE)
         ]
         result = (
             torch.stack(partial_errors, dim=-1).sum(dim=-1).reshape(shrink_min.shape)
@@ -199,8 +211,8 @@ def _grid_search_observer(
     norm: float,
     triton_error_buffer: float,
     expand: float = 1.0,
-    token_args: QuantizationArgs | None = None,
     importance_weights: torch.Tensor | None = None,
+    use_imatrix_error: bool = False,
 ) -> MinMaxTuple:
     """Shared MSE/imatrix range-search entrypoint with optional weighting."""
     del triton_error_buffer
@@ -209,8 +221,6 @@ def _grid_search_observer(
         and args.scale_dtype is not None
     ):
         args = args.model_copy(update={"scale_dtype": None})
-        if token_args is not None:
-            token_args = token_args.model_copy(update={"scale_dtype": None})
 
     return _grid_search_observer_eager(
         observed,
@@ -220,9 +230,8 @@ def _grid_search_observer(
         grid,
         norm,
         expand=expand,
-        token_args=token_args,
         importance_weights=importance_weights,
-        use_imatrix_error=token_args is None,
+        use_imatrix_error=use_imatrix_error,
     )
 
 
@@ -237,11 +246,11 @@ def _grid_search_observer_triton(
     norm: float,
     triton_error_buffer: float,
     expand: float = 1.0,
-    token_args: QuantizationArgs | None = None,
     importance_weights: torch.Tensor | None = None,
+    use_imatrix_error: bool = False,
 ) -> MinMaxTuple:
     """Shared Triton implementation of buffered MSE and imatrix search."""
-    del token_args
+    del use_imatrix_error
     if (
         args.strategy == QuantizationStrategy.TENSOR_GROUP
         and args.scale_dtype is not None
@@ -297,7 +306,7 @@ def _grid_search_observer_triton(
     }[observed.dtype]
     quant_type = 0 if args.type == QuantizationType.INT else 1
     total_values = num_observations * group_size
-    tile_values = 512
+    tile_values = _GRID_SEARCH_TILE_SIZE
     if total_values <= tile_values:
         block_values = triton.next_power_of_2(total_values)
         tile_qparams = max(1, tile_values // block_values)

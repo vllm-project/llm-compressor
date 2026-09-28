@@ -137,8 +137,8 @@ class IMatrixMSEObserver(Observer):
             self.norm,
             self.triton_error_buffer,
             expand=self.expand,
-            token_args=None,
             importance_weights=importance_weights,
+            use_imatrix_error=True,
         )
 
     # ------------------------------------------------------------------

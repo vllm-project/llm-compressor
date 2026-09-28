@@ -3,6 +3,7 @@ import torch
 from compressed_tensors.quantization import QuantizationStrategy, fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
+from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import tl, triton
 
@@ -122,13 +123,12 @@ def test_mse_triton_matches_eager_when_tile_fits_group(
         group_size=group_size,
         block_structure=block_structure,
     )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
     torch.manual_seed(0)
     observed = flatten_for_calibration(
         torch.randn(8, 1024, device="cuda"), "weight", args
     )
     search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
-    search_kwargs = {"expand": 1.0, "token_args": token_args}
+    search_kwargs = {"expand": 1.0}
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
         "_grid_search_observer_triton", *search_args, **search_kwargs
@@ -147,13 +147,12 @@ def test_mse_triton_matches_eager_for_packed_nvfp4_groups():
         strategy=QuantizationStrategy.TENSOR_GROUP,
         group_size=16,
     )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
     torch.manual_seed(0)
     observed = flatten_for_calibration(
         torch.randn(8, 1024, device="cuda", dtype=torch.bfloat16), "weight", args
     )
     search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
-    search_kwargs = {"expand": 1.0, "token_args": token_args}
+    search_kwargs = {"expand": 1.0}
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
         "_grid_search_observer_triton", *search_args, **search_kwargs
@@ -210,7 +209,6 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
         strategy=QuantizationStrategy.GROUP,
         group_size=128,
     )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
     torch.manual_seed(0)
     observed = flatten_for_calibration(
         torch.randn(64, 1024, device="cuda", dtype=dtype), "weight", args
@@ -221,9 +219,10 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
         quantization_args=args,
         global_scale=None,
     )
-    expected = fake_quantize(
-        observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), token_args
-    )
+    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+        expected = fake_quantize(
+            observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), args
+        )
 
     values = observed.reshape(-1).contiguous()
     result = torch.empty_like(values, dtype=torch.float32)

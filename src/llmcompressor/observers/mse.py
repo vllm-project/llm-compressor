@@ -1,7 +1,6 @@
 import warnings
 
 import torch
-from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
@@ -37,12 +36,6 @@ class MemorylessMSEObserver(Observer):
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
-        # Pre-create token_args to avoid patch_attr context manager
-        # which causes torch.compile graph breaks
-        self._token_args = self.args.model_copy(
-            update={"strategy": QuantizationStrategy.TOKEN}
-        )
-
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         self.min_vals, self.max_vals = _grid_search_observer(
             observed,
@@ -53,7 +46,6 @@ class MemorylessMSEObserver(Observer):
             self.norm,
             self.triton_error_buffer,
             expand=self.expand,
-            token_args=self._token_args,
         )
 
 
@@ -84,12 +76,6 @@ class MovingAverageMSEObserver(Observer):
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
-        # Pre-create token_args to avoid patch_attr context manager
-        # which causes torch.compile graph breaks
-        self._token_args = self.args.model_copy(
-            update={"strategy": QuantizationStrategy.TOKEN}
-        )
-
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
         min_vals, max_vals = _grid_search_observer(
             observed,
@@ -100,7 +86,6 @@ class MovingAverageMSEObserver(Observer):
             self.norm,
             self.triton_error_buffer,
             expand=self.expand,
-            token_args=self._token_args,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:

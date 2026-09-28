@@ -4,6 +4,7 @@ from compressed_tensors.quantization import QuantizationStrategy, preset_name_to
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
+from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -538,6 +539,7 @@ def test_imatrix_triton_matches_eager_when_tile_fits_group(quant_type, strategy)
     search_kwargs = {
         "importance_weights": importance,
         "triton_error_buffer": 1.0,
+        "use_imatrix_error": True,
     }
 
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
@@ -567,6 +569,7 @@ def _assert_imatrix_eager_triton_parity(
         "expand": expand,
         "importance_weights": importance,
         "triton_error_buffer": triton_error_buffer,
+        "use_imatrix_error": True,
     }
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
@@ -588,16 +591,17 @@ def _assert_imatrix_eager_triton_parity(
     assert torch.equal(scales_and_zps[0][0], scales_and_zps[1][0])
     assert torch.equal(scales_and_zps[0][1], scales_and_zps[1][1])
 
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
-    qdq_weights = [
-        fake_quantize(
-            observed,
-            scales.unsqueeze(-1),
-            zero_points.unsqueeze(-1),
-            token_args,
-        ).to(observed.dtype)
-        for scales, zero_points in scales_and_zps
-    ]
+    qdq_weights = []
+    for scales, zero_points in scales_and_zps:
+        with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+            qdq_weights.append(
+                fake_quantize(
+                    observed,
+                    scales.unsqueeze(-1),
+                    zero_points.unsqueeze(-1),
+                    args,
+                ).to(observed.dtype)
+            )
     assert torch.equal(qdq_weights[0], qdq_weights[1])
 
 
