@@ -29,17 +29,6 @@ recipe = [
 ]
 ```
 
-## NVFP4 Expanded iMatrix for Qwen3-30B-A3B
-
-The [Qwen3 NVFP4 example](./qwen3_30b_a3b_nvfp4_expanded_imatrix_example.py)
-uses the `nvfp4_expanded_imatrix` observer with the NVFP4A16 preset. It calibrates
-with 32 sequences of up to 512 tokens and explicitly sets the search norm to 3.0,
-the expanded range to 1.8x–0.8x, and Triton's error buffer to 1.0.
-
-```bash
-python3 qwen3_30b_a3b_nvfp4_expanded_imatrix_example.py
-```
-
 ## Composing with GPTQ
 
 iMatrix composes with GPTQ by providing importance-weighted ranges for the Hessian-based rounding:

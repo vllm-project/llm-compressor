@@ -24,16 +24,6 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 # the expanded imatrix observer to choose ranges with activation importance.
 scheme = preset_name_to_scheme("NVFP4A16", ["Linear"])
 scheme.weights.observer = "nvfp4_expanded_imatrix"
-scheme.weights.observer_kwargs.update(
-    {
-        "norm": 3.0,
-        "expand": 1.8,
-        "maxshrink": 1.0 - 0.8 / 1.8,
-        "grid": 200,
-        "patience": 1000,
-        "triton_error_buffer": 1.0,
-    }
-)
 
 recipe = [
     QuantizationModifier(
