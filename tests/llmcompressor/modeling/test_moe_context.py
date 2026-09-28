@@ -1,6 +1,7 @@
 import torch
 from compressed_tensors.offload import disable_onloading
-from compressed_tensors.quantization import QuantizationMetadata
+from compressed_tensors.offload.cache import OffloadCache
+from compressed_tensors.quantization import QuantizationMetadata, QuantizationStatus
 
 from tests.e2e.e2e_utils import run_oneshot_single
 from tests.testing_utils import BaseTestConfig, requires_gpu
@@ -30,13 +31,27 @@ def _test_qparams(model: torch.nn.Module):
 
     with disable_onloading():
         all_qparams = [
-            (module_name + "." + qparam_name, getattr(module, qparam_name))
+            (
+                module_name + "." + qparam_name,
+                module,
+                getattr(module, qparam_name),
+            )
             for module_name, module in model.named_modules()
             for qparam_name in all_qparam_names
             if hasattr(module, qparam_name)
         ]
     assert len(all_qparams) > 0, "Model does not have any qparams to test"
 
-    for name, qparam in all_qparams:
+    for name, module, qparam in all_qparams:
         assert isinstance(qparam, torch.Tensor)
-        assert qparam._version >= 1, f"{name} was never updated after initialization"
+        if isinstance(module._parameters, OffloadCache):
+            # Moving a calibrated parameter to the offload device creates a new
+            # tensor and resets its internal PyTorch version counter. The module
+            # lifecycle is the reliable update signal in this case.
+            assert (
+                module.quantization_status > QuantizationStatus.INITIALIZED
+            ), f"{name} was never calibrated"
+        else:
+            assert (
+                qparam._version >= 1
+            ), f"{name} was never updated after initialization"
