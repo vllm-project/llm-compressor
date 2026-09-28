@@ -1,7 +1,9 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization import QuantizationStrategy, preset_name_to_scheme
+from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils.impl_backend import ImplBackend
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -579,3 +581,237 @@ def test_imatrix_bfloat16_triton_matches_eager_for_packed_group():
 
     assert torch.equal(eager[0], triton[0])
     assert torch.equal(eager[1], triton[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_imatrix_triton_matches_eager_for_packed_nvfp4_groups():
+    """NVFP4A16 expanded iMatrix search preserves eager ranges and QDQ exactly."""
+    args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(8, 1024, device="cuda", dtype=torch.bfloat16), "weight", args
+    )
+    importance = flatten_for_calibration(
+        torch.linspace(0.2, 2.0, 1024, device="cuda").unsqueeze(0).expand(8, -1),
+        "weight",
+        args,
+    )
+    search_args = (
+        observed,
+        args,
+        1.0 - 0.8 / 1.8,
+        1000,
+        200.0,
+        3.0,
+    )
+    search_kwargs = {
+        "expand": 1.8,
+        "importance_weights": importance,
+        "triton_error_buffer": 1.0,
+    }
+
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
+
+    scales_and_zps = [
+        calculate_qparams(
+            min_vals=bounds[0],
+            max_vals=bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        for bounds in (eager, triton)
+    ]
+    assert torch.equal(scales_and_zps[0][0], scales_and_zps[1][0])
+    assert torch.equal(scales_and_zps[0][1], scales_and_zps[1][1])
+
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    qdq_weights = [
+        fake_quantize(
+            observed,
+            scales.unsqueeze(-1),
+            zero_points.unsqueeze(-1),
+            token_args,
+        ).to(observed.dtype)
+        for scales, zero_points in scales_and_zps
+    ]
+    assert torch.equal(qdq_weights[0], qdq_weights[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
+    """A Llama-derived BF16 near-tie chooses the same NVFP4 grid point."""
+    args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
+    observed = torch.tensor(
+        [
+            0.0078125,
+            0.00439453125,
+            -0.00092315673828125,
+            0.006439208984375,
+            0.0078125,
+            0.0130615234375,
+            0.0067138671875,
+            0.004974365234375,
+            -0.00567626953125,
+            -0.0147705078125,
+            -0.00185394287109375,
+            0.00130462646484375,
+            -0.0057373046875,
+            0.01251220703125,
+            0.0133056640625,
+            -0.00174713134765625,
+        ],
+        device="cuda",
+        dtype=torch.bfloat16,
+    ).reshape(1, 1, 1, 16)
+    importance = torch.tensor(
+        [
+            0.0008253254927694798,
+            0.002562405075877905,
+            0.0028008718509227037,
+            0.001142465160228312,
+            0.001915410510264337,
+            0.0009209896088577807,
+            0.0016524026868864894,
+            0.002158285351470113,
+            0.0010275698732584715,
+            0.0035809692926704884,
+            0.00206969166174531,
+            0.0017336469609290361,
+            0.0008845608099363744,
+            0.0036817658692598343,
+            0.007513321004807949,
+            0.0026003867387771606,
+        ],
+        device="cuda",
+        dtype=torch.float32,
+    ).reshape(1, 1, 1, 16)
+    search_args = (observed, args, 1.0 - 0.8 / 1.8, 1000, 200.0, 3.0)
+    search_kwargs = {
+        "expand": 1.8,
+        "importance_weights": importance,
+        "triton_error_buffer": 1.0,
+    }
+
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
+
+    qparams = [
+        calculate_qparams(
+            min_vals=bounds[0],
+            max_vals=bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        for bounds in (eager, triton)
+    ]
+    assert torch.equal(qparams[0][0], qparams[1][0])
+    assert torch.equal(qparams[0][1], qparams[1][1])
+
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    qdq_weights = [
+        fake_quantize(
+            observed,
+            scales.unsqueeze(-1),
+            zero_points.unsqueeze(-1),
+            token_args,
+        ).to(observed.dtype)
+        for scales, zero_points in qparams
+    ]
+    assert torch.equal(qdq_weights[0], qdq_weights[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
+    """Match eager when a weighted cubic error lands on a BF16 rounding tie."""
+    args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
+    observed = torch.tensor(
+        [
+            -0.013671875,
+            0.01007080078125,
+            -0.001068115234375,
+            -0.0050048828125,
+            -0.01275634765625,
+            -0.005645751953125,
+            -0.0169677734375,
+            0.000766754150390625,
+            -0.0045166015625,
+            0.012939453125,
+            0.004547119140625,
+            -5.340576171875e-05,
+            -0.0036163330078125,
+            -0.002349853515625,
+            0.006927490234375,
+            0.01318359375,
+        ],
+        device="cuda",
+        dtype=torch.bfloat16,
+    ).reshape(1, 1, 1, 16)
+    importance = torch.tensor(
+        [
+            0.002571985125541687,
+            0.0014283129712566733,
+            0.0010594911873340607,
+            0.005643679294735193,
+            0.002667697612196207,
+            0.0023365672677755356,
+            0.0015463161980733275,
+            0.010683584958314896,
+            0.0014458026271313429,
+            0.0011119716800749302,
+            0.0010083864908665419,
+            14119.0341796875,
+            0.0009728227159939706,
+            0.00145068415440619,
+            0.010342647321522236,
+            0.0010723379673436284,
+        ],
+        device="cuda",
+        dtype=torch.float32,
+    ).reshape(1, 1, 1, 16)
+    search_args = (observed, args, 1.0 - 0.8 / 1.8, 1000, 200.0, 3.0)
+    search_kwargs = {
+        "expand": 1.8,
+        "importance_weights": importance,
+        "triton_error_buffer": 1.0,
+    }
+
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
+
+    qparams = [
+        calculate_qparams(
+            min_vals=bounds[0],
+            max_vals=bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        for bounds in (eager, triton)
+    ]
+    assert torch.equal(qparams[0][0], qparams[1][0])
+    assert torch.equal(qparams[0][1], qparams[1][1])
+
+    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+    qdq_weights = [
+        fake_quantize(
+            observed,
+            scales.unsqueeze(-1),
+            zero_points.unsqueeze(-1),
+            token_args,
+        ).to(observed.dtype)
+        for scales, zero_points in qparams
+    ]
+    assert torch.equal(qdq_weights[0], qdq_weights[1])

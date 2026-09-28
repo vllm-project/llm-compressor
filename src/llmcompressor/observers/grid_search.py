@@ -398,7 +398,7 @@ def _grid_search_observer_triton_packed_kernel(
     grid_points_ptr,
     q_min,
     q_max,
-    norm,
+    norm: tl.constexpr,
     patience,
     triton_error_buffer,
     scale_eps,
@@ -503,9 +503,29 @@ def _grid_search_observer_triton_packed_kernel(
                 COMPUTE_DTYPE=OBSERVED_DTYPE,
                 ROUND_ERROR=True,
             )
-            error = tl.sum(
-                tl.where(value_mask, diff_pow, 0.0).to(tl.float32), axis=1
-            ).to(best_error.dtype)
+            if HAS_IMPORTANCE and BLOCK_VALUES == 16:
+                # Match eager's CUDA reduction tree for a packed NVFP4 group:
+                # combine lanes at offsets 8, 4, 2, then 1 before BF16 rounding.
+                # A different FP32 reduction order can move a score across a
+                # BF16 midpoint and select a different grid point.
+                error_terms = tl.where(value_mask, diff_pow, 0.0).to(tl.float32)
+                error_terms = tl.sum(
+                    tl.reshape(error_terms, (TILE_QPARAMS, 2, BLOCK_VALUES // 2)),
+                    axis=1,
+                )
+                error_terms = tl.sum(
+                    tl.reshape(error_terms, (TILE_QPARAMS, 2, BLOCK_VALUES // 4)),
+                    axis=1,
+                )
+                error_terms = tl.sum(
+                    tl.reshape(error_terms, (TILE_QPARAMS, 2, BLOCK_VALUES // 8)),
+                    axis=1,
+                )
+                error = tl.sum(error_terms, axis=1).to(best_error.dtype)
+            else:
+                error = tl.sum(
+                    tl.where(value_mask, diff_pow, 0.0).to(tl.float32), axis=1
+                ).to(best_error.dtype)
             previous_best = best_error
             is_better = active & (error < previous_best)
             best_error = tl.where(is_better, error, best_error)
@@ -534,7 +554,7 @@ def _grid_search_observer_triton_split_kernel(
     grid_points_ptr,
     q_min,
     q_max,
-    norm,
+    norm: tl.constexpr,
     scale_eps,
     BLOCK_VALUES: tl.constexpr,
     NUM_CHUNKS: tl.constexpr,

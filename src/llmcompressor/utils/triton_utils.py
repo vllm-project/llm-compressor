@@ -133,7 +133,7 @@ def quantize_dequantize(
 def calculate_mse_error(
     values,
     quantized,
-    norm,
+    norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
     ROUND_ERROR: tl.constexpr,
 ):
@@ -145,13 +145,20 @@ def calculate_mse_error(
     else:
         diff = tl.abs(quantized - values)
 
-    error_norm = norm.to(tl.float32)
+    error_norm = tl.full((), norm, tl.float32)
     if ROUND_ERROR:
         if COMPUTE_DTYPE == 1:
             error_norm = error_norm.to(tl.float16).to(tl.float32)
         elif COMPUTE_DTYPE == 2:
             error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
-    diff_pow = tl.extra.cuda.libdevice.pow(diff.to(tl.float32), error_norm)
+    diff = diff.to(tl.float32)
+    if error_norm == 3.0:
+        # PyTorch's eager ``pow(x, 3.0)`` follows this multiply sequence.
+        # libdevice.pow can land on the other side of a BF16 rounding midpoint
+        # for tiny errors, which changes the selected grid point after weighting.
+        diff_pow = (diff * diff) * diff
+    else:
+        diff_pow = tl.extra.cuda.libdevice.pow(diff, error_norm)
     if ROUND_ERROR:
         if COMPUTE_DTYPE == 1:
             diff_pow = diff_pow.to(tl.float16)
@@ -165,7 +172,7 @@ def calculate_weighted_error(
     values,
     quantized,
     importance,
-    norm,
+    norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
     ROUND_ERROR: tl.constexpr,
 ):
@@ -185,7 +192,7 @@ def calculate_observer_error(
     values,
     quantized,
     importance,
-    norm,
+    norm: tl.constexpr,
     HAS_IMPORTANCE: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
     ROUND_ERROR: tl.constexpr,
