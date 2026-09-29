@@ -5,6 +5,7 @@ MSE collection and high-level API for ILP-based mixed-precision quantization.
 """
 
 import os
+import re
 import time
 from typing import Dict, List, Optional, Union
 
@@ -34,12 +35,18 @@ from llmcompressor.entrypoints.higgs.ilp_solver import (
 )
 from llmcompressor.entrypoints.higgs.utils import (
     UNQUANTIZED_SCHEME,
+    compute_fused_layer_mse,
     compute_heuristic_alphas,
     compute_layer_mse,
     detect_fused_groups,
     generate_config_groups,
 )
 from llmcompressor.entrypoints.model_free.converter import split_fused_moe_experts
+from llmcompressor.entrypoints.model_free.microscale import (
+    DEFAULT_FUSED_MAPPINGS,
+    get_fused_names,
+    is_microscale_scheme,
+)
 
 __all__ = [
     "HiggsMSECollectorConverter",
@@ -83,6 +90,7 @@ class HiggsMSECollectorConverter(Converter):
 
         self.mse_matrix: Dict[str, Dict[str, float]] = {}
         self.layer_sizes: Dict[str, int] = {}
+        self.ilp_solution: Dict[str, str] = {}
         self.optimal_config: Optional[QuantizationConfig] = None
 
     def _resolve_schemes(
@@ -107,37 +115,95 @@ class HiggsMSECollectorConverter(Converter):
                 raise ValueError(f"Invalid scheme type: {type(scheme)}")
         return resolved
 
-    def validate(self, tensors: Dict[str, torch.Tensor]):
-        """Check that there are quantizable tensors in this shard. Note: this is currently
-           never called by the HIGGS workflow"""
+    def validate(self, tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Validate HIGGS inputs without materializing checkpoint tensors."""
         tensors = split_fused_moe_experts(tensors)
-        count = sum(
-            1 for _ in match_quantizable_tensors(tensors, self.ignore, self.targets)
+        quantizable_tensors = list(
+            match_quantizable_tensors(tensors, self.ignore, self.targets)
         )
-        if count == 0:
+        self._validate_tensor_shapes(tensors, quantizable_tensors)
+
+        if not quantizable_tensors:
             logger.warning(
                 f"No quantizable tensors. Targets: {self.targets}, "
                 f"Ignore: {self.ignore}"
+            )
+        return tensors
+
+    def _validate_tensor_shapes(
+        self,
+        tensors: Dict[str, torch.Tensor],
+        quantizable_tensors: List[tuple[str, str]],
+    ) -> None:
+        unsupported_tensors = [
+            (tensor_name, tuple(tensors[tensor_name].shape))
+            for _, tensor_name in quantizable_tensors
+            if tensors[tensor_name].ndim > 2
+        ]
+        if unsupported_tensors:
+            tensor_details = "\n".join(
+                f"  - {name}: {shape}" for name, shape in unsupported_tensors
+            )
+            raise ValueError(
+                "HIGGS only supports 2-D weight matrices. The following "
+                "3-D or higher-dimensional tensors matched the quantization "
+                f"targets:\n{tensor_details}\n"
+                "Add these tensors to the HIGGS ignore list if they should not be "
+                "quantized, or add their fused MoE layout to "
+                "split_fused_moe_experts so HIGGS can handle them as individual "
+                "2-D expert weights."
             )
 
     def process(self, tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Compute MSE for each candidate scheme; return tensors unchanged."""
         tensors = split_fused_moe_experts(tensors)
         logger.info(f"Collecting MSE data from shard with {len(tensors)} tensors")
+        
+        quantizable_tensors = list(
+            match_quantizable_tensors(tensors, self.ignore, self.targets)
+        )
+        tensor_to_module = {
+            tensor_name: module_name for module_name, tensor_name in quantizable_tensors
+        }
+        matrix_tensor_names = {
+            tensor_name
+            for tensor_name in tensor_to_module
+            if tensors[tensor_name].ndim == 2
+        }
+        fused_sets, _ = get_fused_names(matrix_tensor_names)
+
+        for tensor_name in matrix_tensor_names:
+            module_name = tensor_to_module[tensor_name]
+            self.layer_sizes[module_name] = tensors[tensor_name].numel()
+            self.mse_matrix.setdefault(module_name, {})
+
+        for scheme_name, scheme in self.candidate_schemes.items():
+            fused_tensor_names = set()
+            if is_microscale_scheme(scheme):
+                for fused_set in fused_sets:
+                    names = list(fused_set.values())
+                    fused_mse = compute_fused_layer_mse(
+                        {name: tensors[name] for name in names}, scheme, self.device
+                    )
+                    for name, mse in fused_mse.items():
+                        self.mse_matrix[tensor_to_module[name]][scheme_name] = mse
+                    fused_tensor_names.update(names)
+
+            for tensor_name in matrix_tensor_names - fused_tensor_names:
+                module_name = tensor_to_module[tensor_name]
+                self.mse_matrix[module_name][scheme_name] = compute_layer_mse(
+                    tensors[tensor_name], scheme, self.device
+                )
 
         layers_processed = 0
-        for module_name, tensor_name in match_quantizable_tensors(
-            tensors, self.ignore, self.targets
-        ):
-            self.layer_sizes[module_name] = tensors[tensor_name].numel()
-            if module_name not in self.mse_matrix:
-                self.mse_matrix[module_name] = {}
+        for module_name, tensor_name in quantizable_tensors:
+            # ``Linear`` is an all-inclusive name target for checkpoint-only
+            # conversion, so model-specific non-matrix weights can still
+            # match it (for example norm vectors). HIGGS MSE is defined for
+            # 2-D weight matrices, so leave vectors out of the ILP.
+            if tensors[tensor_name].ndim != 2:
+                continue
 
-            for scheme_name, scheme in self.candidate_schemes.items():
-                if scheme_name not in self.mse_matrix[module_name]:
-                    self.mse_matrix[module_name][scheme_name] = compute_layer_mse(
-                        tensors[tensor_name], scheme, self.device
-                    )
             if self.allow_unquantized:
                 self.mse_matrix[module_name][UNQUANTIZED_SCHEME] = 0.0
             layers_processed += 1
@@ -188,7 +254,7 @@ class HiggsMSECollectorConverter(Converter):
             if activation_bitwidths is not None:
                 activation_bitwidths[UNQUANTIZED_SCHEME] = 16.0
 
-        ilp_solution = solve_ilp_mixed_precision(
+        self.ilp_solution = solve_ilp_mixed_precision(
             mse_matrix=self.mse_matrix,
             alphas=alphas,
             candidate_schemes=ilp_candidate_schemes,
@@ -200,7 +266,9 @@ class HiggsMSECollectorConverter(Converter):
             scheme_act_bitwidths=activation_bitwidths,
         )
 
-        config_groups = generate_config_groups(ilp_solution, self.candidate_schemes)
+        config_groups = generate_config_groups(
+            self.ilp_solution, self.candidate_schemes
+        )
         formats = {
             CompressionFormat(s.format) for s in config_groups.values() if s.format
         }
@@ -216,6 +284,18 @@ class HiggsMSECollectorConverter(Converter):
         return self.optimal_config
 
     def get_dependencies(self, weight_name: str) -> set[str]:
+        if not any(
+            is_microscale_scheme(scheme) for scheme in self.candidate_schemes.values()
+        ):
+            return set()
+
+        for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
+            match = re.match(primary_pattern, weight_name)
+            if match:
+                return {
+                    template.format(**match.groupdict())
+                    for template in partner_templates
+                }
         return set()
 
 
@@ -234,6 +314,7 @@ def get_higgs_config(
     target_avg_act_bitwidth: Optional[float] = None,
     device: Optional[Union[str, torch.device]] = None,
     allow_unquantized: bool = True,
+    return_collector: bool = False,
 ) -> QuantizationConfig:
     """
     Compute optimal mixed-precision config via ILP on per-layer MSE.
@@ -255,6 +336,7 @@ def get_higgs_config(
         target_avg_act_bitwidth: Optional constraint on average activation bitwidth
         device: Device for MSE computation (GPU recommended)
         allow_unquantized: Allow the ILP to leave layers unquantized at 16 bits
+        return_collector: Return the collector alongside the optimized config.
 
     Returns:
         QuantizationConfig with optimized config_groups
@@ -305,6 +387,14 @@ def get_higgs_config(
     shard_names = [f for f in model_files if f.endswith("safetensors")]
     logger.info(f"Processing {len(shard_names)} shards for MSE collection...")
 
+    for shard_name in shard_names:
+        if shard_name not in inverse_weight_maps:
+            continue
+        tensors = load_tensors_from_inverse_weight_map(
+            inverse_weight_maps[shard_name], torch.device("meta")
+        )
+        collector.validate(tensors)
+
     mse_start = time.time()
     for shard_name in shard_names:
         if shard_name not in inverse_weight_maps:
@@ -331,4 +421,6 @@ def get_higgs_config(
         f"{len(optimal_config.config_groups)} config groups"
     )
 
+    if return_collector:
+        return optimal_config, collector
     return optimal_config

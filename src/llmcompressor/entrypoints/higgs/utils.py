@@ -26,10 +26,12 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
+from llmcompressor.observers import FusionHandler
 from llmcompressor.observers.helpers import FUSED_LAYER_NAMES
 
 __all__ = [
     "compute_layer_mse",
+    "compute_fused_layer_mse",
     "compute_heuristic_alphas",
     "generate_config_groups",
     "detect_fused_groups",
@@ -46,34 +48,53 @@ UNQUANTIZED_SCHEME = "__unquantized__"
 
 def compute_layer_mse(weight, scheme, device=None):
     """Compute MSE between original and fake-quantized weight."""
+    return compute_fused_layer_mse({"weight": weight}, scheme, device)["weight"]
+
+
+def compute_fused_layer_mse(weights, scheme, device=None):
+    """Compute MSE for layers that share an NVFP4 global scale."""
     try:
-        device = device or weight.device
-        weight = weight.to(device)
-        out_features, in_features = weight.shape
+        modules = {}
+        for name, weight in weights.items():
+            device = device or weight.device
+            weight = weight.to(device)
+            out_features, in_features = weight.shape
+            module = torch.nn.Linear(
+                in_features, out_features, bias=False, device="meta"
+            )
+            module.weight = torch.nn.Parameter(weight, requires_grad=False)
+            initialize_module_for_quantization(module, scheme, force_zero_point=False)
+            initialize_observer(module, "weight")
+            apply_calibration_status(module)
+            modules[name] = module
 
-        module = torch.nn.Linear(in_features, out_features, bias=False, device="meta")
-        module.weight = torch.nn.Parameter(weight, requires_grad=False)
-
-        initialize_module_for_quantization(module, scheme, force_zero_point=False)
-        initialize_observer(module, "weight")
-        apply_calibration_status(module)
-        observe(module, base_name="weight")
-        update_qparams(module, base_name="weight")
-        freeze_module_quantization(module)
-
-        scale = module.weight_scale
-        zp = getattr(module, "weight_zero_point", torch.zeros_like(scale))
-        quantized = fake_quantize(
-            x=weight, scale=scale, zero_point=zp, args=scheme.weights
+        FusionHandler.fuse(
+            [(module.weight_observer, module) for module in modules.values()]
         )
+        observe(modules.values(), base_name="weight")
+        update_qparams(modules.values(), base_name="weight")
 
-        return torch.mean((weight - quantized) ** 2).item()
+        mse = {}
+        for name, module in modules.items():
+            scale = module.weight_scale
+            zero_point = getattr(module, "weight_zero_point", torch.zeros_like(scale))
+            quantized = fake_quantize(
+                x=module.weight,
+                scale=scale,
+                zero_point=zero_point,
+                args=scheme.weights,
+                global_scale=getattr(module, "weight_global_scale", None),
+            )
+            mse[name] = torch.mean((module.weight - quantized) ** 2).item()
+            freeze_module_quantization(module)
+
+        return mse
 
     except Exception as e:
         logger.warning(
             f"Failed to compute MSE for scheme {scheme}: {e}. Returning inf."
         )
-        return float("inf")
+        return {name: float("inf") for name in weights}
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +150,13 @@ _MOE_EXPERT_RE = re.compile(r"(.+\.experts)\.\d+\..+")
 
 
 def detect_fused_groups(layer_names: List[str]) -> List[List[str]]:
-    """Group layers sharing a scheme (MoE experts, qkv, gate+up)."""
+    """Group layers sharing a scheme (MoE experts, qkv, gate+up).
+
+    Fused MoE implementations consume routed and shared expert projections as
+    one quantized module.  Keep those projections in the same ILP group so a
+    mixed assignment cannot produce a checkpoint that the fused kernel cannot
+    load.
+    """
     layer_name_set = set(layer_names)
 
     # Phase 1: MoE expert fusion
@@ -141,7 +168,9 @@ def detect_fused_groups(layer_names: List[str]) -> List[List[str]]:
 
     groups = []
     processed = set()
-    for members in expert_groups.values():
+    for expert_prefix, members in expert_groups.items():
+        shared_prefix = expert_prefix.removesuffix(".experts") + ".shared_experts."
+        members.extend(name for name in layer_names if name.startswith(shared_prefix))
         if len(members) > 1:
             groups.append(sorted(members))
             processed.update(members)

@@ -9,7 +9,7 @@ NVFP4A16 (W4A16) and FP8_DYNAMIC are data-free schemes, so no calibration
 dataset is needed. This path is faster and uses less memory.
 
 Usage:
-    python higgs_nvfp4a16_fp8_convert.py \
+    python higgs_nvfp4a16_fp8_model_free.py \
         --model meta-llama/Meta-Llama-3.1-8B-Instruct \
         --target-bits 6.0
 """
@@ -31,7 +31,7 @@ IGNORE = [
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model", required=True, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
     parser.add_argument("--target-bits", type=float, default=6.0)
     parser.add_argument("--max-workers", type=int, default=4)
     args = parser.parse_args()

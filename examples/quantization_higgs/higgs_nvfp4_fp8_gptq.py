@@ -18,7 +18,6 @@ import argparse
 import os
 
 from compressed_tensors.quantization import preset_name_to_scheme
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -39,7 +38,7 @@ MAX_SEQUENCE_LENGTH = 2048
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model", required=True, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
     parser.add_argument("--target-bits", type=float, default=6.0)
     args = parser.parse_args()
 
@@ -66,33 +65,9 @@ def main():
     for name, scheme in config.config_groups.items():
         print(f"  {name}: {len(scheme.targets)} layers")
 
-    # Step 2: load model, prepare calibration data, apply via GPTQ
+    # Step 2: load model and apply the config with PerfectBlend calibration.
     model = AutoModelForCausalLM.from_pretrained(args.model)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
-
-    ds = load_dataset(
-        "HuggingFaceH4/ultrachat_200k",
-        split=f"train_sft[:{NUM_CALIBRATION_SAMPLES}]",
-    )
-    ds = ds.shuffle(seed=42)
-
-    def preprocess(example):
-        return {
-            "text": tokenizer.apply_chat_template(example["messages"], tokenize=False)
-        }
-
-    ds = ds.map(preprocess)
-
-    def tokenize(sample):
-        return tokenizer(
-            sample["text"],
-            padding=False,
-            max_length=MAX_SEQUENCE_LENGTH,
-            truncation=True,
-            add_special_tokens=False,
-        )
-
-    ds = ds.map(tokenize, remove_columns=ds.column_names)
 
     recipe = GPTQModifier(
         config_groups=config.config_groups,
@@ -101,7 +76,8 @@ def main():
 
     oneshot(
         model=model,
-        dataset=ds,
+        dataset="perfectblend",
+        splits=f"train[:{NUM_CALIBRATION_SAMPLES}]",
         recipe=recipe,
         max_seq_length=MAX_SEQUENCE_LENGTH,
         num_calibration_samples=NUM_CALIBRATION_SAMPLES,

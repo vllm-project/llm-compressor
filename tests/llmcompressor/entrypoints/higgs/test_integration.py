@@ -4,11 +4,17 @@ Integration tests for HIGGS mixed-precision quantization.
 
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    preset_name_to_scheme,
+)
 
 from llmcompressor.entrypoints.higgs import (
     HiggsMSECollectorConverter,
+    compute_fused_layer_mse,
     compute_heuristic_alphas,
+    compute_layer_mse,
     detect_fused_groups,
 )
 from llmcompressor.entrypoints.higgs.utils import UNQUANTIZED_SCHEME
@@ -92,6 +98,64 @@ def test_mse_collector_with_heuristic(candidate_schemes, sample_tensors):
     # Should generate valid config
     assert config is not None
     assert len(config.config_groups) > 0
+
+
+def test_mse_collector_validation_rejects_unsupported_tensor_shapes(candidate_schemes):
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=list(candidate_schemes.values()),
+        targets="Linear",
+        ignore=[],
+        allow_unquantized=False,
+    )
+
+    tensors = {
+        "model.layers.0.mlp.down_proj.weight": torch.empty(128, 128, device="meta"),
+        "model.layers.0.mamba.conv1d.weight": torch.empty(16, 1, 4, device="meta"),
+        "model.layers.1.mamba.conv1d.weight": torch.empty(16, 1, 8, device="meta"),
+    }
+
+    with pytest.raises(ValueError) as error:
+        collector.validate(tensors)
+
+    message = str(error.value)
+    assert "model.layers.0.mamba.conv1d.weight: (16, 1, 4)" in message
+    assert "model.layers.1.mamba.conv1d.weight: (16, 1, 8)" in message
+    assert "ignore list" in message
+    assert "split_fused_moe_experts" in message
+
+
+def test_mse_collector_validation_splits_known_fused_moe(candidate_schemes):
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=list(candidate_schemes.values()),
+        targets="Linear",
+        ignore=[],
+        allow_unquantized=False,
+    )
+    tensors = {
+        "model.layers.0.mlp.gate_up_proj.weight": torch.empty(
+            2, 128, 64, device="meta"
+        ),
+        "model.layers.0.mlp.down_proj.weight": torch.empty(2, 64, 64, device="meta"),
+    }
+
+    validated_tensors = collector.validate(tensors)
+
+    assert "model.layers.0.mlp.gate_up_proj.weight" not in validated_tensors
+    assert all(tensor.ndim == 2 for tensor in validated_tensors.values())
+
+
+def test_fused_nvfp4_mse_uses_shared_global_scale():
+    scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
+    small_weight = torch.linspace(-0.1, 0.1, 256).reshape(16, 16)
+    large_weight = torch.linspace(-100, 100, 256).reshape(16, 16)
+
+    independent_mse = compute_layer_mse(small_weight, scheme)
+    fused_mse = compute_fused_layer_mse(
+        {"q_proj": small_weight, "k_proj": large_weight}, scheme
+    )
+
+    # The large fused partner changes the global scale used to quantize q_proj.
+    assert fused_mse["q_proj"] != pytest.approx(independent_mse)
 
 
 def test_mse_collector_allows_unquantized_layers(candidate_schemes, sample_tensors):

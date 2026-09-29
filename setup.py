@@ -179,6 +179,7 @@ setup(
             "einops",
             "tiktoken",
             "qwen_vl_utils",
+            "pulp>=2.7.0",
         ],
         "qwen": [
             "qwen_vl_utils",  # TODO: remove

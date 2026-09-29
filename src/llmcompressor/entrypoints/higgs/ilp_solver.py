@@ -80,7 +80,7 @@ def solve_ilp_mixed_precision(
     if pulp is None:
         raise ImportError(
             "HIGGS ILP solver requires the 'pulp' package. "
-            "Install it with: pip install pulp"
+            "Install with: pip install llmcompressor[higgs]"
         )
 
     if fused_groups is None:
