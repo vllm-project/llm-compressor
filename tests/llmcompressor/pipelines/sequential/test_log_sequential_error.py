@@ -51,6 +51,9 @@ class FakeSubgraph:
     def submodules(self, model):
         return []
 
+    def submodule_dict(self, model, recurse=True):
+        return {}
+
 
 def _sqnr_values(messages):
     """Extract SQNR floats from captured METRIC log messages."""

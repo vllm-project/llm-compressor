@@ -204,10 +204,7 @@ class SequentialPipeline(CalibrationPipeline):
                     # update activations immediately only when no pass 2
                     # is needed; otherwise defer to after pass 2
                     if not dataset_args.propagate_error:
-                        if (
-                            not dataset_args.log_sequential_error
-                            and has_next_subgraph
-                        ):
+                        if not dataset_args.log_sequential_error and has_next_subgraph:
                             activations.update(batch_idx, outputs)
                             activations.delete(batch_idx, subgraph.consumed_names)
 
@@ -233,9 +230,7 @@ class SequentialPipeline(CalibrationPipeline):
                             output = subgraph.forward(model, **inputs)
                             if dataset_args.propagate_error and has_next_subgraph:
                                 activations.update(batch_idx, output)
-                                activations.delete(
-                                    batch_idx, subgraph.consumed_names
-                                )
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
                             if seq_error_cache is not None and has_next_subgraph:
                                 batch_power = process_batch_error(
