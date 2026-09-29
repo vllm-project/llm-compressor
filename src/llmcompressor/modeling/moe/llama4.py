@@ -51,10 +51,6 @@ class Llama4LinearExperts(LinearExperts2D):
 
         self._record_source_metadata(experts, config)
 
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
 
         return self
 

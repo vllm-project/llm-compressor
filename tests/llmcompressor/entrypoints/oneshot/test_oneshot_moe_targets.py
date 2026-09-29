@@ -21,7 +21,7 @@ def test_has_individual_expert_targets(monkeypatch):
     model = _Model()
     monkeypatch.setattr(
         entrypoint_utils,
-        "get_moe_linear_status",
+        "get_moe_modules",
         lambda _model: {model.moe: "moe"},
     )
 
@@ -33,7 +33,7 @@ def test_individual_expert_targets_force_eager_linearization(monkeypatch):
     model = _Model()
     monkeypatch.setattr(
         entrypoint_utils,
-        "get_moe_linear_status",
+        "get_moe_modules",
         lambda _model: {model.moe: "moe"},
     )
     dataset_args = SimpleNamespace(
