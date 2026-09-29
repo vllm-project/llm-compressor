@@ -329,10 +329,6 @@ class DatasetArguments(CustomDatasetArguments):
         default=True,
         metadata={"help": "Repack moe layers to 3D after calibration."},
     )
-    enable_compile: bool = field(
-        default=False,
-        metadata={"help": "If True, use torch.compile where available."},
-    )
     stage_weights_in_pinned_memory: bool = field(
         default=True,
         metadata={
