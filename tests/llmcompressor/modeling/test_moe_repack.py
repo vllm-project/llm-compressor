@@ -112,6 +112,18 @@ def test_repack_restores_fused_experts_and_weights():
     assert torch.allclose(experts.down_proj, ref_down)
 
 
+def test_repack_directly_loaded_linear_experts():
+    model = _tiny_qwen3_moe_blocks()
+    config = model.config
+    linear_experts_cls = LinearExperts2D.get_linear_experts_cls(Qwen3MoeExperts)
+    model.block1.mlp.experts = linear_experts_cls(config)
+
+    repack_moe(model)
+
+    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+    assert not isinstance(model.block1.mlp.experts, LinearExperts2D)
+
+
 @torch.no_grad()
 def test_linearize_and_repack_preserve_offload_cache():
     model = _tiny_qwen3_vl_moe()

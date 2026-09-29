@@ -238,6 +238,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls, experts_cls: type[FusedExpertsProtocol]
     ) -> type["LinearExperts2D"]:
         if linear_experts_cls := cls.get_registration(experts_cls):
+            linear_experts_cls._source_experts_cls = experts_cls
             return linear_experts_cls
 
         experts_cls_args = get_use_experts_implementation_args(experts_cls)
@@ -253,6 +254,7 @@ class LinearExperts2D(torch.nn.ModuleList):
 
         # reuse existing classes to avoid creating excessive types
         linear_experts_cls = type("LinearExperts2D", (cls,), experts_cls_args)
+        linear_experts_cls._source_experts_cls = experts_cls
         cls._registry[experts_cls] = linear_experts_cls
         return linear_experts_cls
 
@@ -453,6 +455,9 @@ class LinearExperts2D(torch.nn.ModuleList):
         return packed
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
+        # Checkpoint conversion can construct this class directly, without going
+        # through from_experts_module(). Preserve the information needed to repack.
+        self._source_config = config
         moe_config = MoEConfig.from_config(config)
 
         # store num_experts before appending `act_fn` to module list
