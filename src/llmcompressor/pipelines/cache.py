@@ -56,6 +56,7 @@ class IntermediatesCache:
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
+        self._prefetch_stream = None
 
     @classmethod
     def empty(cls, num_batches: int, offload_device: torch.device):
@@ -277,7 +278,12 @@ class IntermediatesCache:
         # separate stream from the main thread's compute stream. Without this,
         # both threads default to the null stream (stream 0) which serializes
         # all operations and prevents any overlap.
-        h2d_stream = torch.Stream() if torch.accelerator.is_available() else None
+        if torch.accelerator.is_available():
+            if self._prefetch_stream is None:
+                self._prefetch_stream = torch.Stream()
+            h2d_stream = self._prefetch_stream
+        else:
+            h2d_stream = None
 
         def _fetch_and_record(batch_index):
             event = None
