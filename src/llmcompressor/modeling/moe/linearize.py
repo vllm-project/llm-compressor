@@ -312,7 +312,9 @@ def _replace(
 
     model.set_submodule(name, new_module)
 
-    # Replacements can remain referenced by tracing or lifecycle objects. Release
-    # their storage explicitly instead of relying on garbage collection.
-    if not hasattr(old_module._parameters, "offloaded_values"):
+    # Sequential tracing retains replaced modules through its bookkeeping. Release
+    # their storage there, while leaving direct callers' old module references usable.
+    if module_dict is not None and not hasattr(
+        old_module._parameters, "offloaded_values"
+    ):
         old_module.to_empty(device="meta")

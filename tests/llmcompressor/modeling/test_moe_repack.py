@@ -118,11 +118,11 @@ def test_linearize_and_repack_preserve_offload_cache():
     experts = model.model.language_model.layers[0].mlp.experts
     offload_module(experts, onload_device="cpu", offload_device="cpu")
 
-    linearize_moe_model(model)
+    linearize_moe(model, onload_and_offload=True)
     experts = model.model.language_model.layers[0].mlp.experts
     assert isinstance(experts._parameters, OffloadCache)
 
-    repack_moe_model(model)
+    repack_moe(model, onload_and_offload=True)
     experts = model.model.language_model.layers[0].mlp.experts
     assert isinstance(experts._parameters, OffloadCache)
 
