@@ -1,5 +1,8 @@
+import json
+
 import pytest
 from datasets import Dataset, IterableDataset, load_dataset
+from transformers import AutoTokenizer
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.datasets import format_calibration_data, get_processed_dataset
@@ -344,3 +347,55 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
     assert len(calib_dataloader) == num_calibration_samples
     dataloader_sample = next(iter(calib_dataloader))["input_ids"]
     assert dataloader_sample[0].tolist() in calib_dataset["input_ids"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "inference-optimization/Llama-4-Scout-1.7B-0.4B-Instruct",
+        "inference-optimization/gpt-oss-2.5B-A1.3B",
+        "inference-optimization/gemma-4-unified-0.8B-tiny",
+        "inference-optimization/granite-vision-4.1-0.2B-tiny",
+        "inference-optimization/Qwen3-VL-1.0B-A0.4B-Instruct",
+        "inference-optimization/Qwen3.6-8B-A1.6B",
+        "inference-optimization/GLM-5.3-0.6B-A0.4B",
+        "inference-optimization/Inkling-0.6B-A0.6B",
+        "inference-optimization/Nemotron-3.5-Lightning-1.4B-A0.1B-MTP",
+        "inference-optimization/Kimi-K3-0.40B",
+    ],
+)
+def test_swe_smith_chat_template(model_id):
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    manager = TextGenerationDataset.load_from_registry(
+        "swe_smith",
+        dataset_args=DatasetArguments(dataset="swe_smith"),
+        split="tool[:1]",
+        processor=tokenizer,
+    )
+    dataset = manager.load_dataset()
+    dataset = manager.map(
+        dataset, manager.preprocess, batched=False, load_from_cache_file=False
+    )
+    dataset = manager.rename_columns(dataset)
+
+    # every message's content and string tool call argument is rendered, either
+    # verbatim or json-escaped (templates commonly render these with `tojson`)
+    messages = json.loads(dataset[0]["messages"])
+    text = dataset[0]["text"]
+
+    def is_rendered(value: str) -> bool:
+        value = value.strip()
+        return value in text or json.dumps(value)[1:-1] in text
+
+    for message in messages:
+        content = message.get("content") or ""
+        if isinstance(content, list):
+            content = "".join(part["text"] for part in content)
+        assert is_rendered(content)
+
+        for tool_call in message.get("tool_calls") or []:
+            arguments = json.loads(tool_call["function"]["arguments"])
+            for value in arguments.values():
+                if isinstance(value, str):
+                    assert is_rendered(value)
