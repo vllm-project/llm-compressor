@@ -1,7 +1,7 @@
 # NOTE: to use a custom dataset, see examples/custom_dataset_example.py
+import torch
 from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization import preset_name_to_scheme
-import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot

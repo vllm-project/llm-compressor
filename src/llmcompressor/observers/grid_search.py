@@ -187,9 +187,7 @@ def _calculate_imatrix_error(
             .reshape(num_qparams, total_values)
         )
         partial_errors = [
-            errors_by_qparam[
-                :, offset : offset + _GRID_SEARCH_TILE_SIZE
-            ].sum(dim=-1)
+            errors_by_qparam[:, offset : offset + _GRID_SEARCH_TILE_SIZE].sum(dim=-1)
             for offset in range(0, total_values, _GRID_SEARCH_TILE_SIZE)
         ]
         result = (
