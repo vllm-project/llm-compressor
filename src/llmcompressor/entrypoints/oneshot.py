@@ -40,10 +40,6 @@ from llmcompressor.entrypoints.utils import (
     pre_process,
 )
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import (
-    get_non_linearized_moes,
-    linearize_moe,
-)
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
 
@@ -264,21 +260,6 @@ class Oneshot:
 
         session = active_session()
         session.reset()
-
-        lazy_sequential_pipeline = (
-            self.dataset_args.moe_lazy_linearization_and_repack
-            and self.dataset_args.pipeline in (None, "sequential", "independent")
-        )
-        if (
-            not lazy_sequential_pipeline
-            and len(get_non_linearized_moes(self.model)) > 0
-        ):
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(self.model, offload=True)
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
