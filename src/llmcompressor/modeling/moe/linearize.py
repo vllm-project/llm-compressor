@@ -199,14 +199,11 @@ def repack_moe_layer(
     fused = module.to_experts_module()
     _replace(model, name, module, fused, subgraph_modules)
 
+    # Delete stale children
     if subgraph_modules is not None:
         for child_name in list(subgraph_modules):
             if child_name.startswith(f"{name}."):
                 del subgraph_modules[child_name]
-
-    if offload_kwargs is not None:
-        for child_name in list(offload_kwargs):
-            if child_name.startswith(f"{name}."):
                 offload_kwargs.setdefault(name, offload_kwargs[child_name])
                 del offload_kwargs[child_name]
 
@@ -281,8 +278,6 @@ def linearize_moe_layer(
                 if relative_name
             }
         )
-
-    if offload_kwargs is not None and name in offload_kwargs:
         offload_kwargs.update(
             {
                 f"{name}.{relative_name}": offload_kwargs[name]
