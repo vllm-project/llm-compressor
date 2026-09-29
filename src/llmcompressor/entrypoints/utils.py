@@ -28,7 +28,7 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
-from llmcompressor.modeling.moe.linearize import get_moe_linear_status
+from llmcompressor.modeling.moe.linearize import get_moe_modules
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -217,7 +217,7 @@ def has_individual_expert_targets(
     """Return whether targets select a descendant of an MoE experts module."""
 
     targets = infer_sequential_targets(model, sequential_targets)
-    moe_modules = get_moe_linear_status(model)
+    moe_modules = get_moe_modules(model)
 
     for target_name, target_module in match_named_modules(model, targets):
         if target_module in moe_modules:

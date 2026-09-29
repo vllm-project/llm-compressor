@@ -119,7 +119,7 @@ def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
         "(num_shared_experts > 0); their input_layernorm consumers are not fused."
     )
 
-    linearize_moe(model)
+    linearize_moe(model, offload=True)
 
     num_routers = 0
     for layer in model.model.layers:

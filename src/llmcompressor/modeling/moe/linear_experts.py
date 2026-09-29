@@ -327,11 +327,6 @@ class LinearExperts2D(torch.nn.ModuleList):
                 for index in range(self.num_experts):
                     self[index].copy_bias_to_experts_module(fused, index)
 
-        offload_kwargs = get_cache_init_kwargs(self)
-        offload_module(fused, **offload_kwargs)
-        for child in fused.children():
-            if isinstance(child, CompressedFusedLinear):
-                offload_module(child, **offload_kwargs)
         return fused
 
     def _require_source_metadata(self) -> tuple[type, PreTrainedConfig]:

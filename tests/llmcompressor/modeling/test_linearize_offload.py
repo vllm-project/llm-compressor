@@ -44,7 +44,7 @@ def test_load_quantizable_moe():
 
 @requires_gpu(2)
 @torchrun(world_size=2)
-def test_linearize_moe_model():
+def test_linearize_moe():
     # clear all loading mappings; must use `linearize_moe` pathway
     with patch_attr(conversion_mappings, "ARCH_TO_2D_MAPPINGS", []):
         test_load_quantizable_moe()

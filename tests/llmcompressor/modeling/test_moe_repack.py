@@ -544,6 +544,30 @@ def test_llama4_from_experts_accepts_text_config():
 
 
 @torch.no_grad()
+def test_moe_replacement_updates_subgraph_offload_bookkeeping():
+    model = _tiny_qwen3_moe_blocks()
+    experts_name = "block1.mlp.experts"
+    subgraph_modules = {experts_name: model.block1.mlp.experts}
+    offload_kwargs = {
+        experts_name: {"onload_device": "cpu", "offload_device": "disk"},
+    }
+
+    linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+
+    assert experts_name in subgraph_modules
+    assert f"{experts_name}.0.gate_proj" in subgraph_modules
+    assert f"{experts_name}.0.gate_proj" in offload_kwargs
+    assert offload_kwargs[f"{experts_name}.0.gate_proj"]["offload_device"] == "disk"
+
+    repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+
+    assert not any(name.startswith(f"{experts_name}.0.") for name in subgraph_modules)
+    assert not any(name.startswith(f"{experts_name}.0.") for name in offload_kwargs)
+    assert experts_name in subgraph_modules
+    assert experts_name in offload_kwargs
+    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+
+@torch.no_grad()
 def test_linearize_moe_subgraph_traverses_nested_modules():
     model = _tiny_qwen3_moe_blocks()
     subgraph_modules = {"block1": model.block1}
