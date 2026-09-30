@@ -16,7 +16,7 @@ from transformers.utils.quantization_config import CompressedTensorsConfig
 from llmcompressor import oneshot
 from llmcompressor.modifiers.qad import QADModifier
 
-from .test_base import _quantizer
+from .test_base import _capture_logs, _logged_updates, _quantizer
 
 
 @pytest.mark.parametrize("kind", ["rtn", "gptq"])
@@ -56,7 +56,7 @@ def test_nvfp4_save_reload(kind, device, dtype, tmp_path):
     ]
     qad = QADModifier(
         num_epochs=2,
-        learning_rate=2e-6,
+        lr=2e-6,
         gradient_accumulation_steps=2,
     )
     vocab = {"<unk>": 0, "<s>": 1, "</s>": 2, "<pad>": 3}
@@ -71,20 +71,21 @@ def test_nvfp4_save_reload(kind, device, dtype, tmp_path):
     dataset = Dataset.from_list(
         [{name: value[0].tolist() for name, value in batch.items()} for batch in data]
     )
-    oneshot(
-        model=model,
-        processor=tokenizer,
-        dataset=dataset,
-        recipe=[_quantizer(kind), qad],
-        pipeline="sequential",
-        sequential_targets=["LlamaDecoderLayer"],
-        sequential_targets_per_subgraph=1,
-        num_calibration_samples=4,
-        max_seq_length=16,
-        batch_size=1,
-        shuffle_calibration_samples=False,
-    )
-    assert qad.optimizer_steps == {"model.layers.0": 4, "model.layers.1": 4}
+    with _capture_logs() as logs:
+        oneshot(
+            model=model,
+            processor=tokenizer,
+            dataset=dataset,
+            recipe=[_quantizer(kind), qad],
+            pipeline="sequential",
+            sequential_targets=["LlamaDecoderLayer"],
+            sequential_targets_per_subgraph=1,
+            num_calibration_samples=4,
+            max_seq_length=16,
+            batch_size=1,
+            shuffle_calibration_samples=False,
+        )
+    assert _logged_updates(logs) == {"model.layers.0": 4, "model.layers.1": 4}
     model.save_pretrained(
         tmp_path,
         save_compressed=True,

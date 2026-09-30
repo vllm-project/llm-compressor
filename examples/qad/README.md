@@ -22,14 +22,14 @@ oneshot(
         quantizer,
         QADModifier(
             num_epochs=3,
-            learning_rate=2e-6,
+            lr=2e-6,
             gradient_accumulation_steps=4,
         ),
     ],
     pipeline="sequential",
     sequential_targets=["LlamaDecoderLayer"],
     sequential_targets_per_subgraph=1,
-    propagate_error=True,
+    propagate_error=True,  # default; recommended for QAD
     num_calibration_samples=512,
     max_seq_length=2048,
     batch_size=1,
@@ -82,8 +82,8 @@ Hugging Face dataset, not this preset. Access to
 token; loading fails if any required source is inaccessible or too short.
 
 This example adopts the upstream sources and mixture weights. QAD uses its own
-validation split and early stopping described below; `--epochs` is a per-block
-maximum, with the best validation weights restored before propagation. These
+validation split described below; `--epochs` is the per-block epoch count, with
+the best validation weights restored before propagation. These
 commands demonstrate loading and training, not the full configuration used for
 the long-context epoch-ablation benchmark results.
 
@@ -103,11 +103,17 @@ For each decoder block:
    re-observes weights, materializes quantized weights, and releases the training cache. The
    pipeline propagates the final outputs to the next block.
 
-The target is **local**: the original current block receives the already
-quantized upstream outputs. With block function `f`, original weights `W0`,
-student weights `W`, and cached input `h`, QAD fits `f(h, Q(W))` to `f(h, W0)`.
+The target is **local**: the original current block receives the same cached
+input as the student. With block function `f`, original weights `W0`, student
+weights `W`, and cached input `h`, QAD fits `f(h, Q(W))` to `f(h, W0)`.
 This captures the current block before the preceding quantizer changes it;
 it does not reconstruct an independent original-model activation stream.
+
+`propagate_error` selects `h`. With the default `propagate_error=True`
+(recommended), `h` is the preceding blocks' quantized output, so each block
+trains on the inputs it receives at inference. With `propagate_error=False`,
+`h` is the original model's activation, which gives plain block-wise
+reconstruction.
 
 Replay uses the complete target module's `forward`, retaining its internal
 attention, MLP, branches, and residual connections. Multiple target modules
@@ -145,15 +151,16 @@ Pass this recipe to `oneshot` with the sequential settings above. The AWQ
 integration tests check per-block optimization, cache cleanup, and finite model
 outputs; save/reload/generation tests separately cover RTN and GPTQ. Other
 transform/quantizer combinations need their own validation. Methods that change
-target boundaries, overwrite teacher weights before capture, or disable
-sequential error propagation do not satisfy the contract automatically.
+target boundaries or overwrite teacher weights before capture do not satisfy the
+contract automatically.
 
 ## Training and supported scope
 
-- Use single-process sequential calibration, one complete target module per
-  subgraph, and `propagate_error=True`. All quantized weights must belong to the
-  selected targets. Ignore the output LM head. Cross-block weight sharing and
-  repeated calls to the same target in a calibration batch are unsupported.
+- Use single-process sequential calibration and one complete target module per
+  subgraph. `propagate_error=True` (the default) is recommended; see
+  [Execution](#execution). Quantized weights outside the selected targets, such
+  as a quantized LM head, keep the preceding modifier's result. Repeated calls
+  to the same target in a calibration batch are unsupported.
 - The same samples, preprocessing, sequence lengths, and loader batch size feed
   both calibration and QAD. There is no `qad_dataset` or `teacher_mode` option.
   `gradient_accumulation_steps` controls the QAD update batch size.
@@ -161,16 +168,16 @@ sequential error propagation do not satisfy the contract automatically.
   `validation_fraction=0.1` holds batches out from QAD gradient updates, although
   they still participate in quantizer calibration. Keep downstream test data
   separate.
-- Each block has its own optimizer, `num_epochs`, and early stopping
-  (`early_stopping_patience=3`, `validation_relative_min_delta=0.001`). The
-  quantizer's initial weights are included among the best-weight candidates.
+- Each block has its own optimizer and trains for `num_epochs` epochs. The
+  weights with the lowest validation loss are then restored; the quantizer's
+  initial weights are included among the candidates.
 - FP16/BF16 execution uses FP32 optimizer master weights. FP16 backward also
   uses dynamic loss scaling to retain small reconstruction gradients. Overflow
   retries use the same accumulation group with a lower scale, up to 32 attempts.
   Gradients are unscaled before clipping with `max_grad_norm=1.0` by default;
   set it to `None` to disable clipping.
 - Inputs, targets, and best-weight snapshots default to CPU storage through
-  `target_offload_device="cpu"`. QAD still needs memory for a block's backward
+  `offload_device="cpu"`. QAD still needs memory for a block's backward
   pass and optimizer state.
 - QAD stores independent input and teacher snapshots in the shared
   `IntermediatesCache`. Set `sequential_prefetch=True` to prefetch QAD batches
@@ -184,10 +191,10 @@ sequential error propagation do not satisfy the contract automatically.
   gradient and calibration validation.
 - Re-observation requires the preceding method to retain live weight observers.
   All modules are observed before any qparams are updated, preserving shared
-  global scales in fused NVFP4 projections. Best-checkpoint restoration includes
-  weight scales, zero points, and global scales. Final re-observation can change
-  validation MSE again; the final loss is logged separately from the best loss.
+  global scales in fused NVFP4 projections. Best-checkpoint restoration restores
+  weights only; final re-observation then recomputes qparams from them and can
+  change validation MSE again, so the final loss is logged separately from the
+  best loss. Per-target updates, validation losses, and re-observation stages are
+  reported through the log.
 
-`optimizer_steps`, `epochs_completed`, `best_validation_losses`,
-`validation_histories`, and `reobservations` are keyed by target module name.
 Save the resulting model through the normal compressed checkpoint path.

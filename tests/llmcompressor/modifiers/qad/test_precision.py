@@ -4,10 +4,9 @@ import pytest
 import torch
 
 from llmcompressor.modifiers.qad import QADModifier
-from llmcompressor.modifiers.qad.base import _mse
 from llmcompressor.utils.dev import get_main_device
 
-from .test_base import _target_cache
+from .test_base import _target_batches
 
 
 def test_fp16_long_sequence_gradients_match_fp32():
@@ -26,16 +25,22 @@ def test_fp16_long_sequence_gradients_match_fp32():
         master = torch.nn.Parameter(parameter.detach().float().clone())
         target = torch.zeros(shape, dtype=dtype, device=device)
         qad = QADModifier(gradient_accumulation_steps=4, max_grad_norm=0.001)
-        qad._batches = _target_cache([None] * 5)
         optimizer = torch.optim.SGD([master], lr=0.1)
         scaler = torch.amp.GradScaler(device.type, enabled=enabled)
         with patch.object(
             qad,
             "_batch_loss",
-            side_effect=lambda _: _mse(parameter.expand(shape), target),
+            side_effect=lambda *_: torch.nn.functional.mse_loss(
+                parameter.expand(shape).float(), target.float()
+            ),
         ):
             steps = qad._train_epoch(
-                optimizer, [parameter], [master], list(range(5)), scaler
+                None,
+                optimizer,
+                [parameter],
+                [master],
+                _target_batches([None] * 5),
+                scaler,
             )
         assert steps == 2
         results[dtype, enabled] = master.detach().cpu()
@@ -55,7 +60,6 @@ def test_fp16_overflow_retries_accumulation_group(sequential_prefetch):
     )
     master = torch.nn.Parameter(parameter.detach().float().clone())
     qad = QADModifier(gradient_accumulation_steps=2, max_grad_norm=None)
-    qad._batches = _target_cache([1.0, 3.0, 5.0])
     qad._sequential_prefetch = sequential_prefetch
     optimizer = torch.optim.SGD([master], lr=0.1)
     scaler = torch.amp.GradScaler(device.type)
@@ -63,13 +67,20 @@ def test_fp16_overflow_retries_accumulation_group(sequential_prefetch):
         patch.object(
             qad,
             "_batch_loss",
-            side_effect=lambda batch: (
+            side_effect=lambda _, batch: (
                 (parameter.float() - batch["target"]).square().sum()
             ),
         ),
         patch.object(optimizer, "step", wraps=optimizer.step) as step,
     ):
-        steps = qad._train_epoch(optimizer, [parameter], [master], [0, 1, 2], scaler)
+        steps = qad._train_epoch(
+            None,
+            optimizer,
+            [parameter],
+            [master],
+            _target_batches([1.0, 3.0, 5.0]),
+            scaler,
+        )
     assert steps == step.call_count == 2
     assert scaler.get_scale() < 65536
     # Overflow retries must not omit either the complete or partial group.
@@ -83,14 +94,17 @@ def test_nonfinite_gradients_fail_without_updating_weights(dtype):
     parameter = torch.nn.Parameter(torch.tensor([1.0], dtype=dtype, device=device))
     master = torch.nn.Parameter(parameter.detach().float().clone())
     parameter.register_hook(lambda grad: torch.full_like(grad, float("nan")))
+    block = torch.nn.Module()
     qad = QADModifier()
-    qad._batches = _target_cache([None])
+    qad._module_names = {block: "block"}
     optimizer = torch.optim.AdamW([master])
     scaler = torch.amp.GradScaler(device.type, enabled=dtype == torch.float16)
     with patch.object(
-        qad, "_batch_loss", side_effect=lambda _: parameter.float().sum()
+        qad, "_batch_loss", side_effect=lambda *_: parameter.float().sum()
     ):
-        with pytest.raises(ValueError, match="Nonfinite QAD gradient"):
-            qad._train_epoch(optimizer, [parameter], [master], [0], scaler)
+        with pytest.raises(ValueError, match="Nonfinite QAD gradient in block"):
+            qad._train_epoch(
+                block, optimizer, [parameter], [master], _target_batches([None]), scaler
+            )
     assert parameter.item() == master.item() == 1.0
     assert not optimizer.state

@@ -84,7 +84,7 @@ def main():
     )
     qad = QADModifier(
         num_epochs=args.epochs,
-        learning_rate=args.learning_rate,
+        lr=args.learning_rate,
         gradient_accumulation_steps=args.accumulation_steps,
     )
     oneshot(
@@ -95,7 +95,7 @@ def main():
         pipeline="sequential",
         sequential_targets=["LlamaDecoderLayer"],
         sequential_targets_per_subgraph=1,
-        propagate_error=True,
+        propagate_error=True,  # default; recommended for QAD
         sequential_offload_device="cpu",
         batch_size=1,
         num_calibration_samples=args.samples,
