@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 # Run this example with `torchrun --nproc_per_node=N zaya1_nvfp4.py`
+# WARNING: Zyphra model support in vLLM is currently under review
 import torch
 from compressed_tensors.offload import init_dist
 from transformers import AutoModelForCausalLM, AutoTokenizer
