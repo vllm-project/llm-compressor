@@ -203,8 +203,14 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                subgraph_modules, stage_future = prefetched_staging
-                stage_future.result()
+                if prefetched_staging is None:
+                    subgraph_modules = subgraph.submodule_dict(model)
+                    subgraph_stage_modules(
+                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                    )
+                else:
+                    subgraph_modules, stage_future = prefetched_staging
+                    stage_future.result()
                 prefetched_staging = None
 
                 # prepare tqdm description texts
