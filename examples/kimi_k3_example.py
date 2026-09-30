@@ -33,7 +33,7 @@ with load_context(KimiK3ForConditionalGeneration), patch_kimi_k3_ignore():
 processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
 
 recipe = [
-    REAPPruningModifier(sparsity=0.30, report_path="kimi_report.pkl", prune=False),
+    REAPPruningModifier(sparsity=0.1, report_path="kimi_swe_report.json", prune=False),
     #QuantizationModifier(
     #    targets="re:.*block_sparse_moe.*",
     #    scheme="NVFP4",
@@ -51,13 +51,15 @@ recipe = [
 oneshot(
     model=model,
     tokenizer=processor.tokenizer,
-    dataset="perfectblend",
-    splits=get_rank_partition("train", int(1024 * 2)),
+    #dataset="perfectblend",
+    #splits=get_rank_partition("train", int(1024 * 2)),
+    dataset="swe_smith",
+    splits=get_rank_partition("tool", 2048),
     recipe=recipe,
     max_seq_length=2048,
     trust_remote_code_model=True,
     pipeline="sequential",
-    batch_size=64,
+    batch_size=16,
     # The model is loaded pre-compressed (dequantize=False), so each subgraph must be
     # decompressed before calibration (otherwise the quantized forward hits a missing
     # `.weight`) and re-compressed afterwards to keep peak memory low.

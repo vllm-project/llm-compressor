@@ -3,7 +3,7 @@ from compressed_tensors.quantization.quant_scheme import (
     NVFP4,
     QuantizationScheme,
 )
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, CompressedTensorsConfig
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
 )
@@ -13,7 +13,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 from llmcompressor.datasets.utils import get_rank_partition
-from llmcompressor.modeling.patch.deepseek_v4_patch import patch_dsv4_fp8_attention
+from llmcompressor.modeling.patch.deepseek_v4_patch import patch_dsv4_fp8_attention, patch_dsv4_config, install_dsv4_chat_template
 from llmcompressor.utils import load_context
 
 # Upstream BUG: norms should be loaded in float32, but usually aren't due to the base
@@ -25,20 +25,31 @@ DeepseekV4PreTrainedModel._keep_in_fp32_modules_strict = set()
 # Select model and load it.
 model_id = "/data/kylesayrs/hub/DeepSeek-V4-Flash-0731-ct"
 
+"re:.*attn\\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
+"re:.*attn\\.compressor\\.indexer\\.q_b_proj$",
+"re:.*shared_experts.*"
+"re:.*mlp\\.experts.*"
+
 init_dist()
 # Keep the attention projections in FP8 through calibration: patch_dsv4_fp8_attention
 # installs an FP8-aware attention forward so the compressed attention weights don't
 # need to be decompressed (and don't hit the faulting fp8 Triton kernels).
-with load_context(), patch_dsv4_fp8_attention():
+qconfig = CompressedTensorsConfig(dequantize=False, use_optimized_inference=False)
+with load_context(), patch_dsv4_config(), patch_dsv4_fp8_attention():
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        # quantization_config=qconfig,
+        quantization_config=qconfig,
         device_map="auto_offload",
         max_memory={},
         offload_folder="/data/kylesayrs/hub/offload_folder",
     )
 
 tokenizer = AutoTokenizer.from_pretrained(model_id)
+
+# DSV4 has no Jinja chat template, so install one backed by its `encode_messages`
+# helper. This lets the SWE-smith dataset render agent trajectories (reasoning +
+# tool calls + tool observations) in the format the model was trained on.
+install_dsv4_chat_template(tokenizer, model_id)
 
 # Configure the quantization algorithm to run.
 #   * quantize mlp/expert weights to NVFP4
@@ -52,25 +63,25 @@ tokenizer = AutoTokenizer.from_pretrained(model_id)
 # wo_b  | o_b_proj
 
 recipe = [
-    REAPPruningModifier(sparsity=0.30, report_path="dsv4_flash.pkl", prune=False),
-    GPTQModifier(
-        config_groups={
-            # "attention": QuantizationScheme(
-            #     targets=[
-            #         r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
-            #         r"re:.*attn\.compressor\.indexer\.q_b_proj$",
-            #     ],
-            #     **FP8_BLOCK,
-            # ),
-            "experts": QuantizationScheme(
-                targets=[
-                    r"re:.*mlp\.experts.*",
-                ],
-                **NVFP4,
-            ),
-        },
-        ignore=[],
-    )
+    REAPPruningModifier(sparsity=0.30, report_path="dsv4_swe_flash.json", prune=False),
+    # GPTQModifier(
+    #     config_groups={
+    #         # "attention": QuantizationScheme(
+    #         #     targets=[
+    #         #         r"re:.*attn\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$",
+    #         #         r"re:.*attn\.compressor\.indexer\.q_b_proj$",
+    #         #     ],
+    #         #     **FP8_BLOCK,
+    #         # ),
+    #         "experts": QuantizationScheme(
+    #             targets=[
+    #                 r"re:.*mlp\.experts.*",
+    #             ],
+    #             **NVFP4,
+    #         ),
+    #     },
+    #     ignore=[],
+    # )
 ]
 
 # Apply algorithms.
@@ -79,12 +90,14 @@ recipe = [
 oneshot(
     model=model,
     tokenizer=tokenizer,
-    dataset="perfectblend",
-    splits=get_rank_partition("train", int(1024 * 2)),
+    # dataset="perfectblend",
+    # splits=get_rank_partition("train", int(1024 * 2)),
+    dataset="swe_smith",
+    splits=get_rank_partition("tool", 2048),
     recipe=recipe,
     max_seq_length=2048,
     pipeline="sequential",
-    batch_size=64,
+    batch_size=16,
     # The model is loaded pre-compressed (dequantize=False), so each subgraph must be
     # decompressed before calibration (otherwise the quantized forward hits a missing
     # `.weight`) and re-compressed afterwards to keep peak memory low.
@@ -97,7 +110,7 @@ oneshot(
     # sequential_targets_per_subgraph=3,
 )
 
-# Save to disk compressed.
-SAVE_DIR = "/data/kylesayrs/hub/" + model_id.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
-model.save_pretrained(SAVE_DIR, save_compressed=True)
-tokenizer.save_pretrained(SAVE_DIR)
+# # Save to disk compressed.
+# SAVE_DIR = "/data/kylesayrs/hub/" + model_id.rstrip("/").split("/")[-1] + "-NVFP4-FP8-BLOCK"
+# model.save_pretrained(SAVE_DIR, save_compressed=True)
+# tokenizer.save_pretrained(SAVE_DIR)

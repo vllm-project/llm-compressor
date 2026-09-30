@@ -1,20 +1,151 @@
 import contextlib
+import importlib.util
+import os
 
 import torch
 import torch.nn.functional as F
 from compressed_tensors.compressors.naive_quantized.fp8_block import (
     dequantize_fp8_block_weight,
 )
-from compressed_tensors.quantization import QuantizationStrategy
+from compressed_tensors.quantization import QuantizationStrategy, QuantizationConfig
 from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.utils import patch_attr
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import DeepseekV4Attention
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
+from contextlib import contextmanager
+from functools import wraps
+
+from compressed_tensors.utils import patch_attr
+from transformers import CompressedTensorsConfig
 
 __all__ = [
     "FP8DeepseekV4Attention",
-    "patch_dsv4_fp8_attention",
+    "patch_dsv4_config",
+    "install_dsv4_chat_template",
 ]
+
+
+# DeepSeek-V4 does not ship a Jinja `chat_template`; instead it renders conversations
+# with a custom `encode_messages()` helper (see the model's `encoding/encoding_dsv4.py`
+# and https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731#chat-template). The
+# helpers below bridge that encoder to the SWE-smith calibration dataset, which drives
+# calibration through `processor.apply_chat_template(...)`.
+def _load_dsv4_encoder(model_path: str):
+    """Import the `encode_messages` helper bundled with the DSV4 checkpoint."""
+    encoder_path = os.path.join(model_path, "encoding", "encoding_dsv4.py")
+    spec = importlib.util.spec_from_file_location("encoding_dsv4", encoder_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _normalize_swe_smith_messages(messages):
+    """Reshape raw SWE-smith trajectory messages for DSV4's `encode_messages`.
+
+    * assistant `thought` -> `reasoning_content` (rendered inside `<think>...</think>`).
+      SWE-smith stores identical text in `content` and `thought`, so the duplicated
+      `content` is dropped to avoid emitting the deliberation twice.
+    * assistant `tool_calls` are already OpenAI-style and pass through unchanged.
+    * `tool` observations keep the OpenAI `tool` role (with a scalar `tool_call_id`);
+      `encode_messages` merges them into the preceding user turn as `<tool_result>`.
+    * list-of-parts content (e.g. tool observations) is flattened to plain text.
+    """
+    normalized = []
+    for msg in messages:
+        role = msg.get("role")
+        content = msg.get("content")
+        if isinstance(content, list):
+            content = "\n\n".join(
+                part.get("text", "") for part in content if part.get("type") == "text"
+            )
+
+        if role == "assistant":
+            thought = msg.get("thought") or content or ""
+            new_msg = {
+                "role": "assistant",
+                "reasoning_content": thought,
+                "content": "" if content == thought else (content or ""),
+            }
+            if msg.get("tool_calls"):
+                new_msg["tool_calls"] = msg["tool_calls"]
+            normalized.append(new_msg)
+        elif role == "tool":
+            tool_call_ids = msg.get("tool_call_ids") or []
+            normalized.append(
+                {
+                    "role": "tool",
+                    "content": content or "",
+                    "tool_call_id": (
+                        tool_call_ids[0]
+                        if tool_call_ids
+                        else msg.get("tool_call_id", "")
+                    ),
+                }
+            )
+        else:  # system / user
+            normalized.append({"role": role, "content": content or ""})
+
+    return normalized
+
+
+def install_dsv4_chat_template(
+    tokenizer, model_path, thinking_mode="thinking", reasoning_effort="low"
+):
+    """Route `tokenizer.apply_chat_template` through DSV4's `encode_messages`.
+
+    DSV4 has no Jinja chat template, so this installs one backed by the model's
+    `encode_messages` helper. This lets the SWE-smith dataset render agent
+    trajectories (reasoning + tool calls + tool observations) in the format the
+    model was trained on.
+
+    Calibration renders complete trajectories, so `drop_thinking=False` keeps every
+    reasoning turn. `encode_messages` inserts the trailing `<｜Assistant｜>` generation
+    prompt itself based on message transitions, so `add_generation_prompt` is a no-op.
+    """
+    encoder = _load_dsv4_encoder(model_path)
+
+    def apply_chat_template(
+        conversation, tokenize=False, add_generation_prompt=False, **kwargs
+    ):
+        text = encoder.encode_messages(
+            _normalize_swe_smith_messages(conversation),
+            thinking_mode=thinking_mode,
+            drop_thinking=False,
+            reasoning_effort=reasoning_effort,
+        )
+        if tokenize:
+            return tokenizer(text, **kwargs)["input_ids"]
+        return text
+
+    tokenizer.apply_chat_template = apply_chat_template
+    return tokenizer
+
+
+@contextmanager
+def patch_dsv4_config():
+    """
+    `moonshotai/Kimi-K3` has an incorrect ignore list. This context patches
+    the qconfig on load so that the unquantized modules are properly ignored
+    """
+    original_init = CompressedTensorsConfig.__init__
+
+    @wraps(original_init)
+    def patched_init(self: CompressedTensorsConfig, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+
+        config: QuantizationConfig = self.quantization_config
+        for name, scheme in config.config_groups.items():
+            for target_i, target in list(enumerate(scheme.targets)):
+                if "attn" in target:
+                    scheme.targets[target_i] = "re:.*attn\\.(q_a_proj|q_b_proj|kv_proj|o_a_proj|o_b_proj)$"
+                    scheme.targets.append("re:.*attn\\.compressor\\.indexer\\.q_b_proj$")
+
+                if "ffn" in target:
+                    scheme.targets[target_i] = "re:.*mlp\\.experts.*"
+
+    with patch_attr(CompressedTensorsConfig, "__init__", patched_init):
+        yield
+
 
 
 def _is_fp8_block_compressed(module: torch.nn.Module) -> bool:

@@ -2,8 +2,8 @@ from compressed_tensors.entrypoints.convert import FP8Converter
 from compressed_tensors.entrypoints.convert import convert_checkpoint
 
 convert_checkpoint(
-    "deepseek-ai/DeepSeek-V4-Flash-0731",
-    "/data/kylesayrs/hub/DeepSeek-V4-Flash-0731-ct",
-    FP8Converter.from_pretrained("deepseek-ai/DeepSeek-V4-Flash-0731"),
+    "zai-org/GLM-5.3-Flash",
+    "/data/kylesayrs/hub/zai-org/GLM-5.3-Flash-ct",
+    FP8Converter.from_pretrained("zai-org/GLM-5.3-Flash"),
     max_workers=8,
 )
