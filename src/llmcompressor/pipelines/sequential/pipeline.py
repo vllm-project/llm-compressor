@@ -106,6 +106,14 @@ class SequentialPipeline(CalibrationPipeline):
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
+        if getattr(dataset_args, "sequential_prefetch", False):
+            warnings.warn(
+                "sequential_prefetch is deprecated and has no effect because "
+                "activation prefetching is always enabled.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         session = active_session()
 
         # prepare model for sequential onloading

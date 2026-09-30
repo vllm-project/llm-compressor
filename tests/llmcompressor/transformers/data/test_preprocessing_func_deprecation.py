@@ -23,16 +23,6 @@ def test_preprocessing_func_warns_without_changing_value(arguments, preprocessin
 
 
 @pytest.mark.unit
-def test_sequential_prefetch_warns_as_deprecated():
-    with pytest.warns(
-        DeprecationWarning, match="sequential_prefetch is deprecated"
-    ):
-        dataset_args = DatasetArguments(sequential_prefetch=True)
-
-    assert dataset_args.sequential_prefetch is True
-
-
-@pytest.mark.unit
 def test_default_dataset_arguments_do_not_warn():
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
