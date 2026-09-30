@@ -208,6 +208,13 @@ class SequentialPipeline(CalibrationPipeline):
                     subgraph_stage_modules(
                         subgraph_modules, pin_memory=stage_weights_in_pinned_memory
                     )
+                    warnings.warn(
+                        "Subgraph prefetching failed for subgraphs "
+                        f"{subgraph_index - 1} to {subgraph_index}. "
+                        "This may be due to overlapping modules between subgraphs. ",
+                        UserWarning,
+                        stacklevel=2,
+                    )
                 else:
                     subgraph_modules, stage_future = prefetched_staging
                     stage_future.result()
