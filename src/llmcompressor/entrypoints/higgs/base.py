@@ -5,7 +5,6 @@ MSE collection and high-level API for ILP-based mixed-precision quantization.
 """
 
 import os
-import re
 import time
 from typing import Dict, List, Optional, Union
 
@@ -38,12 +37,10 @@ from llmcompressor.entrypoints.higgs.utils import (
     compute_fused_layer_mse,
     compute_heuristic_alphas,
     compute_layer_mse,
-    detect_fused_groups,
     generate_config_groups,
 )
 from llmcompressor.entrypoints.model_free.converter import split_fused_moe_experts
 from llmcompressor.entrypoints.model_free.microscale import (
-    DEFAULT_FUSED_MAPPINGS,
     get_fused_names,
     is_microscale_scheme,
 )
@@ -71,8 +68,6 @@ class HiggsMSECollectorConverter(Converter):
         targets: Union[str, List[str]] = "Linear",
         ignore: List[str] = None,
         device: Union[str, torch.device] = None,
-        alpha_calculator: callable = None,
-        fusion_detector: callable = None,
         target_avg_bitwidth: Optional[float] = None,
         target_avg_act_bitwidth: Optional[float] = None,
         allow_unquantized: bool = True,
@@ -80,8 +75,6 @@ class HiggsMSECollectorConverter(Converter):
         self.targets = targets if isinstance(targets, list) else [targets]
         self.ignore = ignore or ["lm_head"]
         self.device = device or torch.device("cpu")
-        self.alpha_calculator = alpha_calculator
-        self.fusion_detector = fusion_detector
         self.target_avg_bitwidth = target_avg_bitwidth
         self.target_avg_act_bitwidth = target_avg_act_bitwidth
         self.allow_unquantized = allow_unquantized
@@ -92,6 +85,7 @@ class HiggsMSECollectorConverter(Converter):
         self.layer_sizes: Dict[str, int] = {}
         self.ilp_solution: Dict[str, str] = {}
         self.optimal_config: Optional[QuantizationConfig] = None
+        self._fused_partners: Optional[Dict[str, set[str]]] = None
 
     def _resolve_schemes(
         self, schemes: List[Union[str, QuantizationScheme]]
@@ -158,7 +152,7 @@ class HiggsMSECollectorConverter(Converter):
         """Compute MSE for each candidate scheme; return tensors unchanged."""
         tensors = split_fused_moe_experts(tensors)
         logger.info(f"Collecting MSE data from shard with {len(tensors)} tensors")
-        
+
         quantizable_tensors = list(
             match_quantizable_tensors(tensors, self.ignore, self.targets)
         )
@@ -170,7 +164,7 @@ class HiggsMSECollectorConverter(Converter):
             for tensor_name in tensor_to_module
             if tensors[tensor_name].ndim == 2
         }
-        fused_sets, _ = get_fused_names(matrix_tensor_names)
+        fused_groups = get_fused_names(matrix_tensor_names)
 
         for tensor_name in matrix_tensor_names:
             module_name = tensor_to_module[tensor_name]
@@ -180,8 +174,8 @@ class HiggsMSECollectorConverter(Converter):
         for scheme_name, scheme in self.candidate_schemes.items():
             fused_tensor_names = set()
             if is_microscale_scheme(scheme):
-                for fused_set in fused_sets:
-                    names = list(fused_set.values())
+                for fused_group in fused_groups:
+                    names = list(fused_group.values())
                     fused_mse = compute_fused_layer_mse(
                         {name: tensors[name] for name in names}, scheme, self.device
                     )
@@ -221,17 +215,14 @@ class HiggsMSECollectorConverter(Converter):
             f"with {len(self.candidate_schemes)} candidate schemes"
         )
 
-        alphas = (
-            self.alpha_calculator(list(self.mse_matrix.keys()), self.layer_sizes)
-            if self.alpha_calculator
-            else {layer: 1.0 for layer in self.mse_matrix}
+        alphas = compute_heuristic_alphas(
+            list(self.mse_matrix.keys()), self.layer_sizes
         )
 
-        fused_groups = (
-            self.fusion_detector(list(self.mse_matrix.keys()))
-            if self.fusion_detector
-            else []
-        )
+        fused_groups = [
+            [tensor_name.removesuffix(".weight") for tensor_name in group.values()]
+            for group in get_fused_names(f"{name}.weight" for name in self.mse_matrix)
+        ]
 
         def _bitwidths(attr):
             return {
@@ -289,14 +280,21 @@ class HiggsMSECollectorConverter(Converter):
         ):
             return set()
 
-        for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
-            match = re.match(primary_pattern, weight_name)
-            if match:
-                return {
-                    template.format(**match.groupdict())
-                    for template in partner_templates
-                }
-        return set()
+        if self._fused_partners is None:
+            raise ValueError(
+                "HIGGS fused dependency resolution requires the complete "
+                "checkpoint weight map for microscale schemes. This is supplied "
+                "automatically by get_higgs_config(); direct collector use must "
+                "provide checkpoint names before building inverse weight maps."
+            )
+        return set(self._fused_partners.get(weight_name, ()))
+
+    def set_weight_names(self, weight_names: set[str]) -> None:
+        """Precompute fused dependencies from the complete checkpoint index."""
+        self._fused_partners = {}
+        for fused_group in get_fused_names(weight_names):
+            primary, *partners = fused_group.values()
+            self._fused_partners[primary] = set(partners)
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +307,6 @@ def get_higgs_config(
     candidate_schemes: List[Union[str, QuantizationScheme]],
     targets: Union[str, List[str]] = "Linear",
     ignore: List[str] = None,
-    enforce_fused_layer_constraints: bool = True,
     target_avg_bitwidth: Optional[float] = None,
     target_avg_act_bitwidth: Optional[float] = None,
     device: Optional[Union[str, torch.device]] = None,
@@ -331,7 +328,6 @@ def get_higgs_config(
         candidate_schemes: List of quantization schemes to choose from
         targets: Layer types to quantize (e.g., "Linear")
         ignore: Layers to skip (e.g., ["lm_head"])
-        enforce_fused_layer_constraints: Ensure fused layers get same scheme
         target_avg_bitwidth: Optional constraint on average weight bitwidth
         target_avg_act_bitwidth: Optional constraint on average activation bitwidth
         device: Device for MSE computation (GPU recommended)
@@ -367,10 +363,6 @@ def get_higgs_config(
         targets=targets,
         ignore=ignore,
         device=device,
-        alpha_calculator=compute_heuristic_alphas,
-        fusion_detector=detect_fused_groups
-        if enforce_fused_layer_constraints
-        else None,
         target_avg_bitwidth=target_avg_bitwidth,
         target_avg_act_bitwidth=target_avg_act_bitwidth,
         allow_unquantized=allow_unquantized,
@@ -378,6 +370,7 @@ def get_higgs_config(
 
     model_files = get_checkpoint_files(model_stub)
     weight_map = get_weight_map(model_files)
+    collector.set_weight_names(set(weight_map))
     inverse_weight_maps = build_inverse_weight_maps(
         weight_map=weight_map,
         model_files=model_files,

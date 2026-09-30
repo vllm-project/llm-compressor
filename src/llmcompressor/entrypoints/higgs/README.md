@@ -39,8 +39,10 @@ For every matched weight tensor, HIGGS:
 1. Fake-quantizes the weight with each candidate scheme and records its MSE.
 2. Assigns a heuristic importance value based on parameter count, layer depth,
    and module type.
-3. Detects fused groups, including attention projections, MLP gate/up
-   projections, and MoE experts.
+3. Detects fused groups using the centralized
+   `observers.FUSED_MODULE_MAPPINGS` definitions. This includes attention
+   projections, MLP gate/up projections, MoE experts, Kimi KDA/MLA groups, and
+   DeepSeek V4/DSA layouts.
 4. Solves an ILP that minimizes weighted MSE while assigning exactly one choice
    to each tensor.
 5. Converts the solution into compressed-tensors config groups. Individual MoE
@@ -58,9 +60,8 @@ sum(params[layer] * weight_bits[choice]) / sum(params[layer])
 `target_avg_act_bitwidth` adds an analogous constraint using parameter count as
 a proxy for activation cost. Ignored tensors are outside both averages.
 
-Fused-layer constraints are enabled by default. Set
-`enforce_fused_layer_constraints=False` only when the intended runtime supports
-different schemes within those fused groups.
+HIGGS always assigns one scheme to each fused group so the generated config
+matches the runtime packing layout.
 
 ## Unquantized layers
 
@@ -116,7 +117,6 @@ get_higgs_config(
     candidate_schemes,
     targets="Linear",
     ignore=None,
-    enforce_fused_layer_constraints=True,
     target_avg_bitwidth=None,
     target_avg_act_bitwidth=None,
     device=None,

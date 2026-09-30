@@ -27,14 +27,12 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_qparams,
 )
 from llmcompressor.observers import FusionHandler
-from llmcompressor.observers.helpers import FUSED_LAYER_NAMES
 
 __all__ = [
     "compute_layer_mse",
     "compute_fused_layer_mse",
     "compute_heuristic_alphas",
     "generate_config_groups",
-    "detect_fused_groups",
 ]
 
 
@@ -140,70 +138,6 @@ def compute_heuristic_alphas(
             f"range=[{min(vals):.2f}, {max(vals):.2f}], mean={np.mean(vals):.2f}"
         )
     return alphas
-
-
-# ---------------------------------------------------------------------------
-# Fused layer detection
-# ---------------------------------------------------------------------------
-
-_MOE_EXPERT_RE = re.compile(r"(.+\.experts)\.\d+\..+")
-
-
-def detect_fused_groups(layer_names: List[str]) -> List[List[str]]:
-    """Group layers sharing a scheme (MoE experts, qkv, gate+up).
-
-    Fused MoE implementations consume routed and shared expert projections as
-    one quantized module.  Keep those projections in the same ILP group so a
-    mixed assignment cannot produce a checkpoint that the fused kernel cannot
-    load.
-    """
-    layer_name_set = set(layer_names)
-
-    # Phase 1: MoE expert fusion
-    expert_groups: Dict[str, List[str]] = defaultdict(list)
-    for name in layer_names:
-        m = _MOE_EXPERT_RE.match(name)
-        if m:
-            expert_groups[m.group(1)].append(name)
-
-    groups = []
-    processed = set()
-    for expert_prefix, members in expert_groups.items():
-        shared_prefix = expert_prefix.removesuffix(".experts") + ".shared_experts."
-        members.extend(name for name in layer_names if name.startswith(shared_prefix))
-        if len(members) > 1:
-            groups.append(sorted(members))
-            processed.update(members)
-
-    # Phase 2: suffix-based fusion (attention qkv, mlp gate+up)
-    for name in layer_names:
-        if name in processed:
-            continue
-        current_group = [name]
-        processed.add(name)
-        for fusion_pattern in FUSED_LAYER_NAMES:
-            matching_suffix = next(
-                (s for s in fusion_pattern if name.endswith(s)), None
-            )
-            if matching_suffix is None:
-                continue
-            base = name[: -len(matching_suffix)]
-            for other in fusion_pattern:
-                candidate = base + other
-                if (
-                    other != matching_suffix
-                    and candidate in layer_name_set
-                    and candidate not in processed
-                ):
-                    current_group.append(candidate)
-                    processed.add(candidate)
-        if len(current_group) > 1:
-            groups.append(sorted(current_group))
-
-    logger.info(
-        f"Detected {len(groups)} fused groups ({sum(len(g) for g in groups)} layers)"
-    )
-    return groups
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,9 @@ IGNORE = [
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, default="meta-llama/Meta-Llama-3.1-8B-Instruct")
+    parser.add_argument(
+        "--model", required=True, default="meta-llama/Meta-Llama-3.1-8B-Instruct"
+    )
     parser.add_argument("--target-bits", type=float, default=6.0)
     parser.add_argument("--max-workers", type=int, default=4)
     args = parser.parse_args()

@@ -13,7 +13,6 @@ from llmcompressor.entrypoints.higgs.utils import (
     compute_fused_layer_mse,
     compute_heuristic_alphas,
     compute_layer_mse,
-    detect_fused_groups,
     generate_config_groups,
 )
 
@@ -25,5 +24,4 @@ __all__ = [
     "solve_ilp_mixed_precision",
     "generate_config_groups",
     "compute_heuristic_alphas",
-    "detect_fused_groups",
 ]

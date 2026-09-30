@@ -107,10 +107,19 @@ def solve_ilp_mixed_precision(
     for layer in mse_matrix:
         x[layer] = {}
         for scheme in candidate_schemes:
-            x[layer][scheme] = pulp.LpVariable(
-                f"x_{_sanitize_name(layer)}_{scheme}",
-                cat=pulp.LpBinary,
-            )
+            variable_name = f"x_{_sanitize_name(layer)}_{scheme}"
+            if hasattr(prob, "add_variable"):
+                x[layer][scheme] = prob.add_variable(
+                    name=variable_name,
+                    cat=pulp.LpBinary,
+                )
+            else:
+                # Compatibility with PuLP versions before add_variable was
+                # introduced. Direct construction is not deprecated there.
+                x[layer][scheme] = pulp.LpVariable(
+                    variable_name,
+                    cat=pulp.LpBinary,
+                )
 
     # Objective: minimize weighted MSE
     objective_terms = []
@@ -211,8 +220,17 @@ def solve_ilp_mixed_precision(
     logger.info(f"  Variables: {sum(len(x[layer]) for layer in x)}")
     logger.info(f"  Fused groups: {len([g for g in fused_groups if len(g) >= 2])}")
 
-    # Use CBC solver (included with PuLP)
-    solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=300)  # 5 minute timeout
+    # Use CBC through the non-deprecated COIN_CMD interface. Older PuLP
+    # versions bundle the executable under PULP_CBC_CMD, so reuse that path
+    # without constructing the deprecated solver class.
+    bundled_cbc_path = getattr(
+        getattr(pulp, "PULP_CBC_CMD", None), "pulp_cbc_path", None
+    )
+    solver = pulp.COIN_CMD(
+        path=bundled_cbc_path,
+        msg=0,
+        timeLimit=300,
+    )  # 5 minute timeout
     status = prob.solve(solver)
 
     # Check solution status

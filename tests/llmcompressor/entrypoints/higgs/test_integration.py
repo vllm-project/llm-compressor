@@ -15,7 +15,6 @@ from llmcompressor.entrypoints.higgs import (
     compute_fused_layer_mse,
     compute_heuristic_alphas,
     compute_layer_mse,
-    detect_fused_groups,
 )
 from llmcompressor.entrypoints.higgs.utils import UNQUANTIZED_SCHEME
 from llmcompressor.entrypoints.model_free.validate import validate_config
@@ -82,13 +81,12 @@ def test_mse_collector_basic(candidate_schemes, sample_tensors):
     assert validate_config(config=config, scheme=None, ignore=[]) is config
 
 
-def test_mse_collector_with_heuristic(candidate_schemes, sample_tensors):
-    """Test MSE collector with alpha heuristic."""
+def test_mse_collector_uses_heuristic(candidate_schemes, sample_tensors):
+    """Test MSE collector's built-in alpha heuristic."""
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
         targets="Linear",
         ignore=[],
-        alpha_calculator=compute_heuristic_alphas,
         allow_unquantized=False,
     )
 
@@ -185,7 +183,6 @@ def test_mse_collector_with_fusion(candidate_schemes, sample_tensors):
         candidate_schemes=list(candidate_schemes.values()),
         targets="Linear",
         ignore=[],
-        fusion_detector=detect_fused_groups,
         allow_unquantized=False,
     )
 
@@ -220,44 +217,3 @@ def test_alpha_heuristic_layer_types():
     attn_alpha = alphas["model.layers.0.self_attn.q_proj"]
     # Embedding should be highest
     assert embed_alpha > attn_alpha
-
-
-def test_fusion_detection():
-    """Test fusion detection identifies fused groups."""
-    layer_names = [
-        "model.layers.0.mlp.gate_proj",
-        "model.layers.0.mlp.up_proj",
-        "model.layers.0.mlp.down_proj",  # Not fused with gate/up
-        "model.layers.0.self_attn.q_proj",
-        "model.layers.0.self_attn.k_proj",
-        "model.layers.0.self_attn.v_proj",
-    ]
-
-    groups = detect_fused_groups(layer_names)
-
-    # Should detect 2 groups: (gate_proj, up_proj) and (q_proj, k_proj, v_proj)
-    assert len(groups) == 2
-
-    # Find the group containing gate_proj
-    gate_group = None
-    qkv_group = None
-
-    for group in groups:
-        group_str = " ".join(group)
-        if "gate_proj" in group_str:
-            gate_group = group
-        if "q_proj" in group_str:
-            qkv_group = group
-
-    # Check gate_proj and up_proj are grouped together
-    assert gate_group is not None
-    assert len(gate_group) == 2
-    assert any("gate_proj" in layer for layer in gate_group)
-    assert any("up_proj" in layer for layer in gate_group)
-
-    # Check q/k/v are grouped together
-    assert qkv_group is not None
-    assert len(qkv_group) == 3
-    assert any("q_proj" in layer for layer in qkv_group)
-    assert any("k_proj" in layer for layer in qkv_group)
-    assert any("v_proj" in layer for layer in qkv_group)
