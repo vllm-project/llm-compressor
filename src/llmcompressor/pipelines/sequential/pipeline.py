@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
@@ -176,13 +178,12 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
-            session.state.sequential_prefetch = True
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
-            stage_executor = ThreadPoolExecutor(max_workers=1)
-            stack.callback(stage_executor.shutdown, wait=True)
+            # A single worker preserves staging order and bounds staged memory.
+            stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
             # Prefetch first subgraph modules
             next_subgraph_modules = subgraphs[0].submodule_dict(model)
