@@ -1,6 +1,7 @@
 import pytest
 import torch
 from compressed_tensors.modeling.attention import (
+    HOOKED_ATTENTION_NAME,
     IMPL_ATTR,
     initialize_hooked_attention,
 )
@@ -92,22 +93,46 @@ def test_calibration_forward_context_attention_mask():
 def test_calibration_forward_context_hooked_attention():
     with skip_weights_download():
         model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
+    model.config._attn_implementation = "sdpa"
+
     # the hooked attention implementation calibrates query quantization and applies
     # online query transforms, so it must not be bypassed during calibration
-    calls = 0
+    calls = []
 
-    def hook(*_):
-        nonlocal calls
-        calls += 1
+    def hook(_impl, args, kwargs):
+        attention_mask = args[4] if len(args) > 4 else kwargs.get("attention_mask")
+        calls.append(
+            (
+                model.config._attn_implementation,
+                ALL_MASK_ATTENTION_FUNCTIONS[HOOKED_ATTENTION_NAME],
+                attention_mask,
+            )
+        )
 
     for layer in model.model.layers:
         initialize_hooked_attention(model, layer.self_attn)
-        getattr(layer.self_attn, IMPL_ATTR).register_forward_pre_hook(hook)
+        getattr(layer.self_attn, IMPL_ATTR).register_forward_pre_hook(
+            hook, with_kwargs=True
+        )
+
+    original_mask = ALL_MASK_ATTENTION_FUNCTIONS[HOOKED_ATTENTION_NAME]
+    assert original_mask is not eager_mask
 
     with calibration_forward_context(model):
+        assert model.config._attn_implementation == HOOKED_ATTENTION_NAME
+        assert ALL_MASK_ATTENTION_FUNCTIONS[HOOKED_ATTENTION_NAME] is eager_mask
         model(**model.dummy_inputs)
 
-    assert calls == len(model.model.layers)
+    # hooked attention ran for every layer, with the eager mask set while running
+    assert len(calls) == len(model.model.layers)
+    for attn_implementation, mask_function, attention_mask in calls:
+        assert attn_implementation == HOOKED_ATTENTION_NAME
+        assert mask_function is eager_mask
+        assert isinstance(attention_mask, torch.Tensor)
+        assert attention_mask.ndim == 4
+
+    assert model.config._attn_implementation == HOOKED_ATTENTION_NAME
+    assert ALL_MASK_ATTENTION_FUNCTIONS[HOOKED_ATTENTION_NAME] is original_mask
 
 
 @requires_gpu
