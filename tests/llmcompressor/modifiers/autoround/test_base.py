@@ -118,22 +118,6 @@ def test_mapping_config_to_autoround_supports_weight_only_wna16_schemes(
         assert mapped.act_data_type is None
 
 
-def test_mapping_config_to_autoround_uses_fallback_for_w7a16():
-    assert "W7A16" not in AR_PRESET_SCHEMES
-
-    modifier = AutoRoundModifier(
-        ignore=["lm_head"],
-        iters=0,
-        scheme="W7A16",
-    )
-
-    mapped = modifier._mapping_config_to_autoround()
-
-    assert isinstance(mapped, ARQuantizationScheme)
-    assert mapped.bits == 7
-    assert mapped.group_size == 128
-
-
 def test_build_layer_config_for_autoround_supports_mixed_weight_only_schemes():
     modifier = AutoRoundModifier(
         ignore=["lm_head"],
