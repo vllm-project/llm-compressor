@@ -3,4 +3,4 @@
 
 # flake8: noqa
 
-from .reap import REAPExpertPruner
+from .expert_pruner import ExpertPruner
