@@ -174,6 +174,19 @@ class IntermediatesCache:
         intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
+    def transfer(self, src: "IntermediatesCache", batch_index: int):
+        """
+        Copy all entries from src into this cache for the given batch,
+        sharing the raw IntermediateValue objects without onloading or
+        offloading
+
+        :param src: source cache to copy entries from
+        :param batch_index: index of batch whose values will be copied
+        """
+        self.batch_intermediates[batch_index].update(
+            src.batch_intermediates[batch_index]
+        )
+
     def delete(self, batch_index: int, consumed_names: list[str] | None = None):
         """
         Delete values from the cache
