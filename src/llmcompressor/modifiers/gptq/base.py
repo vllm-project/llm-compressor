@@ -34,10 +34,8 @@ from llmcompressor.modifiers.gptq.helpers import (
 )
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
-    update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -233,8 +231,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     ):
         modules = [module for module in modules if is_module_quantized(module)]
         observe(modules, base_name="weight")
-        self.sync_obs_act_stats(modules)
-        update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+        self.update_activation_qparams(modules, only_update_onload=not is_src())
         self.compress_modules()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):

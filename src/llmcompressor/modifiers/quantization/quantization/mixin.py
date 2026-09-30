@@ -9,6 +9,7 @@ from compressed_tensors.modeling import (
 )
 from compressed_tensors.offload.dist_utils import (
     is_distributed,
+    is_source_process,
 )
 from compressed_tensors.quantization import (
     DynamicType,
@@ -38,6 +39,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     freeze_module_quantization,
     initialize_observer,
     reset_quantization_status,
+    update_qparams,
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
@@ -70,13 +72,17 @@ class QuantizationMixin(HooksMixin):
         - Enable quantization during calibration
     - on_calibration_end: QuantizationMixin.end_calibration
         - Remove calibration hooks
+        - Update activation qparams of modules which were never updated by
+            `update_activation_qparams` (e.g. modules which are traced through
+            rather than called by a sequential subgraph)
         - Apply freeze status
         - Keep quantization enabled for future steps
 
-    NOTE: QuantizationMixin does not update scales and zero-points on its own,
-        as this is not desired for all Modifiers inheriting from it. Modifier must
-        explicitly call `observe(modules, base_name="weight")` then
-        `update_qparams(modules, base_name="weight")`.
+    NOTE: QuantizationMixin does not update weight scales and zero-points on its
+        own, as this is not desired for all Modifiers inheriting from it. Modifier
+        must explicitly call `observe(modules, base_name="weight")` then
+        `update_qparams(modules, base_name="weight")`, and should update activation
+        qparams with `update_activation_qparams(modules)`.
         See QuantizationModifier.on_event method for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
@@ -141,6 +147,7 @@ class QuantizationMixin(HooksMixin):
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
+    _activation_updated_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: str | list[str]) -> list[str]:
@@ -266,10 +273,46 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        modules = [
+            module
+            for _, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        ]
+
+        # Modules which are traced through rather than called by a sequential subgraph
+        # (e.g. attention with `sequential_targets="Linear"`) are never passed to
+        # `on_sequential_epoch_end`, so their activation qparams are updated here
+        not_updated = [
+            module
+            for module in modules
+            if module not in self._activation_updated_modules
+            and _has_activation_observer(module)
+        ]
+        self.update_activation_qparams(
+            not_updated, only_update_onload=not is_source_process()
+        )
+        self._activation_updated_modules.clear()
+
+        for module in modules:
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
+
+    def update_activation_qparams(
+        self, modules: list[torch.nn.Module], only_update_onload: bool = False
+    ):
+        """
+        Synchronize activation statistics across DDP ranks and update the activation
+        qparams (input, output, q, k, v) of the given modules
+
+        :param modules: modules whose activation qparams should be updated
+        :param only_update_onload: only update the onloaded qparam values, see
+            `update_qparams`
+        """
+        self.sync_obs_act_stats(modules)
+        update_qparams(modules, ACTIVATION_OBS, only_update_onload=only_update_onload)
+        self._activation_updated_modules.update(modules)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
@@ -507,3 +550,10 @@ class QuantizationMixin(HooksMixin):
             hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
+
+
+def _has_activation_observer(module: torch.nn.Module) -> bool:
+    return any(
+        getattr(module, f"{base_name}_observer", None) is not None
+        for base_name in ACTIVATION_OBS
+    )
