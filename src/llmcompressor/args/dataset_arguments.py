@@ -100,7 +100,7 @@ class CustomDatasetArguments(DVCDatasetArguments):
                 "release. Preprocess and tokenize the dataset before passing it to "
                 "oneshot(); see examples/custom_dataset_example.py.",
                 FutureWarning,
-                stacklevel=3 if type(self) is CustomDatasetArguments else 4,
+                stacklevel=3,
             )
 
 
@@ -325,16 +325,6 @@ class DatasetArguments(CustomDatasetArguments):
             "device. Only moves weights. Default False."
         },
     )
-
-    def __post_init__(self):
-        super().__post_init__()
-        if self.sequential_prefetch:
-            warnings.warn(
-                "sequential_prefetch is deprecated and has no effect because "
-                "activation prefetching is always enabled.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
 
     def is_dataset_provided(self) -> bool:
         return self.dataset is not None or self.dataset_path is not None
