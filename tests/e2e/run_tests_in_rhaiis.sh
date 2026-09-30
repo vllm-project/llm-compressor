@@ -64,11 +64,13 @@ do
     if [ -z "$GROUP" ] || [[ "${test_group}" == "$GROUP" ]]; then
 
         # add or overwrite save_dir for each model
+        config=$(cat $MODEL_CONFIG | grep -iv 'cadence')
         if [[ -z "$save_dir" ]]; then
-            { cat $MODEL_CONFIG; echo -e "\nsave_dir: $SAVE_DIR/$model-$scheme"; } > $CONFIG_FILE
+            { echo "$config"; echo -e "\nsave_dir: $SAVE_DIR/$model-$scheme"; } > $CONFIG_FILE
         else
-            { cat $MODEL_CONFIG | grep -v 'save_dir'; echo "save_dir: $SAVE_DIR/$save_dir"; } > $CONFIG_FILE
+            { echo "$config" | grep -v 'save_dir'; echo "save_dir: $SAVE_DIR/$save_dir"; } > $CONFIG_FILE
         fi
+        echo "cadence: ${CADENCE}" >> $CONFIG_FILE
 
         echo "=== RUNNING MODEL: $CONFIG_FILE ==="
         cat $CONFIG_FILE
