@@ -23,30 +23,48 @@ from llmcompressor.utils.triton_utils import (
     scale_round_config,
 )
 
+# Eager iMatrix mirrors Triton's packed and split error reductions to preserve
+# grid-point parity.
+
 _GRID_SEARCH_TILE_SIZE = 512
 
 
-def _default_triton_error_buffer(args) -> float:
-    """Return the format-specific default for Triton per-group patience."""
-    return 1.00 if args.type == QuantizationType.FLOAT and args.num_bits == 4 else 0.30
+# -----------------------------------------------------------------------------
+# Eager implementation
+# -----------------------------------------------------------------------------
 
 
+# This is the eager implementation registered as the default backend.
+@ImplBackend.entrypoint("_grid_search_observer")
 @torch.no_grad()
-def _grid_search_observer_eager(
+def _grid_search_observer(
     observed: torch.Tensor,
     args: QuantizationArgs,
     maxshrink: float,
     patience: int,
     grid: float,
     norm: float,
+    triton_error_buffer: float,
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
     use_imatrix_error: bool = False,
 ) -> MinMaxTuple:
-    """Search candidate ranges with shared updates and selectable error arithmetic."""
+    """Eagerly search candidate ranges using MSE or weighted imatrix error."""
+    # Eager uses strict best-error improvements; Triton uses this tolerance to
+    # reset patience, so it has no effect in this implementation.
+    del triton_error_buffer
+    if (
+        args.strategy == QuantizationStrategy.TENSOR_GROUP
+        and args.scale_dtype is not None
+    ):
+        args = args.model_copy(update={"scale_dtype": None})
+
     min_vals = torch.amin(observed, dim=(0, -1)) * expand
     max_vals = torch.amax(observed, dim=(0, -1)) * expand
 
+    # Count values for one qparam across observations. Triton uses its packed
+    # kernel up to 512 values and FP32 split reductions above that; eager mirrors
+    # the corresponding error rounding so the selected grid point matches.
     total_values = observed.shape[0] * observed.shape[-1]
     if use_imatrix_error:
         if total_values <= _GRID_SEARCH_TILE_SIZE and observed.dtype in (
@@ -71,6 +89,8 @@ def _grid_search_observer_eager(
     )
     best_min = min_vals.clone()
     best_max = max_vals.clone()
+    # Eager patience is shared across the tensor: improvement by any qparam
+    # resets the counter for every qparam. Triton tracks stale counts per qparam.
     no_improve_count = 0
 
     for i in range(int(maxshrink * grid)):
@@ -105,6 +125,8 @@ def _grid_search_observer_eager(
             no_improve_count = 0
         else:
             no_improve_count += 1
+            # Eager imatrix treats patience=0 as an exhaustive search. The
+            # Triton wrapper translates zero to the grid length before launch.
             if no_improve_count >= patience and (not use_imatrix_error or patience > 0):
                 break
 
@@ -138,6 +160,9 @@ def _fake_quantize_with_observer_qparams(
     zero_points: torch.Tensor,
 ) -> torch.Tensor:
     """Fake-quantize calibrated groups using the shared TOKEN-strategy path."""
+    # The supplied scales are already computed per qparam. TOKEN makes
+    # fake_quantize apply those explicit scales to the observed group layout;
+    # patch only this call and restore args' configured strategy afterward.
     with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
         quantized = fake_quantize(
             observed,
@@ -175,6 +200,8 @@ def _calculate_imatrix_error(
     if importance_weights is not None:
         error.mul_(importance_weights)
 
+    # Match Triton's packed reduction for one tile; larger qparams are summed
+    # in the same 512-value FP32 chunks as the split kernel.
     if total_values <= _GRID_SEARCH_TILE_SIZE:
         result = error.sum(dim=(0, -1))
     else:
@@ -198,39 +225,16 @@ def _calculate_imatrix_error(
     return result
 
 
-@ImplBackend.entrypoint("_grid_search_observer")
-@torch.no_grad()
-def _grid_search_observer(
-    observed: torch.Tensor,
-    args: QuantizationArgs,
-    maxshrink: float,
-    patience: int,
-    grid: float,
-    norm: float,
-    triton_error_buffer: float,
-    expand: float = 1.0,
-    importance_weights: torch.Tensor | None = None,
-    use_imatrix_error: bool = False,
-) -> MinMaxTuple:
-    """Shared MSE/imatrix range-search entrypoint with optional weighting."""
-    del triton_error_buffer
-    if (
-        args.strategy == QuantizationStrategy.TENSOR_GROUP
-        and args.scale_dtype is not None
-    ):
-        args = args.model_copy(update={"scale_dtype": None})
+# -----------------------------------------------------------------------------
+# Triton implementation
+# -----------------------------------------------------------------------------
 
-    return _grid_search_observer_eager(
-        observed,
-        args,
-        maxshrink,
-        patience,
-        grid,
-        norm,
-        expand=expand,
-        importance_weights=importance_weights,
-        use_imatrix_error=use_imatrix_error,
-    )
+
+def _default_triton_error_buffer(args) -> float:
+    """Return the format-specific default for Triton per-group patience."""
+    # The kernel uses this as a relative band for resetting patience; it does
+    # not scale or otherwise change the error score.
+    return 1.00 if args.type == QuantizationType.FLOAT and args.num_bits == 4 else 0.30
 
 
 @ImplBackend.register("_grid_search_observer", observer_triton_req, 0)
@@ -248,7 +252,8 @@ def _grid_search_observer_triton(
     use_imatrix_error: bool = False,
 ) -> MinMaxTuple:
     """Shared Triton implementation of buffered MSE and imatrix search."""
-    del use_imatrix_error
+    # Weight presence selects the Triton error formula. The mode flag preserves
+    # eager imatrix's full-grid meaning for patience=0.
     if (
         args.strategy == QuantizationStrategy.TENSOR_GROUP
         and args.scale_dtype is not None
@@ -276,6 +281,8 @@ def _grid_search_observer_triton(
         importance_weights = importance_weights.to(
             device=observed.device, dtype=torch.float32
         ).contiguous()
+        # Weights describe qparam elements and are reused across observations;
+        # their shape does not include the calibration-observation dimension.
         if importance_weights.numel() != num_qparams * group_size:
             raise ValueError(
                 "importance weights must contain one weight per qparam element: "
@@ -288,7 +295,13 @@ def _grid_search_observer_triton(
         importance_weights = observed
     total_steps = int(maxshrink * grid)
     if total_steps == 0:
+        # There is no candidate to index, so retain the expanded observed range.
         return min_val, max_val
+    kernel_patience = (
+        total_steps if use_imatrix_error and patience == 0 else patience
+    )
+    # This half-open step range matches eager: the final point is generally
+    # above the exact 1 - maxshrink endpoint.
     grid_points = torch.tensor(
         [1.0 - step / grid for step in range(total_steps)],
         device=observed.device,
@@ -325,7 +338,7 @@ def _grid_search_observer_triton(
             float(q_min),
             float(q_max),
             norm,
-            patience,
+            kernel_patience,
             triton_error_buffer,
             scale_eps,
             BLOCK_VALUES=block_values,
@@ -341,6 +354,8 @@ def _grid_search_observer_triton(
         )
     else:
         num_chunks = triton.cdiv(total_values, tile_values)
+        # The split kernel materializes every candidate's partial error first;
+        # patience is applied only in the reducer and cannot skip QDQ work here.
         partial_errors = torch.empty(
             total_steps,
             num_qparams,
@@ -378,7 +393,7 @@ def _grid_search_observer_triton(
             partial_errors,
             best_step,
             num_qparams,
-            patience,
+            kernel_patience,
             triton_error_buffer,
             BLOCK_CHUNKS=triton.next_power_of_2(num_chunks),
             NUM_CHUNKS=num_chunks,
@@ -462,6 +477,8 @@ def _grid_search_observer_triton_packed_kernel(
     best_step = tl.zeros((TILE_QPARAMS,), tl.int32)
     stale = tl.zeros((TILE_QPARAMS,), tl.int32)
 
+    # This remains a full grid scan. `active` below freezes a qparam's best-step
+    # state after patience expires, but does not skip its QDQ/error computation.
     for step in range(TOTAL_STEPS):
         if step < total_steps:
             active = stale < patience
@@ -537,6 +554,8 @@ def _grid_search_observer_triton_packed_kernel(
             is_better = active & (error < previous_best)
             best_error = tl.where(is_better, error, best_error)
             best_step = tl.where(is_better, step, best_step)
+            # Patience counts consecutive errors outside the tolerance band,
+            # not merely candidates that fail to strictly improve the best.
             within_buffer = error <= previous_best * (1.0 + triton_error_buffer)
             stale = tl.where(
                 active & within_buffer,
@@ -574,7 +593,7 @@ def _grid_search_observer_triton_split_kernel(
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
 ):
-    """Compute candidate partial errors for one 512-value qparam chunk."""
+    """Compute every candidate's partial error for one 512-value qparam chunk."""
     pid = tl.program_id(0)
     qparam = pid // NUM_CHUNKS
     chunk = pid % NUM_CHUNKS
@@ -658,7 +677,7 @@ def _grid_search_observer_triton_split_reduce_kernel(
     NUM_CHUNKS: tl.constexpr,
     TOTAL_STEPS: tl.constexpr,
 ):
-    """Reduce chunk errors and apply buffered patience per qparam."""
+    """Reduce precomputed chunk errors and apply buffered patience per qparam."""
     qparam = tl.program_id(0)
     qparam_mask = qparam < num_qparams
     chunks = tl.arange(0, BLOCK_CHUNKS)
@@ -678,6 +697,8 @@ def _grid_search_observer_triton_split_reduce_kernel(
         is_better = active & (error < previous_best)
         best_error = tl.where(is_better, error, best_error)
         best_step = tl.where(is_better, step, best_step)
+        # Like the packed path, near-best errors reset patience even without a
+        # strict improvement; this reducer still visits all precomputed steps.
         within_buffer = error <= previous_best * (1.0 + triton_error_buffer)
         stale = tl.where(active & within_buffer, 0, tl.where(active, stale + 1, stale))
     tl.store(best_step_ptr + qparam, best_step, mask=qparam_mask)

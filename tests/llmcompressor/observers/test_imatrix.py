@@ -507,50 +507,6 @@ class TestHookDisabling:
         assert observer._imatrix_count.item() > 0
 
 
-@pytest.mark.parametrize(
-    "quant_type,strategy",
-    [
-        ("int", QuantizationStrategy.GROUP),
-        ("int", QuantizationStrategy.TENSOR_GROUP),
-        ("float", QuantizationStrategy.GROUP),
-        ("float", QuantizationStrategy.TENSOR_GROUP),
-    ],
-)
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_triton_matches_eager_when_tile_fits_group(quant_type, strategy):
-    """A full buffer preserves eager choices when an imatrix group fits one tile."""
-    args = QuantizationArgs(
-        num_bits=4,
-        type=quant_type,
-        symmetric=True,
-        strategy=strategy,
-        group_size=512,
-    )
-    torch.manual_seed(0)
-    observed = flatten_for_calibration(
-        torch.randn(8, 1024, device="cuda"), "weight", args
-    )
-    importance = flatten_for_calibration(
-        torch.linspace(0.2, 2.0, 1024, device="cuda").unsqueeze(0).expand(8, -1),
-        "weight",
-        args,
-    )
-    search_args = (observed, args, 0.5, 100, 100.0, 2.4)
-    search_kwargs = {
-        "importance_weights": importance,
-        "triton_error_buffer": 1.0,
-        "use_imatrix_error": True,
-    }
-
-    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
-    triton = ImplBackend.call(
-        "_grid_search_observer_triton", *search_args, **search_kwargs
-    )
-
-    assert torch.equal(eager[0], triton[0])
-    assert torch.equal(eager[1], triton[1])
-
-
 def _assert_imatrix_eager_triton_parity(
     args,
     observed,
@@ -621,10 +577,10 @@ def _assert_imatrix_eager_triton_parity(
         ),
     ],
 )
-def test_imatrix_triton_matches_eager_for_w4a16_and_nvfp4a16(
+def test_imatrix_triton_matches_eager_for_realistic_schemes(
     preset, observed_shape, maxshrink, patience, grid, expand
 ):
-    """Both packed formats preserve exact eager qparams and QDQ in Triton."""
+    """Real W4A16 and NVFP4A16 group sizes preserve eager qparams and QDQ."""
     args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
     observed = flatten_for_calibration(
