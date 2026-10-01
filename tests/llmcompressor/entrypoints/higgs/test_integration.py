@@ -177,6 +177,23 @@ def test_mse_collector_allows_unquantized_layers(candidate_schemes, sample_tenso
     assert config.config_groups == {}
 
 
+def test_mse_collector_disallows_unquantized_layers_by_default(
+    candidate_schemes, sample_tensors
+):
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=list(candidate_schemes.values()),
+        targets="Linear",
+        ignore=[],
+    )
+
+    collector.process(sample_tensors)
+
+    assert all(
+        UNQUANTIZED_SCHEME not in layer_mse
+        for layer_mse in collector.mse_matrix.values()
+    )
+
+
 def test_mse_collector_with_fusion(candidate_schemes, sample_tensors):
     """Test MSE collector with fusion detection."""
     collector = HiggsMSECollectorConverter(

@@ -18,7 +18,7 @@ config = get_higgs_config(
     targets="Linear",
     ignore=["lm_head", "re:.*embed_tokens"],
     target_avg_bitwidth=6.0,
-    allow_unquantized=True,
+    allow_unquantized=False,
 )
 
 model_free_ptq(
@@ -65,11 +65,11 @@ matches the runtime packing layout.
 
 ## Unquantized layers
 
-`allow_unquantized` defaults to `True`. This adds a synthetic 16-bit choice with
+`allow_unquantized` defaults to `False`, so every matched tensor must use one of
+the candidate schemes. Set it to `True` to add a synthetic 16-bit choice with
 zero quantization MSE to the ILP. Tensors assigned to that choice remain in the
 original dtype and are omitted from `config.config_groups`; it is not emitted as
-a quantization scheme. Set `allow_unquantized=False` to require every matched
-tensor to use one of `candidate_schemes`.
+a quantization scheme.
 
 Because the bitwidth constraints are upper bounds, HIGGS need not consume the
 entire budget. With no `target_avg_bitwidth`, it warns and simply chooses the
@@ -120,7 +120,7 @@ get_higgs_config(
     target_avg_bitwidth=None,
     target_avg_act_bitwidth=None,
     device=None,
-    allow_unquantized=True,
+    allow_unquantized=False,
 )
 ```
 

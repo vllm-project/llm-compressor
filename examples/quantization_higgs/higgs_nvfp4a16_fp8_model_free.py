@@ -17,6 +17,8 @@ Usage:
 import argparse
 import os
 
+from compressed_tensors.quantization import preset_name_to_scheme
+
 from llmcompressor import model_free_ptq
 from llmcompressor.entrypoints.higgs import get_higgs_config
 
@@ -38,9 +40,11 @@ def main():
     parser.add_argument("--max-workers", type=int, default=4)
     args = parser.parse_args()
 
-    schemes = ["NVFP4A16", "FP8_DYNAMIC"]
+    nvfp4a16_scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
+    nvfp4a16_scheme.weights.observer = "nvfp4_expanded_mse"
+    schemes = [nvfp4a16_scheme, "FP8_DYNAMIC"]
     model_short = args.model.rstrip("/").split("/")[-1]
-    tag = "+".join(sorted(schemes))
+    tag = "NVFP4A16+FP8_DYNAMIC+ExpandedMSE"
     save_dir = os.path.expanduser(
         f"~/hf_hub/{model_short}-HIGGS-{tag}-W{args.target_bits}avg-convert"
     )
@@ -52,7 +56,7 @@ def main():
         targets="Linear",
         ignore=IGNORE,
         target_avg_bitwidth=args.target_bits,
-        allow_unquantized=True,
+        allow_unquantized=False,
     )
 
     print(f"\nHIGGS config: {len(config.config_groups)} groups")

@@ -70,7 +70,7 @@ class HiggsMSECollectorConverter(Converter):
         device: Union[str, torch.device] = None,
         target_avg_bitwidth: Optional[float] = None,
         target_avg_act_bitwidth: Optional[float] = None,
-        allow_unquantized: bool = True,
+        allow_unquantized: bool = False,
     ):
         self.targets = targets if isinstance(targets, list) else [targets]
         self.ignore = ignore or ["lm_head"]
@@ -310,7 +310,7 @@ def get_higgs_config(
     target_avg_bitwidth: Optional[float] = None,
     target_avg_act_bitwidth: Optional[float] = None,
     device: Optional[Union[str, torch.device]] = None,
-    allow_unquantized: bool = True,
+    allow_unquantized: bool = False,
     return_collector: bool = False,
 ) -> QuantizationConfig:
     """
