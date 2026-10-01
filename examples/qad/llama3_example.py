@@ -54,6 +54,12 @@ def parse_args(argv=None):
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--learning-rate", type=float, default=2e-6)
     parser.add_argument("--accumulation-steps", type=int, default=4)
+    parser.add_argument(
+        "--targets-per-subgraph",
+        type=int,
+        default=1,
+        help="Decoder layers trained jointly by QAD; memory grows with this count",
+    )
     return parser.parse_args(argv)
 
 
@@ -94,7 +100,7 @@ def main():
         recipe=[quantizer, qad],
         pipeline="sequential",
         sequential_targets=["LlamaDecoderLayer"],
-        sequential_targets_per_subgraph=1,
+        sequential_targets_per_subgraph=args.targets_per_subgraph,
         propagate_error=True,  # default; recommended for QAD
         sequential_offload_device="cpu",
         batch_size=1,

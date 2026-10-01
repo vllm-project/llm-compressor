@@ -49,6 +49,21 @@ class BranchModel(torch.nn.Module):
         return self.block(x, residual=residual)
 
 
+class ChainModel(torch.nn.Module):
+    _no_split_modules = ["BranchBlock"]
+
+    def __init__(self, parallel=False):
+        super().__init__()
+        self.first = BranchBlock()
+        self.second = BranchBlock()
+        self.parallel = parallel
+
+    def forward(self, x, residual):
+        hidden, _ = self.first(x, residual=residual)
+        # In parallel, the second block does not take the first block's output
+        return self.second(x if self.parallel else hidden, residual=residual)
+
+
 @contextmanager
 def _capture_logs():
     logs = []
@@ -81,9 +96,9 @@ def _quantizer(kind, scheme="NVFP4A16"):
     )
 
 
-def _prepare(kind="rtn", dtype=torch.float32, **qad_kwargs):
+def _prepare(kind="rtn", dtype=torch.float32, model_class=BranchModel, **qad_kwargs):
     torch.manual_seed(17)
-    model = BranchModel().to(dtype)
+    model = model_class().to(dtype)
     reference = deepcopy(model)
     batches = [
         {
@@ -310,7 +325,7 @@ def test_best_validation_weights_restored_including_initial(losses, best_epoch):
         patch.object(qad, "_train_epoch", side_effect=train),
     ):
         steps = qad._train_with_validation(
-            module, [module], None, [parameter], [parameter], [0], [1]
+            [module], [module], None, [parameter], [parameter], [0], [1]
         )
     assert steps == len(losses) - 1
     assert parameter.item() == best_epoch
@@ -321,14 +336,29 @@ def test_batch_loss_uses_first_tuple_output(dtype):
     hidden = torch.ones(1, 2, 4, dtype=dtype)
     target = torch.zeros_like(hidden)
     qad = QADModifier()
-    batch = {"args": (), "kwargs": {}, "target": target}
-    loss = qad._batch_loss(lambda: hidden, batch)
+    batch = {"args": (), "kwargs": {}, "links": [], "target": target}
+    loss = qad._batch_loss([lambda: hidden], batch)
     assert loss.dtype == torch.float32
     assert loss == 1
     # Trailing outputs, such as MoE top-k indices, are not distilled
     extra = torch.ones(1, 2, 2, dtype=torch.long)
     batch["target"] = (target, extra * 5)
-    assert qad._batch_loss(lambda: (hidden, extra), batch) == loss
+    assert qad._batch_loss([lambda: (hidden, extra)], batch) == loss
+
+
+def test_batch_loss_chains_hidden_states():
+    qad = QADModifier()
+    batch = {
+        "args": (torch.ones(2),),
+        "kwargs": {},
+        # A later target keeps its other inputs; its first input is recomputed
+        "links": [{"args": (None, torch.full((2,), 3.0)), "kwargs": {"scale": 2}}],
+        "target": torch.full((2,), 10.0),
+    }
+    first = lambda x: (x + 1, None)  # noqa: E731
+    second = lambda hidden, shift, scale: hidden * scale + shift  # noqa: E731
+    # (1 + 1) * 2 + 3 = 7, so each element misses the target by 3
+    assert qad._batch_loss([first, second], batch) == 9
 
 
 def test_factory():
@@ -453,16 +483,70 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
     torch.testing.assert_close(model.lm_head.weight, lm_head)
 
 
-def test_multiple_blocks_per_stage_rejected():
-    model = _tiny_llama()
-    data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
-    qad = QADModifier()
+@pytest.mark.parametrize(
+    "per_subgraph,expected",
+    [
+        (2, {"model.layers.0..model.layers.1": 3, "model.layers.2..model.layers.3": 3}),
+        (3, {"model.layers.0..model.layers.2": 3, "model.layers.3": 3}),
+    ],
+)
+@pytest.mark.parametrize("sequential_prefetch", [False, True])
+def test_subgraph_targets_train_jointly(per_subgraph, expected, sequential_prefetch):
+    torch.manual_seed(23)
+    model = _tiny_llama(layers=4).to(get_main_device())
+    data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(4)]
+    qad = QADModifier(num_epochs=1, lr=0.001)
+    args = DatasetArguments(
+        sequential_targets_per_subgraph=per_subgraph,
+        sequential_prefetch=sequential_prefetch,
+    )
     with create_session() as session:
         session.initialize(model=model, recipe=[_quantizer("rtn"), qad], start=-1)
-        with pytest.raises(ValueError, match="one target module per subgraph"):
-            SequentialPipeline()(
-                model, data, DatasetArguments(sequential_targets_per_subgraph=2)
-            )
+        with _capture_logs() as logs:
+            SequentialPipeline()(model, data, args)
+        assert _logged_updates(logs) == expected
+        assert not qad._block_cache and not qad._predecessors and not qad._hooks
+        session.finalize()
+
+
+def test_chain_caches_only_last_teacher_and_trains_every_target():
+    model, reference, batches, state, quant, qad = _prepare(
+        model_class=ChainModel, num_epochs=2, lr=0.003, reobserve_weights=False
+    )
+    modules = list(model.modules())
+    with DisableQuantization(model):
+        _calibrate(model, batches, state)
+        assert qad._predecessors == {model.first: None, model.second: model.first}
+        for index, batch in enumerate(batches):
+            first = qad._block_cache[model.first].fetch(index)
+            second = qad._block_cache[model.second].fetch(index)
+            assert "target" not in first
+            # The first block's output is recomputed rather than cached
+            assert second["args"] == (None,)
+            torch.testing.assert_close(second["target"], reference(**batch))
+        quant.on_sequential_epoch_end(state, None, modules)
+        # The first block trains only through the second block's output
+        norms = []
+        model.first.left.weight.register_hook(lambda grad: norms.append(grad.norm()))
+        with _capture_logs() as logs:
+            qad.on_sequential_epoch_end(state, None, modules)
+    # 5 training batches per epoch; 1 is held out for validation
+    assert _logged_updates(logs) == {"first..second": 10}
+    assert len(norms) == 10 and all(norm > 0 for norm in norms)
+    qad.on_calibration_end(state, None)
+
+
+def test_unchained_subgraph_targets_rejected():
+    model, _, batches, state, quant, qad = _prepare(
+        model_class=lambda: ChainModel(parallel=True)
+    )
+    modules = list(model.modules())
+    with DisableQuantization(model):
+        _calibrate(model, batches, state)
+        quant.on_sequential_epoch_end(state, None, modules)
+        with pytest.raises(ValueError, match="previous target's output"):
+            qad.on_sequential_epoch_end(state, None, modules)
+    qad.on_finalize(state)
 
 
 def test_training_failure_restores_grad_flags():

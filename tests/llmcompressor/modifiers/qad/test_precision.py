@@ -104,7 +104,12 @@ def test_nonfinite_gradients_fail_without_updating_weights(dtype):
     ):
         with pytest.raises(ValueError, match="Nonfinite QAD gradient in block"):
             qad._train_epoch(
-                block, optimizer, [parameter], [master], _target_batches([None]), scaler
+                [block],
+                optimizer,
+                [parameter],
+                [master],
+                _target_batches([None]),
+                scaler,
             )
     assert parameter.item() == master.item() == 1.0
     assert not optimizer.state

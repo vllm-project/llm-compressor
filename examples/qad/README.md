@@ -1,9 +1,15 @@
 # Block-wise quantization-aware distillation
 
-`QADModifier` refines quantized weights by reconstructing each decoder block's
+`QADModifier` refines quantized weights by reconstructing decoder blocks'
 unquantized outputs. Put it after the quantization method in the same recipe.
 QAD shares that method's calibration data and uses the existing sequential
 pipeline. It does not load a separate teacher model.
+
+`sequential_targets_per_subgraph` sets how many consecutive decoder blocks QAD
+trains jointly. Each block takes the previous block's fake-quantized output, and
+the loss compares the last block's output with its unquantized output. Training
+memory grows with the block count, since backpropagation runs through every
+block in the subgraph.
 
 ```python
 from llmcompressor import oneshot
@@ -28,7 +34,7 @@ oneshot(
     ],
     pipeline="sequential",
     sequential_targets=["LlamaDecoderLayer"],
-    sequential_targets_per_subgraph=1,
+    sequential_targets_per_subgraph=1,  # decoder blocks trained jointly
     propagate_error=True,  # default; recommended for QAD
     num_calibration_samples=512,
     max_seq_length=2048,
@@ -42,6 +48,7 @@ BF16 model execution and activations:
 ```bash
 python llama3_example.py --quantizer rtn --output ./llama-rtn-qad
 python llama3_example.py --quantizer gptq --output ./llama-gptq-qad
+python llama3_example.py --quantizer gptq --targets-per-subgraph 2 --output ./llama-gptq-qad-2
 ```
 
 The example defaults to one UltraChat dataset for calibration and QAD. Override it with
@@ -82,42 +89,49 @@ Hugging Face dataset, not this preset. Access to
 token; loading fails if any required source is inaccessible or too short.
 
 This example adopts the upstream sources and mixture weights. QAD uses its own
-validation split described below; `--epochs` is the per-block epoch count, with
+validation split described below; `--epochs` is the per-subgraph epoch count, with
 the best validation weights restored before propagation. These
 commands demonstrate loading and training, not the full configuration used for
 the long-context epoch-ablation benchmark results.
 
 ## Execution
 
-For each decoder block:
+For each sequential subgraph of one or more consecutive decoder blocks:
 
-1. During calibration, hooks cache the block's inputs and unquantized outputs.
-   The preceding method collects its statistics in the same forward pass.
+1. During calibration, hooks cache the blocks' inputs and the last block's
+   unquantized outputs. The preceding method collects its statistics in the same
+   forward pass.
 2. At the existing `sequential_epoch_end` event, preceding modifiers finish
-   preparing the block's quantized weights and quantization parameters.
-3. QAD replays the block with fake quantization and minimizes output MSE.
+   preparing the blocks' quantized weights and quantization parameters.
+3. QAD replays the blocks as a chain with fake quantization, feeding each block
+   the previous block's output, and minimizes the last block's output MSE.
    Only weights configured for quantization are trained. Calibration and capture
    hooks are disabled throughout QAD training and validation. Weight observers
    update qparams before training and after each epoch.
-4. QAD restores the best validation weights and their matching qparams,
-   re-observes weights, materializes quantized weights, and releases the training cache. The
-   pipeline propagates the final outputs to the next block.
+4. QAD restores the weights with the lowest validation loss, which may be the
+   untrained weights, re-observes their qparams, materializes quantized weights,
+   and releases the training cache. The pipeline propagates the final outputs to
+   the next subgraph.
 
-The target is **local**: the original current block receives the same cached
-input as the student. With block function `f`, original weights `W0`, student
-weights `W`, and cached input `h`, QAD fits `f(h, Q(W))` to `f(h, W0)`.
-This captures the current block before the preceding quantizer changes it;
-it does not reconstruct an independent original-model activation stream.
+The target is **local**: the original current blocks receive the same cached
+input as the student. With subgraph function `f` (the composition of its
+blocks), original weights `W0`, student weights `W`, and cached input `h`, QAD
+fits `f(h, Q(W))` to `f(h, W0)`. Inside the student chain, later blocks take the
+earlier blocks' quantized outputs. This captures the current blocks before the
+preceding quantizer changes them; it does not reconstruct an independent
+original-model activation stream.
 
 `propagate_error` selects `h`. With the default `propagate_error=True`
-(recommended), `h` is the preceding blocks' quantized output, so each block
+(recommended), `h` is the preceding subgraphs' quantized output, so each subgraph
 trains on the inputs it receives at inference. With `propagate_error=False`,
 `h` is the original model's activation, which gives plain block-wise
 reconstruction.
 
-Replay uses the complete target module's `forward`, retaining its internal
-attention, MLP, branches, and residual connections. Multiple target modules
-cannot be jointly optimized as an arbitrary traced subgraph in this version.
+Replay uses each complete target module's `forward`, retaining its internal
+attention, MLP, branches, and residual connections. Multiple target modules in a
+subgraph train jointly only as a chain, in which each module's first input is
+the previous module's output, as with decoder layers. QAD rejects other subgraph
+structures.
 
 ## Composing quantization methods
 
