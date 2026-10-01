@@ -1,28 +1,27 @@
 """
-HIGGS Mixed-Precision: NVFP4 + FP8_DYNAMIC via oneshot + GPTQ
+HIGGS Mixed-Precision: W4A16 + FP8_DYNAMIC via oneshot
 
 1. get_higgs_config(): model-free ILP selects optimal per-layer schemes
-2. oneshot() + GPTQModifier: loads model, applies config with Hessian-based
-   weight optimization for better accuracy
+2. oneshot(): loads the model and applies either QuantizationModifier or
+   GPTQModifier to the selected allocation
 
-NVFP4 (W4A4) requires calibration data. GPTQ uses activations to build a
-Hessian matrix for optimal weight quantization ordering.
+GPTQ uses calibration activations to build Hessian matrices for weight
+optimization. QuantizationModifier applies the same allocation directly.
 
 Usage:
-    python higgs_nvfp4_fp8_gptq.py \
+    python higgs_w4a16_fp8_oneshot.py \
         --model meta-llama/Meta-Llama-3.1-8B-Instruct \
-        --target-bits 6.0
+        --target-bits 6.0 \
+        --method qmod
 """
 
 import argparse
 import os
 
-from compressed_tensors.quantization import preset_name_to_scheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
 from llmcompressor.entrypoints.higgs import get_higgs_config
-from llmcompressor.modifiers.gptq import GPTQModifier
 
 IGNORE = [
     "lm_head",
@@ -38,43 +37,54 @@ MAX_SEQUENCE_LENGTH = 2048
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model", required=True, default="meta-llama/Meta-Llama-3.1-8B-Instruct"
-    )
+    parser.add_argument("--model", required=True)
     parser.add_argument("--target-bits", type=float, default=6.0)
+    parser.add_argument(
+        "--method",
+        choices=("qmod", "gptq"),
+        default="qmod",
+        help="oneshot quantization method (default: qmod)",
+    )
     args = parser.parse_args()
 
-    nvfp4_scheme = preset_name_to_scheme("NVFP4", targets=["Linear"])
-    nvfp4_scheme.weights.observer = "nvfp4_expanded_mse"
-    schemes = [nvfp4_scheme, "FP8_DYNAMIC"]
-    scheme_tag = "NVFP4+FP8_DYNAMIC+ExpandedMSE"
+    schemes = ["W4A16", "FP8_DYNAMIC"]
+    method_name = "GPTQ" if args.method == "gptq" else "QMod"
     model_short = args.model.rstrip("/").split("/")[-1]
+    scheme_tag = "W4A16+FP8_DYNAMIC"
     save_dir = os.path.expanduser(
-        f"~/hf_hub/{model_short}-HIGGS-{scheme_tag}-W{args.target_bits}avg-GPTQ"
+        f"~/hf_hub/{model_short}-HIGGS-{scheme_tag}-W{args.target_bits}avg-{method_name}"
     )
 
-    # Step 1: get optimal mixed-precision config (model-free)
     config = get_higgs_config(
         model_stub=args.model,
         candidate_schemes=schemes,
         targets="Linear",
         ignore=IGNORE,
         target_avg_bitwidth=args.target_bits,
-        allow_unquantized=True,
+        allow_unquantized=False,
     )
 
     print(f"\nHIGGS config: {len(config.config_groups)} groups")
     for name, scheme in config.config_groups.items():
         print(f"  {name}: {len(scheme.targets)} layers")
 
-    # Step 2: load model and apply the config with PerfectBlend calibration.
     model = AutoModelForCausalLM.from_pretrained(args.model)
     tokenizer = AutoTokenizer.from_pretrained(args.model)
 
-    recipe = GPTQModifier(
-        config_groups=config.config_groups,
-        ignore=config.ignore,
-    )
+    if args.method == "gptq":
+        from llmcompressor.modifiers.gptq import GPTQModifier
+
+        recipe = GPTQModifier(
+            config_groups=config.config_groups,
+            ignore=config.ignore,
+        )
+    else:
+        from llmcompressor.modifiers.quantization import QuantizationModifier
+
+        recipe = QuantizationModifier(
+            config_groups=config.config_groups,
+            ignore=config.ignore,
+        )
 
     oneshot(
         model=model,
