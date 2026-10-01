@@ -1,7 +1,9 @@
 import json
 import os
 import random
+import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -15,6 +17,28 @@ from safetensors.torch import load_file
 from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.testing_utils import requires_gpu
+
+_MODEL_FREE_MODULE = sys.modules["llmcompressor.entrypoints.model_free"]
+
+
+@pytest.mark.parametrize("max_workers", (1, 4, "auto"))
+def test_model_free_ptq_forwards_max_workers(max_workers, tmp_path):
+    with (
+        patch.object(_MODEL_FREE_MODULE, "get_checkpoint_files", return_value={}),
+        patch.object(_MODEL_FREE_MODULE, "validate_safetensors_index"),
+        patch.object(_MODEL_FREE_MODULE, "get_weight_map", return_value={}),
+        patch.object(_MODEL_FREE_MODULE, "convert_checkpoint") as convert_checkpoint,
+    ):
+        model_free_ptq(
+            "source",
+            tmp_path,
+            scheme="FP8_dynamic",
+            max_workers=max_workers,
+            device="cpu",
+        )
+
+    convert_checkpoint.assert_called_once()
+    assert convert_checkpoint.call_args.kwargs["max_workers"] == max_workers
 
 
 def _get_tiny_w4a16_quant():

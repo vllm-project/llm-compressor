@@ -82,6 +82,41 @@ def test_multi_gpu_more_workers_than_shards(tmp_path):
     assert st_files, "No safetensors files produced"
 
 
+@pytest.mark.multi_gpu
+@requires_gpu(2)
+def test_multi_gpu_auto_max_workers_matches_single_gpu(tmp_path):
+    """max_workers="auto" with all GPUs available should give identical output
+    to a single-worker, single-GPU run."""
+    model_id = "Qwen/Qwen3-0.6B"
+    scheme = "FP8_dynamic"
+    ignore = ["model.embed_tokens", "lm_head"]
+
+    sharded_dir = tmp_path / "sharded_model"
+    _save_sharded(model_id, sharded_dir, max_shard_size="1MB")
+
+    single_out = tmp_path / "single_gpu"
+    auto_out = tmp_path / "auto"
+
+    model_free_ptq(
+        str(sharded_dir),
+        single_out,
+        scheme=scheme,
+        max_workers=1,
+        device="cuda:0",
+        ignore=ignore,
+    )
+
+    model_free_ptq(
+        str(sharded_dir),
+        auto_out,
+        scheme=scheme,
+        max_workers="auto",
+        ignore=ignore,
+    )
+
+    _assert_outputs_equal(single_out, auto_out)
+
+
 # ── helpers ──────────────────────────────────────────────────────────────
 
 
