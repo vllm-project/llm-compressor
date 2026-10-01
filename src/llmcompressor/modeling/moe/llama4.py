@@ -1,5 +1,4 @@
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from transformers.activations import ACT2FN
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,

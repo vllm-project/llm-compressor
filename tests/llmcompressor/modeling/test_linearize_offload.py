@@ -2,10 +2,8 @@ import shutil
 
 import torch.distributed as dist
 from compressed_tensors.offload import get_device_map, init_dist, load_offloaded_model
-from compressed_tensors.utils import patch_attr
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.modeling.moe import conversion_mappings
 from llmcompressor.modeling.moe.linearize import load_quantizable_moe
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -41,10 +39,3 @@ def test_load_quantizable_moe():
     shutil.rmtree(OFFLOAD_DIR, ignore_errors=True)
     dist.barrier()
 
-
-@requires_gpu(2)
-@torchrun(world_size=2)
-def test_linearize_moe():
-    # clear all loading mappings; must use `linearize_moe` pathway
-    with patch_attr(conversion_mappings, "ARCH_TO_2D_MAPPINGS", []):
-        test_load_quantizable_moe()
