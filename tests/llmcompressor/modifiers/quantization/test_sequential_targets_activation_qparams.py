@@ -1,15 +1,18 @@
 """
-Test that activation qparams (e.g. kv cache scales) are calibrated for modules which
-are traced through rather than called by a sequential subgraph.
+Test that quantization parameters (e.g. kv cache scales) are calibrated for modules
+which are traced through rather than called by a sequential subgraph.
 
 With `sequential_targets="Linear"`, attention modules are ancestors of the sequential
 targets, so they are traced through and never passed to `on_sequential_epoch_end`.
-Their activation qparams must still be updated before calibration ends.
+Their quantization parameters must still be updated before calibration ends.
 """
+
+import io
 
 import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs
+from loguru import logger
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
@@ -61,53 +64,63 @@ def test_kv_cache_scales_with_linear_sequential_targets():
     "sequential_targets,expect_attention",
     [("LlamaDecoderLayer", False), ("Linear", True)],
 )
-def test_end_calibration_updates_traced_through_modules(
+def test_end_calibration_quantizes_remaining_modules(
     sequential_targets, expect_attention, monkeypatch
 ):
-    # record which modules have their activation qparams updated by end_calibration
-    updated_at_end = []
+    # record modules passed to `on_sequential_epoch_end` by `end_calibration`
+    remaining = []
     end_calibration = QuantizationMixin.end_calibration
-    update_activation_qparams = QuantizationMixin.update_activation_qparams
+    on_sequential_epoch_end = QuantizationModifier.on_sequential_epoch_end
 
     def spy_end_calibration(self, model):
-        def spy_update(self, modules, **kwargs):
-            updated_at_end.extend(modules)
-            return update_activation_qparams(self, modules, **kwargs)
+        def spy_epoch_end(self, state, event, modules, **kwargs):
+            remaining.extend(modules)
+            return on_sequential_epoch_end(self, state, event, modules, **kwargs)
 
         with monkeypatch.context() as patch:
-            patch.setattr(QuantizationMixin, "update_activation_qparams", spy_update)
+            patch.setattr(
+                QuantizationModifier, "on_sequential_epoch_end", spy_epoch_end
+            )
             return end_calibration(self, model)
 
     monkeypatch.setattr(QuantizationMixin, "end_calibration", spy_end_calibration)
-    model = _calibrate_kv_cache(sequential_targets)
 
-    # only modules which were not updated at a sequential epoch end are updated
+    log_output = io.StringIO()
+    handler_id = logger.add(log_output, level="WARNING")
+    try:
+        model = _calibrate_kv_cache(sequential_targets)
+    finally:
+        logger.remove(handler_id)
+
+    # only modules which were not called by a sequential subgraph are quantized
+    # at the end of calibration, and the user is warned about them
     attention = [layer.self_attn for layer in model.model.layers]
     expected = attention if expect_attention else []
-    assert len(updated_at_end) == len(expected)
-    assert set(updated_at_end) == set(expected)
+    assert len(remaining) == len(expected)
+    assert set(remaining) == set(expected)
+
+    warning = "which were calibrated but not quantized"
+    assert (warning in log_output.getvalue()) == expect_attention
 
 
-@pytest.mark.parametrize("already_updated", [True, False])
-def test_end_calibration_only_updates_modules_once(already_updated, monkeypatch):
-    modifier = QuantizationModifier(kv_cache_scheme=KV_CACHE_SCHEME)
+class _Observer:
+    def __init__(self, has_statistics: bool):
+        self.has_statistics = has_statistics
+
+
+@pytest.mark.parametrize(
+    "observers,expected",
+    [
+        ({}, False),
+        ({"weight": False, "input": False}, False),
+        ({"weight": True}, True),
+        ({"input": True}, True),
+        ({"k": False, "v": True}, True),
+    ],
+)
+def test_has_observer_statistics(observers, expected):
     module = torch.nn.Linear(4, 4)
-    module.input_observer = object()  # module has an activation observer
-    if already_updated:
-        modifier._activation_updated_modules.add(module)
+    for base_name, has_statistics in observers.items():
+        setattr(module, f"{base_name}_observer", _Observer(has_statistics))
 
-    calls = []
-    monkeypatch.setattr(
-        QuantizationModifier,
-        "update_activation_qparams",
-        lambda _self, modules, **_: calls.append(modules),
-    )
-    monkeypatch.setattr(mixin, "match_named_modules", lambda *_: [("module", module)])
-    monkeypatch.setattr(mixin, "freeze_module_quantization", lambda _: None)
-
-    modifier.end_calibration(torch.nn.Sequential(module))
-
-    # modules already updated at a sequential epoch end are not updated again, which
-    # would otherwise double count observer statistics synced with `ReduceOp.SUM`
-    assert calls == [[] if already_updated else [module]]
-    assert modifier._activation_updated_modules == set()
+    assert mixin._has_observer_statistics(module) == expected

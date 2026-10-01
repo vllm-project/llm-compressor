@@ -13,6 +13,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
+from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 __all__ = ["QuantizationModifier"]
@@ -83,7 +84,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
-        self.update_activation_qparams(modules)
+        self.sync_obs_act_stats(modules)
+        update_qparams(modules, ACTIVATION_OBS)
 
         ### Not Distributed
         if not is_distributed():
