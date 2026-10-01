@@ -26,11 +26,7 @@ from llmcompressor.modeling.moe.linear_experts import (
 )
 from llmcompressor.modeling.moe.linearize import (
     linearize_moe,
-    linearize_moe_model,
-    linearize_moe_subgraph,
     repack_moe,
-    repack_moe_model,
-    repack_moe_subgraph,
 )
 from llmcompressor.utils.dev import skip_weights_initialize
 
@@ -584,7 +580,7 @@ def test_linearize_moe_subgraph_traverses_nested_modules():
     model = _tiny_qwen3_moe_blocks()
     subgraph_modules = {"block1": model.block1}
 
-    linearize_moe_subgraph(model, subgraph_modules)
+    linearize_moe(model, subgraph_modules)
 
     assert isinstance(model.block1.mlp.experts, LinearExperts2D)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
@@ -592,13 +588,13 @@ def test_linearize_moe_subgraph_traverses_nested_modules():
 @torch.no_grad()
 def test_repack_moe_subgraph_only_targets_selected_module():
     model = _tiny_qwen3_moe_blocks()
-    linearize_moe_model(model)
+    linearize_moe(model)
 
     subgraph_modules = {
         "block1.mlp.experts": model.block1.mlp.experts,
         "block2": model.block2,
     }
-    repack_moe_subgraph(model, subgraph_modules)
+    repack_moe(model, subgraph_modules)
 
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
