@@ -113,6 +113,35 @@ class ModelFreePtqConverter(Converter):
             return self._process_microscale(tensors)
         return self._process_standard(tensors)
 
+    def validate(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """
+        Validate tensor shapes and simulate the compressed state-dict layout.
+
+        Converter validation runs on meta tensors before conversion. Some
+        calibration observers need tensor values, so validation initializes each
+        quantized module with meta tensors and compresses it without calibration.
+        This verifies the same shape and compression compatibility checks as
+        :meth:`process` while leaving observers to run only during the real
+        conversion pass.
+        """
+        tensors = split_fused_moe_experts(tensors)
+        output = dict(tensors)
+        for module_name, name, scheme in _match_tensors_to_schemes(
+            tensors, self.config
+        ):
+            validate_weight_for_quantization(tensors[name], scheme, name)
+            module = initialize_quantized_linear(
+                tensors[name], scheme, torch.device("meta")
+            )
+            compress_module(module)
+
+            del output[name]
+            prefix = module_name + "."
+            for key, value in module.state_dict(prefix=prefix).items():
+                output[key] = value
+
+        return output
+
     def update_config(self, config: QuantizationConfig | None) -> QuantizationConfig:
         """
         Build or merge the final QuantizationConfig in COMPRESSED status.
