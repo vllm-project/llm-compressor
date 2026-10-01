@@ -297,9 +297,7 @@ def _grid_search_observer_triton(
     if total_steps == 0:
         # There is no candidate to index, so retain the expanded observed range.
         return min_val, max_val
-    kernel_patience = (
-        total_steps if use_imatrix_error and patience == 0 else patience
-    )
+    kernel_patience = total_steps if use_imatrix_error and patience == 0 else patience
     # This half-open step range matches eager: the final point is generally
     # above the exact 1 - maxshrink endpoint.
     grid_points = torch.tensor(
