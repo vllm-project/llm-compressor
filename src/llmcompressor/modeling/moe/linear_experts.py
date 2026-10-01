@@ -3,11 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import (
-    get_cache_init_kwargs,
-    get_execution_device,
-    offload_module,
-)
+from compressed_tensors.offload import get_execution_device
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -322,11 +318,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         # fused experts class and config (see issue #2699).
         self._record_source_metadata(experts, config)
 
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
-
         return self
 
     def _record_source_metadata(
@@ -382,17 +373,9 @@ class LinearExperts2D(torch.nn.ModuleList):
                 for index in range(self.num_experts):
                     self[index].copy_bias_to_experts_module(fused, index)
 
-        # novices remain identical; skip the assignment for modules without
-        # them, so e.g. REAP-pruned layers don't serialize an empty tensor
-        if self.novices is not None:
-            with torch.device(construction_device):
-                fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
-
-        offload_kwargs = get_cache_init_kwargs(self)
-        offload_module(fused, **offload_kwargs)
-        for child in fused.children():
-            if isinstance(child, CompressedFusedLinear):
-                offload_module(child, **offload_kwargs)
+        # novices remain identical
+        with torch.device(construction_device):
+            fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
         return fused
 
     def _require_source_metadata(self) -> tuple[type, PreTrainedConfig]:
