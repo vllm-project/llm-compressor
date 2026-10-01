@@ -107,6 +107,7 @@ def test_layerwise_pipeline_decompresses_and_compresses_current_subgraph(
         tracing_ignore=[],
         use_loss_mask=False,
         stage_weights_in_pinned_memory=False,
+        log_sequential_error=False,
     )
 
     monkeypatch.setattr(pipeline, "active_session", lambda: session)
