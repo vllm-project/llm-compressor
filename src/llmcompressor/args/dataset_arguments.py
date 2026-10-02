@@ -322,7 +322,9 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": "When using the sequential pipeline, linearize MoE layers to 2D "
             "before calibration. Set False to linearize upfront. If you intend to "
-            "use individual experts as sequential targets, set this to False"
+            "use individual experts as sequential targets, set this to False. Note "
+            "that this argument is only relevant for MoE models with 3d weights or "
+            "missing linearization mappings. Default is True."
         },
     )
     repack_moe_layers: bool = field(
