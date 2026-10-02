@@ -35,7 +35,6 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import (
-    has_individual_expert_targets,
     post_process,
     pre_process,
 )
@@ -215,30 +214,16 @@ class Oneshot:
         calibration_dataloader = get_calibration_dataloader(
             self.dataset_args, self.processor
         )
-        self.resolve_eager_moe_linearization()
         self.apply_recipe_modifiers(
             calibration_dataloader=calibration_dataloader,
             recipe_stage=self.recipe_args.stage,
         )
         post_process(
             model_args=self.model_args,
+            dataset_args=self.dataset_args,
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
         )
-
-    def resolve_eager_moe_linearization(self):
-        if not self.dataset_args.moe_lazy_linearization_and_repack:
-            return
-
-        if has_individual_expert_targets(
-            self.model, self.dataset_args.sequential_targets
-        ):
-            logger.warning(
-                "Individual MoE experts were found in sequential_targets. Forcing "
-                "moe_lazy_linearization_and_repack=False so the full MoE layer is "
-                "linearized before sequential processing."
-            )
-            self.dataset_args.moe_lazy_linearization_and_repack = False
 
     def apply_recipe_modifiers(
         self,

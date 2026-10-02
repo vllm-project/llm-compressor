@@ -3,8 +3,6 @@ from types import SimpleNamespace
 
 import torch
 
-oneshot_module = importlib.import_module("llmcompressor.entrypoints.oneshot")
-linearize_module = importlib.import_module("llmcompressor.modeling.moe.linearize")
 entrypoint_utils = importlib.import_module("llmcompressor.entrypoints.utils")
 
 
@@ -25,8 +23,8 @@ def test_has_individual_expert_targets(monkeypatch):
         lambda _model: {model.moe: "moe"},
     )
 
-    assert oneshot_module.has_individual_expert_targets(model, ["moe.experts.0"])
-    assert not oneshot_module.has_individual_expert_targets(model, ["moe"])
+    assert entrypoint_utils.has_individual_expert_targets(model, ["moe.experts.0"])
+    assert not entrypoint_utils.has_individual_expert_targets(model, ["moe"])
 
 
 def test_individual_expert_targets_force_eager_linearization(monkeypatch):
@@ -41,7 +39,61 @@ def test_individual_expert_targets_force_eager_linearization(monkeypatch):
         moe_lazy_linearization_and_repack=True,
     )
 
-    oneshot_instance = SimpleNamespace(model=model, dataset_args=dataset_args)
-    oneshot_module.Oneshot.resolve_eager_moe_linearization(oneshot_instance)
+    monkeypatch.setattr(
+        entrypoint_utils,
+        "has_individual_expert_targets",
+        lambda _model, _targets: True,
+    )
+    entrypoint_utils.resolve_eager_moe_linearization(model, dataset_args)
 
     assert not dataset_args.moe_lazy_linearization_and_repack
+
+
+def test_pre_process_linearizes_non_lazy_moe(monkeypatch):
+    model = _Model()
+    model_args = SimpleNamespace(
+        model=model,
+        processor=object(),
+        tie_word_embeddings=True,
+    )
+    dataset_args = SimpleNamespace(
+        sequential_targets=None,
+        moe_lazy_linearization_and_repack=False,
+    )
+    calls = []
+
+    monkeypatch.setattr(entrypoint_utils, "is_distributed", lambda: False)
+    monkeypatch.setattr(
+        entrypoint_utils,
+        "linearize_moe",
+        lambda candidate, onload_and_offload: calls.append(
+            (candidate, onload_and_offload)
+        ),
+    )
+    monkeypatch.setattr(entrypoint_utils, "modify_save_pretrained", lambda _model: None)
+
+    entrypoint_utils.pre_process(model_args, dataset_args, output_dir=None)
+
+    assert calls == [(model, True)]
+
+
+def test_post_process_repacks_non_lazy_moe(monkeypatch):
+    model = _Model()
+    model_args = SimpleNamespace(model=model, processor=None)
+    dataset_args = SimpleNamespace(
+        moe_lazy_linearization_and_repack=False,
+        repack_moe_layers=True,
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        entrypoint_utils,
+        "repack_moe",
+        lambda candidate, onload_and_offload: calls.append(
+            (candidate, onload_and_offload)
+        ),
+    )
+
+    entrypoint_utils.post_process(model_args=model_args, dataset_args=dataset_args)
+
+    assert calls == [(model, True)]

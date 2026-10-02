@@ -38,4 +38,3 @@ def test_load_quantizable_moe():
     dist.barrier()
     shutil.rmtree(OFFLOAD_DIR, ignore_errors=True)
     dist.barrier()
-
