@@ -6,6 +6,7 @@ import pytest
 import torch
 from compressed_tensors.offload import offload_module
 from compressed_tensors.offload.cache import OffloadCache
+from compressed_tensors.offload.module import subgraph_onload_modules
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
@@ -29,6 +30,7 @@ from llmcompressor.modeling.moe.linearize import (
     repack_moe,
 )
 from llmcompressor.utils.dev import skip_weights_initialize
+from tests.testing_utils import requires_gpu
 
 
 def _tiny_qwen3_vl_moe():
@@ -133,6 +135,72 @@ def test_linearize_and_repack_preserve_offload_cache():
     repack_moe(model, onload_and_offload=True)
     experts = model.model.language_model.layers[0].mlp.experts
     assert isinstance(experts._parameters, OffloadCache)
+
+
+@torch.no_grad()
+def test_cpu_lazy_linearize_from_disk_then_onloads_replacement(tmp_path):
+    model = _tiny_qwen3_moe_blocks()
+    experts_name = "block1.mlp.experts"
+    experts = model.block1.mlp.experts
+    offload_module(
+        experts,
+        onload_device="cpu",
+        offload_device="disk",
+        offload_dir=str(tmp_path),
+    )
+
+    subgraph_modules = {
+        f"{experts_name}{relative_name}": child
+        for relative_name, child in experts.named_modules()
+    }
+    offload_kwargs = {}
+    linearize_moe(
+        model,
+        subgraph_modules,
+        offload_kwargs=offload_kwargs,
+        cpu_materialize=True,
+        onload_replacements=False,
+    )
+
+    replacement = model.block1.mlp.experts
+    assert isinstance(replacement._parameters, OffloadCache)
+
+    offload_kwargs.update(subgraph_onload_modules(subgraph_modules))
+    assert all(
+        parameter.device.type == "cpu" for parameter in replacement.parameters()
+    )
+
+
+@torch.no_grad()
+@requires_gpu
+def test_lazy_linearize_onloads_replacement_before_forward():
+    """Lazy replacement must be executable before the subgraph is offloaded."""
+    model = _tiny_qwen3_moe_blocks().cuda()
+    experts_name = "block1.mlp.experts"
+    experts = model.block1.mlp.experts
+    offload_module(experts, onload_device="cuda", offload_device="cpu")
+
+    subgraph_modules = {
+        f"{experts_name}{relative_name}": child
+        for relative_name, child in experts.named_modules()
+    }
+    offload_kwargs = subgraph_onload_modules(subgraph_modules)
+    linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+
+    replacement = model.block1.mlp.experts
+    assert all(
+        parameter.device.type == "cuda" for parameter in replacement.parameters()
+    )
+    hidden_states = torch.randn(4, model.config.hidden_size, device="cuda")
+    top_k_index = torch.randint(
+        model.config.num_experts,
+        (4, model.config.num_experts_per_tok),
+        device="cuda",
+    )
+    top_k_weights = torch.randn(
+        4, model.config.num_experts_per_tok, device="cuda"
+    )
+    replacement(hidden_states, top_k_index, top_k_weights)
 
 
 def test_repack_packs_weight_qparams():

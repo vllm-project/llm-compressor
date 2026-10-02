@@ -252,10 +252,27 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                if dataset_args.moe_lazy_linearization_and_repack:
+                    # Linearize offloaded MoE experts from their staged CPU values.
+                    # The replacement is re-offloaded here and the complete
+                    # subgraph is onloaded below, so conversion never needs the
+                    # execution device.
+                    offload_kwargs = {}
+                    linearize_moe(
+                        model,
+                        subgraph_modules,
+                        offload_kwargs=offload_kwargs,
+                        cpu_materialize=True,
+                        onload_replacements=False,
+                    )
+                    offload_kwargs.update(subgraph_onload_modules(subgraph_modules))
+                else:
+                    offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
-                # This is a no-op for already-linearized MoE layers.
-                linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+                    # This is a no-op for already-linearized MoE layers.
+                    linearize_moe(
+                        model, subgraph_modules, offload_kwargs=offload_kwargs
+                    )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
