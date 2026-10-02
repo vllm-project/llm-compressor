@@ -17,13 +17,13 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
 
-class BranchBlock(torch.nn.Module):
+class BranchSeqTarget(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.left = torch.nn.Linear(32, 32, bias=False)
@@ -38,29 +38,29 @@ class BranchBlock(torch.nn.Module):
 
 
 class BranchModel(torch.nn.Module):
-    _no_split_modules = ["BranchBlock"]
+    _no_split_modules = ["BranchSeqTarget"]
 
     def __init__(self):
         super().__init__()
-        self.block = BranchBlock()
+        self.seq_target = BranchSeqTarget()
 
     def forward(self, x, residual):
         # Exercise both positional and keyword inputs to the captured module.
-        return self.block(x, residual=residual)
+        return self.seq_target(x, residual=residual)
 
 
 class ChainModel(torch.nn.Module):
-    _no_split_modules = ["BranchBlock"]
+    _no_split_modules = ["BranchSeqTarget"]
 
     def __init__(self, parallel=False):
         super().__init__()
-        self.first = BranchBlock()
-        self.second = BranchBlock()
+        self.first = BranchSeqTarget()
+        self.second = BranchSeqTarget()
         self.parallel = parallel
 
     def forward(self, x, residual):
         hidden, _ = self.first(x, residual=residual)
-        # In parallel, the second block does not take the first block's output
+        # In parallel, the second sequential target does not take the first one's output
         return self.second(x if self.parallel else hidden, residual=residual)
 
 
@@ -160,13 +160,17 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         max_grad_norm=0.1,
         reobserve_weights=False,
     )
-    modules = list(model.block.modules())
+    modules = list(model.seq_target.modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-        for batch, cached in zip(batches, qad._block_cache[model.block]):
-            torch.testing.assert_close(cached["target"], reference(**batch))
-            torch.testing.assert_close(cached["args"][0], batch["x"])
-            torch.testing.assert_close(cached["kwargs"]["residual"], batch["residual"])
+        for index, batch in enumerate(batches):
+            cached_input = qad._input_caches[model.seq_target].fetch(index)
+            cached_output = qad._output_caches[model.seq_target].fetch(index)
+            torch.testing.assert_close(cached_output["target"], reference(**batch))
+            torch.testing.assert_close(cached_input["args"][0], batch["x"])
+            torch.testing.assert_close(
+                cached_input["kwargs"]["residual"], batch["residual"]
+            )
         quant.on_sequential_epoch_end(state, None, modules)
         qparams = {
             name: param.detach().clone()
@@ -178,7 +182,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         ) as clip:
             qad.on_sequential_epoch_end(state, None, modules)
         assert clip.call_count == 9
-        assert not qad._block_cache
+        assert not qad._input_caches and not qad._output_caches
         for name, expected in qparams.items():
             torch.testing.assert_close(
                 model.get_parameter(name), expected, rtol=0, atol=0
@@ -230,7 +234,7 @@ def test_real_llama_sequential_pipeline(kind, scheme, sequential_prefetch):
         with _capture_logs() as logs:
             SequentialPipeline()(model, data, args)
         assert _logged_updates(logs) == {"model.layers.0": 3, "model.layers.1": 3}
-        assert not qad._block_cache and not qad._hooks
+        assert not qad._input_caches and not qad._output_caches and not qad._hooks
         session.finalize()
     with torch.no_grad():
         ids = data[0]["input_ids"].to(model.device)
@@ -241,28 +245,40 @@ def test_teacher_cache_is_independent():
     model, reference, batches, state, quant, qad = _prepare()
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-    cache = qad._block_cache[model.block]
-    assert isinstance(cache, IntermediatesCache)
-    stored = cache.fetch(0)
-    saved_input = stored["args"][0].clone()
-    saved_target = stored["target"][0].clone()
+    input_cache = qad._input_caches[model.seq_target]
+    output_cache = qad._output_caches[model.seq_target]
+    assert isinstance(input_cache, IntermediatesCache)
+    assert isinstance(output_cache, IntermediatesCache)
+    stored_input = input_cache.fetch(0)
+    stored_output = output_cache.fetch(0)
+    saved_input = stored_input["args"][0].clone()
+    saved_target = stored_output["target"][0].clone()
     batches[0]["x"].zero_()
     with torch.no_grad():
-        model.block.left.weight.zero_()
-    stored = cache.fetch(0)
-    torch.testing.assert_close(stored["args"][0], saved_input)
-    torch.testing.assert_close(stored["target"][0], saved_target)
+        model.seq_target.left.weight.zero_()
+    stored_input = input_cache.fetch(0)
+    stored_output = output_cache.fetch(0)
+    torch.testing.assert_close(stored_input["args"][0], saved_input)
+    torch.testing.assert_close(stored_output["target"][0], saved_target)
     qad.on_finalize(state)
-    assert not qad._block_cache and not qad._hooks
+    assert not qad._input_caches and not qad._output_caches and not qad._hooks
 
 
-@pytest.mark.parametrize("sequential_prefetch", [False, True])
-def test_cache_replay_preserves_selected_batch_order(sequential_prefetch):
+def test_cache_replay_preserves_selected_batch_order():
     model, reference, batches, state, quant, qad = _prepare()
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-    entries = qad._block_cache[model.block].batch_intermediates
-    qad._sequential_prefetch = sequential_prefetch
+    input_entries = qad._input_caches[model.seq_target].batch_intermediates
+    output_entries = qad._output_caches[model.seq_target].batch_intermediates
+    entries = [
+        {
+            "args": input_entries[index]["args"],
+            "kwargs": input_entries[index]["kwargs"],
+            "links": IntermediateValue([], None),
+            "target": output_entries[index]["target"],
+        }
+        for index in range(len(input_entries))
+    ]
     indices = [4, 1, 5, 1]
     replayed = list(qad._iter_batches([entries[i] for i in indices]))
     assert len(replayed) == len(indices)
@@ -270,14 +286,12 @@ def test_cache_replay_preserves_selected_batch_order(sequential_prefetch):
         torch.testing.assert_close(batch["args"][0], batches[index]["x"])
         torch.testing.assert_close(batch["target"], reference(**batches[index]))
     qad.on_finalize(state)
-    assert not qad._block_cache
+    assert not qad._input_caches and not qad._output_caches
 
 
-@pytest.mark.parametrize("sequential_prefetch", [False, True])
-def test_partial_accumulation_matches_large_batch(sequential_prefetch):
+def test_partial_accumulation_matches_large_batch():
     parameter = torch.nn.Parameter(torch.tensor([1.0]))
     qad = QADModifier(gradient_accumulation_steps=2, max_grad_norm=None)
-    qad._sequential_prefetch = sequential_prefetch
     optimizer = torch.optim.SGD([parameter], lr=0.1)
     with patch.object(
         qad,
@@ -310,7 +324,7 @@ def test_best_validation_weights_restored_including_initial(losses, best_epoch):
     parameter = module.weight
     parameter.data.zero_()
     qad = QADModifier(num_epochs=len(losses) - 1, reobserve_weights=False)
-    qad._module_names = {module: "test"}
+    qad._seq_target_names = {module: "test"}
     epoch = 0
 
     def train(*args):
@@ -423,7 +437,7 @@ def test_oneshot_rejects_nonsequential_qad_before_calibration(pipeline, tmp_path
         with pytest.raises(ValueError, match='requires pipeline="sequential"'):
             entrypoint.apply_recipe_modifiers(calibration_dataloader=[])
     forward.assert_not_called()
-    assert not qad._hooks and not qad._block_cache
+    assert not qad._hooks and not qad._input_caches and not qad._output_caches
 
 
 @pytest.mark.parametrize("pipeline", ["sequential", "SEQUENTIAL", None])
@@ -440,7 +454,7 @@ def test_oneshot_accepts_sequential_qad(pipeline, tmp_path):
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
     assert _logged_updates(logs) == {"model.layers.0": 1}
-    assert not qad._hooks and not qad._block_cache
+    assert not qad._hooks and not qad._input_caches and not qad._output_caches
 
 
 @pytest.mark.parametrize("propagate_error", [True, False])
@@ -460,7 +474,7 @@ def test_oneshot_qad_with_and_without_error_propagation(propagate_error, tmp_pat
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
     assert _logged_updates(logs) == {"model.layers.0": 1, "model.layers.1": 1}
-    assert not qad._hooks and not qad._block_cache
+    assert not qad._hooks and not qad._input_caches and not qad._output_caches
 
 
 def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
@@ -505,7 +519,12 @@ def test_subgraph_targets_train_jointly(per_subgraph, expected, sequential_prefe
         with _capture_logs() as logs:
             SequentialPipeline()(model, data, args)
         assert _logged_updates(logs) == expected
-        assert not qad._block_cache and not qad._predecessors and not qad._hooks
+        assert (
+            not qad._input_caches
+            and not qad._output_caches
+            and not qad._predecessors
+            and not qad._hooks
+        )
         session.finalize()
 
 
@@ -518,14 +537,15 @@ def test_chain_caches_only_last_teacher_and_trains_every_target():
         _calibrate(model, batches, state)
         assert qad._predecessors == {model.first: None, model.second: model.first}
         for index, batch in enumerate(batches):
-            first = qad._block_cache[model.first].fetch(index)
-            second = qad._block_cache[model.second].fetch(index)
-            assert "target" not in first
-            # The first block's output is recomputed rather than cached
-            assert second["args"] == (None,)
-            torch.testing.assert_close(second["target"], reference(**batch))
+            first_output = qad._output_caches[model.first].fetch(index)
+            second_input = qad._input_caches[model.second].fetch(index)
+            second_output = qad._output_caches[model.second].fetch(index)
+            assert "target" not in first_output
+            # The first sequential target's output is recomputed rather than cached
+            assert second_input["args"] == (None,)
+            torch.testing.assert_close(second_output["target"], reference(**batch))
         quant.on_sequential_epoch_end(state, None, modules)
-        # The first block trains only through the second block's output
+        # The first sequential target trains only through the second target's output
         norms = []
         model.first.left.weight.register_hook(lambda grad: norms.append(grad.norm()))
         with _capture_logs() as logs:
@@ -554,7 +574,7 @@ def test_training_failure_restores_grad_flags():
     flags = {name: p.requires_grad for name, p in model.named_parameters()}
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-        modules = list(model.block.modules())
+        modules = list(model.seq_target.modules())
         quant.on_sequential_epoch_end(state, None, modules)
         with patch.object(
             qad, "_train_with_validation", side_effect=RuntimeError("failed")
@@ -565,7 +585,7 @@ def test_training_failure_restores_grad_flags():
         assert model.get_parameter(name).requires_grad == flag
 
 
-def test_repeated_block_call_rejected():
+def test_repeated_seq_target_call_rejected():
     model, _, batches, state, quant, qad = _prepare()
     state.current_batch_idx = 0
     with DisableQuantization(model), torch.no_grad():
@@ -582,12 +602,16 @@ def test_joint_training_reduces_reconstruction_error_with_fixed_scales(dtype):
         lr=0.003,
         reobserve_weights=False,
     )
-    modules = list(model.block.modules())
+    modules = list(model.seq_target.modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         quant.on_sequential_epoch_end(state, None, modules)
         with torch.no_grad():
-            for module in (model.block.left, model.block.right, model.block.down):
+            for module in (
+                model.seq_target.left,
+                model.seq_target.right,
+                model.seq_target.down,
+            ):
                 module.weight.add_(0.02)
         before = {
             name: p.detach().clone()
@@ -596,7 +620,7 @@ def test_joint_training_reduces_reconstruction_error_with_fixed_scales(dtype):
         }
         with _capture_logs() as logs:
             qad.on_sequential_epoch_end(state, None, modules)
-    pattern = r"QAD block (?:initial|epoch \d+) validation MSE ([^,\s]+)"
+    pattern = r"QAD seq_target (?:initial|epoch \d+) validation MSE ([^,\s]+)"
     matches = (re.match(pattern, log) for log in logs)
     initial, *epochs = [float(match[1]) for match in matches if match]
     assert min(epochs) < initial * 0.8

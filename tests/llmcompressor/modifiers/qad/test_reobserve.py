@@ -27,8 +27,12 @@ def test_charles_reobservation_schedule_and_next_epoch_scales(kind):
         num_epochs=2,
         lr=0.003,
     )
-    modules = list(model.block.modules())
-    weight_modules = [model.block.left, model.block.right, model.block.down]
+    modules = list(model.seq_target.modules())
+    weight_modules = [
+        model.seq_target.left,
+        model.seq_target.right,
+        model.seq_target.down,
+    ]
     stages, epoch_inputs, epoch_outputs = [], [], []
     train = qad._train_epoch
     reobserve = qad._reobserve_weights

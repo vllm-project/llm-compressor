@@ -52,15 +52,13 @@ def test_fp16_long_sequence_gradients_match_fp32():
     assert results[torch.float16, True].item() < initial * 0.9
 
 
-@pytest.mark.parametrize("sequential_prefetch", [False, True])
-def test_fp16_overflow_retries_accumulation_group(sequential_prefetch):
+def test_fp16_overflow_retries_accumulation_group():
     device = get_main_device()
     parameter = torch.nn.Parameter(
         torch.tensor([1.0], dtype=torch.float16, device=device)
     )
     master = torch.nn.Parameter(parameter.detach().float().clone())
     qad = QADModifier(gradient_accumulation_steps=2, max_grad_norm=None)
-    qad._sequential_prefetch = sequential_prefetch
     optimizer = torch.optim.SGD([master], lr=0.1)
     scaler = torch.amp.GradScaler(device.type)
     with (
@@ -94,17 +92,17 @@ def test_nonfinite_gradients_fail_without_updating_weights(dtype):
     parameter = torch.nn.Parameter(torch.tensor([1.0], dtype=dtype, device=device))
     master = torch.nn.Parameter(parameter.detach().float().clone())
     parameter.register_hook(lambda grad: torch.full_like(grad, float("nan")))
-    block = torch.nn.Module()
+    seq_target = torch.nn.Module()
     qad = QADModifier()
-    qad._module_names = {block: "block"}
+    qad._seq_target_names = {seq_target: "seq_target"}
     optimizer = torch.optim.AdamW([master])
     scaler = torch.amp.GradScaler(device.type, enabled=dtype == torch.float16)
     with patch.object(
         qad, "_batch_loss", side_effect=lambda *_: parameter.float().sum()
     ):
-        with pytest.raises(ValueError, match="Nonfinite QAD gradient in block"):
+        with pytest.raises(ValueError, match="Nonfinite QAD gradient in seq_target"):
             qad._train_epoch(
-                [block],
+                [seq_target],
                 optimizer,
                 [parameter],
                 [master],

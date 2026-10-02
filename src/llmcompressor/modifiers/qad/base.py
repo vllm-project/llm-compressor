@@ -30,45 +30,6 @@ __all__ = ["QADModifier"]
 _LOSS_SCALE_ATTEMPTS = 32
 
 
-def _quantized_modules(modules):
-    # Unlike compressed-tensors' is_module_quantized, skip activation-only schemes,
-    # which leave no quantized weights for QAD to train
-    return [
-        module
-        for module in modules
-        if getattr_chain(module, "quantization_scheme.weights", None) is not None
-    ]
-
-
-def _hidden_states(output):
-    # Decoder layers return hidden states, or a tuple starting with them
-    return output[0] if isinstance(output, tuple) else output
-
-
-def _snapshot(values):
-    # QAD reuses cached inputs and teacher outputs across epochs, so they must not
-    # alias live tensors. IntermediatesCache stores tensors that are already on the
-    # offload device by reference.
-    return tree_map_only(torch.Tensor, lambda t: t.detach().clone(), values)
-
-
-def _chain_entry(entries):
-    # Combine a chain's cache entries for one batch: the first target's inputs, the
-    # later targets' inputs, whose first input training recomputes, and the last
-    # target's teacher output
-    first, *later = entries
-    links = [
-        IntermediateValue({"args": entry["args"], "kwargs": entry["kwargs"]}, None)
-        for entry in later
-    ]
-    return {
-        "args": first["args"],
-        "kwargs": first["kwargs"],
-        "links": IntermediateValue(links, None),
-        "target": entries[-1]["target"],
-    }
-
-
 class QADModifier(Modifier):
     """
     Quantization-aware distillation (QAD) trains the weights of each sequential
@@ -147,10 +108,14 @@ class QADModifier(Modifier):
     offload_device: str = "cpu"
     validation_fraction: float = Field(default=0.1, gt=0, lt=1)
 
-    # sequential target -> name, for targets containing quantized weights
-    _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    # sequential target -> captured inputs and teacher outputs, one entry per batch
-    _block_cache: dict[torch.nn.Module, IntermediatesCache] = PrivateAttr(
+    # sequential targets containing quantized weights, in model execution order
+    _seq_target_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    # sequential target -> cache of captured call arguments, one entry per batch
+    _input_caches: dict[torch.nn.Module, IntermediatesCache] = PrivateAttr(
+        default_factory=dict
+    )
+    # sequential target -> cache of unquantized outputs; intermediate outputs deleted
+    _output_caches: dict[torch.nn.Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
     )
     # sequential targets whose distillation has finished
@@ -160,12 +125,9 @@ class QADModifier(Modifier):
     _predecessors: dict[torch.nn.Module, torch.nn.Module | None] = PrivateAttr(
         default_factory=dict
     )
-    # the target that ran last in the current subgraph and its hidden states
-    _last_output: tuple[torch.nn.Module, torch.Tensor] | None = PrivateAttr(
-        default=None
-    )
-    # whether to prefetch cached batches, taken from the pipeline state
-    _sequential_prefetch: bool = PrivateAttr(default=False)
+    # most recently run sequential target and its hidden states
+    _cur_seq_target: torch.nn.Module | None = PrivateAttr(default=None)
+    _cur_seq_target_output: torch.Tensor | None = PrivateAttr(default=None)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         pipeline = kwargs.get("pipeline")
@@ -175,7 +137,7 @@ class QADModifier(Modifier):
                 "weight quantization modifier and QAD share each subgraph's "
                 f"calibration stage; got pipeline={pipeline!r}"
             )
-        modules = _quantized_modules(state.model.modules())
+        modules = _modules_to_quantize(state.model.modules())
         if not modules:
             raise ValueError(
                 "Place QADModifier after a weight quantization modifier, such as "
@@ -184,34 +146,34 @@ class QADModifier(Modifier):
         # TODO add distributed support for QAD calibration
         if is_distributed() and torch.distributed.get_world_size() > 1:
             raise ValueError("QAD currently supports single-process calibration")
-        targets = infer_sequential_targets(
+        seq_target_patterns = infer_sequential_targets(
             state.model, kwargs.get("sequential_targets")
         )
-        self._module_names = {
+        self._seq_target_names = {
             module: name or type(module).__name__
-            for name, module in match_named_modules(state.model, targets)
-            if _quantized_modules(module.modules())
+            for name, module in match_named_modules(state.model, seq_target_patterns)
+            if _modules_to_quantize(module.modules())
         }
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        for block in self._module_names:
+        for seq_target in self._seq_target_names:
             self.register_hook(
-                block,
+                seq_target,
                 partial(self._input_capture_hook, state=state),
                 "forward_pre",
                 with_kwargs=True,
             )
             self.register_hook(
-                block, self._output_capture_hook, "forward", with_kwargs=True
+                seq_target, self._output_capture_hook, "forward", with_kwargs=True
             )
 
     def _input_capture_hook(self, module, args, kwargs, *, state):
-        if module not in self._block_cache:
-            self._block_cache[module] = IntermediatesCache(
+        if module not in self._input_caches:
+            self._input_caches[module] = IntermediatesCache(
                 offload_device=self.offload_device
             )
-        batches = self._block_cache[module]
+        batches = self._input_caches[module]
         # One entry per batch, so the entry count must equal the batch index
         if module in self._distilled or state.current_batch_idx != len(batches):
             raise ValueError(
@@ -221,57 +183,94 @@ class QADModifier(Modifier):
         # A target whose first input is the previous target's output extends that
         # target's chain. Training recomputes this input from the chain, and only
         # the chain's last output is a teacher.
-        previous, hidden = self._last_output or (None, None)
-        predecessor = previous if args and args[0] is hidden else None
+        predecessor = (
+            self._cur_seq_target
+            if args and args[0] is self._cur_seq_target_output
+            else None
+        )
         self._predecessors[module] = predecessor
         if predecessor is not None:
             args = (None, *args[1:])
-            self._block_cache[predecessor].delete(state.current_batch_idx, ["target"])
-        batches.append(_snapshot({"args": args, "kwargs": kwargs}))
+            self._output_caches[predecessor].delete(state.current_batch_idx, ["target"])
+        batches.append(_copy_tensors({"args": args, "kwargs": kwargs}))
 
     def _output_capture_hook(self, module, args, kwargs, output):
-        # Complete the entry the input hook just appended
-        batches = self._block_cache[module]
-        batches.update(len(batches) - 1, _snapshot({"target": output}))
-        self._last_output = (module, _hidden_states(output))
+        if module not in self._output_caches:
+            self._output_caches[module] = IntermediatesCache(
+                offload_device=self.offload_device
+            )
+        self._output_caches[module].append(_copy_tensors({"target": output}))
+        self._cur_seq_target = module
+        self._cur_seq_target_output = _get_first(output)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self._last_output = None
+        self._cur_seq_target = None
+        self._cur_seq_target_output = None
         # The cache holds this subgraph's targets in execution order
         subgraph = set(modules)
-        blocks = [block for block in self._block_cache if block in subgraph]
-        if not blocks:
+        seq_targets = [
+            seq_target for seq_target in self._input_caches if seq_target in subgraph
+        ]
+        if not seq_targets:
             return
         if any(
-            self._predecessors[block] is not previous
-            for previous, block in zip([None, *blocks], blocks)
+            self._predecessors[seq_target] is not previous
+            for previous, seq_target in zip([None, *seq_targets], seq_targets)
         ):
             raise ValueError(
                 "QAD trains a subgraph's targets jointly, so each target after the "
                 "first must take the previous target's output as its first input"
             )
-        caches = [self._block_cache.pop(block) for block in blocks]
-        batch_count = len(caches[0])
+        # Ordered caches for this subgraph, removed from the capture maps once consumed.
+        subgraph_inputs = [
+            self._input_caches.pop(seq_target) for seq_target in seq_targets
+        ]
+        subgraph_outputs = [
+            self._output_caches.pop(seq_target) for seq_target in seq_targets
+        ]
+        batch_counts = {len(cache) for cache in subgraph_inputs + subgraph_outputs}
+        if len(batch_counts) != 1:
+            raise ValueError(
+                "QAD requires each sequential target to capture one input and output "
+                "for every calibration batch"
+            )
+        batch_count = len(subgraph_inputs[0])
         train_indices, validation_indices = self._split_batch_indices(batch_count)
-        self._sequential_prefetch = state.sequential_prefetch
-        if self._sequential_prefetch and torch.accelerator.is_available():
-            for cache in caches:
+        if torch.accelerator.is_available():
+            for cache in subgraph_inputs + subgraph_outputs:
                 for index in range(batch_count):
                     cache.pin_memory(index)
         logger.info(
             "QAD cached {} local teacher batches for {}",
             batch_count,
-            self._name(blocks),
+            self._name(seq_targets),
         )
         entries = [
-            _chain_entry(batch)
-            for batch in zip(*(cache.batch_intermediates for cache in caches))
+            _chain_entry(
+                [
+                    {
+                        "args": subgraph_input.batch_intermediates[index]["args"],
+                        "kwargs": subgraph_input.batch_intermediates[index]["kwargs"],
+                        **(
+                            {
+                                "target": subgraph_outputs[-1].batch_intermediates[
+                                    index
+                                ]["target"]
+                            }
+                            if target_index == len(seq_targets) - 1
+                            else {}
+                        ),
+                    }
+                    for target_index, subgraph_input in enumerate(subgraph_inputs)
+                ]
+            )
+            for index in range(batch_count)
         ]
         with HooksMixin.disable_hooks():
             self._apply_distillation(
-                blocks,
+                seq_targets,
                 [entries[i] for i in train_indices],
                 [entries[i] for i in validation_indices],
             )
@@ -287,15 +286,18 @@ class QADModifier(Modifier):
         ).tolist()
         return order[validation_count:], order[:validation_count]
 
-    def _name(self, blocks):
+    def _name(self, seq_targets):
         # A chain's targets run consecutively, so its ends identify it
-        first, last = self._module_names[blocks[0]], self._module_names[blocks[-1]]
-        return first if len(blocks) == 1 else f"{first}..{last}"
+        first, last = (
+            self._seq_target_names[seq_targets[0]],
+            self._seq_target_names[seq_targets[-1]],
+        )
+        return first if len(seq_targets) == 1 else f"{first}..{last}"
 
-    def _apply_distillation(self, blocks, train, validation):
-        name = self._name(blocks)
-        modules = _quantized_modules(
-            module for block in blocks for module in block.modules()
+    def _apply_distillation(self, seq_targets, train, validation):
+        name = self._name(seq_targets)
+        modules = _modules_to_quantize(
+            module for seq_target in seq_targets for module in seq_target.modules()
         )
         self._check_weight_scales(modules)
         # A weight shared by several modules is optimized once
@@ -312,25 +314,27 @@ class QADModifier(Modifier):
             masters, lr=self.lr, weight_decay=self.weight_decay
         )
         original_requires_grad = {
-            p: p.requires_grad for block in blocks for p in block.parameters()
+            p: p.requires_grad
+            for seq_target in seq_targets
+            for p in seq_target.parameters()
         }
-        for block in blocks:
-            block.requires_grad_(False)
+        for seq_target in seq_targets:
+            seq_target.requires_grad_(False)
         for parameter in trainable:
             parameter.requires_grad_(True)
         for module in modules:
             enable_quantization(module)
         try:
-            self._reobserve_weights(blocks, modules, "before_training")
-            initial_train = self._evaluate(blocks, train)
+            self._reobserve_weights(seq_targets, modules, "before_training")
+            initial_train = self._evaluate(seq_targets, train)
             steps = self._train_with_validation(
-                blocks, modules, optimizer, trainable, masters, train, validation
+                seq_targets, modules, optimizer, trainable, masters, train, validation
             )
-            self._reobserve_weights(blocks, modules, "before_materialization")
+            self._reobserve_weights(seq_targets, modules, "before_materialization")
             self._materialize_quantized_weights(modules)
-            final_train = self._evaluate(blocks, train)
-            final_validation = self._evaluate(blocks, validation)
-            self._distilled.update(blocks)
+            final_train = self._evaluate(seq_targets, train)
+            final_validation = self._evaluate(seq_targets, validation)
+            self._distilled.update(seq_targets)
             logger.info(
                 "QAD {}: {} updates over {} epochs; train MSE {:.6e} -> {:.6e}, "
                 "final validation MSE {:.6e}",
@@ -367,7 +371,7 @@ class QADModifier(Modifier):
                     )
 
     @torch.no_grad()
-    def _reobserve_weights(self, blocks, modules, stage):
+    def _reobserve_weights(self, seq_targets, modules, stage):
         if not self.reobserve_weights:
             return
         if any(getattr(module, "weight_observer", None) is None for module in modules):
@@ -376,28 +380,33 @@ class QADModifier(Modifier):
         # gate/up projections can share a global-scale observer.
         observe(modules, "weight")
         update_qparams(modules, "weight")
-        logger.info("QAD {} re-observed weights: {}", self._name(blocks), stage)
+        logger.info("QAD {} re-observed weights: {}", self._name(seq_targets), stage)
 
     def _train_with_validation(
-        self, blocks, modules, optimizer, trainable, masters, train, validation
+        self, seq_targets, modules, optimizer, trainable, masters, train, validation
     ):
-        name = self._name(blocks)
+        name = self._name(seq_targets)
         generator = torch.Generator().manual_seed(self.seed)
         scaler = torch.amp.GradScaler(
             get_execution_device(modules[0]).type,
             enabled=any(p.dtype == torch.float16 for p in trainable),
         )
-        best_loss = self._evaluate(blocks, validation)
+        best_loss = self._evaluate(seq_targets, validation)
         best_weights = self._snapshot_weights(trainable)
         logger.info("QAD {} initial validation MSE {:.6e}", name, best_loss)
         steps = 0
         for epoch in range(1, self.num_epochs + 1):
             order = torch.randperm(len(train), generator=generator).tolist()
             steps += self._train_epoch(
-                blocks, optimizer, trainable, masters, [train[i] for i in order], scaler
+                seq_targets,
+                optimizer,
+                trainable,
+                masters,
+                [train[i] for i in order],
+                scaler,
             )
-            self._reobserve_weights(blocks, modules, f"epoch_{epoch}")
-            loss = self._evaluate(blocks, validation)
+            self._reobserve_weights(seq_targets, modules, f"epoch_{epoch}")
+            loss = self._evaluate(seq_targets, validation)
             if loss < best_loss:
                 best_loss = loss
                 best_weights = self._snapshot_weights(trainable)
@@ -411,12 +420,12 @@ class QADModifier(Modifier):
         self._copy_weights(trainable, best_weights)
         return steps
 
-    def _train_epoch(self, blocks, optimizer, trainable, masters, batches, scaler):
+    def _train_epoch(self, seq_targets, optimizer, trainable, masters, batches, scaler):
         size = self.gradient_accumulation_steps
         groups = [batches[i : i + size] for i in range(0, len(batches), size)]
         for group in groups:
             self._accumulate_gradients(
-                blocks, optimizer, trainable, masters, group, scaler
+                seq_targets, optimizer, trainable, masters, group, scaler
             )
             if self.max_grad_norm is not None:
                 torch.nn.utils.clip_grad_norm_(masters, self.max_grad_norm)
@@ -428,7 +437,7 @@ class QADModifier(Modifier):
 
     @torch.enable_grad()
     def _accumulate_gradients(
-        self, blocks, optimizer, trainable, masters, group, scaler
+        self, seq_targets, optimizer, trainable, masters, group, scaler
     ):
         """
         Accumulate the group's mean loss gradients into the master weights, unscaled
@@ -443,7 +452,7 @@ class QADModifier(Modifier):
             for parameter, master in zip(trainable, masters):
                 parameter.grad = master.grad = None
             for batch in self._iter_batches(group):
-                loss = self._batch_loss(blocks, batch) / len(group)
+                loss = self._batch_loss(seq_targets, batch) / len(group)
                 scaler.scale(loss).backward()
             for parameter, master in zip(trainable, masters):
                 if master is not parameter and parameter.grad is not None:
@@ -457,7 +466,7 @@ class QADModifier(Modifier):
             # scale for the retry
             scaler.step(optimizer)
             scaler.update()
-        raise ValueError(f"Nonfinite QAD gradient in {self._name(blocks)}")
+        raise ValueError(f"Nonfinite QAD gradient in {self._name(seq_targets)}")
 
     def _snapshot_weights(self, parameters):
         return [p.detach().to(self.offload_device, copy=True) for p in parameters]
@@ -469,30 +478,30 @@ class QADModifier(Modifier):
             parameter.copy_(weight)
 
     @torch.no_grad()
-    def _evaluate(self, blocks, batches):
+    def _evaluate(self, seq_targets, batches):
         return sum(
-            self._batch_loss(blocks, batch).item()
+            self._batch_loss(seq_targets, batch).item()
             for batch in self._iter_batches(batches)
         ) / len(batches)
 
-    def _batch_loss(self, blocks, batch):
+    def _batch_loss(self, seq_targets, batch):
         # Run the chain, feeding each target the previous target's hidden states
-        output = blocks[0](*batch["args"], **batch["kwargs"])
-        for block, inputs in zip(blocks[1:], batch["links"]):
-            args = (_hidden_states(output), *inputs["args"][1:])
-            output = block(*args, **inputs["kwargs"])
-        prediction, target = _hidden_states(output), _hidden_states(batch["target"])
+        output = seq_targets[0](*batch["args"], **batch["kwargs"])
+        for seq_target, inputs in zip(seq_targets[1:], batch["links"]):
+            args = (_get_first(output), *inputs["args"][1:])
+            output = seq_target(*args, **inputs["kwargs"])
+        prediction, target = _get_first(output), _get_first(batch["target"])
         # FP32 keeps the reduction accurate for FP16/BF16 outputs
         loss = torch.nn.functional.mse_loss(prediction.float(), target.float())
         if not torch.isfinite(loss):
-            raise ValueError(f"Nonfinite QAD loss in {self._name(blocks)}")
+            raise ValueError(f"Nonfinite QAD loss in {self._name(seq_targets)}")
         return loss
 
     def _iter_batches(self, batches):
         # Wrap the given entries, in the given order, to reuse the cache's
         # onloading and prefetching; the entries are shared, not copied
         cache = IntermediatesCache(batches, self.offload_device)
-        return cache.iter_prefetch() if self._sequential_prefetch else cache.iter()
+        return cache.iter_prefetch()
 
     @staticmethod
     @torch.no_grad()
@@ -505,7 +514,7 @@ class QADModifier(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         try:
-            if len(self._distilled) != len(self._module_names):
+            if len(self._distilled) != len(self._seq_target_names):
                 raise ValueError(
                     "QAD did not optimize every target; use the sequential pipeline "
                     "with each target inside a single subgraph"
@@ -519,6 +528,47 @@ class QADModifier(Modifier):
 
     def _clear_cache(self):
         self.remove_hooks()
-        self._block_cache.clear()
+        self._input_caches.clear()
+        self._output_caches.clear()
         self._predecessors.clear()
-        self._last_output = None
+        self._cur_seq_target = None
+        self._cur_seq_target_output = None
+
+
+def _modules_to_quantize(modules):
+    # Unlike compressed-tensors' is_module_quantized, skip activation-only schemes,
+    # which leave no quantized weights for QAD to train
+    return [
+        module
+        for module in modules
+        if getattr_chain(module, "quantization_scheme.weights", None) is not None
+    ]
+
+
+def _get_first(output):
+    # Decoder layers return hidden states, or a tuple starting with them
+    return output[0] if isinstance(output, tuple) else output
+
+
+def _copy_tensors(values):
+    # QAD reuses cached inputs and teacher outputs across epochs, so they must not
+    # alias live tensors. IntermediatesCache stores tensors that are already on the
+    # offload device by reference.
+    return tree_map_only(torch.Tensor, lambda t: t.detach().clone(), values)
+
+
+def _chain_entry(entries):
+    # Combine a chain's cache entries for one batch: the first target's inputs, the
+    # later targets' inputs, whose first input training recomputes, and the last
+    # target's teacher output
+    first, *later = entries
+    links = [
+        IntermediateValue({"args": entry["args"], "kwargs": entry["kwargs"]}, None)
+        for entry in later
+    ]
+    return {
+        "args": first["args"],
+        "kwargs": first["kwargs"],
+        "links": IntermediateValue(links, None),
+        "target": entries[-1]["target"],
+    }
