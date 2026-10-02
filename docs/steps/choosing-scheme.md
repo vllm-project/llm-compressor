@@ -64,6 +64,41 @@ FP4 can sometimes provide good results with RTN algorithms for fast quantization
 - **NVFP4**: NVIDIA's native 4-bit format with two-level micro-block scaling; requires calibration data for activation global scales
 - **MXFP4**: Microscaling FP4 format for cross-platform compatibility; per-group quantization (group_size=32) with E8M0 scales; no calibration data required if using RTN
 
+### Model size matters as much as hardware
+
+The table above answers *what your GPU can run*. It does not answer *what your
+model can absorb*: accuracy cost at 4 bits grows sharply as parameter count
+falls, because smaller models carry less redundancy to spend on quantization
+error. Recovery measured with the same recipe and the same calibration set on
+one machine, paired per-item against the BF16 source:
+
+| Model size | NVFP4 (W4A4) outcome |
+|---|---|
+| ~30B | multiple-choice recovery within noise (−0.5 pt, not significant) |
+| ~7B | significant losses on generated output: −2.4 pt knowledge, −10.2 pt instruction following |
+
+Two practical consequences:
+
+- **Below roughly 10B parameters, prefer weight-only (W4A16) over W4A4**, or
+  step up to FP8. Re-running the same 7B with W4A16 recovered the knowledge
+  and instruction-following losses entirely (−0.7 pt and −3.7 pt, neither
+  significant) at the same 4-bit weight footprint. Note the trade: W4A16
+  keeps 16-bit activation math, so it matches W4A4 only where decode is
+  memory-bandwidth-bound (small batch, short context). At larger batches or
+  longer contexts W4A4 can use 4-bit tensor cores and pulls ahead on compute
+  throughput — measure your own serving shape before treating them as
+  interchangeable.
+- **The two halves of W4A4 fail differently.** Quantizing activations is what
+  damaged instruction following and knowledge; quantizing weights is what
+  damaged long-chain mathematical reasoning (−5.4 pt, unchanged whether
+  activations were 4-bit or 16-bit). If your workload is arithmetic- or
+  reasoning-heavy, weight-only does not rescue it — validate before shipping.
+
+!!! tip
+    These are one lab's measurements on one model family, offered as a
+    starting prior rather than a rule. Whatever scheme you pick, validate the
+    quantized model against its own BF16 source on your own workload.
+
 ## Compression Formats
 
 Each quantization scheme corresponds to a particular compressor, which dictates
