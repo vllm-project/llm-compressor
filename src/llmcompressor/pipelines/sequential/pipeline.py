@@ -283,12 +283,11 @@ class SequentialPipeline(CalibrationPipeline):
                 # start event then prepares model state and calibration hooks.
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(list(subgraph_modules.values()))
-                # This is a no-op for already-linearized MoE layers.
-                linearize_moe(
-                    model,
-                    subgraph_modules,
-                    offload_kwargs=offload_kwargs,
-                )
+                if dataset_args.moe_lazy_linearization_and_repack:
+                    # This is a no-op for already-linearized MoE layers.
+                    linearize_moe(
+                        model, subgraph_modules, offload_kwargs=offload_kwargs
+                    )
                 LifecycleCallbacks.sequential_subgraph_start(
                     list(subgraph_modules.values()),
                     warn_on_inference_mode=False,
@@ -362,7 +361,10 @@ class SequentialPipeline(CalibrationPipeline):
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(subgraph_modules.values()))
-                if dataset_args.repack_moe_layers:
+                if (
+                    dataset_args.moe_lazy_linearization_and_repack
+                    and dataset_args.repack_moe_layers
+                ):
                     repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
