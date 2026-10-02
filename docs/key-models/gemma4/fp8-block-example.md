@@ -19,7 +19,6 @@ model_free_ptq(
     save_directory=SAVE_DIR,
     scheme="FP8_BLOCK",
     ignore=["re:.*vision.*", "lm_head", "re:.*embed_tokens.*"],
-    max_workers=8,
     device="cuda:0",
 )
 ```

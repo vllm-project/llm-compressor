@@ -28,6 +28,5 @@ model_free_ptq(
         MODEL_ID,
         ignore=ignore,
     ),
-    max_workers=7,
     device=[f"cuda:{i}" for i in range(7)],
 )

@@ -10,6 +10,5 @@ model_free_ptq(
     ignore=[
         "lm_head",
     ],
-    max_workers=15,
     device="cuda:0",
 )
