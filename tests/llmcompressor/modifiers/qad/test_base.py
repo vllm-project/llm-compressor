@@ -280,7 +280,7 @@ def test_cache_replay_preserves_selected_batch_order():
         for index in range(len(input_entries))
     ]
     indices = [4, 1, 5, 1]
-    replayed = list(qad._iter_batches([entries[i] for i in indices]))
+    replayed = list(IntermediatesCache([entries[i] for i in indices]).iter_prefetch())
     assert len(replayed) == len(indices)
     for index, batch in zip(indices, replayed):
         torch.testing.assert_close(batch["args"][0], batches[index]["x"])

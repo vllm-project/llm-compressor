@@ -8,6 +8,7 @@ from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import create_session
 from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.utils.helpers import DisableQuantization
 
@@ -39,7 +40,7 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
         names = [self._seq_target_names[seq_target] for seq_target in seq_targets]
         ref_seq_targets = [reference.get_submodule(name) for name in names]
         with torch.no_grad():
-            for batch in self._iter_batches(train + validation):
+            for batch in IntermediatesCache(train + validation).iter_prefetch():
                 # The teacher is the unquantized chain run from the first input
                 output = ref_seq_targets[0](*batch["args"], **batch["kwargs"])
                 for ref_seq_target, inputs in zip(ref_seq_targets[1:], batch["links"]):
@@ -57,7 +58,10 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
             # materialization.
             outputs = propagated[-len(data) :]
             indices = sum(self._split_batch_indices(len(data)), [])
-            for index, batch in zip(indices, self._iter_batches(train + validation)):
+            for index, batch in zip(
+                indices,
+                IntermediatesCache(train + validation).iter_prefetch(),
+            ):
                 hidden = (
                     batch["args"][0]
                     if batch["args"]

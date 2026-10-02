@@ -451,7 +451,7 @@ class QADModifier(Modifier):
         for _ in range(_LOSS_SCALE_ATTEMPTS):
             for parameter, master in zip(trainable, masters):
                 parameter.grad = master.grad = None
-            for batch in self._iter_batches(group):
+            for batch in IntermediatesCache(group).iter_prefetch():
                 loss = self._batch_loss(seq_targets, batch) / len(group)
                 scaler.scale(loss).backward()
             for parameter, master in zip(trainable, masters):
@@ -481,7 +481,7 @@ class QADModifier(Modifier):
     def _evaluate(self, seq_targets, batches):
         return sum(
             self._batch_loss(seq_targets, batch).item()
-            for batch in self._iter_batches(batches)
+            for batch in IntermediatesCache(batches).iter_prefetch()
         ) / len(batches)
 
     def _batch_loss(self, seq_targets, batch):
@@ -496,12 +496,6 @@ class QADModifier(Modifier):
         if not torch.isfinite(loss):
             raise ValueError(f"Nonfinite QAD loss in {self._name(seq_targets)}")
         return loss
-
-    def _iter_batches(self, batches):
-        # Wrap the given entries, in the given order, to reuse the cache's
-        # onloading and prefetching; the entries are shared, not copied
-        cache = IntermediatesCache(batches, self.offload_device)
-        return cache.iter_prefetch()
 
     @staticmethod
     @torch.no_grad()
