@@ -122,7 +122,7 @@ class ModelFreePtqConverter(Converter):
         quantized module with meta tensors and compresses it without calibration.
         This verifies the same shape and compression compatibility checks as
         :meth:`process` while leaving observers to run only during the real
-        conversion pass.
+        conversion passes.
         """
         tensors = split_fused_moe_experts(tensors)
         output = dict(tensors)
