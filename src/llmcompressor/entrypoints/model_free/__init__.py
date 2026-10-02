@@ -25,7 +25,7 @@ def model_free_ptq(
     scheme: QuantizationScheme | str | None = None,
     config: QuantizationConfig | None = None,
     ignore: Iterable[str] = tuple(),
-    max_workers: int | Literal["auto"] = 1,
+    max_workers: int | Literal["auto"] = "auto",
     device: Optional[str | torch.device | list[str | torch.device]] = None,
     converter: Converter | None = None,
 ):
@@ -49,11 +49,12 @@ def model_free_ptq(
     :param ignore: modules to ignore. Modules ending with "norm" are
         automatically ignored
     :param max_workers: maximum number of concurrent worker threads.
-        Effective concurrency may be lower when GPU memory is tight. If "auto",
-        the number of workers is chosen from the number of safetensors files,
-        the estimated memory of each job, the free memory of each device, and
-        the number of CPUs available. Host memory is not taken into account, so
-        pass a smaller number of workers if quantization runs out of host memory.
+        Effective concurrency may be lower when GPU memory is tight. If "auto"
+        (default), the number of workers is chosen from the number of
+        safetensors files, the estimated memory of each job, the free memory of
+        each device, and the number of CPUs available. Host memory is not taken
+        into account, so pass a smaller number of workers if quantization runs
+        out of host memory.
     :param device: device(s) for quantization. Accepts a single device
         string/object or a list. When multiple devices are given, shards
         are dynamically assigned based on real-time GPU memory.
