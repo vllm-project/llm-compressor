@@ -257,8 +257,11 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
-                # This is a no-op for already-linearized MoE layers.
-                linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+                if dataset_args.moe_lazy_linearization_and_repack:
+                    # This is a no-op for already-linearized MoE layers.
+                    linearize_moe(
+                        model, subgraph_modules, offload_kwargs=offload_kwargs
+                    )
 
                 modules = subgraph.submodules(model)
                 if dataset_args.layerwise_decompression:
@@ -328,7 +331,8 @@ class SequentialPipeline(CalibrationPipeline):
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
                 if (
-                    dataset_args.repack_moe_layers
+                    dataset_args.moe_lazy_linearization_and_repack
+                    and dataset_args.repack_moe_layers
                     and not dataset_args.layerwise_compression
                 ):
                     repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
