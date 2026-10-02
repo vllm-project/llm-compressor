@@ -160,7 +160,7 @@ def solve_ilp_mixed_precision(
 
             for scheme in candidate_schemes:
                 prob += (
-                    x[base_layer][scheme] == x[other_layer][scheme],
+                    x[base_layer][scheme] - x[other_layer][scheme] == 0,
                     f"FusedGroup{group_idx}_{_sanitize_name(base_layer)}_{_sanitize_name(other_layer)}_{scheme}",
                 )
 

@@ -8,7 +8,7 @@ from llmcompressor.entrypoints.higgs.ilp_solver import (
 from llmcompressor.entrypoints.higgs.utils import UNQUANTIZED_SCHEME
 
 
-def test_ilp_basic_solution():
+def test_ilp_basic_solution(require_higgs_cbc):
     """Verify ILP selects lower MSE scheme when alphas are equal."""
     mse_matrix = {
         "layer1": {"W4A16": 0.5, "W8A8": 0.1},
@@ -25,7 +25,7 @@ def test_ilp_basic_solution():
     assert solution["layer2"] == "W8A8"
 
 
-def test_ilp_unquantized_scheme_uses_16_bit_budget():
+def test_ilp_unquantized_scheme_uses_16_bit_budget(require_higgs_cbc):
     mse_matrix = {
         "layer1": {"W4A16": 0.1, UNQUANTIZED_SCHEME: 0.0},
         "layer2": {"W4A16": 0.2, UNQUANTIZED_SCHEME: 0.0},
@@ -46,7 +46,7 @@ def test_ilp_unquantized_scheme_uses_16_bit_budget():
     }
 
 
-def test_ilp_large_model_bitwidth_constraint_is_well_scaled():
+def test_ilp_large_model_bitwidth_constraint_is_well_scaled(require_higgs_cbc):
     num_layers = 512
     mse_matrix = {
         f"layer{i}": {
@@ -69,7 +69,7 @@ def test_ilp_large_model_bitwidth_constraint_is_well_scaled():
     assert set(solution.values()) == {"W8"}
 
 
-def test_ilp_fused_layer_constraint():
+def test_ilp_fused_layer_constraint(require_higgs_cbc):
     """Verify fused layers get same scheme."""
     mse_matrix = {
         "gate_proj": {"W4A16": 0.1, "W8A8": 0.5},
@@ -92,7 +92,7 @@ def test_ilp_fused_layer_constraint():
     assert solution["gate_proj"] in ["W4A16", "W8A8"]
 
 
-def test_ilp_alpha_weighting():
+def test_ilp_alpha_weighting(require_higgs_cbc):
     """Verify alpha weights affect scheme selection."""
     mse_matrix = {
         "important_layer": {"W4A16": 0.5, "W8A8": 0.3},
@@ -116,7 +116,7 @@ def test_ilp_alpha_weighting():
     assert solution["less_important_layer"] == "W4A16"
 
 
-def test_ilp_all_layers_assigned():
+def test_ilp_all_layers_assigned(require_higgs_cbc):
     """Verify every layer gets exactly one scheme."""
     mse_matrix = {
         "layer1": {"W4A16": 0.5, "W8A8": 0.3},
@@ -137,7 +137,7 @@ def test_ilp_all_layers_assigned():
         assert scheme in ["W4A16", "W8A8"]
 
 
-def test_ilp_multiple_fused_groups():
+def test_ilp_multiple_fused_groups(require_higgs_cbc):
     """Verify multiple fused groups are handled correctly."""
     mse_matrix = {
         "gate_proj": {"W4A16": 0.1, "W8A8": 0.5},
@@ -164,7 +164,7 @@ def test_ilp_multiple_fused_groups():
     assert solution["k_proj"] == solution["v_proj"]
 
 
-def test_ilp_infinite_mse_excluded():
+def test_ilp_infinite_mse_excluded(require_higgs_cbc):
     """Verify schemes with infinite MSE are excluded."""
     mse_matrix = {
         "layer1": {"W4A16": 0.5, "W8A8": float("inf")},
@@ -183,7 +183,7 @@ def test_ilp_infinite_mse_excluded():
     assert solution["layer2"] == "W8A8"
 
 
-def test_ilp_default_alpha():
+def test_ilp_default_alpha(require_higgs_cbc):
     """Verify default alpha of 1.0 is used for missing layers."""
     mse_matrix = {
         "layer1": {"W4A16": 0.5, "W8A8": 0.3},
@@ -201,7 +201,7 @@ def test_ilp_default_alpha():
     assert "layer2" in solution
 
 
-def test_ilp_empty_fused_groups():
+def test_ilp_empty_fused_groups(require_higgs_cbc):
     """Verify empty fused groups don't cause issues."""
     mse_matrix = {
         "layer1": {"W4A16": 0.5, "W8A8": 0.3},

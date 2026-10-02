@@ -51,7 +51,7 @@ def sample_tensors():
     }
 
 
-def test_mse_collector_basic(candidate_schemes, sample_tensors):
+def test_mse_collector_basic(candidate_schemes, sample_tensors, require_higgs_cbc):
     """Test basic MSE collector workflow."""
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
@@ -81,7 +81,9 @@ def test_mse_collector_basic(candidate_schemes, sample_tensors):
     assert validate_config(config=config, scheme=None, ignore=[]) is config
 
 
-def test_mse_collector_uses_heuristic(candidate_schemes, sample_tensors):
+def test_mse_collector_uses_heuristic(
+    candidate_schemes, sample_tensors, require_higgs_cbc
+):
     """Test MSE collector's built-in alpha heuristic."""
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
@@ -156,7 +158,9 @@ def test_fused_nvfp4_mse_uses_shared_global_scale():
     assert fused_mse["q_proj"] != pytest.approx(independent_mse)
 
 
-def test_mse_collector_allows_unquantized_layers(candidate_schemes, sample_tensors):
+def test_mse_collector_allows_unquantized_layers(
+    candidate_schemes, sample_tensors, require_higgs_cbc
+):
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
         targets="Linear",
@@ -194,7 +198,9 @@ def test_mse_collector_disallows_unquantized_layers_by_default(
     )
 
 
-def test_mse_collector_with_fusion(candidate_schemes, sample_tensors):
+def test_mse_collector_with_fusion(
+    candidate_schemes, sample_tensors, require_higgs_cbc
+):
     """Test MSE collector with fusion detection."""
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
