@@ -173,9 +173,6 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
 
-            # Linearize MoE layers upfront when lazy linearization is disabled.
-            if not dataset_args.moe_lazy_linearization_and_repack:
-                linearize_moe(model, onload_and_offload=True)
             # prepare intermediates cache
             session.state.sequential_activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
@@ -381,8 +378,3 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(persistent_modules.values()))
                 subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
-            if (
-                not dataset_args.moe_lazy_linearization_and_repack
-                and dataset_args.repack_moe_layers
-            ):
-                repack_moe(model, onload_and_offload=True)

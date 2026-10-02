@@ -52,7 +52,6 @@ class Llama4LinearExperts(LinearExperts2D):
 
         self._record_source_metadata(experts, config)
 
-
         return self
 
     def __init__(
