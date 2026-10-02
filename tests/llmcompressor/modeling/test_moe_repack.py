@@ -6,7 +6,10 @@ import pytest
 import torch
 from compressed_tensors.offload import offload_module
 from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import subgraph_onload_modules
+from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+)
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
@@ -171,6 +174,37 @@ def test_cpu_lazy_linearize_from_disk_then_onloads_replacement(tmp_path):
     assert all(
         parameter.device.type == "cpu" for parameter in replacement.parameters()
     )
+
+
+@torch.no_grad()
+def test_repack_with_pipeline_offload_kwargs_defers_final_offload(tmp_path):
+    """The pipeline can repack before its single final subgraph offload."""
+    model = _tiny_qwen3_moe_blocks()
+    experts_name = "block1.mlp.experts"
+    experts = model.block1.mlp.experts
+    offload_module(
+        experts,
+        onload_device="cpu",
+        offload_device="disk",
+        offload_dir=str(tmp_path),
+    )
+
+    subgraph_modules = {
+        f"{experts_name}{relative_name}": child
+        for relative_name, child in experts.named_modules()
+    }
+    offload_kwargs = linearize_moe_with_offload(
+        model,
+        subgraph_modules,
+        cpu_materialize=True,
+        onload_replacements=False,
+    )
+    offload_kwargs.update(subgraph_onload_modules(subgraph_modules))
+
+    repack_moe_with_offload(model, subgraph_modules, offload_kwargs)
+    subgraph_offload_modules(subgraph_modules, offload_kwargs)
+
+    assert isinstance(model.block1.mlp.experts._parameters, OffloadCache)
 
 
 @torch.no_grad()

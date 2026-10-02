@@ -136,13 +136,21 @@ def repack_moe_with_offload(
     subgraph_modules: dict[str, torch.nn.Module] | None = None,
     offload_kwargs: dict[str, dict] | None = None,
 ):
-    """Onload, repack, and re-offload linearized MoE replacements."""
+    """Onload, repack, and restore linearized MoE offload bookkeeping.
+
+    When ``offload_kwargs`` is supplied, the caller owns the final offload
+    boundary.  This is the sequential pipeline case: it repacks a subgraph
+    and then offloads the complete subgraph in one pass.  Re-offloading the
+    replacements here would leave them registered with an offload cache and
+    make that final pass fail with a double-offload error.
+    """
     entries = _target_modules(model, subgraph_modules, linearized=True)
     operation_modules = (
         subgraph_modules if subgraph_modules is not None else _collect_modules(entries)
     )
     source_modules = _collect_modules(entries)
-    if offload_kwargs is None:
+    owns_offload_boundary = offload_kwargs is None
+    if owns_offload_boundary:
         offload_kwargs = subgraph_onload_modules(source_modules)
     policies = {
         name: _source_policy(name, offload_kwargs) for name, _ in entries
@@ -155,7 +163,7 @@ def repack_moe_with_offload(
         result = _set_replacement_policy(
             name, replacement, policies[name], offload_kwargs
         )
-        if result is not None:
+        if result is not None and owns_offload_boundary:
             replacement_modules, replacement_kwargs = result
             subgraph_offload_modules(replacement_modules, replacement_kwargs)
 
