@@ -247,7 +247,7 @@ class QADModifier(Modifier):
         logger.info(
             "QAD cached {} local teacher batches for {}",
             batch_count,
-            self._name(seq_targets),
+            self._first_last_name(seq_targets),
         )
         first_input_cache = subgraph_inputs[0]
         last_output_cache = subgraph_outputs[-1]
@@ -292,7 +292,7 @@ class QADModifier(Modifier):
         ).tolist()
         return order[validation_count:], order[:validation_count]
 
-    def _name(self, seq_targets):
+    def _first_last_name(self, seq_targets):
         # A chain's targets run consecutively, so its ends identify it
         first, last = (
             self._seq_target_names[seq_targets[0]],
@@ -301,7 +301,7 @@ class QADModifier(Modifier):
         return first if len(seq_targets) == 1 else f"{first}..{last}"
 
     def _apply_distillation(self, seq_targets, train, validation):
-        name = self._name(seq_targets)
+        name = self._first_last_name(seq_targets)
         modules = _modules_to_quantize(
             module for seq_target in seq_targets for module in seq_target.modules()
         )
@@ -386,12 +386,16 @@ class QADModifier(Modifier):
         # gate/up projections can share a global-scale observer.
         observe(modules, "weight")
         update_qparams(modules, "weight")
-        logger.info("QAD {} re-observed weights: {}", self._name(seq_targets), stage)
+        logger.info(
+            "QAD {} re-observed weights: {}",
+            self._first_last_name(seq_targets),
+            stage,
+        )
 
     def _train_with_validation(
         self, seq_targets, modules, optimizer, trainable, masters, train, validation
     ):
-        name = self._name(seq_targets)
+        name = self._first_last_name(seq_targets)
         generator = torch.Generator().manual_seed(self.seed)
         scaler = torch.amp.GradScaler(
             get_execution_device(modules[0]).type,
@@ -472,7 +476,9 @@ class QADModifier(Modifier):
             # scale for the retry
             scaler.step(optimizer)
             scaler.update()
-        raise ValueError(f"Nonfinite QAD gradient in {self._name(seq_targets)}")
+        raise ValueError(
+            f"Nonfinite QAD gradient in {self._first_last_name(seq_targets)}"
+        )
 
     def _snapshot_weights(self, parameters):
         return [p.detach().to(self.offload_device, copy=True) for p in parameters]
@@ -501,7 +507,9 @@ class QADModifier(Modifier):
         # FP32 keeps the reduction accurate for FP16/BF16 outputs
         loss = torch.nn.functional.mse_loss(prediction.float(), teacher_output.float())
         if not torch.isfinite(loss):
-            raise ValueError(f"Nonfinite QAD loss in {self._name(seq_targets)}")
+            raise ValueError(
+                f"Nonfinite QAD loss in {self._first_last_name(seq_targets)}"
+            )
         return loss
 
     @staticmethod

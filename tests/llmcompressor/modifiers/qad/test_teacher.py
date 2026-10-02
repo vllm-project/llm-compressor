@@ -70,7 +70,7 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
                 torch.testing.assert_close(
                     hidden, outputs[index].to(hidden.device), rtol=0, atol=0
                 )
-        seen.append(self._name(seq_targets))
+        seen.append(self._first_last_name(seq_targets))
         original_optimize(self, seq_targets, train, validation)
 
     last = model.model.layers[per_subgraph - 1]
