@@ -11,6 +11,7 @@ import os
 from pathlib import PosixPath
 
 from compressed_tensors.offload import from_accelerate, is_distributed
+from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from transformers import (
     AutoConfig,
@@ -27,6 +28,11 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
+from llmcompressor.modeling.moe.linearize import (
+    get_moe_modules,
+    linearize_moe,
+    repack_moe,
+)
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
@@ -36,6 +42,7 @@ from llmcompressor.transformers.utils.helpers import (
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils import untie_word_embeddings
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 
 def pre_process(
@@ -92,6 +99,10 @@ def pre_process(
     if hasattr(model_args.model, "hf_device_map"):
         from_accelerate(model_args.model)
 
+    resolve_eager_moe_linearization(model_args.model, dataset_args)
+    if not dataset_args.moe_lazy_linearization_and_repack:
+        linearize_moe(model_args.model, onload_and_offload=True)
+
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
 
@@ -100,6 +111,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
+    dataset_args: DatasetArguments | None = None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -112,6 +124,14 @@ def post_process(
     Raises:
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
+    if (
+        model_args is not None
+        and dataset_args is not None
+        and not dataset_args.moe_lazy_linearization_and_repack
+        and dataset_args.repack_moe_layers
+    ):
+        repack_moe(model_args.model, onload_and_offload=True)
+
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
             output_dir = os.path.join(output_dir, recipe_args.stage)
@@ -205,3 +225,42 @@ def initialize_processor_from_path(
         )
 
     return processor
+
+
+def has_individual_expert_targets(
+    model: PreTrainedModel,
+    sequential_targets: str | list[str] | None,
+) -> bool:
+    """Return whether targets select a descendant of an MoE experts module."""
+
+    targets = infer_sequential_targets(model, sequential_targets)
+    moe_modules = get_moe_modules(model)
+
+    for target_name, target_module in match_named_modules(model, targets):
+        if target_module in moe_modules:
+            continue
+
+        ancestor_name = target_name
+        while "." in ancestor_name:
+            ancestor_name = ancestor_name.rsplit(".", 1)[0]
+            if model.get_submodule(ancestor_name) in moe_modules:
+                return True
+
+    return False
+
+
+def resolve_eager_moe_linearization(
+    model: PreTrainedModel,
+    dataset_args: DatasetArguments,
+) -> None:
+    """Disable lazy MoE conversion when targets select individual experts."""
+    if not dataset_args.moe_lazy_linearization_and_repack:
+        return
+
+    if has_individual_expert_targets(model, dataset_args.sequential_targets):
+        logger.warning(
+            "Individual MoE experts were found in sequential_targets. Forcing "
+            "moe_lazy_linearization_and_repack=False so the full MoE layer is "
+            "linearized before sequential processing."
+        )
+        dataset_args.moe_lazy_linearization_and_repack = False

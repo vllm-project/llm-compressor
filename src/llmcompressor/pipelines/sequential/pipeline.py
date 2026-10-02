@@ -17,6 +17,10 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe,
+    repack_moe,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -154,6 +158,7 @@ class SequentialPipeline(CalibrationPipeline):
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
+
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
@@ -249,6 +254,9 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
+                # This is a no-op for already-linearized MoE layers.
+                linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
                     activations,
@@ -305,6 +313,9 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
+                if dataset_args.repack_moe_layers:
+                    repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
