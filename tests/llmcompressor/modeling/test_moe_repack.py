@@ -575,6 +575,7 @@ def test_moe_replacement_updates_subgraph_offload_bookkeeping():
     assert experts_name in offload_kwargs
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
 
+
 @torch.no_grad()
 def test_linearize_moe_subgraph_traverses_nested_modules():
     model = _tiny_qwen3_moe_blocks()
@@ -584,6 +585,7 @@ def test_linearize_moe_subgraph_traverses_nested_modules():
 
     assert isinstance(model.block1.mlp.experts, LinearExperts2D)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
+
 
 @torch.no_grad()
 def test_repack_moe_subgraph_only_targets_selected_module():
