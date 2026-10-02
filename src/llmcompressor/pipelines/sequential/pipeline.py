@@ -9,12 +9,12 @@ import torch
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import set_onload_device
-from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
+from compressed_tensors.quantization.utils import is_module_quantized
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
