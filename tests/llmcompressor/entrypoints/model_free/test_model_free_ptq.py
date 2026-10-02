@@ -1,7 +1,6 @@
 import json
 import os
 import random
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,11 +13,10 @@ from compressed_tensors.quantization import (
 from compressed_tensors.utils.match import match_name
 from safetensors.torch import load_file
 
+import llmcompressor.entrypoints.model_free as _MODEL_FREE_MODULE
 from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from tests.testing_utils import requires_gpu
-
-_MODEL_FREE_MODULE = sys.modules["llmcompressor.entrypoints.model_free"]
 
 
 @pytest.mark.parametrize("max_workers", (1, 4, "auto"))
