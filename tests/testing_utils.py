@@ -25,6 +25,13 @@ DISABLE_LMEVAL_CACHE = os.environ.get("DISABLE_LMEVAL_CACHE", "").lower() in (
 LMEVAL_CACHE_DIR = Path(os.environ.get("LMEVAL_CACHE_DIR", ".lmeval_cache"))
 LMEVAL_CACHE_FILE = LMEVAL_CACHE_DIR / "cache.csv"
 
+# Environment variables always applied when running vLLM. Configs may add to or
+# override individual entries via the `vllm_env_variables` field.
+DEFAULT_VLLM_ENV_VARIABLES = {
+    "HF_HUB_OFFLINE": "0",
+    "VLLM_NO_USAGE_STATS": "1",
+}
+
 
 class BaseTestConfig(BaseModel):
     """
@@ -115,6 +122,11 @@ class BaseTestConfig(BaseModel):
 
     Test infrastructure
     -------------------
+    vllm_env_variables: dict
+        Environment variables set when running vLLM. Values provided here are
+        merged over (and take precedence over) the always-applied defaults:
+            HF_HUB_OFFLINE=0
+            VLLM_NO_USAGE_STATS=1
     gpu_memory_utilization : float | None
         Fraction of GPU memory for vLLM to use (default: 0.70).
         Valid range is typically 0.0-1.0. Lower values leave memory for other processes.
@@ -298,6 +310,19 @@ class BaseTestConfig(BaseModel):
         False,
         description="Skip the sanity check that verifies vLLM generates coherent text",
     )
+    vllm_env_variables: dict = Field(
+        default_factory=lambda: dict(DEFAULT_VLLM_ENV_VARIABLES),
+        description="Environment variables to run vLLM with",
+    )
+
+    @model_validator(mode="after")
+    def merge_vllm_env_variable_defaults(self) -> "BaseTestConfig":
+        # config-provided values take precedence over, but do not drop, defaults
+        self.vllm_env_variables = {
+            **DEFAULT_VLLM_ENV_VARIABLES,
+            **self.vllm_env_variables,
+        }
+        return self
 
     @model_validator(mode="after")
     def require_scheme_or_recipe(self) -> "BaseTestConfig":
