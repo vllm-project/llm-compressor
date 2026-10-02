@@ -1,8 +1,8 @@
-import re
 from collections import defaultdict
-from typing import Iterator
+from typing import Iterable, Iterator
 
 import torch
+from compressed_tensors.base import QUANTIZATION_CONFIG_NAME, TRANSFORM_CONFIG_NAME
 from compressed_tensors.compressors import compress_module
 from compressed_tensors.entrypoints.convert import Converter
 from compressed_tensors.quantization import (
@@ -19,7 +19,6 @@ from llmcompressor.entrypoints.model_free.lifecycle import (
     validate_weight_for_quantization,
 )
 from llmcompressor.entrypoints.model_free.microscale import (
-    DEFAULT_FUSED_MAPPINGS,
     get_fused_names,
     has_microscale_scheme,
     is_microscale_scheme,
@@ -60,29 +59,52 @@ class ModelFreePtqConverter(Converter):
     Converter that quantizes and compresses safetensors checkpoints without
     loading a model. Implements the compressed-tensors Converter protocol so
     it can be chained with other converters (e.g. a dequantizer) and used
-    with convert_checkpoint.
+    with convert_checkpoint. For microscale schemes, it needs the checkpoint's
+    `weight_names` to resolve fused weights; `model_free_ptq` passes them.
     """
 
-    def __init__(self, config: QuantizationConfig):
+    def __init__(
+        self,
+        config: QuantizationConfig,
+        weight_names: Iterable[str] | None = None,
+    ):
+        """
+        :param config: quantization config to apply
+        :param weight_names: names of all tensors in the checkpoint. Required
+            to resolve fused weights for microscale schemes, because a layer's
+            fused group depends on its sibling layers. For example, Kimi
+            `g_proj` is fused with delta attention q/k/v/b/f_a projections on
+            some layers and with MLA q_a/kv_a projections on others
+        """
         self.config = config
+
+        # primary weight name -> names of the fused partners it loads
+        self._fused_partners: dict[str, set[str]] | None = None
+        if weight_names is not None:
+            self._fused_partners = {}
+            for fused_group in get_fused_names(weight_names):
+                primary, *partners = fused_group.values()
+                self._fused_partners[primary] = set(partners)
 
     def get_dependencies(self, weight_name: str) -> set[str]:
         """
         For microscale schemes, return fused partner tensor names that must be
-        loaded together to compute a shared global scale. Standard schemes have
-        no cross-tensor dependencies.
+        loaded together to compute a shared global scale. Only the primary
+        weight of a fused group has dependencies, so the shard owning the
+        primary loads the whole group. Standard schemes have no cross-tensor
+        dependencies.
         """
         if not has_microscale_scheme(self.config):
             return set()
 
-        deps = set()
-        for primary_pattern, partner_templates in DEFAULT_FUSED_MAPPINGS.items():
-            match = re.match(primary_pattern, weight_name)
-            if match is None:
-                continue
-            for template in partner_templates:
-                deps.add(template.format(**match.groupdict()))
-        return deps
+        if self._fused_partners is None:
+            raise ValueError(
+                "Resolving fused weights for microscale schemes requires the "
+                "checkpoint's weight names. Please construct "
+                "ModelFreePtqConverter with `weight_names`"
+            )
+
+        return set(self._fused_partners.get(weight_name, ()))
 
     def process(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Quantize and compress all tensors. Device is inferred from the tensors."""
@@ -90,6 +112,35 @@ class ModelFreePtqConverter(Converter):
         if has_microscale_scheme(self.config):
             return self._process_microscale(tensors)
         return self._process_standard(tensors)
+
+    def validate(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """
+        Validate tensor shapes and simulate the compressed state-dict layout.
+
+        Converter validation runs on meta tensors before conversion. Some
+        calibration observers need tensor values, so validation initializes each
+        quantized module with meta tensors and compresses it without calibration.
+        This verifies the same shape and compression compatibility checks as
+        :meth:`process` while leaving observers to run only during the real
+        conversion passes.
+        """
+        tensors = split_fused_moe_experts(tensors)
+        output = dict(tensors)
+        for module_name, name, scheme in _match_tensors_to_schemes(
+            tensors, self.config
+        ):
+            validate_weight_for_quantization(tensors[name], scheme, name)
+            module = initialize_quantized_linear(
+                tensors[name], scheme, torch.device("meta")
+            )
+            compress_module(module)
+
+            del output[name]
+            prefix = module_name + "."
+            for key, value in module.state_dict(prefix=prefix).items():
+                output[key] = value
+
+        return output
 
     def update_config(self, config: QuantizationConfig | None) -> QuantizationConfig:
         """
@@ -119,6 +170,12 @@ class ModelFreePtqConverter(Converter):
         config.merge(new_config)
         return config
 
+    def update_model_config(self, model_config: dict) -> dict:
+        quant_config = model_config.get(QUANTIZATION_CONFIG_NAME)
+        if isinstance(quant_config, dict):
+            quant_config.setdefault(TRANSFORM_CONFIG_NAME, {})
+        return model_config
+
     def _process_standard(
         self, tensors: dict[str, torch.Tensor]
     ) -> dict[str, torch.Tensor]:
@@ -141,12 +198,11 @@ class ModelFreePtqConverter(Converter):
     ) -> dict[str, torch.Tensor]:
         device = _infer_device(tensors)
 
-        fused_sets, _ = get_fused_names(list(tensors.keys()))
+        fused_groups = get_fused_names(tensors.keys())
         fused_name_to_fused_index: dict[str, int] = {
             name: index
-            for index, matched_set in enumerate(fused_sets)
-            for name in matched_set.values()
-            if name is not None
+            for index, fused_group in enumerate(fused_groups)
+            for name in fused_group.values()
         }
         fused_modules: dict[int, dict[str, torch.nn.Module]] = defaultdict(dict)
 

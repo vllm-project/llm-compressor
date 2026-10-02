@@ -40,7 +40,7 @@ class SanityPrompt(NamedTuple):
 
 
 SANITY_PROMPTS = [
-    SanityPrompt("The capital of France is", "paris"),
+    SanityPrompt("Actions speak louder than", "words"),
     SanityPrompt("The creator of the theory of relativity was Albert", "einstein"),
     SanityPrompt("The classic game is called rock, paper,", "scissors"),
 ]
@@ -168,8 +168,8 @@ class TestvLLM:
                     repo_id=stub,
                     folder_path=self.config.save_dir,
                 )
-            except ConnectionError:
-                logger.warning(f"Failed to upload model {stub}")
+            except Exception as e:
+                logger.warning(f"Failed to upload model {stub}: {e}")
 
     def test_vllm(self, test_data_file: str):
         self.compress_model(test_data_file)

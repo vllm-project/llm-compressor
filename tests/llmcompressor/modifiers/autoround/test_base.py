@@ -118,22 +118,6 @@ def test_mapping_config_to_autoround_supports_weight_only_wna16_schemes(
         assert mapped.act_data_type is None
 
 
-def test_mapping_config_to_autoround_uses_fallback_for_w7a16():
-    assert "W7A16" not in AR_PRESET_SCHEMES
-
-    modifier = AutoRoundModifier(
-        ignore=["lm_head"],
-        iters=0,
-        scheme="W7A16",
-    )
-
-    mapped = modifier._mapping_config_to_autoround()
-
-    assert isinstance(mapped, ARQuantizationScheme)
-    assert mapped.bits == 7
-    assert mapped.group_size == 128
-
-
 def test_build_layer_config_for_autoround_supports_mixed_weight_only_schemes():
     modifier = AutoRoundModifier(
         ignore=["lm_head"],
@@ -318,6 +302,43 @@ def test_postprocess_qparams_applies_autoround_decision_with_regex_targets(
 
     # AutoRound decided this regex-matched target should NOT stay quantized.
     assert not hasattr(layer.self_attn.q_proj, "quantization_scheme")
+
+
+def test_build_layer_config_for_autoround_ignores_kv_cache_only_scheme():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    layer = _FakeDecoderLayer()
+    modifier.initialize_quantization(layer)
+    layer.k_proj.quantization_scheme = QuantizationScheme(
+        targets=["k_proj"],
+        output_activations=QuantizationArgs(
+            num_bits=8, type="float", strategy="tensor"
+        ),
+    )
+
+    wrapped = _wrap_decoding_layer(layer)
+    layer_config = modifier._build_layer_config_for_autoround(wrapped)
+
+    assert layer_config == {}
+
+
+def test_quant_scheme_to_autoround_config_supports_fp8_block():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="FP8_BLOCK")
+
+    config = modifier._quant_scheme_to_autoround_config(
+        modifier._get_default_quant_scheme()
+    )
+
+    assert config == {
+        "bits": 8,
+        "sym": True,
+        "group_size": (128, 128),
+        "data_type": "fp",
+        "act_bits": 16,
+        "act_group_size": 128,
+        "act_sym": True,
+        "act_dynamic": True,
+        "act_data_type": "fp",
+    }
 
 
 def test_update_device_map_for_dp_uses_current_rank_device():

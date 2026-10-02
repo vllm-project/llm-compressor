@@ -1,12 +1,12 @@
 # oneshot
 
-`oneshot` is the primary entrypoint for post-training quantization (PTQ) when your algorithm or scheme requires calibration data. It loads a model through Hugging Face `transformers`, applies recipe-defined modifiers (such as GPTQ, AWQ, SmoothQuant, or QuantizationModifier), and optionally saves the compressed result.
+`oneshot` is the primary entrypoint for post-training quantization (PTQ) when your algorithm or scheme requires calibration data. It loads a model through Hugging Face `transformers`, applies recipe-defined modifiers (such as GPTQ, AWQ, SmoothQuant, REAP, or QuantizationModifier), and optionally saves the compressed result.
 
 ## When to Use
 
 Use `oneshot` when:
 
-- Your quantization algorithm **requires calibration data** (GPTQ, AWQ, SmoothQuant, AutoRound)
+- Your quantization algorithm **requires calibration data** (GPTQ, AWQ, SmoothQuant, AutoRound, or REAP)
 - Your scheme uses **static activation quantization** that requires calibration (FP8 per-tensor, INT8 per-tensor, NVFP4 with activations)
 - Your model has a **Hugging Face model definition** available via `transformers`
 
@@ -84,12 +84,18 @@ The `oneshot` entrypoint runs three phases:
 | `data_collator` | `str \| Callable` | `"truncation"` | Batch collation strategy. `"truncation"` or `"padding"`, or a custom callable |
 | `shuffle_calibration_samples` | `bool` | `True` | Whether to shuffle the dataset before selecting calibration samples |
 | `text_column` | `str` | `"text"` | Dataset column to use as text input to the tokenizer/processor |
+| `preprocessing_func` | `str \| Callable \| None` | `None` | Deprecated. Preprocess and tokenize custom datasets before passing them to `oneshot()`; see the [custom dataset example](https://github.com/vllm-project/llm-compressor/blob/main/examples/custom_dataset_example.py). This argument will be removed in a future release |
 | `concatenate_data` | `bool` | `False` | Whether to concatenate samples to fill `max_seq_length` |
 | `streaming` | `bool` | `False` | Stream data from a cloud-hosted dataset |
 | `preprocessing_num_workers` | `int \| None` | `None` | Number of workers for dataset preprocessing |
 | `dataloader_num_workers` | `int` | `0` | Number of workers for the DataLoader. Set to 2+ for faster loading if RAM allows |
 | `moe_calibrate_all_experts` | `bool` | `True` | Route all tokens through all experts during calibration. Required for accurate MoE quantization |
 | `min_tokens_per_module` | `float \| None` | `None` | Minimum fraction of tokens a module must receive. Logs a warning if unmet. Mainly relevant for MoE models |
+
+For custom calibration data, apply formatting and tokenization with `Dataset.map()`
+before calling `oneshot(dataset=processed_dataset, ...)`. The
+[custom dataset example](https://github.com/vllm-project/llm-compressor/blob/main/examples/custom_dataset_example.py)
+shows how to migrate from `preprocessing_func`.
 
 ### Pipeline Arguments
 
@@ -190,6 +196,37 @@ oneshot(
     output_dir="Llama-4-Scout-17B-NVFP4",
 )
 ```
+
+### REAP MoE Expert Pruning
+
+Use `REAPPruningModifier` to structurally remove low-saliency experts from
+Mixture-of-Experts layers. `sparsity` is the fraction of experts to remove per
+layer, and `report_path` optionally records the retained expert indices.
+REAP only needs routed experts for its saliency calculation, so pruning-only
+runs can set `moe_calibrate_all_experts=False`. When REAP is combined with a
+quantization modifier, choose this setting based on whether the quantizer also
+needs statistics from every expert.
+
+```python
+from llmcompressor import oneshot
+from llmcompressor.modifiers.pruning import REAPPruningModifier
+
+oneshot(
+    model=model,
+    dataset="perfectblend",
+    recipe=REAPPruningModifier(
+        sparsity=0.25,
+        report_path="reap_retained_experts.json",
+    ),
+    num_calibration_samples=512,
+    max_seq_length=2048,
+    moe_calibrate_all_experts=False,
+)
+```
+
+REAP can be followed by or combined with quantization in a recipe list. See
+the [REAP examples](../../../examples/reap_expert_pruning/README.md) for
+model-specific ignore patterns and combined FP8/NVFP4 recipes.
 
 ## Saving
 

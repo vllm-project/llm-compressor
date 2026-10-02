@@ -46,6 +46,27 @@ class Subgraph:
     consumed_names: set[str]
     _code: PythonCode | None = None
 
+    def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
+        nodes = self.graph.find_nodes(op="call_module")
+        ordered_names: list[str] = []
+        seen_modules: set[Module] = set()
+
+        for node in nodes:
+            module = model.get_submodule(node.target)
+            named_modules = module.named_modules() if recurse else [("", module)]
+
+            for relative_name, submodule in named_modules:
+                if submodule in seen_modules:
+                    continue
+
+                qualified_name = node.target
+                if relative_name:
+                    qualified_name = f"{node.target}.{relative_name}"
+                ordered_names.append(qualified_name)
+                seen_modules.add(submodule)
+
+        return ordered_names
+
     def forward(self, *args, **kwargs) -> dict[str, Any]:
         """
         Execute the operations within the subgraph
@@ -64,21 +85,39 @@ class Subgraph:
             return forward_fn(*args, **kwargs)
 
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
-        nodes = self.graph.find_nodes(op="call_module")
-        modules = [model.get_submodule(node.target) for node in nodes]
+        return [
+            model.get_submodule(name)
+            for name in self._subgraph_module_names(model, recurse=recurse)
+        ]
 
-        # collect all modules while preserving order
-        # deterministic module order is required for downstream ddp
-        if recurse:
-            direct_modules, modules = modules, []
-            seen = set()
-            for direct_module in direct_modules:
-                for submodule in direct_module.modules():
-                    if submodule not in seen:
-                        modules.append(submodule)
-                        seen.add(submodule)
+    def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
+        """Return subgraph modules keyed by their fully qualified model names."""
+        return {
+            name: model.get_submodule(name)
+            for name in self._subgraph_module_names(model, recurse=recurse)
+        }
 
-        return modules
+
+def collect_subgraph_modules(
+    model: Module, subgraphs: list[Subgraph], recurse: bool = True
+) -> dict[str, Module]:
+    """Return the union of all modules owned by the traced subgraphs."""
+    modules: dict[str, Module] = {}
+    for subgraph in subgraphs:
+        modules.update(subgraph.submodule_dict(model, recurse=recurse))
+    return modules
+
+
+def find_modules_outside_subgraphs(
+    model: Module, subgraphs: list[Subgraph], recurse: bool = True
+) -> dict[str, Module]:
+    """Return modules that were traced but do not belong to any subgraph."""
+    subgraph_modules = collect_subgraph_modules(model, subgraphs, recurse=recurse)
+    return {
+        name: module
+        for name, module in model.named_modules()
+        if name and name not in subgraph_modules
+    }
 
 
 def trace_subgraphs(

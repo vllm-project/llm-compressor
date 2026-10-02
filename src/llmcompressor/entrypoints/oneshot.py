@@ -20,6 +20,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD,
     QUANTIZATION_METHOD_NAME,
 )
+from compressed_tensors.distributed import is_distributed
 from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -140,6 +141,14 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # Warn if oneshot is called with `torchrun` but did not call `init_dist`
+        if "TORCHELASTIC_RUN_ID" in os.environ and not is_distributed():
+            logger.warning(
+                "Detected torchrun environment, but no distributed process group was "
+                "found. If you intended to run with distributed data parallelism, "
+                "call 'compressed_tensors.offload.init_dist()' before calling oneshot."
+            )
+
         # Disable tokenizer parallelism to prevent warning when using
         # multiprocessing for dataset preprocessing. The warning occurs because
         # FastTokenizer's internal threading conflicts with dataset.map's num_proc.
@@ -368,6 +377,8 @@ def oneshot(
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     sequential_prefetch: bool = False,
+    stage_weights_in_pinned_memory: bool = False,
+    log_sequential_error: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
     log_dir: str | None = None,
@@ -460,6 +471,13 @@ def oneshot(
     :param sequential_prefetch: When using the sequential pipeline, prefetch the
         next batch in a background thread to overlap onload with forward. Default
         False; set True for faster calibration when GPU memory allows.
+    :param stage_weights_in_pinned_memory: When using the sequential pipeline, stage
+        offloaded module tensors in pinned CPU memory before onloading them to the
+        execution device. Default False.
+    :param log_sequential_error: Only relevant for the sequential pipeline. If True,
+        compute and log the SQNR between each subgraph's pre-compression
+        and post-compression outputs, independent of propagate_error.
+        Default is False.
     # Miscellaneous arguments
     :param output_dir: Path to save the output model after calibration.
         Nothing is saved if None.

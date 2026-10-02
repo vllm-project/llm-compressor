@@ -2,7 +2,13 @@ import contextlib
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import disable_offloading, set_onload_device
+from compressed_tensors.offload import set_onload_device
+from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+    subgraph_stage_modules,
+)
+from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
@@ -10,7 +16,12 @@ from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines.sequential.error_logging import (
+    compute_subgraph_sqnr,
+    process_batch_error,
+)
 from llmcompressor.pipelines.sequential.helpers import (
+    find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
 )
@@ -79,6 +90,8 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
+
         session = active_session()
 
         # prepare model for sequential onloading
@@ -109,6 +122,9 @@ class SequentialPipeline(CalibrationPipeline):
             dataset_args.sequential_targets_per_subgraph,
         )
         num_subgraphs = len(subgraphs)
+        persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        if persistent_modules:
+            subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
 
@@ -118,6 +134,24 @@ class SequentialPipeline(CalibrationPipeline):
             # prepare intermediates cache
             activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
+            )
+
+            # prepare error-logging cache (separate from activations so that
+            # log_sequential_error does not force propagate_error=True)
+            #
+            # how activations are updated per (propagate_error, log_sequential_error):
+            #
+            #   (True,  False) - pass 2 overwrites activations with quantized outputs
+            #   (False, False) - pass 1 overwrites activations immediately, no pass 2
+            #   (True,  True)  - same as (True, False) + SQNR measured from
+            #                    seq_error_cache
+            #   (False, True)  - pass 2 transfers unquantized outputs from
+            #                    seq_error_cache into activations (zero-copy) +
+            #                    SQNR measured
+            seq_error_cache = (
+                IntermediatesCache.empty(len(dataloader), offload_device)
+                if dataset_args.log_sequential_error
+                else None
             )
 
             # Populate loss_masks once from cached activations for AWQ masking support
@@ -132,50 +166,95 @@ class SequentialPipeline(CalibrationPipeline):
 
             sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
             session.state.sequential_prefetch = sequential_prefetch
+            stage_weights_in_pinned_memory = getattr(
+                dataset_args, "stage_weights_in_pinned_memory", False
+            )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
+                subgraph_modules = subgraph.submodule_dict(model)
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
 
+                # whether a downstream subgraph still needs this subgraph's outputs
+                has_next_subgraph = subgraph_index < num_subgraphs - 1
+
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
-                with disable_offloading():
-                    # do a preliminary pass to trigger modifier hooks
-                    for batch_idx, inputs in _get_batches(
-                        activations,
-                        num_batches,
-                        subgraph.input_names,
-                        calib_desc,
-                        sequential_prefetch,
-                    ):
-                        session.state.current_batch_idx = batch_idx
-                        outputs = subgraph.forward(model, **inputs)
 
-                        if not dataset_args.propagate_error:
-                            if subgraph_index < num_subgraphs - 1:
-                                activations.update(batch_idx, outputs)
+                #######################
+                ### START OF ONLOAD ###
+                #######################
+                subgraph_stage_modules(
+                    subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                )
+                offload_kwargs = subgraph_onload_modules(subgraph_modules)
+
+                # do a preliminary pass to trigger modifier hooks
+                for batch_idx, inputs in _get_batches(
+                    activations,
+                    num_batches,
+                    subgraph.input_names,
+                    calib_desc,
+                    sequential_prefetch,
+                ):
+                    session.state.current_batch_idx = batch_idx
+                    outputs = subgraph.forward(model, **inputs)
+
+                    # update activations immediately only when no pass 2
+                    # is needed; otherwise defer to after pass 2
+                    if not dataset_args.propagate_error:
+                        if not dataset_args.log_sequential_error and has_next_subgraph:
+                            activations.update(batch_idx, outputs)
+                            activations.delete(batch_idx, subgraph.consumed_names)
+
+                    if seq_error_cache is not None and has_next_subgraph:
+                        seq_error_cache.update(batch_idx, outputs)
+
+                LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+
+                if dataset_args.propagate_error or dataset_args.log_sequential_error:
+                    # this pass does not trigger modifier hooks; it captures
+                    # outputs of compressed modules (for propagate_error) and/or
+                    # per-batch signal/noise power for SQNR (for
+                    # log_sequential_error)
+                    batch_powers: list[tuple[float, float]] = []
+                    with HooksMixin.disable_hooks():
+                        for batch_idx, inputs in _get_batches(
+                            activations,
+                            num_batches,
+                            subgraph.input_names,
+                            prop_desc,
+                            sequential_prefetch,
+                        ):
+                            output = subgraph.forward(model, **inputs)
+                            if dataset_args.propagate_error and has_next_subgraph:
+                                activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                    LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+                            if seq_error_cache is not None and has_next_subgraph:
+                                batch_power = process_batch_error(
+                                    seq_error_cache,
+                                    activations,
+                                    batch_idx,
+                                    output,
+                                    dataset_args.propagate_error,
+                                    subgraph.consumed_names,
+                                )
+                                if batch_power is not None:
+                                    batch_powers.append(batch_power)
 
-                    if dataset_args.propagate_error:
-                        # this pass does not trigger modifier hooks
-                        # and is only used for capturing outputs of compressed modules
-                        with HooksMixin.disable_hooks():
-                            for batch_idx, inputs in _get_batches(
-                                activations,
-                                num_batches,
-                                subgraph.input_names,
-                                prop_desc,
-                                sequential_prefetch,
-                            ):
-                                output = subgraph.forward(model, **inputs)
-                                if subgraph_index < num_subgraphs - 1:
-                                    activations.update(batch_idx, output)
-                                    activations.delete(
-                                        batch_idx, subgraph.consumed_names
-                                    )
+                    if batch_powers:
+                        sqnr = compute_subgraph_sqnr(batch_powers)
+                        _logger.log(
+                            "METRIC",
+                            f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
+                            f"sequential error (SQNR dB): {sqnr:.2f}",
+                        )
+                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                #######################
+                #### END OF ONLOAD ####
+                #######################
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

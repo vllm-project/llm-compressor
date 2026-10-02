@@ -80,14 +80,31 @@ tokenizer.save_pretrained(SAVE_DIR)
 dist.destroy_process_group()
 ```
 
-## Quantization Modifier DDP Support ##
+## Modifier DDP Support ##
 
-The following quantization modifiers are DDP-aware. Each section describes its synchronization strategy.
+The following compression modifiers are DDP-aware. Each section describes its synchronization strategy.
 
 ### QuantizationModifier ###
 Since weight information is the same across ranks we only have to synchronize activation information and activation information is only needed in 2 cases for the QuantizationModifier. Case 1: when doing non-dynamic activation quantization like FP8 (static activation quantization) and NVFP4 (local activation quantization) quantization schemes. Case 2: when using a weight observer that makes use of activation information like the iMatrixObserver.
 
 In both cases, activation information is **all-reduced across ranks at sequential layer boundaries** — so all ranks share identical quantization parameters before moving to the next layer. The reduce operation varies by observer type (see [Observer DDP support](#observer-ddp-support) below). Thus while the calibration is parallelized, the actual compression happens identically across all ranks after any activation statistics have been synchrnized.
+
+### REAPPruningModifier ###
+
+REAP uses data-parallel calibration to collect router-weighted expert saliency
+statistics. Each rank accumulates local statistics for the calibration samples
+it processes, then the statistics are reduced across ranks before pruning:
+
+1. Saliency sums and routed-token counts are reduced across ranks.
+2. The source rank selects the experts to retain in each MoE layer.
+3. The retained expert indices are broadcast to every rank.
+4. Every rank applies the same structural pruning and updates the model config.
+
+This keeps DDP pruning decisions consistent with a single-GPU run over the
+combined calibration data. REAP does not need every expert to be forced through
+the model; pruning-only runs can set `moe_calibrate_all_experts=False`. If REAP
+is combined with quantization, keep all-expert calibration enabled when the
+quantizer needs statistics from every expert.
 
 ### GPTQModifier ###
 
@@ -165,7 +182,7 @@ Observers (used during activation calibration) expose a `sync_activation_stats()
 | `memoryless_minmax` | *(none — data-free)* | — |
 | `mse` (EMA) | `min_vals`, `max_vals` | AVG |
 | `memoryless_mse` | *(none — data-free)* | — |
-| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM |
+| `imatrix_mse` / `nvfp4_expanded_imatrix` | `_imatrix_sum`, `_imatrix_count` | SUM |
 
 Weight statistics are never synced: weights are identical across ranks (broadcast at load time), so only activation-derived statistics need synchronization.
 
@@ -184,3 +201,4 @@ In general, the DDP implementation is designed to affect as few abstractions as 
 | AWQ + QuantizationModifier W4A16 (LLaMA) | [llama_example_ddp.py](https://github.com/vllm-project/llm-compressor/blob/main/examples/awq/llama_example_ddp.py) |
 | AWQ + QuantizationModifier W4A16 (Qwen3 MoE) | [qwen3_moe_example_ddp.py](https://github.com/vllm-project/llm-compressor/blob/main/examples/awq/qwen3_moe_example_ddp.py) |
 | AutoRound W4A16 | [ddp_qwen3_example.py](https://github.com/vllm-project/llm-compressor/blob/main/examples/autoround/ddp/ddp_qwen3_example.py) |
+| REAP + NVFP4/FP8 | [qwen38_example.py](https://github.com/vllm-project/llm-compressor/blob/main/examples/reap_expert_pruning/qwen38_example.py) |

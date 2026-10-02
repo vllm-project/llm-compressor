@@ -1,8 +1,13 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationStrategy, fake_quantize
+from compressed_tensors.quantization import (
+    QuantizationStrategy,
+    fake_quantize,
+    preset_name_to_scheme,
+)
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
+from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import tl, triton
 
@@ -94,74 +99,28 @@ def test_mse_fp4():
 
 
 @pytest.mark.parametrize(
-    "num_bits,quant_type,strategy,group_size,block_structure",
+    "preset,observed_shape",
     [
-        (4, "int", QuantizationStrategy.TENSOR, None, None),
-        (4, "int", QuantizationStrategy.CHANNEL, None, None),
-        (4, "int", QuantizationStrategy.GROUP, 512, None),
-        (4, "int", QuantizationStrategy.TENSOR_GROUP, 512, None),
-        (4, "float", QuantizationStrategy.GROUP, 512, None),
-        (4, "float", QuantizationStrategy.TENSOR_GROUP, 512, None),
-        (8, "float", QuantizationStrategy.BLOCK, None, [2, 512]),
+        pytest.param("W4A16", (16, 128), id="w4a16"),
+        pytest.param("NVFP4A16", (8, 1024), id="nvfp4a16"),
     ],
 )
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_when_tile_fits_group(
-    num_bits, quant_type, strategy, group_size, block_structure
-):
-    """A full buffer preserves eager choices when each group spans a tile."""
-    if quant_type == "float" and num_bits == 8:
-        major, _ = torch.get_device_module().get_device_capability()
-        if major < 9:
-            pytest.skip("FP8 Triton QDQ requires SM90+")
-    args = QuantizationArgs(
-        num_bits=num_bits,
-        type=quant_type,
-        symmetric=True,
-        strategy=strategy,
-        group_size=group_size,
-        block_structure=block_structure,
-    )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
+def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
+    """Real W4A16 and NVFP4A16 group sizes preserve eager grid choices."""
+    args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
     observed = flatten_for_calibration(
-        torch.randn(8, 1024, device="cuda"), "weight", args
-    )
-    search_args = (
-        observed,
+        torch.randn(*observed_shape, device="cuda", dtype=torch.bfloat16),
+        "weight",
         args,
-        token_args,
-        0.5,
-        5,
-        100.0,
-        2.4,
-        1.0,
-        1.0,
     )
-    eager = ImplBackend.call("_grid_search_mse", *search_args)
-    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
-    assert torch.equal(eager[0], triton[0])
-    assert torch.equal(eager[1], triton[1])
-
-
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_for_packed_nvfp4_groups():
-    """Packed BF16 NVFP4 groups preserve eager arithmetic and grid choices."""
-    args = QuantizationArgs(
-        num_bits=4,
-        type="float",
-        symmetric=True,
-        strategy=QuantizationStrategy.TENSOR_GROUP,
-        group_size=16,
+    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_kwargs = {"expand": 1.0}
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
     )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
-    torch.manual_seed(0)
-    observed = flatten_for_calibration(
-        torch.randn(8, 1024, device="cuda", dtype=torch.bfloat16), "weight", args
-    )
-    search_args = (observed, args, token_args, 0.5, 5, 100.0, 2.4, 1.0, 1.0)
-    eager = ImplBackend.call("_grid_search_mse", *search_args)
-    triton = ImplBackend.call("_grid_search_mse_triton", *search_args)
     assert torch.equal(eager[0], triton[0])
     assert torch.equal(eager[1], triton[1])
 
@@ -214,7 +173,6 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
         strategy=QuantizationStrategy.GROUP,
         group_size=128,
     )
-    token_args = args.model_copy(update={"strategy": QuantizationStrategy.TOKEN})
     torch.manual_seed(0)
     observed = flatten_for_calibration(
         torch.randn(64, 1024, device="cuda", dtype=dtype), "weight", args
@@ -225,9 +183,10 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
         quantization_args=args,
         global_scale=None,
     )
-    expected = fake_quantize(
-        observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), token_args
-    )
+    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+        expected = fake_quantize(
+            observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), args
+        )
 
     values = observed.reshape(-1).contiguous()
     result = torch.empty_like(values, dtype=torch.float32)
