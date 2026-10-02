@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import warnings
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
@@ -230,11 +231,8 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
 
-                #######################
-                ### START OF ONLOAD ###
-                #######################
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
-
+                # Submit the next subgraph's staging before onloading the
+                # current subgraph so staging can overlap with onload work.
                 if subgraph_index + 1 < num_subgraphs:
                     next_subgraph_modules = subgraphs[
                         subgraph_index + 1
@@ -245,6 +243,11 @@ class SequentialPipeline(CalibrationPipeline):
                         subgraph_modules,
                         stage_weights_in_pinned_memory,
                     )
+
+                #######################
+                ### START OF ONLOAD ###
+                #######################
+                offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
