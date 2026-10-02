@@ -5,7 +5,7 @@ from transformers import PreTrainedModel
 from transformers.models.cohere2_moe.modeling_cohere2_moe import Cohere2MoeTopKRouter
 
 from llmcompressor.modeling.fuse import fuse_norm_linears
-from llmcompressor.modeling.moe.linearize import linearize_moe
+from llmcompressor.modeling.moe.offload import linearize_moe_with_offload
 
 
 class LinearRouter(torch.nn.Module):
@@ -119,7 +119,7 @@ def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
         "(num_shared_experts > 0); their input_layernorm consumers are not fused."
     )
 
-    linearize_moe(model, onload_and_offload=True)
+    linearize_moe_with_offload(model)
 
     num_routers = 0
     for layer in model.model.layers:

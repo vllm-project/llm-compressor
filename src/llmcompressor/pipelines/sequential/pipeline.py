@@ -17,9 +17,10 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.moe.linearize import (
-    linearize_moe,
-    repack_moe,
+from llmcompressor.modeling.moe.linearize import linearize_moe
+from llmcompressor.modeling.moe.offload import (
+    linearize_moe_with_offload,
+    repack_moe_with_offload,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -257,11 +258,9 @@ class SequentialPipeline(CalibrationPipeline):
                     # The replacement is re-offloaded here and the complete
                     # subgraph is onloaded below, so conversion never needs the
                     # execution device.
-                    offload_kwargs = {}
-                    linearize_moe(
+                    offload_kwargs = linearize_moe_with_offload(
                         model,
                         subgraph_modules,
-                        offload_kwargs=offload_kwargs,
                         cpu_materialize=True,
                         onload_replacements=False,
                     )
@@ -270,9 +269,7 @@ class SequentialPipeline(CalibrationPipeline):
                     offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
                     # This is a no-op for already-linearized MoE layers.
-                    linearize_moe(
-                        model, subgraph_modules, offload_kwargs=offload_kwargs
-                    )
+                    linearize_moe(model, subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -331,7 +328,9 @@ class SequentialPipeline(CalibrationPipeline):
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
                 if dataset_args.repack_moe_layers:
-                    repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+                    repack_moe_with_offload(
+                        model, subgraph_modules, offload_kwargs=offload_kwargs
+                    )
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################

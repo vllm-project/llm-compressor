@@ -30,8 +30,10 @@ from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
 from llmcompressor.modeling.moe.linearize import (
     get_moe_modules,
-    linearize_moe,
-    repack_moe,
+)
+from llmcompressor.modeling.moe.offload import (
+    linearize_moe_with_offload,
+    repack_moe_with_offload,
 )
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
@@ -101,7 +103,7 @@ def pre_process(
 
     resolve_eager_moe_linearization(model_args.model, dataset_args)
     if not dataset_args.moe_lazy_linearization_and_repack:
-        linearize_moe(model_args.model, onload_and_offload=True)
+        linearize_moe_with_offload(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
@@ -130,7 +132,7 @@ def post_process(
         and not dataset_args.moe_lazy_linearization_and_repack
         and dataset_args.repack_moe_layers
     ):
-        repack_moe(model_args.model, onload_and_offload=True)
+        repack_moe_with_offload(model_args.model)
 
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:

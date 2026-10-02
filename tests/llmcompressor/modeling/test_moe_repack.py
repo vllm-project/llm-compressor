@@ -29,6 +29,10 @@ from llmcompressor.modeling.moe.linearize import (
     linearize_moe,
     repack_moe,
 )
+from llmcompressor.modeling.moe.offload import (
+    linearize_moe_with_offload,
+    repack_moe_with_offload,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 from tests.testing_utils import requires_gpu
 
@@ -128,11 +132,11 @@ def test_linearize_and_repack_preserve_offload_cache():
     experts = model.model.language_model.layers[0].mlp.experts
     offload_module(experts, onload_device="cpu", offload_device="cpu")
 
-    linearize_moe(model, onload_and_offload=True)
+    linearize_moe_with_offload(model)
     experts = model.model.language_model.layers[0].mlp.experts
     assert isinstance(experts._parameters, OffloadCache)
 
-    repack_moe(model, onload_and_offload=True)
+    repack_moe_with_offload(model)
     experts = model.model.language_model.layers[0].mlp.experts
     assert isinstance(experts._parameters, OffloadCache)
 
@@ -153,11 +157,9 @@ def test_cpu_lazy_linearize_from_disk_then_onloads_replacement(tmp_path):
         f"{experts_name}{relative_name}": child
         for relative_name, child in experts.named_modules()
     }
-    offload_kwargs = {}
-    linearize_moe(
+    linearize_moe_with_offload(
         model,
         subgraph_modules,
-        offload_kwargs=offload_kwargs,
         cpu_materialize=True,
         onload_replacements=False,
     )
@@ -165,7 +167,7 @@ def test_cpu_lazy_linearize_from_disk_then_onloads_replacement(tmp_path):
     replacement = model.block1.mlp.experts
     assert isinstance(replacement._parameters, OffloadCache)
 
-    offload_kwargs.update(subgraph_onload_modules(subgraph_modules))
+    subgraph_onload_modules(subgraph_modules)
     assert all(
         parameter.device.type == "cpu" for parameter in replacement.parameters()
     )
@@ -184,8 +186,12 @@ def test_lazy_linearize_onloads_replacement_before_forward():
         f"{experts_name}{relative_name}": child
         for relative_name, child in experts.named_modules()
     }
-    offload_kwargs = subgraph_onload_modules(subgraph_modules)
-    linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+    linearize_moe_with_offload(
+        model,
+        subgraph_modules,
+        cpu_materialize=False,
+        onload_replacements=True,
+    )
 
     replacement = model.block1.mlp.experts
     assert all(
@@ -624,23 +630,15 @@ def test_moe_replacement_updates_subgraph_offload_bookkeeping():
     model = _tiny_qwen3_moe_blocks()
     experts_name = "block1.mlp.experts"
     subgraph_modules = {experts_name: model.block1.mlp.experts}
-    offload_kwargs = {
-        experts_name: {"onload_device": "cpu", "offload_device": "disk"},
-    }
-
-    linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+    linearize_moe(model, subgraph_modules)
 
     assert experts_name in subgraph_modules
     assert f"{experts_name}.0.gate_proj" in subgraph_modules
-    assert f"{experts_name}.0.gate_proj" in offload_kwargs
-    assert offload_kwargs[f"{experts_name}.0.gate_proj"]["offload_device"] == "disk"
 
-    repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+    repack_moe(model, subgraph_modules)
 
     assert not any(name.startswith(f"{experts_name}.0.") for name in subgraph_modules)
-    assert not any(name.startswith(f"{experts_name}.0.") for name in offload_kwargs)
     assert experts_name in subgraph_modules
-    assert experts_name in offload_kwargs
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
 
 
