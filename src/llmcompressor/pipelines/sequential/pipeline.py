@@ -6,12 +6,15 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
+from compressed_tensors.quantization.utils import is_module_quantized
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -257,6 +260,17 @@ class SequentialPipeline(CalibrationPipeline):
                 # This is a no-op for already-linearized MoE layers.
                 linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
 
+                modules = subgraph.submodules(model)
+                if dataset_args.layerwise_decompression:
+                    compressed = [
+                        module for module in modules if is_module_quantized(module)
+                    ]
+                    for module in tqdm(compressed, desc="Decompressing modules"):
+                        decompress_module(module, leave_decompressed=False)
+                    for modifier in modifiers:
+                        if hasattr(modifier, "start_layerwise_calibration"):
+                            modifier.start_layerwise_calibration(model, modules)
+
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
                     activations,
@@ -277,7 +291,7 @@ class SequentialPipeline(CalibrationPipeline):
                     if seq_error_cache is not None and has_next_subgraph:
                         seq_error_cache.update(batch_idx, outputs)
 
-                LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+                LifecycleCallbacks.sequential_epoch_end(modules)
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
@@ -313,8 +327,25 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
-                if dataset_args.repack_moe_layers:
+                if (
+                    dataset_args.repack_moe_layers
+                    and not dataset_args.layerwise_compression
+                ):
                     repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+
+                if dataset_args.layerwise_compression:
+                    quantized = [
+                        module
+                        for module in subgraph.submodules(model)
+                        if is_module_quantized(module)
+                    ]
+                    if not is_distributed():
+                        for module in tqdm(quantized, desc="Compressing modules"):
+                            compress_module(module)
+                    else:
+                        replace_module_parallel(
+                            quantized, compress_module, desc="Compressing modules"
+                        )
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
