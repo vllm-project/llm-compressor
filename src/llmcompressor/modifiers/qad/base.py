@@ -191,7 +191,9 @@ class QADModifier(Modifier):
         self._predecessors[module] = predecessor
         if predecessor is not None:
             args = (None, *args[1:])
-            self._output_caches[predecessor].delete(state.current_batch_idx, ["target"])
+            self._output_caches[predecessor].delete(
+                state.current_batch_idx, ["teacher_output"]
+            )
         batches.append(_copy_tensors({"args": args, "kwargs": kwargs}))
 
     def _output_capture_hook(self, module, args, kwargs, output):
@@ -199,7 +201,7 @@ class QADModifier(Modifier):
             self._output_caches[module] = IntermediatesCache(
                 offload_device=self.offload_device
             )
-        self._output_caches[module].append(_copy_tensors({"target": output}))
+        self._output_caches[module].append(_copy_tensors({"teacher_output": output}))
         self._cur_seq_target = module
         self._cur_seq_target_output = _get_first(output)
 
@@ -247,32 +249,36 @@ class QADModifier(Modifier):
             batch_count,
             self._name(seq_targets),
         )
-        entries = [
-            _chain_entry(
-                [
+        first_input_cache = subgraph_inputs[0]
+        last_output_cache = subgraph_outputs[-1]
+        chain_batches = []
+        for batch_index in range(batch_count):
+            first_inputs = first_input_cache.batch_intermediates[batch_index]
+            links = [
+                IntermediateValue(
                     {
-                        "args": subgraph_input.batch_intermediates[index]["args"],
-                        "kwargs": subgraph_input.batch_intermediates[index]["kwargs"],
-                        **(
-                            {
-                                "target": subgraph_outputs[-1].batch_intermediates[
-                                    index
-                                ]["target"]
-                            }
-                            if target_index == len(seq_targets) - 1
-                            else {}
-                        ),
-                    }
-                    for target_index, subgraph_input in enumerate(subgraph_inputs)
-                ]
+                        "args": cache.batch_intermediates[batch_index]["args"],
+                        "kwargs": cache.batch_intermediates[batch_index]["kwargs"],
+                    },
+                    None,
+                )
+                for cache in subgraph_inputs[1:]
+            ]
+            chain_batches.append(
+                {
+                    "args": first_inputs["args"],
+                    "kwargs": first_inputs["kwargs"],
+                    "links": IntermediateValue(links, None),
+                    "teacher_output": last_output_cache.batch_intermediates[
+                        batch_index
+                    ]["teacher_output"],
+                }
             )
-            for index in range(batch_count)
-        ]
         with HooksMixin.disable_hooks():
             self._apply_distillation(
                 seq_targets,
-                [entries[i] for i in train_indices],
-                [entries[i] for i in validation_indices],
+                [chain_batches[i] for i in train_indices],
+                [chain_batches[i] for i in validation_indices],
             )
 
     def _split_batch_indices(self, batch_count):
@@ -490,9 +496,10 @@ class QADModifier(Modifier):
         for seq_target, inputs in zip(seq_targets[1:], batch["links"]):
             args = (_get_first(output), *inputs["args"][1:])
             output = seq_target(*args, **inputs["kwargs"])
-        prediction, target = _get_first(output), _get_first(batch["target"])
+        prediction = _get_first(output)
+        teacher_output = _get_first(batch["teacher_output"])
         # FP32 keeps the reduction accurate for FP16/BF16 outputs
-        loss = torch.nn.functional.mse_loss(prediction.float(), target.float())
+        loss = torch.nn.functional.mse_loss(prediction.float(), teacher_output.float())
         if not torch.isfinite(loss):
             raise ValueError(f"Nonfinite QAD loss in {self._name(seq_targets)}")
         return loss
@@ -549,20 +556,3 @@ def _copy_tensors(values):
     # alias live tensors. IntermediatesCache stores tensors that are already on the
     # offload device by reference.
     return tree_map_only(torch.Tensor, lambda t: t.detach().clone(), values)
-
-
-def _chain_entry(entries):
-    # Combine a chain's cache entries for one batch: the first target's inputs, the
-    # later targets' inputs, whose first input training recomputes, and the last
-    # target's teacher output
-    first, *later = entries
-    links = [
-        IntermediateValue({"args": entry["args"], "kwargs": entry["kwargs"]}, None)
-        for entry in later
-    ]
-    return {
-        "args": first["args"],
-        "kwargs": first["kwargs"],
-        "links": IntermediateValue(links, None),
-        "target": entries[-1]["target"],
-    }

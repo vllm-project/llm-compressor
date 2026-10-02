@@ -34,7 +34,8 @@ oneshot(
     ],
     pipeline="sequential",
     sequential_targets=["LlamaDecoderLayer"],
-    sequential_targets_per_subgraph=1,  # decoder blocks trained jointly
+    # Increase this to train consecutive decoder blocks jointly.
+    sequential_targets_per_subgraph=1,
     propagate_error=True,  # default; recommended for QAD
     num_calibration_samples=512,
     max_seq_length=2048,
@@ -128,10 +129,11 @@ trains on the inputs it receives at inference. With `propagate_error=False`,
 reconstruction.
 
 Replay uses each complete target module's `forward`, retaining its internal
-attention, MLP, branches, and residual connections. Multiple target modules in a
-subgraph train jointly only as a chain, in which each module's first input is
-the previous module's output, as with decoder layers. QAD rejects other subgraph
-structures.
+attention, MLP, branches, and residual connections. A subgraph can contain one
+or more target modules, and multiple modules train jointly as a single chain:
+each module after the first must take the previous module's output as its first
+input, as decoder layers do. Other connections between target modules are not
+supported.
 
 ## Composing quantization methods
 
@@ -170,9 +172,10 @@ contract automatically.
 
 ## Training and supported scope
 
-- Use single-process sequential calibration and one complete target module per
-  subgraph. `propagate_error=True` (the default) is recommended; see
-  [Execution](#execution). Quantized weights outside the selected targets, such
+- Use single-process sequential calibration. A subgraph can contain one or more
+  complete target modules; when it contains multiple targets, they must form the
+  chain described in [Execution](#execution). `propagate_error=True` (the
+  default) is recommended. Quantized weights outside the selected targets, such
   as a quantized LM head, keep the preceding modifier's result. Repeated calls
   to the same target in a calibration batch are unsupported.
 - The same samples, preprocessing, sequence lengths, and loader batch size feed
@@ -182,19 +185,19 @@ contract automatically.
   `validation_fraction=0.1` holds batches out from QAD gradient updates, although
   they still participate in quantizer calibration. Keep downstream test data
   separate.
-- Each block has its own optimizer and trains for `num_epochs` epochs. The
-  weights with the lowest validation loss are then restored; the quantizer's
-  initial weights are included among the candidates.
+- Each subgraph uses one optimizer to train its targets jointly for
+  `num_epochs` epochs. The weights with the lowest validation loss are then
+  restored; the quantizer's initial weights are included among the candidates.
 - FP16/BF16 execution uses FP32 optimizer master weights. FP16 backward also
   uses dynamic loss scaling to retain small reconstruction gradients. Overflow
   retries use the same accumulation group with a lower scale, up to 32 attempts.
   Gradients are unscaled before clipping with `max_grad_norm=1.0` by default;
   set it to `None` to disable clipping.
-- Inputs, targets, and best-weight snapshots default to CPU storage through
-  `offload_device="cpu"`. QAD still needs memory for a block's backward
-  pass and optimizer state.
+- Inputs, teacher outputs, and best-weight snapshots default to CPU storage
+  through `offload_device="cpu"`. QAD still needs memory for the subgraph's
+  backward pass and optimizer state.
 - QAD stores independent input and teacher snapshots in the shared
-  `IntermediatesCache`. Set `sequential_prefetch=True` to prefetch QAD batches
+  `IntermediatesCache` and prefetches batches during training and evaluation,
   while preserving the training shuffle and validation split.
 - QAD computes reconstruction MSE over all output positions.
 - Weight re-observation follows [Charles's schedule](https://github.com/vllm-project/llm-compressor/pull/3051): before training,

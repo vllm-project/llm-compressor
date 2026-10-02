@@ -166,7 +166,9 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         for index, batch in enumerate(batches):
             cached_input = qad._input_caches[model.seq_target].fetch(index)
             cached_output = qad._output_caches[model.seq_target].fetch(index)
-            torch.testing.assert_close(cached_output["target"], reference(**batch))
+            torch.testing.assert_close(
+                cached_output["teacher_output"], reference(**batch)
+            )
             torch.testing.assert_close(cached_input["args"][0], batch["x"])
             torch.testing.assert_close(
                 cached_input["kwargs"]["residual"], batch["residual"]
@@ -252,14 +254,14 @@ def test_teacher_cache_is_independent():
     stored_input = input_cache.fetch(0)
     stored_output = output_cache.fetch(0)
     saved_input = stored_input["args"][0].clone()
-    saved_target = stored_output["target"][0].clone()
+    saved_teacher_output = stored_output["teacher_output"][0].clone()
     batches[0]["x"].zero_()
     with torch.no_grad():
         model.seq_target.left.weight.zero_()
     stored_input = input_cache.fetch(0)
     stored_output = output_cache.fetch(0)
     torch.testing.assert_close(stored_input["args"][0], saved_input)
-    torch.testing.assert_close(stored_output["target"][0], saved_target)
+    torch.testing.assert_close(stored_output["teacher_output"][0], saved_teacher_output)
     qad.on_finalize(state)
     assert not qad._input_caches and not qad._output_caches and not qad._hooks
 
@@ -275,7 +277,7 @@ def test_cache_replay_preserves_selected_batch_order():
             "args": input_entries[index]["args"],
             "kwargs": input_entries[index]["kwargs"],
             "links": IntermediateValue([], None),
-            "target": output_entries[index]["target"],
+            "teacher_output": output_entries[index]["teacher_output"],
         }
         for index in range(len(input_entries))
     ]
@@ -284,7 +286,7 @@ def test_cache_replay_preserves_selected_batch_order():
     assert len(replayed) == len(indices)
     for index, batch in zip(indices, replayed):
         torch.testing.assert_close(batch["args"][0], batches[index]["x"])
-        torch.testing.assert_close(batch["target"], reference(**batches[index]))
+        torch.testing.assert_close(batch["teacher_output"], reference(**batches[index]))
     qad.on_finalize(state)
     assert not qad._input_caches and not qad._output_caches
 
@@ -350,13 +352,13 @@ def test_batch_loss_uses_first_tuple_output(dtype):
     hidden = torch.ones(1, 2, 4, dtype=dtype)
     target = torch.zeros_like(hidden)
     qad = QADModifier()
-    batch = {"args": (), "kwargs": {}, "links": [], "target": target}
+    batch = {"args": (), "kwargs": {}, "links": [], "teacher_output": target}
     loss = qad._batch_loss([lambda: hidden], batch)
     assert loss.dtype == torch.float32
     assert loss == 1
     # Trailing outputs, such as MoE top-k indices, are not distilled
     extra = torch.ones(1, 2, 2, dtype=torch.long)
-    batch["target"] = (target, extra * 5)
+    batch["teacher_output"] = (target, extra * 5)
     assert qad._batch_loss([lambda: (hidden, extra)], batch) == loss
 
 
@@ -367,7 +369,7 @@ def test_batch_loss_chains_hidden_states():
         "kwargs": {},
         # A later target keeps its other inputs; its first input is recomputed
         "links": [{"args": (None, torch.full((2,), 3.0)), "kwargs": {"scale": 2}}],
-        "target": torch.full((2,), 10.0),
+        "teacher_output": torch.full((2,), 10.0),
     }
     first = lambda x: (x + 1, None)  # noqa: E731
     second = lambda hidden, shift, scale: hidden * scale + shift  # noqa: E731
@@ -540,10 +542,12 @@ def test_chain_caches_only_last_teacher_and_trains_every_target():
             first_output = qad._output_caches[model.first].fetch(index)
             second_input = qad._input_caches[model.second].fetch(index)
             second_output = qad._output_caches[model.second].fetch(index)
-            assert "target" not in first_output
+            assert "teacher_output" not in first_output
             # The first sequential target's output is recomputed rather than cached
             assert second_input["args"] == (None,)
-            torch.testing.assert_close(second_output["target"], reference(**batch))
+            torch.testing.assert_close(
+                second_output["teacher_output"], reference(**batch)
+            )
         quant.on_sequential_epoch_end(state, None, modules)
         # The first sequential target trains only through the second target's output
         norms = []

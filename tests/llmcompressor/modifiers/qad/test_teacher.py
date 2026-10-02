@@ -47,7 +47,7 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
                     output = ref_seq_target(
                         output, *inputs["args"][1:], **inputs["kwargs"]
                     )
-                torch.testing.assert_close(batch["target"], output)
+                torch.testing.assert_close(batch["teacher_output"], output)
             if kind == "rtn":
                 # RTN leaves weights unchanged, so the chain with quantization
                 # still disabled reproduces the teacher exactly
