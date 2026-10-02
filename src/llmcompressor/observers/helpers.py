@@ -158,9 +158,7 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-def fuse_weight_observers(
-    model: Module, modules: list[Module] | None = None
-):
+def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
 

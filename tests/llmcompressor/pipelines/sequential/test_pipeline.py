@@ -126,12 +126,8 @@ def test_layerwise_pipeline_decompresses_and_compresses_current_subgraph(
         "calibration_forward_context",
         lambda model: nullcontext(),
     )
-    monkeypatch.setattr(
-        pipeline, "DisableQuantization", lambda model: nullcontext()
-    )
-    monkeypatch.setattr(
-        pipeline, "subgraph_onload_modules", lambda modules: {}
-    )
+    monkeypatch.setattr(pipeline, "DisableQuantization", lambda model: nullcontext())
+    monkeypatch.setattr(pipeline, "subgraph_onload_modules", lambda modules: {})
     monkeypatch.setattr(
         pipeline, "subgraph_offload_modules", lambda modules, kwargs: None
     )
