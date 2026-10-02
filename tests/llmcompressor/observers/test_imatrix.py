@@ -4,6 +4,7 @@ from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.imatrix import _grid_search
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -149,6 +150,39 @@ class TestGlobalMinMaxTensorGroup:
 
         qparams = observer(module.weight).get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
+
+
+# ---------------------------------------------------------------------------
+# Grid-search update validation
+# ---------------------------------------------------------------------------
+
+
+class TestGridSearchUpdates:
+    def test_shape_mismatch_raises_clear_error(self, monkeypatch):
+        observed = torch.tensor([[[-1.0, 0.0, 1.0]]])
+        args = QuantizationArgs(
+            num_bits=4,
+            symmetric=True,
+            strategy="channel",
+        )
+
+        def fake_quantize_with_extra_channel(observed, *args, **kwargs):
+            return observed.expand(-1, 2, -1).clone()
+
+        monkeypatch.setattr(
+            "llmcompressor.observers.imatrix.fake_quantize",
+            fake_quantize_with_extra_channel,
+        )
+
+        with pytest.raises(RuntimeError, match="iMatrix grid-search shape mismatch"):
+            _grid_search(
+                observed,
+                args,
+                maxshrink=0,
+                patience=0,
+                grid=1,
+                norm=2.0,
+            )
 
 
 # ---------------------------------------------------------------------------
