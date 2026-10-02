@@ -11,7 +11,7 @@ from llmcompressor.utils import load_context
 MODEL_ID = "Qwen/Qwen3-30B-A3B"
 
 # Load the model with automatic device placement. Qwen3-30B-A3B fits on a
-# single 80 GB GPU in bfloat16 for this calibration setup.
+# single 80 GB GPU in bfloat16 for this setup.
 with load_context():
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
