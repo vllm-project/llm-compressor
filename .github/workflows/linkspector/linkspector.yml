@@ -2,6 +2,7 @@ aliveStatusCodes:
   - 0
   - 200
   - 429 #include 429 in case we are being rate-limited
+  - 503 # include 503 for transient upstream service unavailability (e.g., GitHub blob pages)
 
 ignorePatterns:
   - pattern: '.*localhost.*'
