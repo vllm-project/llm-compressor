@@ -5,6 +5,7 @@ from weakref import WeakKeyDictionary
 
 import torch
 import tqdm
+from compressed_tensors.offload import get_execution_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -196,7 +197,8 @@ def repack_moe_layer(
     subgraph_modules: dict[str, torch.nn.Module] | None = None,
     offload_kwargs: dict[str, dict] | None = None,
 ) -> None:
-    fused = module.to_experts_module()
+    construction_device = get_execution_device(module)
+    fused = module.to_experts_module(construction_device=construction_device)
     _replace(model, name, module, fused, subgraph_modules)
 
     # Delete stale children
@@ -271,10 +273,16 @@ def linearize_moe_layer(
 
     config = getattr(module, "config", model.config)
     linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-    linear_moe = linear_experts_cls.from_experts_module(module, config)
+    construction_device = get_execution_device(module)
+    linear_moe = linear_experts_cls.from_experts_module(
+        module, config, construction_device=construction_device
+    )
     _replace(model, name, module, linear_moe, subgraph_modules)
 
     if subgraph_modules is not None:
+        for child_name in list(subgraph_modules):
+            if child_name.startswith(f"{name}."):
+                del subgraph_modules[child_name]
         subgraph_modules.update(
             {
                 f"{name}.{relative_name}": child
@@ -283,14 +291,19 @@ def linearize_moe_layer(
             }
         )
 
-    if offload_kwargs is not None and name in offload_kwargs:
-        offload_kwargs.update(
-            {
-                f"{name}.{relative_name}": offload_kwargs[name]
-                for relative_name, _ in linear_moe.named_modules()
-                if relative_name
-            }
-        )
+    if offload_kwargs is not None:
+        for child_name in list(offload_kwargs):
+            if child_name.startswith(f"{name}."):
+                offload_kwargs.setdefault(name, offload_kwargs[child_name])
+                del offload_kwargs[child_name]
+        if name in offload_kwargs:
+            offload_kwargs.update(
+                {
+                    f"{name}.{relative_name}": offload_kwargs[name]
+                    for relative_name, _ in linear_moe.named_modules()
+                    if relative_name
+                }
+            )
 
 
 def _replace(

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
+from compressed_tensors.offload import get_execution_device
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -260,9 +261,20 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
+        construction_device: torch.device | str | None = None,
     ):
-        with skip_weights_initialize():
+        """Build 2D experts on the requested device.
+
+        :param construction_device: device for the new module. Defaults to the
+            source experts' execution device.
+        """
+        if construction_device is None:
+            construction_device = get_execution_device(experts)
+
+        with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
         for index in range(self.num_experts):
@@ -282,10 +294,15 @@ class LinearExperts2D(torch.nn.ModuleList):
         self._source_config = config
 
     @torch.no_grad()
-    def to_experts_module(self) -> FusedExpertsProtocol:
+    def to_experts_module(
+        self, construction_device: torch.device | str | None = None
+    ) -> FusedExpertsProtocol:
         """
         Pack this linearized experts module back into the native fused 3D experts
         module it was created from.
+
+        :param construction_device: device on which to construct the fused module.
+            Defaults to this module's execution device.
 
         Dense experts (still have ``weight``) restore native fused Parameters
         and fuse any extra qparams alongside. Compressed experts (no
@@ -294,13 +311,12 @@ class LinearExperts2D(torch.nn.ModuleList):
         """
         experts_cls, config = self._require_source_metadata()
         pack_mode = self._expert_pack_mode()
+        if construction_device is None:
+            construction_device = get_execution_device(self)
 
-        with skip_weights_initialize():
+        with torch.device(construction_device), skip_weights_initialize():
             fused: FusedExpertsProtocol = experts_cls(config)
 
-        first_param = next(self.parameters(), None)
-        if first_param is not None:
-            fused.to(device=first_param.device)
         float_param = next(
             (
                 param

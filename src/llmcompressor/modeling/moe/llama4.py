@@ -1,4 +1,5 @@
 import torch
+from compressed_tensors.offload import get_execution_device
 from transformers.activations import ACT2FN
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
@@ -24,7 +25,12 @@ class Llama4LinearExperts(LinearExperts2D):
 
     @classmethod
     @torch.no_grad()
-    def from_experts_module(cls, experts: "Llama4TextExperts", config: Llama4Config):
+    def from_experts_module(
+        cls,
+        experts: "Llama4TextExperts",
+        config: Llama4Config,
+        construction_device: torch.device | str | None = None,
+    ):
         # linearize.py may already pass Llama4TextConfig via get_text_config().
         if hasattr(config, "text_config"):
             config = config.text_config
@@ -33,8 +39,10 @@ class Llama4LinearExperts(LinearExperts2D):
         experts.is_transposed = cls.is_transposed
         experts.has_bias = cls.has_bias
         experts.has_gate = cls.has_gate
+        if construction_device is None:
+            construction_device = get_execution_device(experts)
 
-        with skip_weights_initialize():
+        with torch.device(construction_device), skip_weights_initialize():
             self = cls(
                 experts.num_experts,
                 experts.hidden_size,
