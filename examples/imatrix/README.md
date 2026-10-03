@@ -4,7 +4,7 @@
 
 When configured as a weight observer, `imatrix_mse` collects E[x²] per input channel during calibration via forward pre-hooks and uses importance weighting in the MSE grid search: `err = sum(importance * |Q(w) - w|^p)`.
 
-> See [RFC #2456](https://github.com/vllm-project/llm-compressor/discussions/2456) for the full design discussion.
+> See [RFC #2456](https://github.com/vllm-project/llm-compressor/issues/2456) for the full design discussion.
 
 ## Quickstart
 
