@@ -10,7 +10,7 @@ from compressed_tensors.entrypoints.convert import convert_checkpoint
 from llmcompressor.entrypoints.converter import ExpertPruner
 
 MODEL_ID = "RedHatAI/DeepSeek-V4-Flash-0731-NVFP4"
-REPORT_PATH = "dsv4_report.json"
+REPORT_PATH = "dsv4_swe_report.json"
 SPARSITY = 0.25
 
 # Prune the 25% least salient experts from every layer (128 -> 96 experts).
@@ -21,8 +21,17 @@ SPARSITY = 0.25
 #   metric="magnitude":          rank experts by router weight magnitude (no
 #                                report required)
 # With uniform=False, the 25% least salient experts across all layers are pruned
-# instead, so layers may retain different numbers of experts. These per -layer
+# instead, so layers may retain different numbers of experts. These per-layer
 # counts are recorded in `quantization_config.layer_overrides`.
+#
+# DeepSeek-V4 carries two auxiliary router tensors per layer that must be pruned
+# alongside the router weight (handled by the default aux_pattern / index_pattern):
+#   ffn.gate.bias     [num_experts]            routing bias, sliced by retained experts
+#   ffn.gate.tid2eid  [vocab, num_experts_per_tok]
+#                     hash-routing table whose VALUES are expert indices, remapped
+#                     to the renumbered experts. The first `num_hash_layers` layers
+#                     route statically via this table; uniform=False protects those
+#                     layers from pruning (uniform=True would raise on them).
 pruner = ExpertPruner.from_pretrained(
     MODEL_ID,
     sparsity=SPARSITY,
@@ -34,9 +43,9 @@ pruner = ExpertPruner.from_pretrained(
 )
 
 SAVE_DIR = (
-    "/data/kylesayrs/hub/"
+    "/data/kylesayrs/"
     + MODEL_ID.rstrip("/").split("/")[-1]
-    + f"-REAP-{int(SPARSITY * 100)}-nonuniform"
+    + f"-REAP-{int(SPARSITY * 100)}-swe-nonuniform"
 )
 convert_checkpoint(
     model_stub=MODEL_ID,

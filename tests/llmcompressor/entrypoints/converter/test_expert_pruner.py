@@ -24,6 +24,7 @@ from llmcompressor.entrypoints.converter.expert_pruner import (
     _compute_retained_experts_nonuniform,
     _magnitude_scores,
     _natural_sort_key,
+    _remap_expert_indices,
     _report_scores,
 )
 
@@ -46,15 +47,31 @@ def _write_checkpoint(
     num_experts_per_tok=2,
     num_experts_key="num_experts",
     text_config=False,
+    with_bias=False,
+    hash_layers=0,
+    vocab=10,
 ):
     """Write a tiny synthetic MoE checkpoint (config.json + model.safetensors).
 
     Every weight of expert ``e`` is filled with ``e`` so tests can check which
-    original expert ended up at each position after pruning."""
+    original expert ended up at each position after pruning.
+
+    ``with_bias`` adds a per-expert ``gate.bias`` (filled with the expert index).
+    ``hash_layers`` makes the first N layers carry a ``gate.tid2eid`` expert-index
+    table of shape ``[vocab, num_experts_per_tok]``."""
     tensors = {}
     for layer in range(n_layers):
         prefix = f"model.layers.{layer}.mlp"
         tensors[f"{prefix}.gate.weight"] = torch.randn(n_experts, hidden)
+        if with_bias:
+            tensors[f"{prefix}.gate.bias"] = torch.arange(
+                n_experts, dtype=torch.float32
+            )
+        if layer < hash_layers:
+            top_k = num_experts_per_tok or 2
+            # cycle expert ids so values stay within [0, n_experts)
+            table = torch.arange(vocab * top_k, dtype=torch.int64) % n_experts
+            tensors[f"{prefix}.gate.tid2eid"] = table.view(vocab, top_k)
         if layout == "2d":
             for expert in range(n_experts):
                 for proj in ("gate_proj", "up_proj", "down_proj"):
@@ -588,6 +605,144 @@ def test_nonuniform_convert_checkpoint(tmp_path, layout):
             assert all(out[n].shape[0] == count for n in expert_names)
         else:
             assert {extract_expert_index(n) for n in expert_names} == set(range(count))
+
+
+# ---------------------------------------------------------------------------
+# Auxiliary router tensors: per-expert bias + hash-routing index table
+# ---------------------------------------------------------------------------
+
+
+def test_remap_expert_indices_renumbers_values():
+    # keep experts 1, 4, 6 -> they become 0, 1, 2; values are remapped in place
+    table = torch.tensor([[1, 4], [6, 1], [4, 6]], dtype=torch.int64)
+    out = _remap_expert_indices(table, retained=[1, 4, 6])
+    assert out.tolist() == [[0, 1], [2, 0], [1, 2]]
+    assert out.dtype == torch.int64
+
+
+def test_remap_expert_indices_rejects_pruned_reference():
+    # value 3 refers to a pruned expert and has no new index
+    table = torch.tensor([[0, 3]], dtype=torch.int64)
+    with pytest.raises(ValueError, match="pruned expert"):
+        _remap_expert_indices(table, retained=[0, 1, 2])
+
+
+def test_bias_is_sliced_by_retained_experts(tmp_path):
+    _write_checkpoint(tmp_path, n_layers=1, n_experts=8, with_bias=True)
+    report = tmp_path / "r.json"
+    # expert e has saliency 8-e, so experts 6, 7 are the least salient
+    _descending_report(report, 1, 8)
+
+    pruner = _pruner(
+        tmp_path, sparsity=0.25, metric="saliency", saliency_report_path=report
+    )
+    out = pruner.validate(_load_all(tmp_path / "model.safetensors"))
+
+    bias = out["model.layers.0.mlp.gate.bias"]
+    # bias[e] == e in the source, so retained experts 0..5 keep their values
+    assert bias.tolist() == [0, 1, 2, 3, 4, 5]
+    assert out["model.layers.0.mlp.gate.weight"].shape[0] == 6
+
+
+def test_bias_renumbered_to_match_experts(tmp_path):
+    # keep experts 1, 4, 6, 7 -> bias must reorder to [1, 4, 6, 7]
+    _write_checkpoint(tmp_path, n_layers=1, n_experts=8, with_bias=True)
+    report = tmp_path / "r.json"
+    _write_report(report, [[0.0, 5.0, 0.1, 0.2, 6.0, 0.3, 7.0, 8.0]])
+
+    pruner = _pruner(
+        tmp_path, sparsity=0.5, metric="saliency", saliency_report_path=report
+    )
+    out = pruner.validate(_load_all(tmp_path / "model.safetensors"))
+    assert out["model.layers.0.mlp.gate.bias"].tolist() == [1, 4, 6, 7]
+
+
+def test_bias_pattern_none_leaves_bias_untouched(tmp_path):
+    _write_checkpoint(tmp_path, n_layers=1, n_experts=8, with_bias=True)
+    report = tmp_path / "r.json"
+    _descending_report(report, 1, 8)
+
+    pruner = _pruner(
+        tmp_path,
+        sparsity=0.25,
+        metric="saliency",
+        saliency_report_path=report,
+        aux_pattern=None,
+    )
+    out = pruner.process(_load_all(tmp_path / "model.safetensors"))
+    # bias passes straight through, full length
+    assert out["model.layers.0.mlp.gate.bias"].shape[0] == 8
+
+
+def test_uniform_rejects_hash_layers(tmp_path):
+    _write_checkpoint(
+        tmp_path, n_layers=3, n_experts=8, num_experts_per_tok=2, hash_layers=1
+    )
+    report = tmp_path / "r.json"
+    _descending_report(report, 3, 8)
+    with pytest.raises(ValueError, match="statically"):
+        _pruner(
+            tmp_path,
+            sparsity=0.25,
+            metric="saliency",
+            uniform=True,
+            saliency_report_path=report,
+        )
+
+
+def test_nonuniform_protects_hash_layers(tmp_path):
+    # layer 0 is a hash layer (has tid2eid) and must keep all its experts, even
+    # though its experts are the globally least salient
+    _write_checkpoint(
+        tmp_path, n_layers=3, n_experts=8, num_experts_per_tok=2, hash_layers=1
+    )
+    report = tmp_path / "r.json"
+    _skewed_report(report, 3, 8, low_layer=0)
+
+    pruner = _pruner(
+        tmp_path,
+        sparsity=0.25,
+        metric="saliency",
+        uniform=False,
+        saliency_report_path=report,
+    )
+    hash_router = "model.layers.0.mlp.gate.weight"
+    assert hash_router in pruner.hash_routers
+    # all 8 experts retained in the hash layer; pruning spent on layers 1, 2
+    assert pruner.retained_experts[hash_router] == list(range(8))
+    # budget = round(0.25 * 16) = 4 over the two learned layers
+    pruned = sum(8 - len(pruner.retained_experts[r]) for r in pruner.retained_experts)
+    assert pruned == 4
+
+
+def test_tid2eid_remapped_on_convert(tmp_path):
+    # a hash layer keeps all experts, so tid2eid values are unchanged (identity
+    # remap); a learned layer gets pruned and renumbered independently
+    src = tmp_path / "src"
+    src.mkdir()
+    _write_checkpoint(
+        src, n_layers=2, n_experts=8, num_experts_per_tok=2, hash_layers=1
+    )
+    report = src / "r.json"
+    # layer 1 (learned) least salient so the budget is spent there
+    _skewed_report(report, 2, 8, low_layer=1)
+
+    before = _load_all(src / "model.safetensors")
+    pruner = _pruner(
+        src,
+        sparsity=0.25,
+        metric="saliency",
+        uniform=False,
+        saliency_report_path=report,
+    )
+    save_dir = tmp_path / "pruned"
+    convert_checkpoint(model_stub=src, save_directory=save_dir, converter=pruner)
+    out = _load_all(save_dir / "model.safetensors")
+
+    # hash layer untouched: all experts kept, table values identical and valid
+    table = out["model.layers.0.mlp.gate.tid2eid"]
+    assert torch.equal(table, before["model.layers.0.mlp.gate.tid2eid"])
+    assert int(table.max()) < out["model.layers.0.mlp.gate.weight"].shape[0]
 
 
 # ---------------------------------------------------------------------------

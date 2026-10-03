@@ -54,8 +54,33 @@ class ExpertPruner(Converter):
     count to the model config, while non-uniform pruning records per-layer
     counts in the quantization config's ``layer_overrides``.
 
+    Besides the router weight, a layer may carry auxiliary router tensors whose
+    shape or contents depend on the expert count. These are pruned alongside the
+    router:
+
+    - **per-expert vectors** (``aux_pattern``), e.g. a routing-bias such as
+      DeepSeek's ``ffn.gate.bias`` (``e_score_correction_bias``) with shape
+      ``[num_experts]``. Sliced along dim 0 by the retained expert indices,
+      exactly like the router weight's rows.
+    - **expert-index tables** (``index_pattern``), e.g. DeepSeek's hash-routing
+      ``ffn.gate.tid2eid`` with shape ``[vocab, num_experts_per_tok]`` whose
+      *values* are expert indices. The values are remapped from old to new
+      expert indices after renumbering. A layer carrying such a table is a hash
+      (statically routed) layer: see the hash-layer handling below.
+
+    Hash layers route each token to a fixed set of experts via a lookup table
+    rather than a learned top-k, so experts cannot be redistributed after
+    pruning. With ``uniform=True`` any hash layer makes pruning ambiguous and
+    raises. With ``uniform=False`` every expert in a hash layer is protected
+    (never pruned), so its table stays valid and the global budget is spent on
+    the remaining learned-routing layers.
+
     :param router_pattern: regex matching router weight tensor names
     :param expert_pattern: regex matching expert weight tensor names
+    :param aux_pattern: regex matching per-expert router vectors (e.g. routing
+        bias) that must be sliced along dim 0 by retained expert indices
+    :param index_pattern: regex matching expert-index tables (e.g. a hash
+        routing table) whose values are expert indices to be remapped
     :param sparsity: fraction of experts to prune, in [0, 1]
     :param uniform: whether the same number of experts is pruned from every layer
     :param num_experts_config_key: config.json attribute name for expert count
@@ -63,6 +88,10 @@ class ExpertPruner(Converter):
         expert indices (sorted). Built by :meth:`from_pretrained`.
     :param expert_to_router: mapping of expert tensor name -> associated router
         tensor name. Built by :meth:`from_pretrained`.
+    :param aux_to_router: mapping of auxiliary tensor name (bias or index table)
+        -> associated router tensor name. Built by :meth:`from_pretrained`.
+    :param hash_routers: set of router names whose layer routes statically via an
+        expert-index table (``index_pattern``). Built by :meth:`from_pretrained`.
     :param expert_indices: for 2D experts, mapping of tensor name -> expert
         index. Empty for 3D experts.
     :param is_3d: whether expert weights are 3D stacked tensors
@@ -80,6 +109,8 @@ class ExpertPruner(Converter):
         uniform: bool = True,
         router_pattern: str = r"mlp\.gate\.weight$",
         expert_pattern: str = r"mlp\.experts\.(gate_up_proj|down_proj)",
+        aux_pattern: str | None = r"(?:mlp|ffn)\.gate\.bias$",
+        index_pattern: str | None = r"(?:mlp|ffn)\.gate\.tid2eid$",
         num_experts_config_key: str | None = None,
         saliency_report_path: str | None = None,
     ) -> ExpertPruner:
@@ -106,6 +137,13 @@ class ExpertPruner(Converter):
             quantization config's ``layer_overrides``
         :param router_pattern: regex matching router weight tensor names
         :param expert_pattern: regex matching expert weight tensor names
+        :param aux_pattern: regex matching per-expert router vectors (e.g.
+            ``ffn.gate.bias``) sliced along dim 0 by retained experts. ``None``
+            disables auxiliary-vector pruning
+        :param index_pattern: regex matching expert-index tables (e.g.
+            ``ffn.gate.tid2eid``) whose values are remapped to new expert
+            indices. A layer with such a table is treated as a hash layer.
+            ``None`` disables index-table handling
         :param num_experts_config_key: config.json key holding the expert count.
             If None, auto-detected from config.json.
         :param saliency_report_path: path to the ``.json`` report written by
@@ -124,6 +162,8 @@ class ExpertPruner(Converter):
 
         router_re = re.compile(router_pattern)
         expert_re = re.compile(expert_pattern)
+        aux_re = re.compile(aux_pattern) if aux_pattern else None
+        index_re = re.compile(index_pattern) if index_pattern else None
 
         model_files = get_checkpoint_files(model_name_or_path)
         weight_map = get_weight_map(model_files)
@@ -152,6 +192,18 @@ class ExpertPruner(Converter):
         # dot-separated prefix
         expert_to_router = build_expert_to_router_map(expert_names, router_names)
 
+        # collect auxiliary router tensors (per-expert vectors and expert-index
+        # tables) and associate each with its router by common prefix
+        aux_names = [n for n in weight_map if aux_re and aux_re.search(n)]
+        index_names = [n for n in weight_map if index_re and index_re.search(n)]
+        aux_to_router = build_expert_to_router_map(
+            aux_names + index_names, router_names
+        )
+
+        # a router whose layer carries an expert-index table routes statically
+        # (hash routing), so its experts cannot be redistributed after pruning
+        hash_routers = {aux_to_router[n] for n in index_names}
+
         # detect 2D vs 3D and extract expert indices for 2D
         expert_indices, is_3d = _detect_moe_layout(
             expert_names, weight_map, model_files
@@ -166,10 +218,21 @@ class ExpertPruner(Converter):
             )
 
         if uniform:
+            if hash_routers:
+                raise ValueError(
+                    f"{len(hash_routers)} layer(s) route statically via an "
+                    f"expert-index table ({index_pattern!r}); these experts are "
+                    "selected discretely and cannot be redistributed after "
+                    "pruning. Use uniform=False to prune only the learned-routing "
+                    "layers while protecting the hash layers"
+                )
             retained_experts = _compute_retained_experts(scores_by_router, sparsity)
         else:
             retained_experts = _compute_retained_experts_nonuniform(
-                scores_by_router, sparsity, floor=num_experts_per_tok or 1
+                scores_by_router,
+                sparsity,
+                floor=num_experts_per_tok or 1,
+                protected=hash_routers,
             )
 
         if num_experts_per_tok is not None:
@@ -191,12 +254,16 @@ class ExpertPruner(Converter):
         instance = cls.__new__(cls)
         instance.router_pattern = router_re
         instance.expert_pattern = expert_re
+        instance.aux_pattern = aux_re
+        instance.index_pattern = index_re
         instance.sparsity = sparsity
         instance.uniform = uniform
         instance.metric = metric
         instance.num_experts_config_key = num_experts_config_key
         instance.retained_experts = retained_experts
         instance.expert_to_router = expert_to_router
+        instance.aux_to_router = aux_to_router
+        instance.hash_routers = hash_routers
         instance.expert_indices = expert_indices
         instance.is_3d = is_3d
         instance.num_experts_per_tok = num_experts_per_tok
@@ -229,6 +296,20 @@ class ExpertPruner(Converter):
                     new_name = renumber_expert_name(name, expert_idx, new_idx)
                     result[new_name] = tensor
 
+            elif self.index_pattern is not None and self.index_pattern.search(name):
+                # expert-index table (e.g. tid2eid): values are expert indices,
+                # remap each from its old index to its new (renumbered) index
+                router_name = self.aux_to_router[name]
+                retained = self.retained_experts[router_name]
+                result[name] = _remap_expert_indices(tensor, retained).contiguous()
+
+            elif self.aux_pattern is not None and self.aux_pattern.search(name):
+                # per-expert vector (e.g. routing bias): slice dim 0 by retained
+                router_name = self.aux_to_router[name]
+                retained = self.retained_experts[router_name]
+                idx = torch.tensor(retained, dtype=torch.long, device=tensor.device)
+                result[name] = tensor[idx].contiguous()
+
             else:
                 result[name] = tensor
 
@@ -238,6 +319,27 @@ class ExpertPruner(Converter):
         out = self.process(tensors)
 
         for name, tensor in out.items():
+            if self.index_pattern is not None and self.index_pattern.search(name):
+                # all expert indices must point into the retained range (skip on
+                # meta tensors, which carry no values to check)
+                k = len(self.retained_experts[self.aux_to_router[name]])
+                if not tensor.is_meta and tensor.numel() and int(tensor.max()) >= k:
+                    raise ValueError(
+                        f"{name}: expert-index table references expert "
+                        f"{int(tensor.max())} but only {k} experts are retained"
+                    )
+                continue
+
+            if self.aux_pattern is not None and self.aux_pattern.search(name):
+                # per-expert vector must have one entry per retained expert
+                expected = len(self.retained_experts[self.aux_to_router[name]])
+                if tensor.shape[0] != expected:
+                    raise ValueError(
+                        f"{name}: expected {expected} entries after prune, "
+                        f"got {tensor.shape[0]}"
+                    )
+                continue
+
             if not self.expert_pattern.search(name):
                 continue
 
@@ -479,20 +581,33 @@ def _compute_retained_experts_nonuniform(
     scores_by_router: dict[str, torch.Tensor],
     sparsity: float,
     floor: int = 1,
+    protected: set[str] | None = None,
 ) -> dict[str, list[int]]:
     """
     Return the retained expert indices (sorted) per router after pruning the
     ``round(sparsity * total_experts)`` lowest-scoring experts across all
     routers. No router is taken below ``floor`` retained experts (the router's
     per-token selection count), so the budget may not be fully spent.
+
+    Routers in ``protected`` (e.g. statically-routed hash layers) keep all of
+    their experts and are excluded from both the pruning budget and the
+    candidate pool.
     """
-    total_experts = sum(scores.shape[0] for scores in scores_by_router.values())
+    protected = protected or set()
+
+    # protected routers do not contribute to the budget nor the candidate pool
+    total_experts = sum(
+        scores.shape[0]
+        for rname, scores in scores_by_router.items()
+        if rname not in protected
+    )
     budget = round(sparsity * total_experts)
 
     # (score, router, expert), ascending, so the lowest scores are pruned first
     candidates = sorted(
         (score, rname, expert_idx)
         for rname, scores in scores_by_router.items()
+        if rname not in protected
         for expert_idx, score in enumerate(scores.tolist())
     )
 
@@ -517,3 +632,37 @@ def _compute_retained_experts_nonuniform(
         rname: [i for i in range(scores.shape[0]) if i not in pruned[rname]]
         for rname, scores in scores_by_router.items()
     }
+
+
+def _remap_expert_indices(
+    table: torch.Tensor, retained: list[int]
+) -> torch.Tensor:
+    """
+    Remap the values of an expert-index table (e.g. ``tid2eid``) from old expert
+    indices to their new (renumbered) positions. ``retained[new] == old``, so
+    the inverse ``old -> new`` map is built and applied element-wise.
+
+    References to pruned experts have no valid new index. They are only reachable
+    if a statically-routed (hash) layer had experts pruned; such layers are
+    protected upstream, so this is an internal invariant. If one is found, it is
+    an error rather than a silent reassignment.
+    """
+    # `validate` runs on meta tensors (no data); the remap needs real values, so
+    # return a same-shape placeholder and defer correctness to `process`
+    if table.is_meta:
+        return torch.empty_like(table)
+
+    max_old = max(int(table.max()) if table.numel() else 0, max(retained))
+    old_to_new = torch.full(
+        (max_old + 1,), -1, dtype=table.dtype, device=table.device
+    )
+    for new_idx, old_idx in enumerate(retained):
+        old_to_new[old_idx] = new_idx
+
+    remapped = old_to_new[table.long()].to(table.dtype)
+    if bool((remapped < 0).any()):
+        raise ValueError(
+            "expert-index table references a pruned expert; statically-routed "
+            "layers must retain all experts"
+        )
+    return remapped
