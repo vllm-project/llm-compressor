@@ -317,8 +317,22 @@ class DatasetArguments(CustomDatasetArguments):
             "sequential pipeline."
         },
     )
+    moe_lazy_linearization_and_repack: bool = field(
+        default=True,
+        metadata={
+            "help": "When using the sequential pipeline, linearize MoE layers to 2D "
+            "before calibration. Set False to linearize upfront. If you intend to "
+            "use individual experts as sequential targets, set this to False. Note "
+            "that this argument is only relevant for MoE models with 3d weights or "
+            "missing linearization mappings. Default is True."
+        },
+    )
+    repack_moe_layers: bool = field(
+        default=True,
+        metadata={"help": "Repack moe layers to 3D after calibration."},
+    )
     stage_weights_in_pinned_memory: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "When using the sequential pipeline, stage offloaded module "
             "tensors in pinned CPU memory before onloading them to the execution "

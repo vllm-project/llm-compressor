@@ -20,7 +20,11 @@ from llmcompressor.modeling.moe.helpers import (
     _getattr_fallbacks,
     import_or_none,
 )
-from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
+from llmcompressor.modeling.moe.linearize import (
+    _replace,
+    linearize_moe,
+    load_quantizable_moe,
+)
 from tests.testing_utils import requires_gpu
 
 NUM_TEST_TOKENS = 64
@@ -153,6 +157,20 @@ def assert_keys_exist(model_path: Path, keys: list[str]):
             all_keys.update(f.keys())
 
     assert keys <= all_keys, all_keys
+
+
+@pytest.mark.unit
+def test_replace_releases_detached_module_storage():
+    model = torch.nn.Module()
+    old_module = torch.nn.Linear(4, 4)
+    new_module = torch.nn.Linear(4, 4)
+    model.experts = old_module
+
+    _replace(model, "experts", old_module, new_module, {"experts": old_module})
+
+    assert model.experts is new_module
+    assert all(parameter.device.type == "meta" for parameter in old_module.parameters())
+    assert all(parameter.device.type == "cpu" for parameter in new_module.parameters())
 
 
 class DummyModel(torch.nn.Module):
