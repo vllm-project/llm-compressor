@@ -301,12 +301,20 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
+        construction_device: torch.device | str | None = None,
     ):
-        # Offloaded parameters are represented by meta tensors while onloading is
-        # disabled. Construct on the module's execution device instead of using a
-        # parameter's storage device so copying from the source works reliably.
-        construction_device = get_execution_device(experts)
+        """Build 2D experts on the requested device.
+
+        :param construction_device: device for the new module. Defaults to the
+            source experts' execution device.
+        """
+        if construction_device is None:
+            # Offloaded parameters may be meta tensors while onloading is disabled.
+            # Construct on the execution device so copying from the source works.
+            construction_device = get_execution_device(experts)
         with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
@@ -327,10 +335,15 @@ class LinearExperts2D(torch.nn.ModuleList):
         self._source_config = config
 
     @torch.no_grad()
-    def to_experts_module(self) -> FusedExpertsProtocol:
+    def to_experts_module(
+        self, construction_device: torch.device | str | None = None
+    ) -> FusedExpertsProtocol:
         """
         Pack this linearized experts module back into the native fused 3D experts
         module it was created from.
+
+        :param construction_device: device on which to construct the fused module.
+            Defaults to this module's execution device.
 
         Dense experts (still have ``weight``) restore native fused Parameters
         and fuse any extra qparams alongside. Compressed experts (no
@@ -344,10 +357,10 @@ class LinearExperts2D(torch.nn.ModuleList):
         experts_cls, config = self._require_source_metadata()
         config = _narrowed_config(config, self.num_experts)
         pack_mode = self._expert_pack_mode()
-
         # ``self.parameters()`` may yield meta tensors for a disk-offloaded module.
         # Use the configured onload device when constructing the replacement.
-        construction_device = get_execution_device(self)
+        if construction_device is None:
+            construction_device = get_execution_device(self)
         with torch.device(construction_device), skip_weights_initialize():
             fused: FusedExpertsProtocol = experts_cls(config)
 
