@@ -305,7 +305,10 @@ def test_postprocess_qparams_applies_autoround_decision_with_regex_targets(
 
 
 def test_build_layer_config_for_autoround_ignores_kv_cache_only_scheme():
-    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    # The fake layer is narrower than one W4A16 group; divisibility is not under test.
+    modifier = AutoRoundModifier(
+        ignore=["lm_head"], iters=0, scheme="W4A16", bypass_divisibility_checks=True
+    )
     layer = _FakeDecoderLayer()
     modifier.initialize_quantization(layer)
     layer.k_proj.quantization_scheme = QuantizationScheme(
