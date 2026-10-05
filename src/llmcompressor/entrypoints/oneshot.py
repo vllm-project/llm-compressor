@@ -259,6 +259,8 @@ class Oneshot:
             stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
+            if self.use_eager_attention:
+                stack.enter_context(use_eager_attention(self.model))
 
             session.initialize(
                 model=self.model,
@@ -274,9 +276,6 @@ class Oneshot:
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
-
-            if self.use_eager_attention:
-                stack.enter_context(use_eager_attention(self.model))
 
             pipeline(
                 self.model,
@@ -461,8 +460,7 @@ def oneshot(
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
-        ['basic', 'datafree', 'sequential', 'independent']. In sequential calibration,
-        decoder-only causal models treat `attention_mask` as `None`.
+        ['basic', 'datafree', 'sequential', 'independent']
     :param use_eager_attention: Whether to force eager attention during tracing and
         calibration. By default, the model's configured attention implementation is
         used for both.

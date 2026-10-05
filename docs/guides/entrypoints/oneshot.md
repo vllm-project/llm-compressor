@@ -126,23 +126,6 @@ The `pipeline` argument controls how calibration forward passes are run through 
 | `datafree` | Runs initialization and finalization without any forward passes | Data-free weight-only quantization |
 | `basic` | Single set of forward passes shared across all modifiers | Simple post-hoc calibration |
 
-### Attention in Sequential Calibration
-
-The sequential pipeline traces model subgraphs with FX. Transformers attention dispatch
-contains runtime choices that FX cannot resolve from symbolic inputs, so tracing keeps
-the attention call opaque and resolves the model's configured attention implementation
-when the traced graph runs. A meta shape override lets FX propagate tensor shapes
-without running the attention kernel during tracing.
-
-For decoder-only causal models, sequential tracing omits `attention_mask` and treats it
-as `None`, even if calibration batches provide a mask. Tracing a mask as an FX proxy
-prevents the model from selecting its mask-free causal attention path. Padding masks
-are therefore ignored during sequential calibration.
-
-Set `use_eager_attention=True` to force eager attention during tracing and calibration.
-This does not disable FX tracing, and eager attention still creates an explicit causal
-mask, which can use memory proportional to the square of the sequence length.
-
 ## Examples
 
 ### FP8 Data-Free Quantization

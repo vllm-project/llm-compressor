@@ -146,10 +146,10 @@ def trace_subgraphs(
     # passed. Keeping attention_mask as a traced input makes the mask-dependent backend
     # selection an FX Proxy. Omit it from the trace contract on this path; eager
     # attention still receives the mask and builds its explicit causal mask from it.
-    implementation = getattr(
+    implementation: str | None = getattr(
         getattr(model, "config", None), "_attn_implementation", None
     )
-    using_eager_attention = eager_attention or implementation == "eager"
+    using_eager_attention: bool = eager_attention or implementation == "eager"
     if _is_causal_lm_model(model) and not using_eager_attention:
         sample_input = {
             name: value

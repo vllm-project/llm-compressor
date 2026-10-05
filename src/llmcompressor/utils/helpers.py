@@ -123,9 +123,7 @@ def disable_hf_kernels(module: torch.nn.Module):
 
 
 @contextlib.contextmanager
-def calibration_forward_context(
-    model: torch.nn.Module, eager_attention: bool = False
-):
+def calibration_forward_context(model: torch.nn.Module, eager_attention: bool = False):
     """
     Context in which all calibration forward passes should occur.
 
