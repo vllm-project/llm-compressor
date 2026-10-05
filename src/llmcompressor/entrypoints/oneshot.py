@@ -276,18 +276,13 @@ class Oneshot:
             )
 
             if self.use_eager_attention:
-                with use_eager_attention(self.model):
-                    pipeline(
-                        self.model,
-                        calibration_dataloader,
-                        self.dataset_args,
-                    )
-            else:
-                pipeline(
-                    self.model,
-                    calibration_dataloader,
-                    self.dataset_args,
-                )
+                stack.enter_context(use_eager_attention(self.model))
+
+            pipeline(
+                self.model,
+                calibration_dataloader,
+                self.dataset_args,
+            )
 
         session.finalize()
 
