@@ -106,6 +106,7 @@ shows how to migrate from `preprocessing_func`.
 | `sequential_offload_device` | `str` | `"cpu"` | Device to offload intermediate activations between sequential layers. Use `"cuda:1"` if a second GPU is available |
 | `quantization_aware_calibration` | `bool` | `True` | Apply quantization during the calibration forward pass in the sequential pipeline |
 | `stage_weights_in_pinned_memory` | `bool` | `False` | Stage offloaded module tensors in pinned CPU memory before onloading them |
+| `use_eager_attention` | `bool` | `False` | Force eager attention during tracing and calibration instead of using the model's configured attention implementation |
 
 ### Miscellaneous Arguments
 
@@ -124,6 +125,23 @@ The `pipeline` argument controls how calibration forward passes are run through 
 | `sequential` | Runs calibration layer-by-layer, offloading intermediate activations between layers | Large models that don't fit in GPU memory |
 | `datafree` | Runs initialization and finalization without any forward passes | Data-free weight-only quantization |
 | `basic` | Single set of forward passes shared across all modifiers | Simple post-hoc calibration |
+
+### Attention in Sequential Calibration
+
+The sequential pipeline traces model subgraphs with FX. Transformers attention dispatch
+contains runtime choices that FX cannot resolve from symbolic inputs, so tracing keeps
+the attention call opaque and resolves the model's configured attention implementation
+when the traced graph runs. A meta shape override lets FX propagate tensor shapes
+without running the attention kernel during tracing.
+
+For decoder-only causal models, sequential tracing omits `attention_mask` and treats it
+as `None`, even if calibration batches provide a mask. Tracing a mask as an FX proxy
+prevents the model from selecting its mask-free causal attention path. Padding masks
+are therefore ignored during sequential calibration.
+
+Set `use_eager_attention=True` to force eager attention during tracing and calibration.
+This does not disable FX tracing, and eager attention still creates an explicit causal
+mask, which can use memory proportional to the square of the sequence length.
 
 ## Examples
 

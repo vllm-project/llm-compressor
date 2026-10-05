@@ -39,6 +39,7 @@ from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -181,6 +182,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
+        self.use_eager_attention = kwargs.pop("use_eager_attention", False)
         model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
@@ -273,11 +275,19 @@ class Oneshot:
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
 
-            pipeline(
-                self.model,
-                calibration_dataloader,
-                self.dataset_args,
-            )
+            if self.use_eager_attention:
+                with use_eager_attention(self.model):
+                    pipeline(
+                        self.model,
+                        calibration_dataloader,
+                        self.dataset_args,
+                    )
+            else:
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                )
 
         session.finalize()
 
@@ -358,6 +368,7 @@ def oneshot(
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
     pipeline: str | None = "independent",
+    use_eager_attention: bool = False,
     tracing_ignore: list[str] = [
         "_update_causal_mask",
         "create_causal_mask",
@@ -455,7 +466,11 @@ def oneshot(
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
-        ['basic', 'datafree', 'sequential', 'independent']
+        ['basic', 'datafree', 'sequential', 'independent']. In sequential calibration,
+        decoder-only causal models treat `attention_mask` as `None`.
+    :param use_eager_attention: Whether to force eager attention during tracing and
+        calibration. By default, the model's configured attention implementation is
+        used for both.
     :param tracing_ignore: List of functions to ignore during tracing, either
         {module}.{method_name} or {function_name}
     :param sequential_targets: List of layer targets for the sequential pipeline.

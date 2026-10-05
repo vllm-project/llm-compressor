@@ -126,6 +126,7 @@ def trace_subgraphs(
     sequential_targets: list[str],
     ignore: list[str],
     targets_per_subgraph: int = 1,
+    eager_attention: bool = False,
 ) -> list[Subgraph]:
     """
     Trace a model to produce subgraphs, where each sequential target belongs to exactly
@@ -138,8 +139,21 @@ def trace_subgraphs(
     :param sequential_targets: list of patterns matching sequential targets
     :param ignore: function and method names to skip during tracing
     :param targets_per_subgraph: number of targets to include per subgraph
+    :param eager_attention: whether to force eager attention while tracing
     :return: a list of Subgraphs in order of execution
     """
+    # Causal LMs can use the backend's causal flag when no padding mask is passed.
+    # Keeping attention_mask as a traced input makes its causal-mask factory an FX
+    # Proxy, so the attention backend cannot distinguish None from a Tensor. Omit it
+    # from the trace contract; at execution, the model's mask factory receives None
+    # and ignores any attention_mask supplied by calibration batches.
+    if _is_causal_lm_model(model):
+        sample_input = {
+            name: value
+            for name, value in sample_input.items()
+            if name != "attention_mask"
+        }
+
     # find modules
     targets = set(
         module for _, module in match_named_modules(model, sequential_targets)
@@ -152,11 +166,14 @@ def trace_subgraphs(
 
     with contextlib.ExitStack() as stack:
         # calibration context
-        stack.enter_context(calibration_forward_context(model))
+        stack.enter_context(
+            calibration_forward_context(model, eager_attention=eager_attention)
+        )
         stack.enter_context(HooksMixin.disable_hooks())
 
         # flags useful for tracing
-        # note: eager attention is forced by `calibration_forward_context`
+        # Attention uses the model's configured implementation unless
+        # `eager_attention` is enabled.
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
 
         # autowrap forwards
@@ -205,6 +222,20 @@ def trace_subgraphs(
         )
 
     return subgraphs
+
+
+def _is_causal_lm_model(model: PreTrainedModel) -> bool:
+    """Whether ``model`` is a decoder-only causal language model."""
+    config = getattr(model, "config", None)
+    if config is None or getattr(config, "is_encoder_decoder", False):
+        return False
+
+    class_names = {model.__class__.__name__}
+    class_for_deserialization = getattr(model, "class_for_deserialization", None)
+    if class_for_deserialization is not None:
+        class_names.add(class_for_deserialization.__name__)
+    class_names.update(getattr(config, "architectures", None) or [])
+    return any(name.endswith("ForCausalLM") for name in class_names)
 
 
 class SequentialTracer(HFTracer):
