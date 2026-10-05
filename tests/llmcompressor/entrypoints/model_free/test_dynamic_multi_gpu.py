@@ -24,8 +24,8 @@ def _save_sharded(model_id, out_dir, max_shard_size="1MB"):
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 def test_multi_gpu_matches_single_gpu(tmp_path):
-    """Dynamic scheduling across N GPUs should give identical output to
-    a single-GPU run."""
+    """Dynamic scheduling across N GPUs with the default max_workers="auto"
+    should give identical output to a single-worker, single-GPU run."""
     model_id = "Qwen/Qwen3-0.6B"
     scheme = "FP8_dynamic"
     ignore = ["model.embed_tokens", "lm_head"]
@@ -50,7 +50,6 @@ def test_multi_gpu_matches_single_gpu(tmp_path):
         str(sharded_dir),
         multi_out,
         scheme=scheme,
-        max_workers=n,
         device=[f"cuda:{i}" for i in range(n)],
         ignore=ignore,
     )

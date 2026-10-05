@@ -18,6 +18,5 @@ model_free_ptq(
     save_directory=SAVE_DIR,
     scheme="FP8_BLOCK",
     ignore=ignore,
-    max_workers=13,
     device="cuda:0",
 )
