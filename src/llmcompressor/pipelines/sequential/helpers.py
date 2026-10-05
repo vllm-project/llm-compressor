@@ -142,12 +142,15 @@ def trace_subgraphs(
     :param eager_attention: whether to force eager attention while tracing
     :return: a list of Subgraphs in order of execution
     """
-    # Causal LMs can use the backend's causal flag when no padding mask is passed.
-    # Keeping attention_mask as a traced input makes its causal-mask factory an FX
-    # Proxy, so the attention backend cannot distinguish None from a Tensor. Omit it
-    # from the trace contract; at execution, the model's mask factory receives None
-    # and ignores any attention_mask supplied by calibration batches.
-    if _is_causal_lm_model(model):
+    # Non-eager causal backends can use their causal flag when no padding mask is
+    # passed. Keeping attention_mask as a traced input makes the mask-dependent backend
+    # selection an FX Proxy. Omit it from the trace contract on this path; eager
+    # attention still receives the mask and builds its explicit causal mask from it.
+    implementation = getattr(
+        getattr(model, "config", None), "_attn_implementation", None
+    )
+    using_eager_attention = eager_attention or implementation == "eager"
+    if _is_causal_lm_model(model) and not using_eager_attention:
         sample_input = {
             name: value
             for name, value in sample_input.items()
