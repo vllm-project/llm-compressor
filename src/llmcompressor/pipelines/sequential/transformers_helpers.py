@@ -24,7 +24,7 @@ import os
 import random
 import sys
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any, Literal
 
 import torch
@@ -35,7 +35,6 @@ from torch.fx.node import Argument
 from torch.fx._compatibility import compatibility
 from torch.fx._symbolic_trace import is_fx_tracing
 from torch.fx.proxy import ParameterProxy
-from compressed_tensors.utils import patch_attr
 
 from transformers import logging, PretrainedConfig, PreTrainedModel
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -578,109 +577,6 @@ def torch_nn_functional_scaled_dot_product_attention(
     return torch.empty((*query.shape[:-2], target_length, head_dim), device="meta")
 
 
-def _attention_interface_dispatch(
-    default_module: str,
-    default_name: str,
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """Invoke the model's configured attention interface at graph execution time."""
-    from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-
-    default_interface = getattr(sys.modules[default_module], default_name)
-    module = args[0]
-    attention_interface = ALL_ATTENTION_FUNCTIONS.get_interface(
-        getattr(module.config, "_attn_implementation", None), default_interface
-    )
-    return attention_interface(*args, **kwargs)
-
-
-def _attention_interface_dispatch_meta(
-    default_module: str,
-    default_name: str,
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-) -> tuple[torch.Tensor, torch.Tensor | None]:
-    """Return metadata for the standard Transformers attention interface output."""
-    _, query, _, value, *_ = args
-    output = torch.empty(
-        (query.shape[0], query.shape[2], query.shape[1], value.shape[-1]),
-        device="meta",
-        dtype=query.dtype,
-    )
-    return output, None
-
-
-@contextlib.contextmanager
-def _patch_attention_dispatch_for_tracing(tracer: "HFTracer") -> Iterator[None]:
-    """Keep Transformers attention dispatch opaque to FX and dynamic at runtime."""
-    try:
-        from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-    except ImportError:
-        yield
-        return
-
-    orig_get_interface = ALL_ATTENTION_FUNCTIONS.get_interface
-
-    def traceable_get_interface(
-        attn_implementation: str | None,
-        default_interface: Callable[..., Any],
-    ) -> Callable[..., Any]:
-        def traceable_attention_interface(*args: Any, **kwargs: Any) -> Any:
-            # when not tracing we pass through normally
-            if not is_fx_tracing():
-                if args and isinstance(args[0], nn.Module):
-                    implementation = getattr(
-                        args[0].config, "_attn_implementation", None
-                    )
-                else:
-                    implementation = attn_implementation
-                attn_interface = orig_get_interface(implementation, default_interface)
-                return attn_interface(*args, **kwargs)
-
-            module = args[0] if args and isinstance(args[0], nn.Module) else None
-            module_name = next(
-                (
-                    name
-                    for name, candidate in tracer.root.named_modules()
-                    if candidate is module
-                ),
-                None,
-            )
-
-            # Attention must be a named module in the traced model to dispatch it
-            # dynamically at runtime.
-            if not module_name:
-                raise RuntimeError(
-                    "Could not identify the attention module while tracing its "
-                    "interface. Try enabling eager attention with "
-                    "`use_eager_attention=True` in oneshot."
-                )
-
-            assert module is not None
-
-            # main tracing path: don't trace into the attention, this avoids
-            # a number of data-dependent flow issues while allowing fast calibration
-            module_proxy = tracer.create_proxy("get_attr", module_name, (), {})
-            proxy_args = (module_proxy, *args[1:])
-            return tracer.create_proxy(
-                "call_function",
-                _attention_interface_dispatch,
-                (
-                    default_interface.__module__,
-                    default_interface.__name__,
-                    proxy_args,
-                    kwargs,
-                ),
-                {},
-            )
-
-        return traceable_attention_interface
-
-    with patch_attr(ALL_ATTENTION_FUNCTIONS, "get_interface", traceable_get_interface):
-        yield
-
-
 def torch_nn_mseloss(self, input, target):
     if self.reduction == "none":
         shape = target.shape
@@ -777,9 +673,6 @@ _MANUAL_META_OVERRIDES: dict[Callable, Callable] = {
 
 _MANUAL_META_OVERRIDES[torch.nn.functional.scaled_dot_product_attention] = (
     torch_nn_functional_scaled_dot_product_attention
-)
-_MANUAL_META_OVERRIDES[_attention_interface_dispatch] = (
-    _attention_interface_dispatch_meta
 )
 
 
@@ -1645,9 +1538,7 @@ class HFTracer(Tracer):
 
         global _CURRENT_TRACER
         _CURRENT_TRACER = self
-        with contextlib.ExitStack() as stack:
-            stack.enter_context(self.patch_for_tracing(root))
-            stack.enter_context(_patch_attention_dispatch_for_tracing(self))
+        with self.patch_for_tracing(root):
             try:
                 self.graph = super().trace(root, concrete_args=concrete_args)
             finally:
