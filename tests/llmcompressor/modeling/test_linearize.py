@@ -166,7 +166,7 @@ def test_replace_releases_detached_module_storage():
     new_module = torch.nn.Linear(4, 4)
     model.experts = old_module
 
-    _replace(model, "experts", old_module, new_module, {"experts": old_module})
+    _replace(model, "experts", new_module)
 
     assert model.experts is new_module
     assert all(parameter.device.type == "meta" for parameter in old_module.parameters())

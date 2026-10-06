@@ -256,7 +256,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                 if dataset_args.moe_lazy_linearization_and_repack:
                     # This is a no-op for already-linearized MoE layers.
-                    linearize_moe(
+                    subgraph_modules, offload_kwargs = linearize_moe(
                         model, subgraph_modules, offload_kwargs=offload_kwargs
                     )
 
@@ -320,7 +320,9 @@ class SequentialPipeline(CalibrationPipeline):
                     dataset_args.moe_lazy_linearization_and_repack
                     and dataset_args.repack_moe_layers
                 ):
-                    repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+                    subgraph_modules, offload_kwargs = repack_moe(
+                        model, subgraph_modules, offload_kwargs=offload_kwargs
+                    )
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################

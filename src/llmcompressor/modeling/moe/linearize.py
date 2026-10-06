@@ -32,6 +32,14 @@ from .conversion_mappings import (
 from .linear_experts import LinearExperts2D
 
 
+def _is_moe_module(module: torch.nn.Module) -> bool:
+    return (
+        isinstance(module, FusedExpertsProtocol)
+        or isinstance(module, LinearExperts2D)
+        or LinearExperts2D.get_registration(module.__class__) is not None
+    )
+
+
 @contextlib.contextmanager
 def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     """
@@ -100,140 +108,198 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
 def get_moe_modules(
     model: torch.nn.Module,
+    reset_cache: bool = False,
 ) -> WeakKeyDictionary:
-    """
-    Return all modules which are recognized to be experts layers.
-    Includes both 3D experts (which need linearization) and
-    already-linearized 2D experts. This lookup is used by the
-    repack_moe and linearize_moe functions to determine
-    which modules to operate on.
-    """
+    """Return MoE modules cached by identity, with qualified names as values."""
 
-    if hasattr(model, "_moe_lookup"):
-        delattr(model, "_moe_lookup")
-
-    model._moe_lookup = WeakKeyDictionary(
-        {
-            module: name
-            for name, module in model.named_modules()
-            if isinstance(module, FusedExpertsProtocol)
-            or isinstance(module, LinearExperts2D)
-            or LinearExperts2D.get_registration(module.__class__) is not None
-        }
-    )
+    if not hasattr(model, "_moe_lookup") or reset_cache:
+        model._moe_lookup = WeakKeyDictionary(
+            {
+                module: name
+                for name, module in model.named_modules()
+                if _is_moe_module(module)
+            }
+        )
 
     return model._moe_lookup
 
 
 def get_non_linearized_moes(
     model: torch.nn.Module,
+    modules: dict[str, torch.nn.Module] | None = None,
 ) -> list[tuple[str, torch.nn.Module]]:
-    """Return recognized MoE modules that still need linearization."""
+    """Return cached MoEs that still need linearization."""
     moe_lookup = get_moe_modules(model)
+    candidates = (
+        list(modules.items())
+        if modules is not None
+        else [(name, module) for module, name in moe_lookup.items()]
+    )
     return [
-        (moe_lookup[module], module)
-        for module in model.modules()
+        (name, module)
+        for name, module in candidates
         if module in moe_lookup and not isinstance(module, LinearExperts2D)
     ]
 
 
-def _get_subgraph_modules(
-    subgraph_modules: dict[str, torch.nn.Module],
-) -> set[torch.nn.Module]:
-    """Return subgraph modules and all of their descendants."""
+def get_linearized_moes(
+    model: torch.nn.Module,
+    modules: dict[str, torch.nn.Module] | None = None,
+) -> list[tuple[str, torch.nn.Module]]:
+    """Return cached MoEs that are already linearized."""
+    moe_lookup = get_moe_modules(model)
+    candidates = (
+        list(modules.items())
+        if modules is not None
+        else [(name, module) for module, name in moe_lookup.items()]
+    )
+    return [
+        (name, module)
+        for name, module in candidates
+        if module in moe_lookup and isinstance(module, LinearExperts2D)
+    ]
+
+
+def get_linearized_children(
+    name: str,
+    module: LinearExperts2D,
+    modules: dict[str, torch.nn.Module] | None = None,
+) -> dict[str, torch.nn.Module]:
+    """Return the named descendants of a linearized MoE for repack cleanup."""
+    descendants = set(module.modules()) - {module}
+    if modules is not None:
+        return {
+            module_name: child
+            for module_name, child in modules.items()
+            if child in descendants
+        }
+
     return {
-        submodule
-        for module in subgraph_modules.values()
-        for submodule in module.modules()
+        f"{name}.{relative_name}": child
+        for relative_name, child in module.named_modules()
+        if relative_name
     }
 
 
-def _get_named_modules(
-    name: str, module: torch.nn.Module
-) -> dict[str, torch.nn.Module]:
-    return {
+def _remove_linearized_children(
+    name: str,
+    module: LinearExperts2D,
+    modules: dict[str, torch.nn.Module] | None,
+    offload_kwargs: dict[str, dict] | None,
+) -> None:
+    """Remove a linearized layer's children and preserve its root offload settings."""
+    children = get_linearized_children(name, module, modules)
+    if modules is not None:
+        for child_name in children:
+            modules.pop(child_name, None)
+
+    if offload_kwargs is not None:
+        root_kwargs = offload_kwargs.get(name)
+        for child_name in children:
+            if root_kwargs is None:
+                root_kwargs = offload_kwargs.get(child_name)
+            offload_kwargs.pop(child_name, None)
+        if root_kwargs is not None:
+            offload_kwargs[name] = root_kwargs
+
+
+def _add_linearized_children(
+    name: str,
+    module: torch.nn.Module,
+    modules: dict[str, torch.nn.Module],
+    offload_kwargs: dict[str, dict],
+) -> None:
+    """Add a linearized layer's children and inherit its root offload settings."""
+    named_modules = {
         name if not relative_name else f"{name}.{relative_name}": child
         for relative_name, child in module.named_modules()
     }
 
+    modules.update(named_modules)
+    
+    offload_kwargs.update(
+        { # inherit parent offload settings for children
+            module_name: offload_kwargs[name]
+            for module_name in named_modules
+            if module_name != name
+        }
+    )
+
 
 def repack_moe(
     model: PreTrainedModel,
-    subgraph_modules: dict[str, torch.nn.Module] | None = None,
+    modules: dict[str, torch.nn.Module] | None = None,
     onload_and_offload: bool = False,
     offload_kwargs: dict[str, dict] | None = None,
-) -> None:
-    """Repack linearized MoE modules in a model or subgraph."""
-    subgraph_set = (
-        _get_subgraph_modules(subgraph_modules)
-        if subgraph_modules is not None
-        else None
-    )
+) -> tuple[dict[str, torch.nn.Module] | None, dict[str, dict] | None]:
+    """Repack linearized MoEs and return updated bookkeeping copies."""
+    updated_modules = None if modules is None else modules.copy()
+    updated_offload_kwargs = None if offload_kwargs is None else offload_kwargs.copy()
     moe_lookup = get_moe_modules(model)
-    linearized = [
-        (moe_lookup[module], module)
-        for module in (subgraph_set if subgraph_set is not None else model.modules())
-        if module in moe_lookup and isinstance(module, LinearExperts2D)
-    ]
+    linearized_moes = get_linearized_moes(model, updated_modules)
 
-    desc = "Repacking experts in subgraph" if subgraph_modules else "Repacking experts"
-    for name, module in tqdm.tqdm(linearized, desc=desc):
-        module_dict = subgraph_modules
-        layer_offload_kwargs = offload_kwargs
+    desc = "Repacking specified modules" if modules is not None else "Repacking experts"
+    for name, module in tqdm.tqdm(linearized_moes, desc=desc):
+        # A parent conversion may have already replaced this module.
+        if module not in moe_lookup:
+            continue
+
+        layer_offload_kwargs = None
         if onload_and_offload:
-            module_dict = _get_named_modules(name, module)
-            layer_offload_kwargs = subgraph_onload_modules(module_dict)
+            layer_modules = {name: module}
+            layer_modules.update(
+                get_linearized_children(name, module, updated_modules)
+            )
+            layer_offload_kwargs = subgraph_onload_modules(layer_modules)
+
         try:
-            repack_moe_layer(model, name, module, module_dict, layer_offload_kwargs)
+            new_module = repack_moe_layer(module)
+            _replace(model, name, new_module)
+            _remove_linearized_children(
+                name, module, updated_modules, updated_offload_kwargs
+            )
+            if updated_modules is not None:
+                updated_modules[name] = new_module
+            if onload_and_offload:
+                _remove_linearized_children(
+                    name, module, layer_modules, layer_offload_kwargs
+                )
+                layer_modules[name] = new_module
         finally:
             if onload_and_offload and layer_offload_kwargs:
-                subgraph_offload_modules(module_dict, layer_offload_kwargs)
+                subgraph_offload_modules(layer_modules, layer_offload_kwargs)
+
+    return updated_modules, updated_offload_kwargs
 
 
-def repack_moe_layer(
-    model: PreTrainedModel,
-    name: str,
-    module: LinearExperts2D,
-    subgraph_modules: dict[str, torch.nn.Module] | None = None,
-    offload_kwargs: dict[str, dict] | None = None,
-) -> None:
+def repack_moe_layer(module: LinearExperts2D) -> torch.nn.Module:
     construction_device = get_execution_device(module)
-    fused = module.to_experts_module(construction_device=construction_device)
-    _replace(model, name, module, fused, subgraph_modules)
-
-    # Delete stale children
-    if subgraph_modules is not None:
-        for child_name in list(subgraph_modules):
-            if child_name.startswith(f"{name}."):
-                del subgraph_modules[child_name]
-
-    if offload_kwargs is not None:
-        for child_name in list(offload_kwargs):
-            if child_name.startswith(f"{name}."):
-                offload_kwargs.setdefault(name, offload_kwargs[child_name])
-                del offload_kwargs[child_name]
+    return module.to_experts_module(construction_device=construction_device)
 
 
 def linearize_moe(
     model: PreTrainedModel,
-    subgraph_modules: dict[str, torch.nn.Module] | None = None,
-    onload_and_offload: bool = False,
+    modules: dict[str, torch.nn.Module] | None = None,
     offload_kwargs: dict[str, dict] | None = None,
-) -> None:
-    """Linearize recognized non-linearized MoE modules in a model or subgraph."""
-    subgraph_set = (
-        _get_subgraph_modules(subgraph_modules)
-        if subgraph_modules is not None
-        else None
-    )
-    moe_lookup = get_moe_modules(model)
-    non_linearized = [
-        (moe_lookup[module], module)
-        for module in (subgraph_set if subgraph_set is not None else model.modules())
-        if module in moe_lookup and not isinstance(module, LinearExperts2D)
-    ]
+) -> tuple[dict[str, torch.nn.Module] | None, dict[str, dict] | None]:
+    """Linearize MoEs and return updated bookkeeping copies if modules or offload_kwargs are provided."""
+    if offload_kwargs is not None and modules is None:
+        raise ValueError(
+            "If offload_kwargs is provided, modules must also be provided to update bookkeeping."
+        )
 
-    if subgraph_modules is None:
+    # offload_kwargs is passed in here for us to update bookkeeping
+    # for new modules, if it is not passed in, then the model is in 
+    # disk offloaded format and we have to onload and offload each 
+    # module as we linearize
+    loop_offloading = True if offload_kwargs is None else False
+
+    updated_modules = None if modules is None else modules.copy()
+    updated_offload_kwargs = None if offload_kwargs is None else offload_kwargs.copy()
+
+    non_linearized_moes = get_non_linearized_moes(model, updated_modules)
+
+    if modules is None:
         logger.warning(
             "MoE is being linearized after loading in order to support efficient "
             "calibration of experts. However, this may be inefficient if the model "
@@ -242,93 +308,64 @@ def linearize_moe(
             "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"
         )
 
-    desc = (
-        "Linearizing experts in subgraph" if subgraph_modules else "Linearizing experts"
-    )
-    for name, module in tqdm.tqdm(non_linearized, desc=desc):
-        module_dict = subgraph_modules
-        layer_offload_kwargs = offload_kwargs
-        if onload_and_offload:
-            module_dict = _get_named_modules(name, module)
-            layer_offload_kwargs = subgraph_onload_modules(module_dict)
+    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing"):
+        # offload if specified
+        if loop_offloading:
+            layer_modules = {name: module}
+            layer_offload_kwargs = subgraph_onload_modules(layer_modules)
+
         try:
-            linearize_moe_layer(model, name, module, module_dict, layer_offload_kwargs)
+            # generate new linearized module and replace in model
+            new_module = linearize_moe_layer(model, module)
+            _replace(model, name, new_module)
+            
+            if loop_offloading:
+                # update the offload kwargs if we need to offload right now
+                _add_linearized_children(name, new_module, layer_modules, layer_offload_kwargs)
+            else:
+                # update bookkeeping if we are not offloading right now
+                _add_linearized_children(name, new_module, updated_modules, updated_offload_kwargs)
         finally:
-            if onload_and_offload and layer_offload_kwargs:
-                subgraph_offload_modules(module_dict, layer_offload_kwargs)
+            if loop_offloading:
+                subgraph_offload_modules(layer_modules, layer_offload_kwargs)
+
+    return updated_modules, updated_offload_kwargs
 
 
 def linearize_moe_layer(
     model: PreTrainedModel,
-    name: str,
     module: torch.nn.Module,
-    subgraph_modules: dict[str, torch.nn.Module] | None = None,
-    offload_kwargs: dict[str, dict] | None = None,
-) -> None:
+) -> LinearExperts2D:
     """Linearize a single recognized MoE layer."""
     if not isinstance(
         module, FusedExpertsProtocol
     ) and not LinearExperts2D.get_registration(module.__class__):
-        raise ValueError(f"Module {name} is not a recognized MoE layer")
+        raise ValueError(
+            f"Module {type(module).__name__} is not a recognized MoE layer"
+        )
 
     config = getattr(module, "config", model.config)
     linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
     construction_device = get_execution_device(module)
-    linear_moe = linear_experts_cls.from_experts_module(
+    return linear_experts_cls.from_experts_module(
         module, config, construction_device=construction_device
     )
-    _replace(model, name, module, linear_moe, subgraph_modules)
-
-    if subgraph_modules is not None:
-        for child_name in list(subgraph_modules):
-            if child_name.startswith(f"{name}."):
-                del subgraph_modules[child_name]
-        subgraph_modules.update(
-            {
-                f"{name}.{relative_name}": child
-                for relative_name, child in linear_moe.named_modules()
-                if relative_name
-            }
-        )
-
-    if offload_kwargs is not None:
-        for child_name in list(offload_kwargs):
-            if child_name.startswith(f"{name}."):
-                offload_kwargs.setdefault(name, offload_kwargs[child_name])
-                del offload_kwargs[child_name]
-        if name in offload_kwargs:
-            offload_kwargs.update(
-                {
-                    f"{name}.{relative_name}": offload_kwargs[name]
-                    for relative_name, _ in linear_moe.named_modules()
-                    if relative_name
-                }
-            )
 
 
 def _replace(
     model: PreTrainedModel,
     name: str,
-    old_module: torch.nn.Module,
     new_module: torch.nn.Module,
-    module_dict: dict[str, torch.nn.Module] | None = None,
 ):
-    """Replace a module and keep offload/subgraph bookkeeping consistent."""
-    # Conversion creates a new cache with the replacement module's parameter schema.
-    # Reusing the old cache would associate the wrong names and tensor layouts.
-    if module_dict is not None:
-        if name in module_dict and module_dict[name] is not old_module:
-            raise ValueError(
-                f"Module {name} in module_dict does not match the old_module "
-                "being replaced. Something went very wrong."
-            )
-        module_dict[name] = new_module
-
+    """Replace a module in the model and update the MoE lookup."""
+    old_module = model.get_submodule(name)
     model.set_submodule(name, new_module)
 
-    # Sequential tracing retains replaced modules through its bookkeeping. Release
-    # their storage there, while leaving direct callers' old module references usable.
-    if module_dict is not None and not hasattr(
-        old_module._parameters, "offloaded_values"
-    ):
-        old_module.to_empty(device="meta")
+    if hasattr(model, "_moe_lookup"):
+        # Update the MoE lookup with the new module
+        moe_lookup = get_moe_modules(model)
+        if old_module in moe_lookup:
+            moe_lookup.pop(old_module)
+            moe_lookup[new_module] = name
+
+    old_module.to_empty(device="meta")

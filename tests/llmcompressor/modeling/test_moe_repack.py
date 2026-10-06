@@ -560,31 +560,50 @@ def test_moe_replacement_updates_subgraph_offload_bookkeeping():
         experts_name: {"onload_device": "cpu", "offload_device": "disk"},
     }
 
-    linearize_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+    linearized_modules, updated_offload_kwargs = linearize_moe(
+        model, subgraph_modules, offload_kwargs=offload_kwargs
+    )
 
-    assert experts_name in subgraph_modules
-    assert f"{experts_name}.0.gate_proj" in subgraph_modules
-    assert f"{experts_name}.0.gate_proj" in offload_kwargs
-    assert offload_kwargs[f"{experts_name}.0.gate_proj"]["offload_device"] == "disk"
+    assert linearized_modules is not None
+    assert experts_name in linearized_modules
+    assert f"{experts_name}.0.gate_proj" in linearized_modules
+    assert updated_offload_kwargs is not None
+    assert f"{experts_name}.0.gate_proj" in updated_offload_kwargs
+    assert (
+        updated_offload_kwargs[f"{experts_name}.0.gate_proj"]["offload_device"]
+        == "disk"
+    )
 
-    repack_moe(model, subgraph_modules, offload_kwargs=offload_kwargs)
+    repacked_modules, updated_offload_kwargs = repack_moe(
+        model, linearized_modules, offload_kwargs=updated_offload_kwargs
+    )
 
-    assert not any(name.startswith(f"{experts_name}.0.") for name in subgraph_modules)
-    assert not any(name.startswith(f"{experts_name}.0.") for name in offload_kwargs)
-    assert experts_name in subgraph_modules
-    assert experts_name in offload_kwargs
+    assert repacked_modules is not None
+    assert not any(name.startswith(f"{experts_name}.0.") for name in repacked_modules)
+    assert updated_offload_kwargs is not None
+    assert not any(
+        name.startswith(f"{experts_name}.0.") for name in updated_offload_kwargs
+    )
+    assert experts_name in repacked_modules
+    assert experts_name in updated_offload_kwargs
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
 
 
 @torch.no_grad()
 def test_linearize_moe_subgraph_traverses_nested_modules():
     model = _tiny_qwen3_moe_blocks()
-    subgraph_modules = {"block1": model.block1}
+    subgraph_modules = {
+        name: module
+        for name, module in model.named_modules()
+        if name == "block1" or name.startswith("block1.")
+    }
 
-    linearize_moe(model, subgraph_modules)
+    linearized_modules, _ = linearize_moe(model, subgraph_modules)
 
     assert isinstance(model.block1.mlp.experts, LinearExperts2D)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert linearized_modules is not None
+    assert linearized_modules["block1.mlp.experts"] is model.block1.mlp.experts
 
 
 @torch.no_grad()
@@ -593,11 +612,14 @@ def test_repack_moe_subgraph_only_targets_selected_module():
     linearize_moe(model)
 
     subgraph_modules = {
-        "block1.mlp.experts": model.block1.mlp.experts,
-        "block2": model.block2,
+        name: module
+        for name, module in model.named_modules()
+        if name == "block2" or name.startswith("block2.")
     }
-    repack_moe(model, subgraph_modules)
+    subgraph_modules["block1.mlp.experts"] = model.block1.mlp.experts
+    repacked_modules, _ = repack_moe(model, subgraph_modules)
 
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
-    assert subgraph_modules["block1.mlp.experts"] is model.block1.mlp.experts
+    assert repacked_modules is not None
+    assert repacked_modules["block1.mlp.experts"] is model.block1.mlp.experts
