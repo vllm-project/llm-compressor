@@ -97,15 +97,15 @@ def broadcast_qparams_and_cleanup(
     # to ``param`` is not visible until the collective work is waited on, so the
     # local copy into the offloaded value must be deferred to that point
     offload_refresh: list[tuple[DeviceCache, torch.Tensor, torch.Tensor]] = []
+    is_dist = dist.is_initialized()
+    my_rank = dist.get_rank() if is_dist else None
     for module in module_list:
         should_broadcast = not skip_cpu or (
             get_execution_device(module) != torch.device("cpu")
         )
         is_device_offload = _is_device_offload(module)
         # the owning rank updated the offloaded copy during qparam write-back
-        is_src_rank = dist.is_initialized() and (
-            dist.get_rank() == module_to_rank[module]
-        )
+        is_src_rank = is_dist and (my_rank == module_to_rank[module])
         if should_broadcast:
             cache = module._parameters if is_device_offload else None
             for name in qparam_names:

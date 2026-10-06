@@ -51,6 +51,15 @@ def test_gptq_distributed_gpu_offload_broadcast():
     local_rank = int(os.environ["LOCAL_RANK"])
     torch.accelerator.set_device_index(local_rank)
     dist.init_process_group("nccl", timeout=datetime.timedelta(seconds=60))
+    try:
+        _run_offload_check(local_rank)
+    finally:
+        # always tear down the process group so a failed assert cannot hang the
+        # next test / the runner on a dangling NCCL state
+        dist.destroy_process_group()
+
+
+def _run_offload_check(local_rank: int):
     device = torch.device(f"cuda:{local_rank}")
     peer_device = torch.device(f"cuda:{1 - local_rank}")
 
@@ -114,5 +123,3 @@ def test_gptq_distributed_gpu_offload_broadcast():
         assert all(
             torch.equal(gathered_onload[0], other) for other in gathered_onload[1:]
         )
-
-    dist.destroy_process_group()
