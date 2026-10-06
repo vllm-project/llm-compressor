@@ -101,7 +101,7 @@ def pre_process(
 
     resolve_eager_moe_linearization(model_args.model, dataset_args)
     if not dataset_args.moe_lazy_linearization_and_repack:
-        linearize_moe(model_args.model, onload_and_offload=True)
+        linearize_moe(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
@@ -130,7 +130,7 @@ def post_process(
         and not dataset_args.moe_lazy_linearization_and_repack
         and dataset_args.repack_moe_layers
     ):
-        repack_moe(model_args.model, onload_and_offload=True)
+        repack_moe(model_args.model)
 
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:

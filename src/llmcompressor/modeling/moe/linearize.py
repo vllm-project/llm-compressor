@@ -33,6 +33,8 @@ from .linear_experts import LinearExperts2D
 
 
 def _is_moe_module(module: torch.nn.Module) -> bool:
+    # FusedExpertsProtocol and LinearExperts2D identify the outer experts
+    # container. Individual ExpertMLP children do not satisfy either protocol.
     return (
         isinstance(module, FusedExpertsProtocol)
         or isinstance(module, LinearExperts2D)
@@ -184,23 +186,24 @@ def get_linearized_children(
 def _remove_linearized_children(
     name: str,
     module: LinearExperts2D,
-    modules: dict[str, torch.nn.Module] | None,
-    offload_kwargs: dict[str, dict] | None,
+    modules: dict[str, torch.nn.Module],
+    offload_kwargs: dict[str, dict],
 ) -> None:
-    """Remove a linearized layer's children and preserve its root offload settings."""
+    """Remove a linearized layer's children from bookkeeping after repacking."""
     children = get_linearized_children(name, module, modules)
-    if modules is not None:
-        for child_name in children:
-            modules.pop(child_name, None)
+    for child_name in children:
+        modules.pop(child_name, None)
 
-    if offload_kwargs is not None:
-        root_kwargs = offload_kwargs.get(name)
-        for child_name in children:
-            if root_kwargs is None:
-                root_kwargs = offload_kwargs.get(child_name)
-            offload_kwargs.pop(child_name, None)
-        if root_kwargs is not None:
-            offload_kwargs[name] = root_kwargs
+    root_kwargs = offload_kwargs.get(name)
+    for child_name in children:
+        # use the child's offload settings if we don't
+        # have it for the parent
+        if root_kwargs is None:
+            root_kwargs = offload_kwargs.get(child_name)
+        offload_kwargs.pop(child_name, None)
+
+    if root_kwargs is not None:
+        offload_kwargs[name] = root_kwargs
 
 
 def _add_linearized_children(
@@ -217,24 +220,36 @@ def _add_linearized_children(
 
     modules.update(named_modules)
     
-    offload_kwargs.update(
-        { # inherit parent offload settings for children
-            module_name: offload_kwargs[name]
-            for module_name in named_modules
-            if module_name != name
-        }
-    )
+    if offload_kwargs.get(name) is not None:
+        offload_kwargs.update(
+            { # inherit parent offload settings for children
+                module_name: offload_kwargs[name]
+                for module_name in named_modules
+                if module_name != name
+            }
+        )
 
 
 def repack_moe(
     model: PreTrainedModel,
     modules: dict[str, torch.nn.Module] | None = None,
-    onload_and_offload: bool = False,
     offload_kwargs: dict[str, dict] | None = None,
 ) -> tuple[dict[str, torch.nn.Module] | None, dict[str, dict] | None]:
     """Repack linearized MoEs and return updated bookkeeping copies."""
+    if offload_kwargs is not None and modules is None:
+        raise ValueError(
+            "If offload_kwargs is provided, modules must also be provided to update bookkeeping."
+        )
+
+    # offload_kwargs is passed in here for us to update bookkeeping
+    # for new modules, if it is not passed in, then the model is in
+    # disk offloaded format and we have to onload and offload each
+    # module as we repack
+    loop_offloading = True if offload_kwargs is None else False
+
     updated_modules = None if modules is None else modules.copy()
     updated_offload_kwargs = None if offload_kwargs is None else offload_kwargs.copy()
+
     moe_lookup = get_moe_modules(model)
     linearized_moes = get_linearized_moes(model, updated_modules)
 
@@ -245,7 +260,7 @@ def repack_moe(
             continue
 
         layer_offload_kwargs = None
-        if onload_and_offload:
+        if loop_offloading:
             layer_modules = {name: module}
             layer_modules.update(
                 get_linearized_children(name, module, updated_modules)
@@ -253,20 +268,22 @@ def repack_moe(
             layer_offload_kwargs = subgraph_onload_modules(layer_modules)
 
         try:
+            # generate new repacked module and replace in model
             new_module = repack_moe_layer(module)
             _replace(model, name, new_module)
-            _remove_linearized_children(
-                name, module, updated_modules, updated_offload_kwargs
-            )
-            if updated_modules is not None:
-                updated_modules[name] = new_module
-            if onload_and_offload:
+
+            if loop_offloading:
                 _remove_linearized_children(
                     name, module, layer_modules, layer_offload_kwargs
                 )
                 layer_modules[name] = new_module
+            else:
+                _remove_linearized_children(
+                    name, module, updated_modules, updated_offload_kwargs
+                )
+                updated_modules[name] = new_module
         finally:
-            if onload_and_offload and layer_offload_kwargs:
+            if loop_offloading:
                 subgraph_offload_modules(layer_modules, layer_offload_kwargs)
 
     return updated_modules, updated_offload_kwargs
@@ -289,8 +306,8 @@ def linearize_moe(
         )
 
     # offload_kwargs is passed in here for us to update bookkeeping
-    # for new modules, if it is not passed in, then the model is in 
-    # disk offloaded format and we have to onload and offload each 
+    # for new modules, if it is not passed in, then the model is in
+    # disk offloaded format and we have to onload and offload each
     # module as we linearize
     loop_offloading = True if offload_kwargs is None else False
 
