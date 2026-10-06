@@ -10,8 +10,10 @@ from compressed_tensors.distributed import (
     wait_for_comms as _wait_for_comms,
 )
 from compressed_tensors.offload import get_execution_device
+from compressed_tensors.offload.cache import DeviceCache
 from compressed_tensors.offload.dist_utils import as_broadcastable
 from compressed_tensors.utils.helpers import deprecated
+from loguru import logger
 
 T = TypeVar("T", bound=Hashable)
 
@@ -52,6 +54,21 @@ def wait_for_comms(*args, **kwargs) -> None:
     return _wait_for_comms(*args, **kwargs)
 
 
+def _is_device_offload(module: torch.nn.Module) -> bool:
+    """Whether a module's weights reside on a different GPU than they execute on.
+
+    GPU-offloaded modules (``DeviceCache``, including its distributed variant) keep
+    their canonical weights in ``offloaded_values`` on the offload device and move
+    them to the onload device only during the forward pass. When the two devices
+    differ, the offloaded copy must be kept in sync explicitly, since an in-place
+    update to the onloaded copy alone is lost once the module is offloaded again.
+    """
+    cache = module._parameters
+    return (
+        isinstance(cache, DeviceCache) and cache.onload_device != cache.offload_device
+    )
+
+
 def broadcast_qparams_and_cleanup(
     module_list: list[torch.nn.Module],
     module_to_rank: dict[torch.nn.Module, int],
@@ -59,6 +76,18 @@ def broadcast_qparams_and_cleanup(
     skip_cpu: bool = True,
 ) -> None:
     """Broadcast quantization params from owning rank and clean up observer stats.
+
+    In addition to updating the onloaded copy on every rank, the offloaded copy of
+    GPU-offloaded modules (``DeviceCache`` with ``onload_device != offload_device``)
+    is updated on every rank: after each onload broadcast is issued, the
+    broadcast-received value is copied locally into the offloaded copy via
+    ``OffloadCache.update_offload``. The copy runs on the same stream as the
+    broadcast, so it is ordered after the collective write without holding the
+    onloaded tensor beyond the module iteration (this ordering relies on the NCCL
+    backend this distributed path runs with — CUDA tensors never go through gloo).
+    The owning rank skips the local copy: it already wrote the compressed value
+    into the offloaded copy during write-back. CPU-offloaded and single-GPU
+    behavior is unchanged.
 
     :param module_list: all modules across all ranks
     :param module_to_rank: mapping from module to the rank that computed its qparams
@@ -70,7 +99,13 @@ def broadcast_qparams_and_cleanup(
         should_broadcast = not skip_cpu or (
             get_execution_device(module) != torch.device("cpu")
         )
+        is_device_offload = _is_device_offload(module)
+        # the owning rank updated the offloaded copy during qparam write-back
+        is_src_rank = dist.is_initialized() and (
+            dist.get_rank() == module_to_rank[module]
+        )
         if should_broadcast:
+            cache = module._parameters if is_device_offload else None
             for name in qparam_names:
                 if (param := getattr(module, name, None)) is not None:
                     pending_comms.append(
@@ -80,6 +115,23 @@ def broadcast_qparams_and_cleanup(
                             async_op=True,
                         )
                     )
+                    # keep the GPU-offloaded copy in sync: this copy_ is enqueued on
+                    # the same stream as the broadcast above, so it runs after the
+                    # collective write to ``param``
+                    if cache is not None and not is_src_rank:
+                        offloaded = cache.offloaded_values.get(name)
+                        if offloaded is not None and torch.is_same_size(
+                            offloaded, param
+                        ):
+                            cache.update_offload(offloaded, param)
+                        elif offloaded is not None:
+                            logger.warning(
+                                "Skipping GPU-offload sync for {}: offloaded shape "
+                                "{} != onloaded shape {}",
+                                name,
+                                tuple(offloaded.shape),
+                                tuple(param.shape),
+                            )
 
         obs = getattr(module, "weight_observer", None)
         if obs is not None and obs.has_statistics:
