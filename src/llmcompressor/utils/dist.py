@@ -79,15 +79,13 @@ def broadcast_qparams_and_cleanup(
 
     In addition to updating the onloaded copy on every rank, the offloaded copy of
     GPU-offloaded modules (``DeviceCache`` with ``onload_device != offload_device``)
-    is updated on every rank: after each onload broadcast is issued, the
-    broadcast-received value is copied locally into the offloaded copy via
-    ``OffloadCache.update_offload``. The copy runs on the same stream as the
-    broadcast, so it is ordered after the collective write without holding the
-    onloaded tensor beyond the module iteration (this ordering relies on the NCCL
-    backend this distributed path runs with — CUDA tensors never go through gloo).
-    The owning rank skips the local copy: it already wrote the compressed value
-    into the offloaded copy during write-back. CPU-offloaded and single-GPU
-    behavior is unchanged.
+    is updated on every non-owning rank: the broadcast-received value is copied
+    locally into the offloaded copy via ``OffloadCache.update_offload``. The copy is
+    deferred until ``_wait_for_comms`` completes, because the write to the broadcast
+    target tensor is not observable before the collective work is waited on. The
+    owning rank skips the local copy: it already wrote the compressed value into
+    the offloaded copy during write-back. CPU-offloaded and single-GPU behavior is
+    unchanged.
 
     :param module_list: all modules across all ranks
     :param module_to_rank: mapping from module to the rank that computed its qparams
@@ -95,6 +93,10 @@ def broadcast_qparams_and_cleanup(
     :param skip_cpu: if True, skip broadcasting for CPU-offloaded modules
     """
     pending_comms = []
+    # offloaded copies to refresh after all broadcasts complete: the broadcast write
+    # to ``param`` is not visible until the collective work is waited on, so the
+    # local copy into the offloaded value must be deferred to that point
+    offload_refresh: list[tuple[DeviceCache, torch.Tensor, torch.Tensor]] = []
     for module in module_list:
         should_broadcast = not skip_cpu or (
             get_execution_device(module) != torch.device("cpu")
@@ -115,15 +117,13 @@ def broadcast_qparams_and_cleanup(
                             async_op=True,
                         )
                     )
-                    # keep the GPU-offloaded copy in sync: this copy_ is enqueued on
-                    # the same stream as the broadcast above, so it runs after the
-                    # collective write to ``param``
+                    # keep the GPU-offloaded copy in sync once the broadcast lands
                     if cache is not None and not is_src_rank:
                         offloaded = cache.offloaded_values.get(name)
                         if offloaded is not None and torch.is_same_size(
                             offloaded, param
                         ):
-                            cache.update_offload(offloaded, param)
+                            offload_refresh.append((cache, offloaded, param))
                         elif offloaded is not None:
                             logger.warning(
                                 "Skipping GPU-offload sync for {}: offloaded shape "
@@ -138,3 +138,5 @@ def broadcast_qparams_and_cleanup(
             obs.delete_statistics(check_fused=True)
 
     _wait_for_comms(pending_comms)
+    for cache, offloaded, param in offload_refresh:
+        cache.update_offload(offloaded, param)

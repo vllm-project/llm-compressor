@@ -259,7 +259,11 @@ def test_gptq_non_distributed_skips_broadcast():
     modifier = GPTQModifier(block_size=16)
     with (
         patch("llmcompressor.modifiers.gptq.base.is_distributed", return_value=False),
-        patch.object(modifier, "compress_module_list") as mock_cml,
+        # pydantic model instances block setattr of non-field attributes, so the
+        # method is patched at class level instead of on the instance
+        patch(
+            "llmcompressor.modifiers.gptq.base.GPTQModifier.compress_module_list"
+        ) as mock_cml,
         patch("llmcompressor.utils.dist.broadcast_qparams_and_cleanup") as mock_bc,
     ):
         modifier.compress_modules()
