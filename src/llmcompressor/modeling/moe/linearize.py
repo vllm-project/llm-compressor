@@ -219,10 +219,10 @@ def _add_linearized_children(
     }
 
     modules.update(named_modules)
-    
+
     if offload_kwargs.get(name) is not None:
         offload_kwargs.update(
-            { # inherit parent offload settings for children
+            {  # inherit parent offload settings for children
                 module_name: offload_kwargs[name]
                 for module_name in named_modules
                 if module_name != name
@@ -238,7 +238,8 @@ def repack_moe(
     """Repack linearized MoEs and return updated bookkeeping copies."""
     if offload_kwargs is not None and modules is None:
         raise ValueError(
-            "If offload_kwargs is provided, modules must also be provided to update bookkeeping."
+            "If offload_kwargs is provided, modules must also be "
+            "provided to update bookkeeping."
         )
 
     # offload_kwargs is passed in here for us to update bookkeeping
@@ -262,9 +263,7 @@ def repack_moe(
         layer_offload_kwargs = None
         if loop_offloading:
             layer_modules = {name: module}
-            layer_modules.update(
-                get_linearized_children(name, module, updated_modules)
-            )
+            layer_modules.update(get_linearized_children(name, module, updated_modules))
             layer_offload_kwargs = subgraph_onload_modules(layer_modules)
 
         try:
@@ -299,10 +298,12 @@ def linearize_moe(
     modules: dict[str, torch.nn.Module] | None = None,
     offload_kwargs: dict[str, dict] | None = None,
 ) -> tuple[dict[str, torch.nn.Module] | None, dict[str, dict] | None]:
-    """Linearize MoEs and return updated bookkeeping copies if modules or offload_kwargs are provided."""
+    """Linearize MoEs and return updated bookkeeping copies if modules
+    or offload_kwargs are provided."""
     if offload_kwargs is not None and modules is None:
         raise ValueError(
-            "If offload_kwargs is provided, modules must also be provided to update bookkeeping."
+            "If offload_kwargs is provided, modules must also be "
+            "provided to update bookkeeping."
         )
 
     # offload_kwargs is passed in here for us to update bookkeeping
@@ -335,13 +336,17 @@ def linearize_moe(
             # generate new linearized module and replace in model
             new_module = linearize_moe_layer(model, module)
             _replace(model, name, new_module)
-            
+
             if loop_offloading:
                 # update the offload kwargs if we need to offload right now
-                _add_linearized_children(name, new_module, layer_modules, layer_offload_kwargs)
+                _add_linearized_children(
+                    name, new_module, layer_modules, layer_offload_kwargs
+                )
             else:
                 # update bookkeeping if we are not offloading right now
-                _add_linearized_children(name, new_module, updated_modules, updated_offload_kwargs)
+                _add_linearized_children(
+                    name, new_module, updated_modules, updated_offload_kwargs
+                )
         finally:
             if loop_offloading:
                 subgraph_offload_modules(layer_modules, layer_offload_kwargs)
