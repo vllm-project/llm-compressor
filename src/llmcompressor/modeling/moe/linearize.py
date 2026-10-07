@@ -209,13 +209,13 @@ def _remove_linearized_children(
         offload_kwargs[name] = root_kwargs
 
 
-def _add_linearized_children(
+def _add_module_children(
     name: str,
     module: torch.nn.Module,
     modules: dict[str, torch.nn.Module],
     offload_kwargs: dict[str, dict],
 ) -> None:
-    """Add a linearized layer's children and inherit its root offload settings."""
+    """Add a layer's children and inherit its root offload settings."""
     named_modules = {
         name if not relative_name else f"{name}.{relative_name}": child
         for relative_name, child in module.named_modules()
@@ -258,9 +258,14 @@ def repack_moe(
     linearized_moes = get_linearized_moes(model, updated_modules)
 
     desc = "Repacking specified modules" if modules is not None else "Repacking experts"
-    for name, module in tqdm.tqdm(linearized_moes, desc=desc):
+    for i in tqdm.tqdm(range(len(linearized_moes)), desc=desc):
+        # references only exist in this loop
+        name, module = linearized_moes[i]
+
         # A parent conversion may have already replaced this module.
+        # this should actually be redundant and can consider removing it
         if module not in moe_lookup:
+            linearized_moes[i] = (None, None)
             continue
 
         layer_offload_kwargs = None
@@ -278,15 +283,22 @@ def repack_moe(
                 _remove_linearized_children(
                     name, module, layer_modules, layer_offload_kwargs
                 )
-                layer_modules[name] = new_module
+                _add_module_children(
+                    name, new_module, layer_modules, layer_offload_kwargs
+                )
             else:
                 _remove_linearized_children(
                     name, module, updated_modules, updated_offload_kwargs
                 )
-                updated_modules[name] = new_module
+                _add_module_children(
+                    name, new_module, updated_modules, updated_offload_kwargs
+                )
         finally:
             if loop_offloading:
                 subgraph_offload_modules(layer_modules, layer_offload_kwargs)
+
+            # remove references
+            linearized_moes[i] = (None, None)
 
     return updated_modules, updated_offload_kwargs
 
@@ -329,7 +341,9 @@ def linearize_moe(
             "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"
         )
 
-    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing"):
+    for i in tqdm.tqdm(range(len(non_linearized_moes)), desc="Linearizing"):
+        name, module = non_linearized_moes[i]
+
         # offload if specified
         if loop_offloading:
             layer_modules = {name: module}
@@ -342,17 +356,19 @@ def linearize_moe(
 
             if loop_offloading:
                 # update the offload kwargs if we need to offload right now
-                _add_linearized_children(
+                _add_module_children(
                     name, new_module, layer_modules, layer_offload_kwargs
                 )
             else:
                 # update bookkeeping if we are not offloading right now
-                _add_linearized_children(
+                _add_module_children(
                     name, new_module, updated_modules, updated_offload_kwargs
                 )
         finally:
             if loop_offloading:
                 subgraph_offload_modules(layer_modules, layer_offload_kwargs)
+
+            non_linearized_moes[i] = (None, None)  # remove references
 
     return updated_modules, updated_offload_kwargs
 
