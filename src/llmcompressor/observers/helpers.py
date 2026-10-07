@@ -7,7 +7,7 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
@@ -198,7 +198,10 @@ def validate_fused_layer_scope(model: Module, modules: Collection[Module]):
             _fused_layers_in_scope(fused_layers, module_scope)
 
 
-def fuse_weight_observers(model: Module, modules: Collection[Module] | None = None):
+def fuse_weight_observers(
+    model: Module,
+    modules: Iterable[Module] | None = None,
+):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -209,13 +212,20 @@ def fuse_weight_observers(model: Module, modules: Collection[Module] | None = No
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
-    :param modules: optional active calibration scope. Only groups fully in scope are
-        fused; a partially scoped TENSOR_GROUP group raises before calibration starts.
+    :param modules: optional modules to inspect instead of the complete model. This is
+        useful when a transformation has added a small subgraph and only that subgraph
+        needs fusion bookkeeping. If supplied, fused groups spanning multiple
+        sequential scopes are rejected when they use TENSOR_GROUP quantization.
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    module_scope = None if modules is None else set(modules)
-    for submodule in model.modules():
+    modules_to_inspect = None if modules is None else list(modules)
+    module_scope = (
+        None if modules_to_inspect is None else set(modules_to_inspect)
+    )
+    for submodule in (
+        model.modules() if modules_to_inspect is None else modules_to_inspect
+    ):
         for fused_layers in get_fused_layers(submodule):
             layers_to_fuse = list(fused_layers.values())
             fusion_name_group = tuple(fused_layers.keys())
