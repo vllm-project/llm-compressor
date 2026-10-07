@@ -35,7 +35,8 @@ class Llama4LinearExperts(LinearExperts2D):
         experts.has_bias = cls.has_bias
         experts.has_gate = cls.has_gate
 
-        with skip_weights_initialize():
+        construction_device = get_execution_device(experts)
+        with torch.device(construction_device), skip_weights_initialize():
             self = cls(
                 experts.num_experts,
                 experts.hidden_size,
