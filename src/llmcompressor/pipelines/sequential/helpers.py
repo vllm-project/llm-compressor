@@ -307,10 +307,11 @@ class SequentialTracer(HFTracer):
     sequential targets
 
     During ``create_proxy``, non-ancestor modules that execute (including inside
-    ``@torch.fx.wrap`` regions) are recorded on ``node.meta[INVOKED_SUBMODULES_META_KEY]``
-    so subgraph ownership does not depend solely on ``call_module`` ops (#3261).
-    Recording is reentrant (stack of pending lists) so nested ``create_proxy`` calls
-    cannot wipe parent attributions.
+    ``@torch.fx.wrap`` regions) are recorded on
+    ``node.meta[INVOKED_SUBMODULES_META_KEY]`` so subgraph ownership does not
+    depend solely on ``call_module`` ops (#3261). Recording is reentrant (stack
+    of pending lists) so nested ``create_proxy`` calls cannot wipe parent
+    attributions.
 
     An independent ``oracle_invoked_names`` set records every hooked module whose
     ``forward`` actually ran during ``trace()``, regardless of graph meta, for coverage

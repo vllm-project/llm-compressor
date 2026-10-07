@@ -226,8 +226,7 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         and module not in covered
     )
     assert missing == [], (
-        "Oracle-invoked modules missing from subgraph.submodules(): "
-        f"{missing}"
+        "Oracle-invoked modules missing from subgraph.submodules(): " f"{missing}"
     )
 
 
