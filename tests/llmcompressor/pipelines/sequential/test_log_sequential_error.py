@@ -144,7 +144,6 @@ def test_moe_processing_only_runs_per_subgraph_when_lazy(
     mock_trace.return_value = fake_subgraphs
     model, _ = fake_pipeline
     linearize_calls = []
-    repack_calls = []
     monkeypatch.setattr(
         sequential_pipeline,
         "linearize_moe",
@@ -153,15 +152,6 @@ def test_moe_processing_only_runs_per_subgraph_when_lazy(
             (args[1], kwargs["offload_kwargs"]),
         )[1],
     )
-    monkeypatch.setattr(
-        sequential_pipeline,
-        "repack_moe",
-        lambda *args, **kwargs: (
-            repack_calls.append(args),
-            (args[1], kwargs["offload_kwargs"]),
-        )[1],
-    )
-
     SequentialPipeline()(
         model,
         fake_dataloader,
@@ -172,7 +162,6 @@ def test_moe_processing_only_runs_per_subgraph_when_lazy(
     )
 
     assert len(linearize_calls) == expected_calls
-    assert len(repack_calls) == expected_calls
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
