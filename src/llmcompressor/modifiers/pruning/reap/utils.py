@@ -49,7 +49,7 @@ class MoeModelAttrs:
 
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
-NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
+NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts", "n_routed_experts"]
 TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
 N_GROUP_CONFIG_KEYS = ["n_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
