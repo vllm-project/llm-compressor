@@ -178,4 +178,5 @@ def test_modules_added_during_calibration_are_initialized():
 
     assert hasattr(linear, "quantization_scheme")
     assert hasattr(linear, "weight_observer")
+    assert linear.quantization_enabled is False
     assert linear.quantization_status.value == "calibration"
