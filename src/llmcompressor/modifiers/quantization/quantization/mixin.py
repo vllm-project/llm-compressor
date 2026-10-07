@@ -311,6 +311,12 @@ class QuantizationMixin(HooksMixin):
                 force_zero_point=force_zero_point,
             )
             self._initialized_modules.add(module)
+            # Lazy modules are added inside SequentialPipeline's
+            # DisableQuantization context. That context cannot disable modules
+            # created after it entered, so do it explicitly here. Calibration
+            # observers still run through their hooks, but the forward path must
+            # not perform fake quantization until the context exits.
+            disable_quantization(module)
             added.append(module)
 
         if not added:
@@ -325,9 +331,6 @@ class QuantizationMixin(HooksMixin):
                 self._calibration_hooks |= self._initialize_hooks(module)
                 apply_calibration_status(module)
             fuse_weight_observers(model, modules=modules.values())
-        else:
-            for module in added:
-                disable_quantization(module)
 
     def start_calibration(
         self,
