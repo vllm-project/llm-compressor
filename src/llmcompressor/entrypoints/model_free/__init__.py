@@ -31,7 +31,7 @@ def model_free_ptq(
     ignore: Iterable[str] = tuple(),
     max_workers: int | Literal["auto"] = "auto",
     device: Optional[str | torch.device | list[str | torch.device]] = None,
-    converter: Converter | list[Converter] | None = None,
+    converter: Converter | list[Converter] | tuple[Converter, ...] | None = None,
 ):
     """
     Quantize a model without the need for a model definition. This function
@@ -73,10 +73,12 @@ def model_free_ptq(
     weight_map = get_weight_map(model_files)
     mfptq = ModelFreePtqConverter(config, weight_names=weight_map.keys())
     if converter is None:
-        converter = []
-    elif not isinstance(converter, list):
-        converter = [converter]
-    converters = converter + [mfptq]
+        converters = []
+    elif isinstance(converter, (list, tuple)):
+        converters = list(converter)
+    else:
+        converters = [converter]
+    converters.append(mfptq)
 
     convert_checkpoint(
         model_stub=model_stub,

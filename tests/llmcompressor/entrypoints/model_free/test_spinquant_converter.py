@@ -187,7 +187,8 @@ def test_ignore_skips_tensors():
     )
 
 
-def test_model_free_ptq_chains_converter_list(tmp_path):
+@pytest.mark.parametrize("sequence", (list, tuple))
+def test_model_free_ptq_chains_converter_list(sequence, tmp_path):
     first, second = object(), object()
     with (
         patch.object(_MODEL_FREE_MODULE, "get_checkpoint_files", return_value={}),
@@ -199,7 +200,7 @@ def test_model_free_ptq_chains_converter_list(tmp_path):
             "source",
             tmp_path,
             scheme="FP8_dynamic",
-            converter=[first, second],
+            converter=sequence([first, second]),
             device="cpu",
         )
 
