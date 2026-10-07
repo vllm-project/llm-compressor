@@ -269,7 +269,7 @@ def repack_moe(
             continue
 
         layer_offload_kwargs = None
-        # this guard is needed for some tests, shouldn't be 
+        # this guard is needed for some tests, shouldn't be
         # necessary in practice
         should_offload = loop_offloading and isinstance(
             module._parameters, OffloadCache
