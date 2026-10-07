@@ -117,8 +117,12 @@ def test_repack_directly_loaded_linear_experts():
 
     repack_moe(model)
 
-    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
-    assert not isinstance(model.block1.mlp.experts, LinearExperts2D)
+    experts = model.block1.mlp.experts
+    assert isinstance(experts, FusedExpertsProtocol)
+    assert not isinstance(experts, LinearExperts2D)
+    assert not any(
+        isinstance(module._parameters, OffloadCache) for module in experts.modules()
+    )
 
 
 def test_linearize_uses_nested_model_config():
@@ -129,6 +133,17 @@ def test_linearize_uses_nested_model_config():
     linearize_moe(model)
 
     assert isinstance(model.block1.mlp.experts, LinearExperts2D)
+
+
+def test_linearize_plain_model_does_not_add_offload_cache():
+    model = _tiny_qwen3_moe_blocks()
+
+    linearize_moe(model)
+
+    experts = model.block1.mlp.experts
+    assert not any(
+        isinstance(module._parameters, OffloadCache) for module in experts.modules()
+    )
 
 
 @torch.no_grad()

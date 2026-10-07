@@ -269,7 +269,11 @@ def repack_moe(
             continue
 
         layer_offload_kwargs = None
-        if loop_offloading:
+        should_offload = loop_offloading and isinstance(
+            module._parameters, OffloadCache
+        )
+
+        if should_offload:
             layer_modules = {name: module}
             layer_modules.update(get_linearized_children(name, module, updated_modules))
             layer_offload_kwargs = subgraph_onload_modules(layer_modules)
@@ -279,14 +283,14 @@ def repack_moe(
             new_module = repack_moe_layer(module)
             _replace(model, name, new_module)
 
-            if loop_offloading:
+            if should_offload:
                 _remove_linearized_children(
                     name, module, layer_modules, layer_offload_kwargs
                 )
                 _add_module_children(
                     name, new_module, layer_modules, layer_offload_kwargs
                 )
-            else:
+            elif not loop_offloading:
                 _remove_linearized_children(
                     name, module, updated_modules, updated_offload_kwargs
                 )
@@ -294,7 +298,7 @@ def repack_moe(
                     name, new_module, updated_modules, updated_offload_kwargs
                 )
         finally:
-            if loop_offloading:
+            if should_offload:
                 subgraph_offload_modules(layer_modules, layer_offload_kwargs)
 
             # remove references
@@ -344,8 +348,13 @@ def linearize_moe(
     for i in tqdm.tqdm(range(len(non_linearized_moes)), desc="Linearizing"):
         name, module = non_linearized_moes[i]
 
-        # offload if specified
-        if loop_offloading:
+        # Only perform the per-layer offload cycle when the source module is
+        # actually offloaded. Plain in-memory modules must not acquire inferred
+        # offload wrappers for parameterless descendants.
+        should_offload = loop_offloading and isinstance(
+            module._parameters, OffloadCache
+        )
+        if should_offload:
             layer_modules = {name: module}
             layer_offload_kwargs = subgraph_onload_modules(layer_modules)
 
@@ -354,18 +363,18 @@ def linearize_moe(
             new_module = linearize_moe_layer(model, module)
             _replace(model, name, new_module)
 
-            if loop_offloading:
+            if should_offload:
                 # update the offload kwargs if we need to offload right now
                 _add_module_children(
                     name, new_module, layer_modules, layer_offload_kwargs
                 )
-            else:
+            elif not loop_offloading:
                 # update bookkeeping if we are not offloading right now
                 _add_module_children(
                     name, new_module, updated_modules, updated_offload_kwargs
                 )
         finally:
-            if loop_offloading:
+            if should_offload:
                 subgraph_offload_modules(layer_modules, layer_offload_kwargs)
 
             non_linearized_moes[i] = (None, None)  # remove references
