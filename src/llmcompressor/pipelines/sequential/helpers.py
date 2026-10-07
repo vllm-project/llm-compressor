@@ -27,7 +27,21 @@ from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 if TYPE_CHECKING:
     pass
 
-__all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
+__all__ = [
+    "INVOKED_SUBMODULES_META_KEY",
+    "trace_subgraphs",
+    "Subgraph",
+    "SubgraphTrace",
+    "handle_sequential_oom",
+    "collect_subgraph_modules",
+    "find_modules_outside_subgraphs",
+    "iter_invoked_submodule_names",
+]
+
+# Node.meta key populated by SequentialTracer for modules executed while creating a
+# node. Used so Subgraph.submodules() can see calls hidden inside @torch.fx.wrap
+# regions (see #3261).
+INVOKED_SUBMODULES_META_KEY = "llmcompressor.invoked_submodules"
 
 
 @dataclass
@@ -47,23 +61,44 @@ class Subgraph:
     _code: PythonCode | None = None
 
     def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
-        nodes = self.graph.find_nodes(op="call_module")
+        """
+        Qualified names of modules owned by this subgraph.
+
+        Includes ``call_module`` targets and any modules recorded on
+        ``node.meta[INVOKED_SUBMODULES_META_KEY]`` while tracing (e.g. leaves executed
+        inside ``@torch.fx.wrap`` regions that never appear as ``call_module`` ops).
+        """
         ordered_names: list[str] = []
         seen_modules: set[Module] = set()
 
-        for node in nodes:
-            module = model.get_submodule(node.target)
-            named_modules = module.named_modules() if recurse else [("", module)]
+        def add_tree(qualified_name: str) -> None:
+            try:
+                module = model.get_submodule(qualified_name)
+            except AttributeError:
+                logger.warning(
+                    "Skipping unknown invoked submodule name {!r} while resolving "
+                    "subgraph modules",
+                    qualified_name,
+                )
+                return
 
+            named_modules = module.named_modules() if recurse else [("", module)]
             for relative_name, submodule in named_modules:
                 if submodule in seen_modules:
                     continue
 
-                qualified_name = node.target
+                name = qualified_name
                 if relative_name:
-                    qualified_name = f"{node.target}.{relative_name}"
-                ordered_names.append(qualified_name)
+                    name = f"{qualified_name}.{relative_name}"
+                ordered_names.append(name)
                 seen_modules.add(submodule)
+
+        # Walk in graph order for deterministic DDP module ordering.
+        for node in self.graph.nodes:
+            if node.op == "call_module":
+                add_tree(node.target)
+            for name in node.meta.get(INVOKED_SUBMODULES_META_KEY, ()):
+                add_tree(name)
 
         return ordered_names
 
@@ -85,6 +120,10 @@ class Subgraph:
             return forward_fn(*args, **kwargs)
 
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
+        """
+        Modules owned by this subgraph, including leaves invoked inside wrapped
+        regions during tracing (#3261).
+        """
         return [
             model.get_submodule(name)
             for name in self._subgraph_module_names(model, recurse=recurse)
@@ -96,6 +135,35 @@ class Subgraph:
             name: model.get_submodule(name)
             for name in self._subgraph_module_names(model, recurse=recurse)
         }
+
+
+@dataclass
+class SubgraphTrace:
+    """
+    Result of :func:`trace_subgraphs`.
+
+    List-like over ``subgraphs`` so existing callers keep working.
+    ``oracle_invoked_names`` is an independent record of modules whose ``forward``
+    actually ran during tracing (not derived from graph meta), used to validate
+    subgraph ownership (#3261).
+
+    Complementarity:
+    - ``call_module`` covers leaves even when HF meta overrides skip real ``forward``
+    - meta recording covers wrap-hidden real executions
+    - never-invoked modules and sequential ancestors remain excluded
+    """
+
+    subgraphs: list[Subgraph]
+    oracle_invoked_names: frozenset[str]
+
+    def __iter__(self):
+        return iter(self.subgraphs)
+
+    def __len__(self) -> int:
+        return len(self.subgraphs)
+
+    def __getitem__(self, index: int | slice) -> Subgraph | list[Subgraph]:
+        return self.subgraphs[index]
 
 
 def collect_subgraph_modules(
@@ -111,7 +179,14 @@ def collect_subgraph_modules(
 def find_modules_outside_subgraphs(
     model: Module, subgraphs: list[Subgraph], recurse: bool = True
 ) -> dict[str, Module]:
-    """Return modules that were traced but do not belong to any subgraph."""
+    """
+    Return modules not owned by any subgraph.
+
+    This typically includes sequential ancestors (whose forwards are inlined) and
+    modules never invoked on the traced path (e.g. unused towers). Modules executed
+    inside ``@torch.fx.wrap`` regions are attributed to subgraphs via trace-time
+    recording and therefore are not returned here.
+    """
     subgraph_modules = collect_subgraph_modules(model, subgraphs, recurse=recurse)
     return {
         name: module
@@ -120,13 +195,28 @@ def find_modules_outside_subgraphs(
     }
 
 
+def iter_invoked_submodule_names(subgraphs: list[Subgraph]) -> set[str]:
+    """
+    Qualified names of modules recorded as invoked while tracing the given subgraphs.
+
+    Combines ``call_module`` targets with ``INVOKED_SUBMODULES_META_KEY`` entries.
+    """
+    names: set[str] = set()
+    for subgraph in subgraphs:
+        for node in subgraph.graph.nodes:
+            if node.op == "call_module":
+                names.add(node.target)
+            names.update(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
+    return names
+
+
 def trace_subgraphs(
     model: PreTrainedModel,
     sample_input: dict[str, Any],
     sequential_targets: list[str],
     ignore: list[str],
     targets_per_subgraph: int = 1,
-) -> list[Subgraph]:
+) -> SubgraphTrace:
     """
     Trace a model to produce subgraphs, where each sequential target belongs to exactly
     one subgraph and where executing each subgraph in order is equivalent to executing
@@ -138,7 +228,7 @@ def trace_subgraphs(
     :param sequential_targets: list of patterns matching sequential targets
     :param ignore: function and method names to skip during tracing
     :param targets_per_subgraph: number of targets to include per subgraph
-    :return: a list of Subgraphs in order of execution
+    :return: SubgraphTrace with subgraphs and an independent forward-invocation oracle
     """
     # find modules
     targets = set(
@@ -147,7 +237,7 @@ def trace_subgraphs(
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
-    tracer = SequentialTracer(ancestors)
+    tracer = SequentialTracer(ancestors, targets=targets)
     concrete_args = populate_concrete_args(model, sample_input)
 
     with contextlib.ExitStack() as stack:
@@ -204,7 +294,10 @@ def trace_subgraphs(
             "This is likely due to having wrapped code which calls sequential targets"
         )
 
-    return subgraphs
+    return SubgraphTrace(
+        subgraphs=subgraphs,
+        oracle_invoked_names=frozenset(tracer.oracle_invoked_names),
+    )
 
 
 class SequentialTracer(HFTracer):
@@ -213,14 +306,116 @@ class SequentialTracer(HFTracer):
     inside of sequential targets, nor any modules which are not call graph ancestors of
     sequential targets
 
+    During ``create_proxy``, non-ancestor modules that execute (including inside
+    ``@torch.fx.wrap`` regions) are recorded on
+    ``node.meta[INVOKED_SUBMODULES_META_KEY]`` so subgraph ownership does not
+    depend solely on ``call_module`` ops (#3261). Recording is reentrant (stack
+    of pending lists) so nested ``create_proxy`` calls cannot wipe parent
+    attributions.
+
+    An independent ``oracle_invoked_names`` set records every hooked module whose
+    ``forward`` actually ran during ``trace()``, regardless of graph meta, for coverage
+    checks.
+
     :param ancestors: modules which are ancestors of sequential targets
+    :param targets: sequential target modules; their descendants are owned via
+        ``call_module`` + recurse, so they are not hooked for wrap-hidden discovery
     """
 
-    def __init__(self, ancestors: set[Module]):
+    def __init__(self, ancestors: set[Module], targets: set[Module] | None = None):
         self.ancestors = ancestors
+        self.targets = targets if targets is not None else set()
+        self._module_to_name: dict[Module, str] = {}
+        self._pending_stack: list[list[str]] = []
+        self._forward_hook_handles: list[Any] = []
+        self.oracle_invoked_names: set[str] = set()
 
         # skip any mask creation functions not already caught by the autowrapper
         super().__init__(autowrap_functions=_get_autowrap_functions())
+
+    def _modules_under_targets(self) -> set[Module]:
+        under: set[Module] = set()
+        for target in self.targets:
+            under.update(target.modules())
+        return under
+
+    def trace(self, root: Module | Callable[..., Any], *args: Any, **kwargs: Any):
+        if not isinstance(root, Module):
+            return super().trace(root, *args, **kwargs)
+
+        self._module_to_name = {
+            module: name for name, module in root.named_modules() if name
+        }
+        self.oracle_invoked_names = set()
+        self._pending_stack = []
+        self._forward_hook_handles = []
+
+        try:
+            # Only hook modules that can be wrap-hidden: not ancestors (inlined) and not
+            # under sequential targets (those are owned by call_module + recurse).
+            under_targets = self._modules_under_targets()
+            for module, name in self._module_to_name.items():
+                if module in self.ancestors or module in under_targets:
+                    continue
+                # Native autograd hooks (not HooksMixin) so recording still works under
+                # HooksMixin.disable_hooks() during calibration tracing.
+                self._forward_hook_handles.append(
+                    module.register_forward_hook(self._record_invoked_module)
+                )
+            return super().trace(root, *args, **kwargs)
+        finally:
+            for handle in self._forward_hook_handles:
+                handle.remove()
+            self._forward_hook_handles.clear()
+            self._pending_stack = []
+
+    def _record_invoked_module(self, module: Module, inputs: Any, output: Any) -> None:
+        name = self._module_to_name.get(module)
+        if name is None:
+            return
+
+        # Oracle: every real forward during trace(), independent of create_proxy meta.
+        self.oracle_invoked_names.add(name)
+
+        # Per-node attribution: only while a create_proxy frame is active.
+        if self._pending_stack:
+            self._pending_stack[-1].append(name)
+
+    def create_proxy(
+        self,
+        kind: str,
+        target: Any,
+        args: Any,
+        kwargs: Any,
+        name: str | None = None,
+        type_expr: Any | None = None,
+        proxy_factory_fn: Callable[..., Any] | None = None,
+    ):
+        self._pending_stack.append([])
+        try:
+            proxy = super().create_proxy(
+                kind,
+                target,
+                args,
+                kwargs,
+                name=name,
+                type_expr=type_expr,
+                proxy_factory_fn=proxy_factory_fn,
+            )
+            pending = self._pending_stack[-1]
+            if pending:
+                # Preserve first-seen order within this frame.
+                seen: set[str] = set()
+                ordered: list[str] = []
+                for module_name in pending:
+                    if module_name in seen:
+                        continue
+                    seen.add(module_name)
+                    ordered.append(module_name)
+                proxy.node.meta[INVOKED_SUBMODULES_META_KEY] = ordered
+            return proxy
+        finally:
+            self._pending_stack.pop()
 
     def create_arg(self, a: Any) -> Argument:
         # special extension allows models which depend on config values to be traced
