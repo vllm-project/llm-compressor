@@ -6,7 +6,9 @@ from weakref import WeakKeyDictionary
 import torch
 import tqdm
 from compressed_tensors.offload import get_execution_device
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.module import (
+    remove_module_offload,
     subgraph_offload_modules,
     subgraph_onload_modules,
 )
@@ -15,6 +17,7 @@ from loguru import logger
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
+    PreTrainedConfig,
     PreTrainedModel,
 )
 from transformers.conversion_mapping import (
@@ -366,12 +369,28 @@ def linearize_moe_layer(
             f"Module {type(module).__name__} is not a recognized MoE layer"
         )
 
-    config = getattr(module, "config", model.config)
+    config = _experts_config(module, model)
     linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
     construction_device = get_execution_device(module)
     return linear_experts_cls.from_experts_module(
         module, config, construction_device=construction_device
     )
+
+
+def _experts_config(
+    module: torch.nn.Module,
+    model: PreTrainedModel,
+) -> PreTrainedConfig:
+    """Return the config expected by the native experts constructor."""
+    if (config := getattr(module, "config", None)) is not None:
+        return config
+
+    config = model.config
+    get_text_config = getattr(config, "get_text_config", None)
+    if callable(get_text_config):
+        return get_text_config()
+
+    return getattr(config, "text_config", config)
 
 
 def _replace(
@@ -390,4 +409,10 @@ def _replace(
             moe_lookup.pop(old_module)
             moe_lookup[new_module] = name
 
+    # remove cache mappings before emptying the old module. Module.to_empty() walks
+    # child parameters and would otherwise assign meta tensors through OffloadCache,
+    # which treats those assignments as weight updates.
+    for submodule in old_module.modules():
+        if isinstance(submodule._parameters, OffloadCache):
+            remove_module_offload(submodule, onload_tensors=False)
     old_module.to_empty(device="meta")

@@ -148,12 +148,18 @@ def test_moe_processing_only_runs_per_subgraph_when_lazy(
     monkeypatch.setattr(
         sequential_pipeline,
         "linearize_moe",
-        lambda *args, **kwargs: linearize_calls.append(args),
+        lambda *args, **kwargs: (
+            linearize_calls.append(args),
+            (args[1], kwargs["offload_kwargs"]),
+        )[1],
     )
     monkeypatch.setattr(
         sequential_pipeline,
         "repack_moe",
-        lambda *args, **kwargs: repack_calls.append(args),
+        lambda *args, **kwargs: (
+            repack_calls.append(args),
+            (args[1], kwargs["offload_kwargs"]),
+        )[1],
     )
 
     SequentialPipeline()(

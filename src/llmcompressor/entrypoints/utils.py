@@ -99,8 +99,14 @@ def pre_process(
     if hasattr(model_args.model, "hf_device_map"):
         from_accelerate(model_args.model)
 
-    resolve_eager_moe_linearization(model_args.model, dataset_args)
-    if not dataset_args.moe_lazy_linearization_and_repack:
+    configured_pipeline = getattr(dataset_args, "pipeline", None)
+    supports_lazy_moe = configured_pipeline in {"sequential", "independent"}
+    # IndependentPipeline dispatches calibration modifiers to their inferred
+    # pipelines; calibration modifiers such as QuantizationModifier run through
+    # SequentialPipeline.
+    if supports_lazy_moe:
+        resolve_eager_moe_linearization(model_args.model, dataset_args)
+    if not dataset_args.moe_lazy_linearization_and_repack or not supports_lazy_moe:
         linearize_moe(model_args.model)
 
     # wrap model.save_pretrained
@@ -127,8 +133,12 @@ def post_process(
     if (
         model_args is not None
         and dataset_args is not None
-        and not dataset_args.moe_lazy_linearization_and_repack
         and dataset_args.repack_moe_layers
+        and (
+            not dataset_args.moe_lazy_linearization_and_repack
+            or getattr(dataset_args, "pipeline", None)
+            not in {"sequential", "independent"}
+        )
     ):
         repack_moe(model_args.model)
 

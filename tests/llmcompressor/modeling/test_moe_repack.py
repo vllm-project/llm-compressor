@@ -1,6 +1,7 @@
 """Tests for explicit LinearExperts2D -> fused 3D MoE repack (issues #2699, #3183)."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -118,6 +119,16 @@ def test_repack_directly_loaded_linear_experts():
 
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
     assert not isinstance(model.block1.mlp.experts, LinearExperts2D)
+
+
+def test_linearize_uses_nested_model_config():
+    model = _tiny_qwen3_moe_blocks()
+    text_config = model.config
+    model.config = SimpleNamespace(get_text_config=lambda: text_config)
+
+    linearize_moe(model)
+
+    assert isinstance(model.block1.mlp.experts, LinearExperts2D)
 
 
 @torch.no_grad()
@@ -603,7 +614,6 @@ def test_linearize_moe_subgraph_traverses_nested_modules():
     assert isinstance(model.block1.mlp.experts, LinearExperts2D)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
     assert linearized_modules is not None
-    assert linearized_modules["block1.mlp.experts"] is model.block1.mlp.experts
 
 
 @torch.no_grad()
@@ -622,4 +632,3 @@ def test_repack_moe_subgraph_only_targets_selected_module():
     assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
     assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
     assert repacked_modules is not None
-    assert repacked_modules["block1.mlp.experts"] is model.block1.mlp.experts

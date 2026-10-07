@@ -1,6 +1,7 @@
 import importlib
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 entrypoint_utils = importlib.import_module("llmcompressor.entrypoints.utils")
@@ -49,7 +50,18 @@ def test_individual_expert_targets_force_eager_linearization(monkeypatch):
     assert not dataset_args.moe_lazy_linearization_and_repack
 
 
-def test_pre_process_linearizes_non_lazy_moe(monkeypatch):
+@pytest.mark.parametrize(
+    ("pipeline", "lazy", "should_process"),
+    [
+        ("independent", True, False),
+        ("sequential", True, False),
+        ("sequential", False, True),
+        ("basic", True, True),
+    ],
+)
+def test_pre_process_linearizes_moe_when_not_lazy_sequential(
+    monkeypatch, pipeline, lazy, should_process
+):
     model = _Model()
     model_args = SimpleNamespace(
         model=model,
@@ -57,8 +69,9 @@ def test_pre_process_linearizes_non_lazy_moe(monkeypatch):
         tie_word_embeddings=True,
     )
     dataset_args = SimpleNamespace(
-        sequential_targets=None,
-        moe_lazy_linearization_and_repack=False,
+        sequential_targets=[],
+        moe_lazy_linearization_and_repack=lazy,
+        pipeline=pipeline,
     )
     calls = []
 
@@ -66,34 +79,42 @@ def test_pre_process_linearizes_non_lazy_moe(monkeypatch):
     monkeypatch.setattr(
         entrypoint_utils,
         "linearize_moe",
-        lambda candidate, onload_and_offload: calls.append(
-            (candidate, onload_and_offload)
-        ),
+        lambda candidate: calls.append(candidate),
     )
     monkeypatch.setattr(entrypoint_utils, "modify_save_pretrained", lambda _model: None)
 
     entrypoint_utils.pre_process(model_args, dataset_args, output_dir=None)
 
-    assert calls == [(model, True)]
+    assert calls == ([model] if should_process else [])
 
 
-def test_post_process_repacks_non_lazy_moe(monkeypatch):
+@pytest.mark.parametrize(
+    ("pipeline", "lazy", "should_process"),
+    [
+        ("independent", True, False),
+        ("sequential", True, False),
+        ("sequential", False, True),
+        ("basic", True, True),
+    ],
+)
+def test_post_process_repacks_moe_when_not_lazy_sequential(
+    monkeypatch, pipeline, lazy, should_process
+):
     model = _Model()
     model_args = SimpleNamespace(model=model, processor=None)
     dataset_args = SimpleNamespace(
-        moe_lazy_linearization_and_repack=False,
+        moe_lazy_linearization_and_repack=lazy,
         repack_moe_layers=True,
+        pipeline=pipeline,
     )
     calls = []
 
     monkeypatch.setattr(
         entrypoint_utils,
         "repack_moe",
-        lambda candidate, onload_and_offload: calls.append(
-            (candidate, onload_and_offload)
-        ),
+        lambda candidate: calls.append(candidate),
     )
 
     entrypoint_utils.post_process(model_args=model_args, dataset_args=dataset_args)
 
-    assert calls == [(model, True)]
+    assert calls == ([model] if should_process else [])

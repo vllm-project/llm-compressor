@@ -257,6 +257,21 @@ def test_linearize_moe_gpt_oss():
     init.normal_(experts.gate_up_proj_bias, mean=0.0, std=config.initializer_range)
     init.normal_(experts.down_proj, mean=0.0, std=config.initializer_range)
     init.normal_(experts.down_proj_bias, mean=0.0, std=config.initializer_range)
+
+    moe_config = MoEConfig.from_config(config)
+    hidden_states = torch.randn(
+        NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
+    )
+    top_k_index = torch.randint(
+        0,
+        moe_config.num_experts,
+        size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
+    )
+    top_k_weights = torch.randn(
+        NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
+    )
+    true_outputs = experts(hidden_states, top_k_index, top_k_weights)
+
     gate_up_proj = experts.gate_up_proj.clone()
     gate_up_proj_bias = experts.gate_up_proj_bias.clone()
 
@@ -272,19 +287,6 @@ def test_linearize_moe_gpt_oss():
         assert torch.equal(expert.gate_proj.bias, gate_up_proj_bias[index][0::2])
         assert torch.equal(expert.up_proj.bias, gate_up_proj_bias[index][1::2])
 
-    moe_config = MoEConfig.from_config(config)
-    hidden_states = torch.randn(
-        NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
-    )
-    top_k_index = torch.randint(
-        0,
-        moe_config.num_experts,
-        size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
-    )
-    top_k_weights = torch.randn(
-        NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
-    )
-    true_outputs = experts(hidden_states, top_k_index, top_k_weights)
     outputs = mock_model(hidden_states, top_k_index, top_k_weights)
 
     assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
@@ -304,15 +306,16 @@ def test_linearize_moe_llama4():
     init.normal_(experts.gate_up_proj, mean=0.0, std=text_config.initializer_range)
     init.normal_(experts.down_proj, mean=0.0, std=text_config.initializer_range)
 
-    mock_model = DummyModel(experts, config)
-    linearize_moe(mock_model)
-    assert mock_model.module is not experts
-
     moe_config = MoEConfig.from_config(text_config)
     hidden_states = torch.randn(
         NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
     )
     true_outputs = experts(hidden_states)
+
+    mock_model = DummyModel(experts, config)
+    linearize_moe(mock_model)
+    assert mock_model.module is not experts
+
     outputs = mock_model(hidden_states)
     with moe_calibration_context():
         calib_outputs = mock_model(hidden_states)
