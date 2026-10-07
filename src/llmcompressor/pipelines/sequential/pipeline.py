@@ -17,10 +17,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
-from llmcompressor.modeling.moe.linearize import (
-    linearize_moe,
-    repack_moe,
-)
+from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -361,14 +358,6 @@ class SequentialPipeline(CalibrationPipeline):
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(subgraph_modules.values()))
-                if (
-                    dataset_args.moe_lazy_linearization_and_repack
-                    and dataset_args.repack_moe_layers
-                ):
-                    subgraph_modules, offload_kwargs = repack_moe(
-                        model, subgraph_modules, offload_kwargs=offload_kwargs
-                    )
-
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
