@@ -1,6 +1,8 @@
 """Quantize GLM-4.5-Air and its Transformers-supported MTP layer together.
 
 For unsupported FP8 MTP layouts, see examples/model_free_ptq/mtp_fp8_fallback.py.
+For an NVFP4 backbone with FP8 MTP, see
+examples/quantization_non_uniform/glm4_5_air_nvfp4_mtp.py.
 """
 
 import os

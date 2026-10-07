@@ -1,4 +1,6 @@
 import json
+import shutil
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -9,6 +11,9 @@ from compressed_tensors.quantization import preset_name_to_scheme
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from loguru import logger
 from safetensors.torch import load_file, save_file
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from torch.utils.data import DataLoader
 from transformers import (
     DeepseekV3ForCausalLM,
     Glm4MoeForCausalLM,
@@ -17,11 +22,15 @@ from transformers import (
     InklingForCausalLM,
     InklingTextConfig,
     PretrainedConfig,
+    PreTrainedTokenizerFast,
 )
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    modify_save_pretrained,
+)
 from llmcompressor.transformers.compression.mtp import (
     _mtp_weights,
     load_with_mtp_model,
@@ -59,6 +68,7 @@ def _source_model(tmp_path, with_mtp=True, load_mtp=False):
     model.save_pretrained(source)
     if with_mtp:
         mtp = MtpModel(model, 1)
+        mtp.layers.apply(model._init_weights)
         weights = load_file(source / "model.safetensors")
         for name, tensor in mtp.layers[0].state_dict().items():
             name = (
@@ -282,6 +292,50 @@ def test_mtp_copy_uses_backbone_hub_revision(tmp_path):
     )
 
 
+@pytest.mark.parametrize("subfolder", ["", "weights"])
+@pytest.mark.parametrize("use_load_context", [True, False])
+def test_mtp_copy_from_custom_offline_cache(tmp_path, subfolder, use_load_context):
+    source = _source_model(tmp_path)
+    cache = tmp_path / "custom-cache"
+    revision = "a" * 40
+    snapshot = cache / "models--example--mtp" / "snapshots" / revision / subfolder
+    shutil.copytree(source.name_or_path, snapshot)
+    reference = load_file(snapshot / "model.safetensors")
+    context = load_context(InklingForCausalLM) if use_load_context else nullcontext()
+    with (
+        patch("huggingface_hub.constants.HF_HUB_OFFLINE", True),
+        patch("transformers.utils.hub.is_offline_mode", return_value=True),
+        context,
+    ):
+        model = InklingForCausalLM.from_pretrained(
+            "example/mtp",
+            cache_dir=cache,
+            revision=revision,
+            subfolder=subfolder,
+            local_files_only=True,
+        )
+        assert model.name_or_path == "example/mtp"
+        assert not hasattr(model, "mtp")
+        if use_load_context:
+            oneshot(
+                model=model,
+                recipe=QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"]),
+            )
+        else:
+            modify_save_pretrained(model)
+        destination = tmp_path / "destination"
+        kwargs = {} if use_load_context else {"mtp_source": str(snapshot)}
+        model.save_pretrained(destination, **kwargs)
+        assert model.name_or_path == "example/mtp"
+
+    weights = get_weight_mappings(destination)
+    for name, tensor in reference.items():
+        if name.startswith("model.mtp."):
+            torch.testing.assert_close(
+                load_file(weights[name])[name], tensor, rtol=0, atol=0
+            )
+
+
 def test_unquantized_mtp_copy_from_quantized_backbone_config(tmp_path):
     model = _source_model(tmp_path)
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
@@ -374,7 +428,7 @@ def test_unsupported_mtp_target_points_to_fallback(tmp_path):
         oneshot(model=model, recipe=recipe)
 
 
-def test_missing_mtp_checkpoint_weights_point_to_fallback(tmp_path):
+def test_mtp_targets_require_loaded_mtp(tmp_path):
     model = _source_model(tmp_path, with_mtp=False)
     recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
     with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
@@ -424,6 +478,61 @@ def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
     recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\."]})
     with pytest.raises(ValueError, match="data-free schemes only"):
         oneshot(model=model, recipe=recipe)
+
+
+@pytest.mark.parametrize("mtp_first", [True, False])
+def test_calibrated_backbone_with_data_free_mtp(tmp_path, mtp_first):
+    model = _source_model(tmp_path, load_mtp=True)
+    backbone = QuantizationModifier(
+        scheme="NVFP4", targets=["Linear"], ignore=["lm_head", r"re:^mtp\."]
+    )
+    mtp = QuantizationModifier(
+        scheme="FP8_DYNAMIC",
+        targets=[r"re:^mtp\.layers\."],
+        ignore=[r"re:.*\.eh_proj$"],
+    )
+    recipe = [mtp, backbone] if mtp_first else [backbone, mtp]
+    dataset = DataLoader(
+        [
+            {
+                "input_ids": torch.randint(0, 128, (16,)),
+                "attention_mask": torch.ones(16, dtype=torch.long),
+            }
+            for _ in range(2)
+        ]
+    )
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=Tokenizer(WordLevel({"[UNK]": 0}, unk_token="[UNK]")),
+        unk_token="[UNK]",
+    )
+    oneshot(
+        model=model,
+        recipe=recipe,
+        dataset=dataset,
+        processor=tokenizer,
+        pipeline="independent",
+        sequential_targets=[r"re:^model\.layers\.\d+$"],
+    )
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+
+    weights = get_weight_mappings(destination)
+    backbone_prefix = "model.layers.0.mlp.up_proj"
+    mtp_prefix = "model.mtp.layers.0.transformer_block.mlp.up_proj"
+    backbone_tensors = load_file(weights[f"{backbone_prefix}.weight_packed"])
+    mtp_tensors = load_file(weights[f"{mtp_prefix}.weight"])
+    assert backbone_tensors[f"{backbone_prefix}.weight_packed"].dtype == torch.uint8
+    assert mtp_tensors[f"{mtp_prefix}.weight"].dtype == torch.float8_e4m3fn
+    for name in (f"{backbone_prefix}.input_global_scale", f"{mtp_prefix}.weight_scale"):
+        scale = load_file(weights[name])[name]
+        assert torch.isfinite(scale).all() and (scale > 0).all()
+    assert f"{mtp_prefix}.input_global_scale" not in weights
+    with open(destination / "config.json", encoding="utf-8") as handle:
+        quant = json.load(handle)["quantization_config"]
+    assert quant["format"] == "mixed-precision"
+    assert {
+        group["weights"]["num_bits"] for group in quant["config_groups"].values()
+    } == {4, 8}
 
 
 def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):

@@ -243,7 +243,10 @@ class QuantizationMixin(HooksMixin):
         ):
             raise ValueError(
                 "MTP calibration in oneshot is deferred; MTP targets currently "
-                "support data-free schemes only."
+                "support data-free schemes only. To calibrate the backbone alongside "
+                "data-free MTP quantization, use separate modifiers and backbone-only "
+                "sequential_targets; see "
+                "examples/quantization_non_uniform/glm4_5_air_nvfp4_mtp.py."
             )
 
         for _, module in targets:

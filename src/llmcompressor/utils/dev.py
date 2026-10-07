@@ -48,7 +48,8 @@ def load_context(
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     :param load_mtp: Load Transformers-supported MTP layers before MoE conversion
-        and distributed offloading. MTP calibration is not yet supported.
+        and distributed offloading. MTP calibration is not yet supported. When
+        false, retain the resolved checkpoint location to preserve MTP on save.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
     from llmcompressor.transformers.compression.mtp import load_with_mtp_model
@@ -63,6 +64,7 @@ def load_context(
         else:
             stack.enter_context(load_offloaded_model(model_cls))
             stack.enter_context(load_quantizable_moe(model_cls))
+            stack.enter_context(load_with_mtp_model(model_cls, load_mtp=False))
         yield
 
 

@@ -69,8 +69,9 @@ def _checkpoint_weights(
 
 def _mtp_weights(
     model: PreTrainedModel,
+    source: str | None = None,
 ) -> tuple[dict[str, tuple[str, str | None]], list[str]]:
-    source = model.name_or_path
+    source = source or getattr(model, "_mtp_source", None) or model.name_or_path
     if not source:
         return {}, []
     weights = _checkpoint_weights(source, getattr(model.config, "_commit_hash", None))
@@ -124,21 +125,26 @@ def _mtp_weights(
     return mtp_weights, patterns
 
 
-def preflight_mtp_copy(
-    model: PreTrainedModel,
-) -> tuple[dict[str, tuple[str, str | None]], list[str]] | None:
+def _has_mtp_config(model: PreTrainedModel) -> bool:
     text_config = model.config.get_text_config()
-    if not any(
+    return any(
         getattr(text_config, name, 0)
         for name in (
             "num_mtp_layers",
             "mtp_num_hidden_layers",
             "num_nextn_predict_layers",
         )
-    ):
+    )
+
+
+def validate_mtp_copy_source(
+    model: PreTrainedModel,
+    source: str | None = None,
+) -> tuple[dict[str, tuple[str, str | None]], list[str]] | None:
+    if not _has_mtp_config(model):
         return None
 
-    weights, patterns = _mtp_weights(model)
+    weights, patterns = _mtp_weights(model, source)
     qparams = set(QuantizationMetadata.all_qparam_names()) | {
         "weight_packed",
         "weight_scale_inv",
@@ -162,10 +168,12 @@ def preflight_mtp_copy(
 
 
 @contextmanager
-def load_with_mtp_model(model_cls: type[PreTrainedModel] = AutoModelForCausalLM):
-    """Attach MTP while the enclosing MoE/offload load contexts are active."""
-    from transformers.modeling_layers import MtpModel
-
+def load_with_mtp_model(
+    model_cls: type[PreTrainedModel] = AutoModelForCausalLM,
+    *,
+    load_mtp: bool = True,
+):
+    """Retain the MTP checkpoint source and optionally attach its layers."""
     original_from_pretrained = model_cls.from_pretrained
 
     @classmethod
@@ -174,7 +182,9 @@ def load_with_mtp_model(model_cls: type[PreTrainedModel] = AutoModelForCausalLM)
         model = original_from_pretrained(*args, **kwargs)
         if hasattr(model, "mtp"):
             return model
-        if not _mtp_patterns(model):
+        if not load_mtp and not _has_mtp_config(model):
+            return model
+        if load_mtp and not _mtp_patterns(model):
             raise ValueError(
                 f"{type(model).__name__} has no registered MTP checkpoint patterns. "
                 f"For unsupported layouts, see {FALLBACK_EXAMPLE}."
@@ -195,12 +205,20 @@ def load_with_mtp_model(model_cls: type[PreTrainedModel] = AutoModelForCausalLM)
             **download_kwargs,
         )
         source = os.path.dirname(config_path)
+        # Keep the resolved snapshot for saving unloaded MTP weights offline.
+        # Transformers does not retain cache_dir/local_files_only/subfolder.
+        model._mtp_source = source
+        if not load_mtp:
+            return model
+
+        from transformers.modeling_layers import MtpModel
+
         with (
             patch_attr(model.config, "_name_or_path", source),
             patch_attr(model, "name_or_path", source),
         ):
             # Upstream MtpModel does not dequantize source FP8/packed tensors.
-            preflight_mtp_copy(model)
+            validate_mtp_copy_source(model)
             device_map = {"": "meta"} if kwargs.get("device_map") == "meta" else None
             model.mtp = MtpModel.from_pretrained(model, device_map=device_map)
 
@@ -222,7 +240,7 @@ def load_with_mtp_model(model_cls: type[PreTrainedModel] = AutoModelForCausalLM)
         yield
 
 
-def prepare_mtp_save(model: PreTrainedModel) -> None:
+def register_mtp_save_conversions(model: PreTrainedModel) -> None:
     """Register MTP's conversions on the parent used by save_pretrained."""
     if not hasattr(model, "_mtp_weight_conversions") or getattr(
         model, "_mtp_save_prepared", False
@@ -279,7 +297,9 @@ def save_mtp_tensors(
     source_mtp: tuple[dict[str, tuple[str, str | None]], list[str]] | None = None,
 ) -> None:
     """Preserve source MTP when it was not loaded into the model."""
-    source_mtp = source_mtp if source_mtp is not None else preflight_mtp_copy(model)
+    source_mtp = (
+        source_mtp if source_mtp is not None else validate_mtp_copy_source(model)
+    )
     if source_mtp is None:
         return
     weights, patterns = source_mtp
