@@ -216,23 +216,32 @@ def test_linearize_moe(model_type):
         if down_proj_bias is not None:
             init.normal_(down_proj_bias, mean=0.0, std=config.initializer_range)
 
-        mock_model = DummyModel(experts, config)
-        linearize_moe(mock_model)
-        assert mock_model.module is not experts
-
         moe_config = MoEConfig.from_config(config)
+        device = next(experts.parameters()).device
         hidden_states = torch.randn(
-            NUM_TEST_TOKENS, moe_config.hidden_dim, dtype=moe_config.dtype
+            NUM_TEST_TOKENS,
+            moe_config.hidden_dim,
+            device=device,
+            dtype=moe_config.dtype,
         )
         top_k_index = torch.randint(
             0,
             moe_config.num_experts,
             size=(NUM_TEST_TOKENS, moe_config.num_experts_per_tok),
+            device=device,
         )
         top_k_weights = torch.randn(
-            NUM_TEST_TOKENS, moe_config.num_experts_per_tok, dtype=moe_config.dtype
+            NUM_TEST_TOKENS,
+            moe_config.num_experts_per_tok,
+            device=device,
+            dtype=moe_config.dtype,
         )
         true_outputs = experts(hidden_states, top_k_index, top_k_weights)
+
+        mock_model = DummyModel(experts, config)
+        linearize_moe(mock_model)
+        assert mock_model.module is not experts
+
         outputs = mock_model(hidden_states, top_k_index, top_k_weights)
         with moe_calibration_context():
             calib_outputs = mock_model(hidden_states, top_k_index, top_k_weights)
