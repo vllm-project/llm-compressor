@@ -11,12 +11,16 @@ from compressed_tensors.utils.safetensors_load import (
 )
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.spinquant import (
+    SpinQuantConverter,
+    SpinQuantConverterMapping,
+)
 from llmcompressor.entrypoints.model_free.validate import (
     validate_config,
     validate_safetensors_index,
 )
 
-__all__ = ["model_free_ptq"]
+__all__ = ["model_free_ptq", "SpinQuantConverter", "SpinQuantConverterMapping"]
 
 
 def model_free_ptq(
@@ -27,7 +31,7 @@ def model_free_ptq(
     ignore: Iterable[str] = tuple(),
     max_workers: int | Literal["auto"] = "auto",
     device: Optional[str | torch.device | list[str | torch.device]] = None,
-    converter: Converter | None = None,
+    converter: Converter | list[Converter] | None = None,
 ):
     """
     Quantize a model without the need for a model definition. This function
@@ -58,8 +62,9 @@ def model_free_ptq(
     :param device: device(s) for quantization. Accepts a single device
         string/object or a list. When multiple devices are given, shards
         are dynamically assigned based on real-time GPU memory.
-    :param converter: optional converter to apply to the checkpoint before
-        running model-free PTQ, e.g. an AWQ or fp8 dequantizer
+    :param converter: optional converter or list of converters to apply, in
+        order, to the checkpoint before running model-free PTQ, e.g. an fp8
+        dequantizer followed by a SpinQuantConverter
     """
     model_files = get_checkpoint_files(model_stub)
     config = validate_config(config, scheme, ignore)
@@ -67,7 +72,11 @@ def model_free_ptq(
 
     weight_map = get_weight_map(model_files)
     mfptq = ModelFreePtqConverter(config, weight_names=weight_map.keys())
-    converters = ([converter] if converter is not None else []) + [mfptq]
+    if converter is None:
+        converter = []
+    elif not isinstance(converter, list):
+        converter = [converter]
+    converters = converter + [mfptq]
 
     convert_checkpoint(
         model_stub=model_stub,
