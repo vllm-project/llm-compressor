@@ -158,9 +158,7 @@ class LifecycleCallbacks:
         return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
 
     @classmethod
-    def modules_added(
-        cls, modules: dict[str, "Module"], **kwargs
-    ) -> ModifiedState:
+    def modules_added(cls, modules: dict[str, "Module"], **kwargs) -> ModifiedState:
         """Notify modifiers about modules created during an active session.
 
         Some model transformations add modules after a calibration scope has
