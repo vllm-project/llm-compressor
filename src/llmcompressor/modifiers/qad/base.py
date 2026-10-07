@@ -13,7 +13,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import Field, PrivateAttr
+from pydantic import ConfigDict, Field, PrivateAttr
 from torch.utils._pytree import tree_map_only
 
 from llmcompressor.core import Event, State
@@ -98,6 +98,10 @@ class QADModifier(Modifier):
     """
 
     requires_calibration_data: bool = True
+
+    # Allow arbitrary types because offload_device may be a torch.device
+    model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
+
     reobserve_weights: bool = True
     num_epochs: int = Field(default=1, ge=1)
     lr: float = Field(default=2.0e-6, gt=0)
@@ -105,7 +109,7 @@ class QADModifier(Modifier):
     gradient_accumulation_steps: int = Field(default=1, ge=1)
     max_grad_norm: float | None = Field(default=1.0, gt=0)
     seed: int = 42
-    offload_device: str = "cpu"
+    offload_device: torch.device | str = "cpu"
     validation_fraction: float = Field(default=0.1, gt=0, lt=1)
 
     # sequential targets containing quantized weights, in model execution order
@@ -240,10 +244,6 @@ class QADModifier(Modifier):
             )
         batch_count = len(subgraph_inputs[0])
         train_indices, validation_indices = self._split_batch_indices(batch_count)
-        if torch.accelerator.is_available():
-            for cache in subgraph_inputs + subgraph_outputs:
-                for index in range(batch_count):
-                    cache.pin_memory(index)
         logger.info(
             "QAD cached {} local teacher batches for {}",
             batch_count,
@@ -461,7 +461,9 @@ class QADModifier(Modifier):
         for _ in range(_LOSS_SCALE_ATTEMPTS):
             for parameter, master in zip(trainable, masters):
                 parameter.grad = master.grad = None
-            for batch in IntermediatesCache(group).iter_prefetch():
+            # Onload on the compute stream: memory onloaded on a prefetch stream can
+            # be reused for a later batch while this batch's backward is still queued
+            for batch in IntermediatesCache(group).iter():
                 loss = self._batch_loss(seq_targets, batch) / len(group)
                 scaler.scale(loss).backward()
             for parameter, master in zip(trainable, masters):
@@ -493,7 +495,7 @@ class QADModifier(Modifier):
     def _evaluate(self, seq_targets, batches):
         return sum(
             self._batch_loss(seq_targets, batch).item()
-            for batch in IntermediatesCache(batches).iter_prefetch()
+            for batch in IntermediatesCache(batches).iter()
         ) / len(batches)
 
     def _batch_loss(self, seq_targets, batch):

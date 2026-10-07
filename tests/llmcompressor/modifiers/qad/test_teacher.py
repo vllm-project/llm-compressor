@@ -10,6 +10,7 @@ from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
 from .test_base import _calibrate, _prepare, _quantizer, _tiny_llama
@@ -19,7 +20,7 @@ from .test_base import _calibrate, _prepare, _quantizer, _tiny_llama
 @pytest.mark.parametrize("per_subgraph", [1, 2])
 def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
     torch.manual_seed(67)
-    model = _tiny_llama(layers=2 * per_subgraph).eval()
+    model = _tiny_llama(layers=2 * per_subgraph).to(get_main_device()).eval()
     reference = deepcopy(model)
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(3)]
     qad = QADModifier(lr=0.001)
@@ -40,7 +41,7 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
         names = [self._seq_target_names[seq_target] for seq_target in seq_targets]
         ref_seq_targets = [reference.get_submodule(name) for name in names]
         with torch.no_grad():
-            for batch in IntermediatesCache(train + validation).iter_prefetch():
+            for batch in IntermediatesCache(train + validation).iter():
                 # The teacher is the unquantized chain run from the first input
                 output = ref_seq_targets[0](*batch["args"], **batch["kwargs"])
                 for ref_seq_target, inputs in zip(ref_seq_targets[1:], batch["links"]):
@@ -60,7 +61,7 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
             indices = sum(self._split_batch_indices(len(data)), [])
             for index, batch in zip(
                 indices,
-                IntermediatesCache(train + validation).iter_prefetch(),
+                IntermediatesCache(train + validation).iter(),
             ):
                 hidden = (
                     batch["args"][0]

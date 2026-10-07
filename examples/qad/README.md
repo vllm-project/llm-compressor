@@ -197,8 +197,8 @@ contract automatically.
   through `offload_device="cpu"`. QAD still needs memory for the subgraph's
   backward pass and optimizer state.
 - QAD stores independent input and teacher snapshots in the shared
-  `IntermediatesCache` and prefetches batches during training and evaluation,
-  while preserving the training shuffle and validation split.
+  `IntermediatesCache` and onloads one batch at a time during training and
+  evaluation, while preserving the training shuffle and validation split.
 - QAD computes reconstruction MSE over all output positions.
 - Weight re-observation follows [Charles's schedule](https://github.com/vllm-project/llm-compressor/pull/3051): before training,
   after every epoch, and before final materialization. Set

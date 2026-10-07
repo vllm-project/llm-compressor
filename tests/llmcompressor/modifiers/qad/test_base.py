@@ -1,3 +1,4 @@
+import importlib
 import re
 from contextlib import contextmanager
 from copy import deepcopy
@@ -21,6 +22,10 @@ from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
+
+# Python 3.10 resolves patch("llmcompressor.entrypoints.oneshot.<name>") to the
+# re-exported oneshot function, so patch the module object directly
+oneshot_module = importlib.import_module("llmcompressor.entrypoints.oneshot")
 
 
 class BranchSeqTarget(torch.nn.Module):
@@ -282,7 +287,7 @@ def test_cache_replay_preserves_selected_batch_order():
         for index in range(len(input_entries))
     ]
     indices = [4, 1, 5, 1]
-    replayed = list(IntermediatesCache([entries[i] for i in indices]).iter_prefetch())
+    replayed = list(IntermediatesCache([entries[i] for i in indices]).iter())
     assert len(replayed) == len(indices)
     for index, batch in zip(indices, replayed):
         torch.testing.assert_close(batch["args"][0], batches[index]["x"])
@@ -431,7 +436,7 @@ def test_oneshot_rejects_nonsequential_qad_before_calibration(pipeline, tmp_path
     model.config.name_or_path = str(tmp_path)
     qad = QADModifier()
     pipeline_kwargs = {} if pipeline == "default" else {"pipeline": pipeline}
-    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+    with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
             model=model, recipe=[_quantizer("rtn"), qad], **pipeline_kwargs
         )
@@ -449,7 +454,7 @@ def test_oneshot_accepts_sequential_qad(pipeline, tmp_path):
     model.config.name_or_path = str(tmp_path)
     qad = QADModifier(num_epochs=1)
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
-    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+    with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
             model=model, recipe=[_quantizer("rtn"), qad], pipeline=pipeline
         )
@@ -466,7 +471,7 @@ def test_oneshot_qad_with_and_without_error_propagation(propagate_error, tmp_pat
     model.config.name_or_path = str(tmp_path)
     qad = QADModifier(num_epochs=1)
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
-    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+    with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
             model=model,
             recipe=[_quantizer("rtn"), qad],
@@ -488,7 +493,7 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
     # Quantize the LM head too; it lies outside every sequential target.
     quantizer = QuantizationModifier(targets="Linear", scheme="NVFP4A16")
-    with patch("llmcompressor.entrypoints.oneshot.pre_process"):
+    with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
             model=model, recipe=[quantizer, qad], pipeline="sequential"
         )

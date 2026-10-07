@@ -12,6 +12,7 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 
 
 def prepare_dataset(tokenizer, name, split, samples, length, text_column):
@@ -78,13 +79,12 @@ def main():
         args.max_seq_length,
         args.text_column,
     )
-    # Resolve dataset access before allocating model weights on the GPU.
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype=torch.bfloat16, attn_implementation="sdpa"
-    ).to("cuda")
+    # Resolve dataset access before loading model weights.
+    with load_context():
+        model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
     kwargs = dict(targets="Linear", scheme="NVFP4A16", ignore=["lm_head"])
     quantizer = (
-        GPTQModifier(**kwargs, actorder="static")
+        GPTQModifier(**kwargs)
         if args.quantizer == "gptq"
         else QuantizationModifier(**kwargs)
     )
