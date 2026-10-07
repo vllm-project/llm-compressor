@@ -15,7 +15,7 @@ from compressed_tensors.quantization import preset_name_to_scheme
 
 from llmcompressor import model_free_ptq
 
-MODEL_ID = "zai-org/GLM-5.3-Flash"
+MODEL_ID = os.environ.get("MTP_MODEL_ID", "zai-org/GLM-5.3-Flash")
 SAVE_DIR = os.environ.get("MTP_OUTPUT_DIR", "GLM-5.3-Flash-FP8-Dynamic-MTP")
 
 try:
@@ -35,7 +35,7 @@ with TemporaryDirectory(prefix="mtp-fp8-", dir=os.environ.get("MTP_TMPDIR")) as 
         converter=fp8_converter,
         max_workers=8,
     )
-    # The output checkpoint adds language_model to the source exclusion paths.
+    # Checkpoint paths include language_model; source exclusion paths omit it.
     ignore = [
         pattern.replace(r"model\.layers\.", r"model\.language_model\.layers\.")
         for pattern in fp8_converter.ignore

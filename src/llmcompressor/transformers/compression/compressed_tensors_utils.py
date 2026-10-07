@@ -22,7 +22,9 @@ from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.compression.mtp import (
+    map_mtp_quantization_config,
     preflight_mtp_copy,
+    prepare_mtp_save,
     save_mtp_tensors,
 )
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
@@ -100,6 +102,8 @@ def modify_save_pretrained(model: PreTrainedModel):
     3. Copies any necessary python files from the model cache
     """
 
+    prepare_mtp_save(model)
+
     def save_pretrained_compressed(save_pretrained_method):
         if getattr(save_pretrained_method, "_overridden", False):
             # `model.save_pretrained` has already been replaced, return.
@@ -149,6 +153,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
+            compressor.quantization_config = map_mtp_quantization_config(
+                model, compressor.quantization_config
+            )
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
@@ -160,39 +167,31 @@ def modify_save_pretrained(model: PreTrainedModel):
             # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
-            loaded_mtp = model._modules.pop("mtp", None)
-            try:
-                # convert to accelerate offloaded for optimal saving with transformers
-                to_accelerate(model)
-                try:
-                    with suspend_distributed_timeout():
-                        if is_source_process():
-                            # save model structure
-                            original_save_fn.__get__(model, model_class)(
-                                save_dir, **kwargs
-                            )
+            # convert to accelerate offloaded for optimal saving with transformers
+            to_accelerate(model)
 
-                            # resave the config with original structure for vLLM
-                            resave_config(model.config, save_dir)
+            with suspend_distributed_timeout():
+                if is_source_process():
+                    # save the complete model, including loaded MTP layers
+                    original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
 
-                            # update config to reflect quantization
-                            compressor.update_config(save_dir)
+                    # resave the config with original structure for vLLM
+                    resave_config(model.config, save_dir)
 
-                            # update existing recipe
-                            update_and_save_recipe(model.name_or_path, save_dir)
+                    # update config to reflect quantization
+                    compressor.update_config(save_dir)
 
-                            # copy python files from cache dir to save_path if any
-                            copy_python_files_from_model_cache(model, save_dir)
+                    # update existing recipe
+                    update_and_save_recipe(model.name_or_path, save_dir)
 
-                            save_mtp_tensors(
-                                model, save_dir, loaded_mtp, save_compressed, source_mtp
-                            )
-                finally:
-                    from_accelerate(model)
-            finally:
-                if loaded_mtp is not None:
-                    model.mtp = loaded_mtp
-                    loaded_mtp.tie_with_main_model(model)
+                    # copy python files from cache dir to save_path if any
+                    copy_python_files_from_model_cache(model, save_dir)
+
+                    if source_mtp is not None:
+                        save_mtp_tensors(model, save_dir, source_mtp)
+
+            # convert back from accelerate to restore model to original form
+            from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper

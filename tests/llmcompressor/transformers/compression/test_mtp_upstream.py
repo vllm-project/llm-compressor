@@ -4,21 +4,19 @@ from unittest.mock import patch
 
 import pytest
 import torch
+from compressed_tensors.offload import OffloadCache
 from compressed_tensors.quantization import preset_name_to_scheme
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from loguru import logger
 from safetensors.torch import load_file, save_file
 from transformers import (
-    Glm4MoeConfig,
+    DeepseekV3ForCausalLM,
     Glm4MoeForCausalLM,
+    Glm4MoeLiteForCausalLM,
+    GlmMoeDsaForCausalLM,
     InklingForCausalLM,
     InklingTextConfig,
     PretrainedConfig,
-)
-from transformers.monkey_patching import (
-    get_patch_mapping,
-    register_patch_mapping,
-    unregister_patch_mapping,
 )
 
 from llmcompressor import oneshot
@@ -26,9 +24,10 @@ from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers.compression.mtp import (
     _mtp_weights,
-    load_mtp_model,
+    load_with_mtp_model,
     save_mtp_tensors,
 )
+from llmcompressor.utils import load_context
 
 MtpModel = getattr(
     pytest.importorskip("transformers.modeling_layers"), "MtpModel", None
@@ -37,7 +36,7 @@ if MtpModel is None:
     pytest.skip("Transformers does not provide MtpModel", allow_module_level=True)
 
 
-def _source_model(tmp_path, with_mtp=True):
+def _source_model(tmp_path, with_mtp=True, load_mtp=False):
     config = InklingTextConfig(
         vocab_size=128,
         hidden_size=64,
@@ -74,11 +73,14 @@ def _source_model(tmp_path, with_mtp=True):
     model.config.dtype = torch.float32
     model.name_or_path = str(source)
     model._weight_conversions = []
+    if load_mtp:
+        with load_context(InklingForCausalLM, load_mtp=True):
+            return InklingForCausalLM.from_pretrained(source, local_files_only=True)
     return model
 
 
 def test_mtp_target_quantizes_with_upstream_model(tmp_path):
-    model = _source_model(tmp_path)
+    model = _source_model(tmp_path, load_mtp=True)
     recipe = QuantizationModifier(
         config_groups={
             "mtp": preset_name_to_scheme("FP8_DYNAMIC", [r"re:^mtp\.layers\."]),
@@ -103,7 +105,7 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
     assert any(
-        r"re:^model\.mtp\..*" in group["targets"]
+        mtp_weight.removesuffix(".weight") in group["targets"]
         for group in quant["config_groups"].values()
     )
     assert mtp_weight.removesuffix(".weight") not in quant["ignore"]
@@ -111,6 +113,104 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
 
     reloaded = InklingForCausalLM.from_pretrained(destination)
     assert len(MtpModel.from_pretrained(reloaded).layers) == 1
+
+
+def test_mtp_participates_in_initial_offload_and_sharded_save(tmp_path):
+    model = _source_model(tmp_path, load_mtp=True)
+    assert isinstance(model.mtp.layers[0].eh_proj._parameters, OffloadCache)
+    assert model.mtp.embed_tokens is model.get_input_embeddings()
+    assert model.mtp.shared_head is model.lm_head
+    assert "embed_tokens" not in model.mtp._modules
+    reference = model.mtp.layers[0].mtp_block.mlp.up_proj.weight.detach().clone()
+    oneshot(
+        model=model,
+        recipe=QuantizationModifier(
+            scheme="FP8_DYNAMIC", ignore=["lm_head", r"re:.*\.eh_proj$"]
+        ),
+    )
+    for directory in ("first", "second"):
+        destination = tmp_path / directory
+        model.save_pretrained(destination, max_shard_size="20KB")
+        assert not (destination / "model_mtp.safetensors").exists()
+        mapping = get_weight_mappings(destination)
+        assert len(set(mapping.values())) > 1
+        name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
+        tensor = load_file(mapping[name])[name].float()
+        scale = load_file(mapping[name + "_scale"])[name + "_scale"]
+        torch.testing.assert_close(tensor * scale, reference, atol=0.005, rtol=0.15)
+        assert model.mtp.shared_head is model.lm_head
+        assert model.mtp.embed_tokens is model.get_input_embeddings()
+
+
+def test_mtp_exists_before_non_source_rank_sync(tmp_path):
+    model = _source_model(tmp_path)
+    seen = []
+
+    def sync(loaded):
+        assert hasattr(loaded, "mtp")
+        assert all(param.is_meta for param in loaded.parameters())
+        seen.append(loaded)
+
+    with (
+        patch("compressed_tensors.offload.load.is_source_process", return_value=False),
+        patch("compressed_tensors.offload.load.from_accelerate", side_effect=sync),
+        load_context(InklingForCausalLM, load_mtp=True),
+    ):
+        loaded = InklingForCausalLM.from_pretrained(model.name_or_path)
+    assert seen == [loaded]
+
+
+def test_mtp_loader_resolves_pinned_cached_snapshot(tmp_path):
+    model = _source_model(tmp_path)
+    source = model.name_or_path
+    original = InklingForCausalLM.from_pretrained
+
+    def load_backbone(*args, **kwargs):
+        loaded = original(source)
+        loaded.config.name_or_path = "example/model"
+        loaded.config._commit_hash = "pinned-commit"
+        return loaded
+
+    with (
+        patch.object(InklingForCausalLM, "from_pretrained", side_effect=load_backbone),
+        patch(
+            "llmcompressor.transformers.compression.mtp.cached_file",
+            return_value=str(tmp_path / "source" / "config.json"),
+        ) as resolve,
+        load_with_mtp_model(InklingForCausalLM),
+    ):
+        loaded = InklingForCausalLM.from_pretrained(
+            "example/model",
+            cache_dir="custom-cache",
+            local_files_only=True,
+            revision="requested-branch",
+            token="test-token",
+            subfolder="weights",
+        )
+    resolve.assert_called_once_with(
+        "example/model",
+        "config.json",
+        revision="pinned-commit",
+        cache_dir="custom-cache",
+        local_files_only=True,
+        token="test-token",
+        subfolder="weights",
+    )
+    assert loaded.config.name_or_path == "example/model"
+    assert hasattr(loaded, "mtp")
+
+
+def test_mtp_source_quantization_fails_during_loading(tmp_path):
+    model = _source_model(tmp_path)
+    source = tmp_path / "source" / "model.safetensors"
+    weights = load_file(source)
+    name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
+    weights[name] = weights[name].to(torch.float8_e4m3fn)
+    weights[name + "_scale"] = torch.ones(128, 1)
+    save_file(weights, source)
+    with load_context(InklingForCausalLM, load_mtp=True):
+        with pytest.raises(ValueError, match="source-quantized MTP"):
+            InklingForCausalLM.from_pretrained(model.name_or_path)
 
 
 @pytest.mark.parametrize(
@@ -121,7 +221,7 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
     ],
 )
 def test_mixed_target_group_keeps_backbone_target(tmp_path, targets):
-    model = _source_model(tmp_path)
+    model = _source_model(tmp_path, load_mtp=True)
     recipe = QuantizationModifier(
         config_groups={"mixed": preset_name_to_scheme("FP8_DYNAMIC", targets)},
         ignore=["lm_head"],
@@ -134,7 +234,7 @@ def test_mixed_target_group_keeps_backbone_target(tmp_path, targets):
         groups = json.load(handle)["quantization_config"]["config_groups"]
     saved_targets = next(iter(groups.values()))["targets"]
     assert all(target in saved_targets for target in targets)
-    assert r"re:^model\.mtp\..*" in saved_targets
+    assert "model.mtp.layers.0.transformer_block.mlp.up_proj" in saved_targets
     weights = get_weight_mappings(destination)
     assert "model.layers.0.mlp.up_proj.weight_scale" in weights
     assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight_scale" in weights
@@ -160,7 +260,7 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     )
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
-    assert r"re:^model\.mtp\..*" in quant["ignore"]
+    assert "model.mtp.layers.0.transformer_block.mlp.up_proj" in quant["ignore"]
 
 
 def test_mtp_copy_uses_backbone_hub_revision(tmp_path):
@@ -170,31 +270,15 @@ def test_mtp_copy_uses_backbone_hub_revision(tmp_path):
     model.save_pretrained(destination)
     model.name_or_path = "example/model"
     model.config._commit_hash = "pinned-commit"
-    metadata = SimpleNamespace(
-        files_metadata={
-            "model.safetensors": SimpleNamespace(
-                tensors={
-                    name: SimpleNamespace(dtype="F32") for name in load_file(source)
-                }
-            )
-        }
-    )
-
-    with (
-        patch(
-            "llmcompressor.transformers.compression.mtp.HfApi.get_safetensors_metadata",
-            return_value=metadata,
-        ) as lookup,
-        patch(
-            "llmcompressor.transformers.compression.mtp.hf_hub_download",
-            return_value=str(source),
-        ) as download,
-    ):
+    with patch(
+        "llmcompressor.transformers.compression.mtp.cached_file",
+        side_effect=[None, str(source)],
+    ) as lookup:
         save_mtp_tensors(model, str(destination))
 
-    lookup.assert_called_once_with("example/model", revision="pinned-commit")
-    download.assert_called_once_with(
-        "example/model", "model.safetensors", revision="pinned-commit"
+    assert len(lookup.call_args_list) == 2
+    assert all(
+        call.kwargs["revision"] == "pinned-commit" for call in lookup.call_args_list
     )
 
 
@@ -232,8 +316,8 @@ def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
     assert not destination.exists()
 
 
-def test_dense_save_drops_mtp_qparams(tmp_path):
-    model = _source_model(tmp_path).to(torch.bfloat16)
+def test_dense_save_uses_normal_model_serialization(tmp_path):
+    model = _source_model(tmp_path, load_mtp=True).to(torch.bfloat16)
     recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
     oneshot(model=model, recipe=recipe)
     model.mtp.to(torch.bfloat16)
@@ -246,13 +330,14 @@ def test_dense_save_drops_mtp_qparams(tmp_path):
     weights = get_weight_mappings(destination)
     name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
     assert name in weights
-    assert name.replace(".weight", ".weight_scale") not in weights
-    tensors = load_file(destination / "model_mtp.safetensors")
+    assert name.replace(".weight", ".weight_scale") in weights
+    tensors = load_file(weights[name])
     assert tensors[name].dtype == model.dtype
     assert tensors["model.mtp.layers.0.e_score_correction_bias"].dtype == torch.float32
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
-    assert name.removesuffix(".weight") in quant["ignore"]
+    assert quant["format"] == "dense"
+    assert not (destination / "model_mtp.safetensors").exists()
 
 
 def test_config_hint_without_mtp_weights_does_not_copy(tmp_path):
@@ -315,69 +400,14 @@ def test_unsupported_untargeted_mtp_copies_with_fallback_warning(tmp_path):
     )
 
 
-def test_missing_mtp_weights_point_to_fallback(tmp_path):
-    model = _source_model(tmp_path)
-    with patch(
-        "transformers.modeling_layers.MtpModel.from_pretrained",
-        side_effect=RuntimeError("The following MtpModel weights are missing"),
-    ):
-        with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
-            load_mtp_model(model)
-
-    with patch(
-        "transformers.modeling_layers.MtpModel.from_pretrained",
-        side_effect=RuntimeError("device failure"),
-    ):
-        with pytest.raises(RuntimeError, match="device failure"):
-            load_mtp_model(model)
-
-
-def test_mtp_loader_accepts_string_execution_device(tmp_path):
-    model = _source_model(tmp_path)
-    with (
-        patch(
-            "llmcompressor.transformers.compression.mtp.get_execution_device",
-            return_value="cuda",
-        ),
-        patch(
-            "llmcompressor.transformers.compression.mtp.set_onload_device"
-        ) as set_device,
-    ):
-        load_mtp_model(model)
-
-    assert set_device.call_args.args[1] == torch.device("cuda")
-
-
-def test_mtp_load_preserves_unrelated_patch_mapping(tmp_path):
-    model = _source_model(tmp_path)
-    experts_cls = type("MtpTestExperts", (torch.nn.Module,), {})
-    register_patch_mapping({"UnrelatedMtpTestClass": torch.nn.Linear})
-    try:
-        with (
-            patch(
-                "llmcompressor.transformers.compression.mtp.has_linearize_load_mappings",
-                return_value=True,
-            ),
-            patch(
-                "llmcompressor.transformers.compression.mtp.get_linearize_load_mappings",
-                return_value=(experts_cls, None, None),
-            ),
-            patch(
-                "llmcompressor.transformers.compression.mtp.LinearExperts2D.get_linear_experts_cls",
-                return_value=experts_cls,
-            ),
-            patch("transformers.modeling_layers.MtpModel.from_pretrained") as load,
-        ):
-            load.return_value.use_shared_post_norm = False
-            load_mtp_model(model)
-        assert get_patch_mapping()["UnrelatedMtpTestClass"] is torch.nn.Linear
-        assert experts_cls.__name__ not in get_patch_mapping()
-    finally:
-        unregister_patch_mapping(["UnrelatedMtpTestClass"])
-
-
 @pytest.mark.parametrize(
-    "error", [AttributeError("bad attribute"), ValueError("invalid config")]
+    "error",
+    [
+        AttributeError("bad attribute"),
+        ValueError("invalid config"),
+        RuntimeError("device failure"),
+        RuntimeError("MTP weights are missing"),
+    ],
 )
 def test_unexpected_mtp_load_error_is_not_reframed(tmp_path, error):
     model = _source_model(tmp_path)
@@ -385,24 +415,32 @@ def test_unexpected_mtp_load_error_is_not_reframed(tmp_path, error):
         "transformers.modeling_layers.MtpModel.from_pretrained", side_effect=error
     ):
         with pytest.raises(type(error), match=str(error)):
-            load_mtp_model(model)
+            with load_context(InklingForCausalLM, load_mtp=True):
+                InklingForCausalLM.from_pretrained(model.name_or_path)
 
 
 def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
-    model = _source_model(tmp_path)
+    model = _source_model(tmp_path, load_mtp=True)
     recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\."]})
     with pytest.raises(ValueError, match="data-free schemes only"):
         oneshot(model=model, recipe=recipe)
 
 
-@pytest.mark.parametrize("target_mtp", [True, False])
-def test_trailing_mtp_layer_uses_upstream_weight_mapping(tmp_path, target_mtp):
-    config = Glm4MoeConfig(
+def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
+    # Keep the released depth because upstream MtpModel discovers MTP using
+    # architecture-defined layer indices. Shrink only widths and expert counts.
+    num_layers = {
+        Glm4MoeForCausalLM: 46,
+        Glm4MoeLiteForCausalLM: 47,
+        GlmMoeDsaForCausalLM: 78,
+        DeepseekV3ForCausalLM: 61,
+    }[model_cls]
+    config = model_cls.config_class(
         vocab_size=128,
         hidden_size=64,
         intermediate_size=128,
         moe_intermediate_size=64,
-        num_hidden_layers=2,
+        num_hidden_layers=num_layers,
         num_attention_heads=4,
         num_key_value_heads=2,
         q_lora_rank=32,
@@ -414,10 +452,19 @@ def test_trailing_mtp_layer_uses_upstream_weight_mapping(tmp_path, target_mtp):
         num_experts_per_tok=1,
         first_k_dense_replace=1,
         num_nextn_predict_layers=1,
+        num_mtp_layers=1,
         max_position_embeddings=128,
     )
-    model = Glm4MoeForCausalLM(config).eval()
+    if getattr(config, "layer_types", None) is not None:
+        config.mtp_layer_types = [config.layer_types[-1]]
+    if getattr(config, "mlp_layer_types", None) is not None:
+        config.mtp_mlp_layer_types = [config.mlp_layer_types[-1]]
+    model = model_cls(config).eval()
     mtp = MtpModel(model, 1)
+    # MtpModel's generic initializer does not initialize architecture-specific
+    # fused expert tensors, which are allocated with torch.empty.
+    mtp.layers.apply(model._init_weights)
+    linearize_moe(mtp)
     source = tmp_path / "source"
     model.save_pretrained(source)
     weights = load_file(source / "model.safetensors")
@@ -425,23 +472,34 @@ def test_trailing_mtp_layer_uses_upstream_weight_mapping(tmp_path, target_mtp):
         name = name.removeprefix("mtp_block.")
         if name == "post_norm.weight":
             name = "shared_head.norm.weight"
-        weights[f"model.layers.2.{name}"] = tensor.contiguous()
+        weights[f"model.layers.{num_layers}.{name}"] = tensor.contiguous()
     save_file(weights, source / "model.safetensors")
     model.config.name_or_path = str(source)
     model.config.dtype = torch.float32
     model.name_or_path = str(source)
     model._weight_conversions = []
-    model._keys_to_ignore_on_load_unexpected = []
-    assert "model.layers.2.eh_proj.weight" in _mtp_weights(model)[0]
-    model._keys_to_ignore_on_load_unexpected = [r"model\.layers\.2.*"]
-    linearize_moe(model)
+    assert f"model.layers.{num_layers}.eh_proj.weight" in _mtp_weights(model)[0]
+    return model
 
-    from_pretrained = MtpModel.from_pretrained
 
-    def load_without_patch(main_model):
-        loaded = from_pretrained(main_model)
-        linearize_moe(loaded)
-        return loaded
+@pytest.mark.parametrize(
+    "model_cls",
+    [
+        Glm4MoeForCausalLM,
+        Glm4MoeLiteForCausalLM,
+        GlmMoeDsaForCausalLM,
+        DeepseekV3ForCausalLM,
+    ],
+)
+@pytest.mark.parametrize("target_mtp", [True, False])
+def test_trailing_mtp_layer_uses_upstream_weight_mapping(
+    tmp_path, target_mtp, model_cls
+):
+    model = _source_glm_model(tmp_path, model_cls)
+    source = model.name_or_path
+    prefix = f"model.layers.{model.config.num_hidden_layers}."
+    with load_context(model_cls, load_mtp=target_mtp):
+        model = model_cls.from_pretrained(source)
 
     if target_mtp:
         recipe = QuantizationModifier(
@@ -453,25 +511,24 @@ def test_trailing_mtp_layer_uses_upstream_weight_mapping(tmp_path, target_mtp):
         )
     else:
         recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
-    with (
-        patch(
-            "transformers.modeling_layers.MtpModel.from_pretrained",
-            side_effect=load_without_patch,
-        ),
-        patch(
-            "llmcompressor.transformers.compression.mtp.has_linearize_load_mappings",
-            return_value=False,
-        ),
-    ):
-        oneshot(model=model, recipe=recipe)
+    oneshot(model=model, recipe=recipe)
 
     destination = tmp_path / "destination"
     model.save_pretrained(destination)
     weights = get_weight_mappings(destination)
     if target_mtp:
-        assert "model.layers.2.self_attn.q_proj.weight_scale" in weights
-        assert "model.layers.2.mlp.experts.0.up_proj.weight_scale" in weights
+        assert any(
+            name.startswith(f"{prefix}self_attn.") and name.endswith("weight_scale")
+            for name in weights
+        )
+        assert f"{prefix}mlp.experts.0.up_proj.weight_scale" in weights
     else:
-        assert "model.layers.2.self_attn.q_proj.weight" in weights
-        assert "model.layers.2.self_attn.q_proj.weight_scale" not in weights
+        assert any(
+            name.startswith(f"{prefix}self_attn.") and name.endswith(".weight")
+            for name in weights
+        )
+        assert not any(
+            name.startswith(prefix) and name.endswith("weight_scale")
+            for name in weights
+        )
     assert not any(name.startswith("mtp.") for name in weights)

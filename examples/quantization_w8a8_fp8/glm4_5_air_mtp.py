@@ -14,16 +14,16 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
-MODEL_ID = "zai-org/GLM-4.5-Air"
+MODEL_ID = os.environ.get("MTP_MODEL_ID", "zai-org/GLM-4.5-Air")
 SAVE_DIR = os.environ.get("MTP_OUTPUT_DIR", "GLM-4.5-Air-FP8-Dynamic-MTP")
 OFFLOAD_DIR = os.environ.get("MTP_OFFLOAD_DIR", "offload_folder")
 
 init_dist()
-with load_context():
+with load_context(load_mtp=True):
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         device_map="auto_offload",
-        max_memory={"cpu": "500GiB"},
+        max_memory={"cpu": os.environ.get("MTP_CPU_MEMORY", "500GiB")},
         offload_folder=OFFLOAD_DIR,
     )
 set_onload_device(model, "cuda")

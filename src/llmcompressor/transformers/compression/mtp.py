@@ -4,10 +4,12 @@ import json
 import os
 import re
 from collections import defaultdict
+from contextlib import contextmanager
+from copy import deepcopy
+from functools import wraps
 
-import torch
-from compressed_tensors.offload import get_execution_device, set_onload_device
-from compressed_tensors.quantization import QuantizationMetadata
+from compressed_tensors.quantization import QuantizationConfig, QuantizationMetadata
+from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
     get_safetensors_header,
@@ -15,23 +17,13 @@ from compressed_tensors.utils.safetensors_load import (
     get_weight_mappings,
     update_safetensors_index,
 )
-from huggingface_hub import HfApi, hf_hub_download
 from loguru import logger
 from safetensors import safe_open
 from safetensors.torch import save_file
-from transformers import PreTrainedModel
-
-from llmcompressor.modeling.moe.conversion_mappings import (
-    get_linearize_load_mappings,
-    has_linearize_load_mappings,
-)
-from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
+from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, cached_file
 
 FALLBACK_EXAMPLE = "examples/model_free_ptq/mtp_fp8_fallback.py"
-
-
-def targets_mtp(targets: set[str]) -> bool:
-    return any("mtp" in target.lower() for target in targets)
 
 
 def _mtp_patterns(model: PreTrainedModel) -> list[str]:
@@ -57,11 +49,21 @@ def _checkpoint_weights(
             name: (files[shard], None) for name, shard in get_weight_map(files).items()
         }
 
-    metadata = HfApi().get_safetensors_metadata(source, revision=revision)
+    index = cached_file(
+        source,
+        SAFE_WEIGHTS_INDEX_NAME,
+        revision=revision,
+        _raise_exceptions_for_missing_entries=False,
+    )
+    if index is None:
+        path = cached_file(source, SAFE_WEIGHTS_NAME, revision=revision)
+        with safe_open(path, framework="pt") as handle:
+            return {name: (path, None) for name in handle.keys()}
+    with open(index, encoding="utf-8") as handle:
+        weight_map = json.load(handle)["weight_map"]
     return {
-        name: (shard, tensor.dtype)
-        for shard, info in metadata.files_metadata.items()
-        for name, tensor in info.tensors.items()
+        name: (os.path.join(os.path.dirname(index), shard), None)
+        for name, shard in weight_map.items()
     }
 
 
@@ -100,13 +102,23 @@ def _mtp_weights(
         return False
 
     mtp_weights = {name: info for name, info in weights.items() if is_mtp(name)}
-    if os.path.isdir(source):
+    if mtp_weights:
+        # Only resolve shards containing MTP; cached_file supports offline mode.
+        shards = {
+            shard: shard
+            if os.path.isfile(shard)
+            else cached_file(
+                source,
+                os.path.basename(shard),
+                revision=getattr(model.config, "_commit_hash", None),
+            )
+            for shard, _ in mtp_weights.values()
+        }
         headers = {
-            shard: get_safetensors_header(shard)
-            for shard in {shard for shard, _ in mtp_weights.values()}
+            shard: get_safetensors_header(path) for shard, path in shards.items()
         }
         mtp_weights = {
-            name: (shard, headers[shard][name]["dtype"])
+            name: (shards[shard], headers[shard][name]["dtype"])
             for name, (shard, _) in mtp_weights.items()
         }
     return mtp_weights, patterns
@@ -149,132 +161,151 @@ def preflight_mtp_copy(
     return weights, patterns
 
 
-def load_mtp_model(model: PreTrainedModel) -> None:
-    if hasattr(model, "mtp"):
-        return
+@contextmanager
+def load_with_mtp_model(model_cls: type[PreTrainedModel] = AutoModelForCausalLM):
+    """Attach MTP while the enclosing MoE/offload load contexts are active."""
+    from transformers.modeling_layers import MtpModel
 
-    try:
-        from transformers.modeling_layers import MtpModel
-    except ImportError as error:
-        message = (
-            "This Transformers version has no MtpModel. Upgrade Transformers or "
-            f"use the manual FP8 route in {FALLBACK_EXAMPLE}."
-        )
-        logger.warning(message)
-        raise ValueError(message) from error
+    original_from_pretrained = model_cls.from_pretrained
 
-    if not _mtp_patterns(model):
-        message = (
-            "Transformers' MtpModel has no registered MTP checkpoint patterns "
-            f"for {type(model).__name__}. For unsupported FP8 layouts, see "
-            f"{FALLBACK_EXAMPLE}."
-        )
-        logger.warning(message)
-        raise ValueError(message)
-
-    from transformers.monkey_patching import (
-        register_patch_mapping,
-        unregister_patch_mapping,
-    )
-
-    model_type = model.config.model_type
-    patch_experts = has_linearize_load_mappings(model_type)
-    if patch_experts:
-        experts_cls, _, _ = get_linearize_load_mappings(model_type)
-        register_patch_mapping(
-            {experts_cls.__name__: LinearExperts2D.get_linear_experts_cls(experts_cls)}
-        )
-    try:
-        try:
-            model.mtp = MtpModel.from_pretrained(model)
-        except RuntimeError as error:
-            if "weights are missing" not in str(error):
-                raise
-            message = (
-                "Transformers' MtpModel could not load this checkpoint's MTP "
-                "layers. For unsupported FP8 layouts, see "
-                f"{FALLBACK_EXAMPLE}."
+    @classmethod
+    @wraps(original_from_pretrained)
+    def from_pretrained(cls, *args, **kwargs):
+        model = original_from_pretrained(*args, **kwargs)
+        if hasattr(model, "mtp"):
+            return model
+        if not _mtp_patterns(model):
+            raise ValueError(
+                f"{type(model).__name__} has no registered MTP checkpoint patterns. "
+                f"For unsupported layouts, see {FALLBACK_EXAMPLE}."
             )
-            logger.warning(message)
-            raise ValueError(message) from error
-    finally:
-        if patch_experts:
-            unregister_patch_mapping([experts_cls.__name__])
 
-    device = torch.device(get_execution_device(model.get_input_embeddings()))
-    if device.type != "cpu":
-        set_onload_device(model.mtp.layers, device)
-        if model.mtp.use_shared_post_norm:
-            set_onload_device(model.mtp.shared_post_norm, device)
+        # The upstream MTP loader does not forward Hub download options. Resolve
+        # the same cached snapshot as the backbone before delegating to it.
+        download_kwargs = {
+            key: kwargs[key]
+            for key in ("cache_dir", "token", "local_files_only", "subfolder")
+            if key in kwargs
+        }
+        config_path = cached_file(
+            model.config.name_or_path,
+            "config.json",
+            revision=getattr(model.config, "_commit_hash", None)
+            or kwargs.get("revision"),
+            **download_kwargs,
+        )
+        source = os.path.dirname(config_path)
+        with (
+            patch_attr(model.config, "_name_or_path", source),
+            patch_attr(model, "name_or_path", source),
+        ):
+            # Upstream MtpModel does not dequantize source FP8/packed tensors.
+            preflight_mtp_copy(model)
+            device_map = {"": "meta"} if kwargs.get("device_map") == "meta" else None
+            model.mtp = MtpModel.from_pretrained(model, device_map=device_map)
+
+        # Keep only MTP-specific mappings here. The surrounding MoE loader owns
+        # the backbone mappings and finishes configuring them after this returns.
+        model._mtp_weight_conversions = [
+            conv
+            for conv in model.mtp._weight_conversions
+            if conv not in model._weight_conversions
+        ]
+        # The backbone owns these modules. Keep MTP's references without
+        # registering the same modules twice for offloading and serialization.
+        for name in ("embed_tokens", "shared_head", "rotary_emb"):
+            shared = model.mtp._modules.pop(name, None)
+            object.__setattr__(model.mtp, name, shared)
+        return model
+
+    with patch_attr(model_cls, "from_pretrained", from_pretrained):
+        yield
+
+
+def prepare_mtp_save(model: PreTrainedModel) -> None:
+    """Register MTP's conversions on the parent used by save_pretrained."""
+    if not hasattr(model, "_mtp_weight_conversions") or getattr(
+        model, "_mtp_save_prepared", False
+    ):
+        return
+    from transformers.core_model_loading import PrefixChange
+
+    conversions = deepcopy(model._mtp_weight_conversions)
+    for conv in conversions:
+        conv.scope_prefix = "mtp"
+        conv.base_model_prefix = ""
+    model._weight_conversions = [
+        PrefixChange(prefix_to_add="mtp"),
+        *conversions,
+        *model._weight_conversions,
+    ]
+    model._mtp_save_prepared = True
+
+
+def map_mtp_quantization_config(
+    model: PreTrainedModel, quantization_config: QuantizationConfig | None
+) -> QuantizationConfig | None:
+    """Use the same checkpoint names for MTP targets as for saved tensors."""
+    if not getattr(model, "_mtp_save_prepared", False) or quantization_config is None:
+        return quantization_config
+    config = quantization_config.model_copy(deep=True)
+    reverse = [conv.reverse_transform() for conv in reversed(model._weight_conversions)]
+    for scheme in config.config_groups.values():
+        names = []
+        for name, module in model.named_modules():
+            if (
+                not name.startswith("mtp.")
+                or getattr(module, "quantization_scheme", None) != scheme
+            ):
+                continue
+            name += ".weight"
+            for conv in reverse:
+                name, _ = conv.rename_source_key(name)
+            names.append(name.removesuffix(".weight"))
+        scheme.targets = list(
+            dict.fromkeys(
+                [
+                    *scheme.targets,
+                    *names,
+                ]
+            )
+        )
+    return config
 
 
 def save_mtp_tensors(
     model: PreTrainedModel,
     destination: str,
-    loaded_mtp: torch.nn.Module | None = None,
-    save_compressed: bool = True,
     source_mtp: tuple[dict[str, tuple[str, str | None]], list[str]] | None = None,
 ) -> None:
-    """Save quantized MTP, or copy untouched MTP tensors from the checkpoint."""
-    if loaded_mtp is None:
-        source_mtp = source_mtp if source_mtp is not None else preflight_mtp_copy(model)
-        if source_mtp is None:
-            return
-        weights, patterns = source_mtp
-        if not weights:
-            message = (
-                "Model config indicates MTP, but no MTP checkpoint weights were found"
-            )
-            if not patterns:
-                message += f". For unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
-            logger.warning(message)
-            return
-        message = (
-            "MTP weights were not targeted for quantization; copying them "
-            "unchanged from the source checkpoint"
-        )
+    """Preserve source MTP when it was not loaded into the model."""
+    source_mtp = source_mtp if source_mtp is not None else preflight_mtp_copy(model)
+    if source_mtp is None:
+        return
+    weights, patterns = source_mtp
+    if not weights:
+        message = "Model config indicates MTP, but no MTP checkpoint weights were found"
         if not patterns:
-            message += (
-                ". Transformers' MtpModel has no registered pattern for them; "
-                f"for unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
-            )
+            message += f". For unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
         logger.warning(message)
-        by_shard = defaultdict(list)
-        for name, (shard, _) in weights.items():
-            by_shard[shard].append(name)
-        tensors = {}
-        for shard, names in by_shard.items():
-            path = (
-                shard
-                if os.path.isdir(model.name_or_path)
-                else hf_hub_download(
-                    model.name_or_path,
-                    shard,
-                    revision=getattr(model.config, "_commit_hash", None),
-                )
-            )
-            with safe_open(path, framework="pt") as handle:
-                tensors.update({name: handle.get_tensor(name) for name in names})
-    else:
-        from transformers.core_model_loading import revert_weight_conversion
-
-        patterns = _mtp_patterns(model)
-        qparams = set(QuantizationMetadata.all_qparam_names()) | {"weight_packed"}
-        state = {
-            name: tensor.detach().cpu().contiguous()
-            for name, tensor in loaded_mtp.state_dict().items()
-            if name.startswith(("layers.", "shared_post_norm."))
-            and (save_compressed or name.rpartition(".")[-1] not in qparams)
-        }
-        tensors = {
-            name: tensor.contiguous()
-            for name, tensor in revert_weight_conversion(loaded_mtp, state).items()
-        }
-        if not tensors or any(
-            not any(re.search(pattern, name) for pattern in patterns)
-            for name in tensors
-        ):
-            raise ValueError("MTP weights did not map back to checkpoint names")
+        return
+    message = (
+        "MTP weights were not targeted for quantization; copying them "
+        "unchanged from the source checkpoint"
+    )
+    if not patterns:
+        message += (
+            ". Transformers' MtpModel has no registered pattern for them; "
+            f"for unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
+        )
+    logger.warning(message)
+    by_shard = defaultdict(list)
+    for name, (shard, _) in weights.items():
+        by_shard[shard].append(name)
+    tensors = {}
+    for shard, names in by_shard.items():
+        with safe_open(shard, framework="pt") as handle:
+            tensors.update({name: handle.get_tensor(name) for name in names})
 
     shard_name = "model_mtp.safetensors"
     save_file(tensors, os.path.join(destination, shard_name))
@@ -306,39 +337,9 @@ def save_mtp_tensors(
     if quant is None:
         return
     ignores = quant.get("ignore") or []
-    if loaded_mtp is None:
-        ignores.extend(f"re:^{pattern}" for pattern in patterns)
-        if any(re.search(r"(?:^|\.)mtp(?:\.|_)", name) for name in tensors):
-            ignores.append(r"re:.*mtp.*")
-        if not patterns:
-            trailing = {
-                match.group(1)
-                for name in tensors
-                if (match := re.match(r"^(.*\.layers\.\d+)\.", name))
-            }
-            ignores.extend(rf"re:^{re.escape(prefix)}\." for prefix in trailing)
-    else:
-        for group in quant["config_groups"].values():
-            if targets_mtp(set(group["targets"])):
-                group["targets"] = list(
-                    dict.fromkeys(
-                        [*group["targets"], *(f"re:^{pattern}" for pattern in patterns)]
-                    )
-                )
-        ignores = [name for name in ignores if not name.startswith("mtp.")]
-        compressed = {
-            name.rpartition(".")[0]
-            for name in tensors
-            if name.endswith(
-                (".weight_packed", ".weight_scale", ".weight_global_scale")
-            )
-        }
-        ignores.extend(
-            name.removesuffix(".weight")
-            for name in tensors
-            if name.endswith(".weight")
-            and name.removesuffix(".weight") not in compressed
-        )
+    ignores.extend(
+        name.removesuffix(".weight") for name in tensors if name.endswith(".weight")
+    )
     quant["ignore"] = list(dict.fromkeys(ignores))
     with open(config_path, "w", encoding="utf-8") as handle:
         json.dump(config, handle, indent=2)
