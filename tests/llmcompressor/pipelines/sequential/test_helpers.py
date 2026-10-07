@@ -9,7 +9,11 @@ from transformers import AutoModelForCausalLM
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.sequential.ast_helpers import autowrap_forward
 from llmcompressor.pipelines.sequential.helpers import (
+    INVOKED_SUBMODULES_META_KEY,
+    SequentialTracer,
     Subgraph,
+    collect_subgraph_modules,
+    find_modules_outside_subgraphs,
     find_target_nodes,
     get_sequential_ancestors,
     handle_sequential_oom,
@@ -214,6 +218,230 @@ def test_submodules_order_is_stable():
         first = subgraph.submodules(model)
         second = subgraph.submodules(model)
         assert first == second
+
+
+def test_submodules_includes_modules_invoked_inside_wrapped_nodes():
+    """call_module-only discovery misses leaves executed inside fx.wrap (#3261)."""
+    with skip_weights_initialize():
+        model = DummyModel()
+
+    graph = torch.fx.Graph(model)
+    x = graph.placeholder("x")
+    wrapped = graph.call_function(lambda t: t, (x,))
+    wrapped.meta[INVOKED_SUBMODULES_META_KEY] = ["seq.0"]
+    fc = graph.call_module("fc", (wrapped,))
+    graph.output(fc)
+
+    subgraph = Subgraph(graph=graph, input_names={"x"}, consumed_names=set())
+    modules = subgraph.submodules(model)
+
+    assert model.seq[0] in modules
+    assert model.fc in modules
+    assert model.seq[0] in subgraph.submodule_dict(model).values()
+
+
+def test_create_proxy_recording_is_reentrant(monkeypatch):
+    """Nested create_proxy must not wipe the parent's pending attributions."""
+
+    class Leaf(torch.nn.Module):
+        def forward(self, x):
+            return x
+
+    class Root(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.parent_mod = Leaf()
+            self.inner_mod = Leaf()
+
+        def forward(self, x):
+            return x
+
+    root = Root()
+    tracer = SequentialTracer(ancestors=set(), targets=set())
+    tracer._module_to_name = {
+        module: name for name, module in root.named_modules() if name
+    }
+    handles = [
+        root.parent_mod.register_forward_hook(tracer._record_invoked_module),
+        root.inner_mod.register_forward_hook(tracer._record_invoked_module),
+    ]
+    inner_meta: dict[str, list[str]] = {}
+
+    def fake_hf_create_proxy(
+        self,
+        kind,
+        target,
+        args,
+        kwargs,
+        name=None,
+        type_expr=None,
+        proxy_factory_fn=None,
+    ):
+        node = type("Node", (), {"meta": {}})()
+        proxy = type("Proxy", (), {"node": node})()
+        if kind == "outer":
+            root.parent_mod(torch.zeros(1))
+            inner = self.create_proxy("inner", None, (), {})
+            inner_meta["names"] = list(
+                inner.node.meta.get(INVOKED_SUBMODULES_META_KEY, [])
+            )
+            root.parent_mod(torch.zeros(1))
+        else:
+            root.inner_mod(torch.zeros(1))
+        return proxy
+
+    from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+
+    monkeypatch.setattr(HFTracer, "create_proxy", fake_hf_create_proxy)
+    try:
+        outer = tracer.create_proxy("outer", None, (), {})
+    finally:
+        for handle in handles:
+            handle.remove()
+
+    assert outer.node.meta[INVOKED_SUBMODULES_META_KEY] == ["parent_mod"]
+    assert "inner_mod" not in outer.node.meta[INVOKED_SUBMODULES_META_KEY]
+    assert inner_meta["names"] == ["inner_mod"]
+
+
+def test_alias_module_call_recorded_during_create_proxy(monkeypatch):
+    """Execution-based attribution must see `emb = self.embed; emb(x)` (#3261)."""
+
+    class Root(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embed_tokens = torch.nn.Embedding(10, 4)
+
+        def forward(self, x):
+            return x
+
+    root = Root()
+    tracer = SequentialTracer(ancestors=set(), targets=set())
+    tracer._module_to_name = {
+        module: name for name, module in root.named_modules() if name
+    }
+    handle = root.embed_tokens.register_forward_hook(tracer._record_invoked_module)
+
+    def fake_hf_create_proxy(
+        self,
+        kind,
+        target,
+        args,
+        kwargs,
+        name=None,
+        type_expr=None,
+        proxy_factory_fn=None,
+    ):
+        emb = root.embed_tokens  # alias
+        emb(torch.zeros(1, 3, dtype=torch.long))
+        return type("Proxy", (), {"node": type("Node", (), {"meta": {}})()})()
+
+    from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+
+    monkeypatch.setattr(HFTracer, "create_proxy", fake_hf_create_proxy)
+    try:
+        proxy = tracer.create_proxy("call_function", None, (), {})
+    finally:
+        handle.remove()
+
+    assert proxy.node.meta[INVOKED_SUBMODULES_META_KEY] == ["embed_tokens"]
+    assert "embed_tokens" in tracer.oracle_invoked_names
+
+
+def test_unused_module_not_covered_by_subgraphs():
+    with skip_weights_initialize():
+        model = DummyModel()
+
+    graph = torch.fx.Graph(model)
+    x = graph.placeholder("x")
+    fc = graph.call_module("fc", (x,))
+    graph.output(fc)
+    subgraph = Subgraph(graph=graph, input_names={"x"}, consumed_names=set())
+
+    covered = set(subgraph.submodules(model))
+    assert model.fc in covered
+    assert model.seq[0] not in covered
+
+
+def test_ancestor_not_owned_via_invoked_meta():
+    with skip_weights_initialize():
+        model = DummyModel()
+
+    graph = torch.fx.Graph(model)
+    x = graph.placeholder("x")
+    # Even if meta incorrectly listed the root, ownership checks exclude ancestors
+    # at the oracle layer; meta resolution still returns the module object, so ensure
+    # subgraph helpers do not treat ancestors as the only coverage signal.
+    wrapped = graph.call_function(lambda t: t, (x,))
+    wrapped.meta[INVOKED_SUBMODULES_META_KEY] = ["fc"]
+    graph.output(wrapped)
+    subgraph = Subgraph(graph=graph, input_names={"x"}, consumed_names=set())
+
+    names = subgraph._subgraph_module_names(model, recurse=False)
+    assert "fc" in names
+    assert "" not in names  # root / ancestor path never recorded as a leaf name
+
+
+def test_trace_subgraphs_wrap_hidden_ownership_and_oracle():
+    """
+    Wrap-hidden embeddings must belong to subgraph 0 (offloading stages them there),
+    remain absent as call_module, and satisfy oracle ⊆ covered (#3261).
+    """
+    model_id = "inference-optimization/Llama-3.2-0.5B-Instruct"
+    with skip_weights_download(AutoModelForCausalLM):
+        model = AutoModelForCausalLM.from_pretrained(model_id, device_map="meta")
+
+    sample = {
+        "input_ids": torch.zeros(1, 8, dtype=torch.long, device="meta"),
+        "attention_mask": torch.ones(1, 8, dtype=torch.long, device="meta"),
+    }
+    trace = trace_subgraphs(
+        model,
+        sample,
+        sequential_targets=["LlamaDecoderLayer"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+    subgraphs = trace.subgraphs
+
+    # Correct subgraph: preamble owns embeddings; later subgraphs do not.
+    assert "model.embed_tokens" in subgraphs[0].submodule_dict(model)
+    for subgraph in subgraphs[1:]:
+        assert "model.embed_tokens" not in subgraph.submodule_dict(model)
+
+    assert not any(
+        node.op == "call_module" and node.target == "model.embed_tokens"
+        for subgraph in subgraphs
+        for node in subgraph.graph.nodes
+    )
+    assert any(
+        "model.embed_tokens" in node.meta.get(INVOKED_SUBMODULES_META_KEY, ())
+        for node in subgraphs[0].graph.nodes
+    )
+
+    # Offloading: wrap-hidden leaf is subgraph-staged, not persistent/outside.
+    outside = find_modules_outside_subgraphs(model, subgraphs)
+    assert "model.embed_tokens" not in outside
+
+    target_modules = {
+        module
+        for module in model.modules()
+        if module.__class__.__name__ == "LlamaDecoderLayer"
+    }
+    ancestors = get_sequential_ancestors(model, target_modules)
+    covered = collect_subgraph_modules(model, subgraphs)
+    missing = sorted(
+        name
+        for name in trace.oracle_invoked_names
+        if model.get_submodule(name) not in ancestors and name not in covered
+    )
+    assert missing == []
+    assert "model.embed_tokens" in trace.oracle_invoked_names
+
+    # Ancestors are not hooked; they must never appear in the oracle.
+    ancestor_names = {
+        name for name, module in model.named_modules() if module in ancestors
+    }
+    assert trace.oracle_invoked_names.isdisjoint(ancestor_names)
 
 
 def test_get_sequential_ancestors():

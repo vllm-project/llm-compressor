@@ -3,6 +3,7 @@ import transformers
 from compressed_tensors.utils.match import match_named_modules
 
 from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
+from llmcompressor.pipelines.sequential.helpers import get_sequential_ancestors
 from llmcompressor.transformers.tracing.debug import trace
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from tests.testing_utils import requires_hf_token
@@ -210,6 +211,24 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
 
     target_modules = get_target_modules(model, targets)
     assert len(subgraphs) == len(target_modules) + 1
+
+    # Independent oracle: modules whose forward actually ran during tracing must be
+    # owned by some subgraph (unless they are sequential ancestors). This is not
+    # derived from graph meta, so missed recordings fail the test (#3261).
+    ancestors = get_sequential_ancestors(model, target_modules)
+    covered = {
+        module for subgraph in subgraphs for module in subgraph.submodules(model)
+    }
+    missing = sorted(
+        name
+        for name in subgraphs.oracle_invoked_names
+        if (module := model.get_submodule(name)) not in ancestors
+        and module not in covered
+    )
+    assert missing == [], (
+        "Oracle-invoked modules missing from subgraph.submodules(): "
+        f"{missing}"
+    )
 
 
 def get_target_modules(model, sequential_targets):
