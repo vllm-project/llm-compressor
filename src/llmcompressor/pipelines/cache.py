@@ -310,7 +310,9 @@ class IntermediatesCache:
                 # Make the main CUDA stream wait for the background H2D copy
                 # before any GPU kernel consumes the prefetched tensors
                 if event is not None:
-                    torch.accelerator.current_stream().wait_event(event)
+                    compute_stream = torch.accelerator.current_stream()
+                    compute_stream.wait_event(event)
+                    self._record_stream(current, compute_stream)
                 yield current
 
     def __iter__(self) -> Generator[Any, None, None]:
@@ -318,6 +320,23 @@ class IntermediatesCache:
 
     def __len__(self) -> int:
         return len(self.batch_intermediates)
+
+    @classmethod
+    def _record_stream(cls, value: Any, stream: torch.Stream) -> None:
+        """Keep prefetched tensors alive until their compute-stream work completes."""
+        match value:
+            case torch.Tensor():
+                if value.device == stream.device:
+                    value.record_stream(stream)
+            case list() | tuple():
+                for item in value:
+                    cls._record_stream(item, stream)
+            case dict():
+                for item in value.values():
+                    cls._record_stream(item, stream)
+            case _ if is_dataclass(value):
+                for field in fields(value):
+                    cls._record_stream(getattr(value, field.name), stream)
 
     @classmethod
     def _onload_value(cls, intermediate: IntermediateValue) -> Any:

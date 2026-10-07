@@ -31,7 +31,6 @@ model_free_ptq(
         "re:.*q_a_proj$",
         "model.embed_tokens",
     ],
-    max_workers=15,
     device="cuda:0",
 )
 ```

@@ -273,7 +273,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         """
         if construction_device is None:
             construction_device = get_execution_device(experts)
-
         with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
