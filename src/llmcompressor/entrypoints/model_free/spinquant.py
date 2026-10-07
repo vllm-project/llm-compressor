@@ -61,7 +61,7 @@ class SpinQuantConverterMapping(BaseModel):
     final_norm: str = "norm"
 
 
-_LAYER_RE = re.compile(r"^(?P<layer>.*\.layers\.\d+)\.")
+_LAYER_RE = re.compile(r"^(?P<layer>(.*\.)?layers\.\d+)\.")
 _QPARAM_SUFFIXES = (
     "weight_scale",
     "input_scale",
@@ -384,12 +384,12 @@ class SpinQuantConverter(Converter):
 
 def _find_norm_names(names, mapping: SpinQuantConverterMapping) -> list[str]:
     layer_norms = re.compile(
-        rf"\.layers\.\d+\.({mapping.attn_norm}|{mapping.mlp_norm})\.weight$"
+        rf"(^|\.)layers\.\d+\.({mapping.attn_norm}|{mapping.mlp_norm})\.weight$"
     )
     embeddings = re.compile(mapping.embedding)
     module_names = [n.removesuffix(".weight") for n in names if n.endswith(".weight")]
     final_norms = {
-        f"{name.rpartition('.')[0]}.{mapping.final_norm}.weight"
+        ".".join(filter(None, (name.rpartition(".")[0], mapping.final_norm, "weight")))
         for name in module_names
         if embeddings.search(name)
     }

@@ -14,7 +14,11 @@ from transformers import (
 
 import llmcompressor.entrypoints.model_free as _MODEL_FREE_MODULE
 from llmcompressor import model_free_ptq
-from llmcompressor.entrypoints.model_free import SpinQuantConverter
+from llmcompressor.entrypoints.model_free import (
+    SpinQuantConverter,
+    SpinQuantConverterMapping,
+)
+from llmcompressor.entrypoints.model_free.spinquant import _find_norm_names
 
 _COMMON = dict(
     vocab_size=128,
@@ -148,6 +152,20 @@ def test_rejects_unmapped_residual_layers():
     converter = SpinQuantConverter(hidden_size=32, head_dim=16, norms={})
     with pytest.raises(ValueError, match="not covered"):
         converter.process({"model.layers.0.mlp.other.weight": torch.randn(8, 32)})
+
+
+@pytest.mark.parametrize("prefix", ("model.", ""))
+def test_finds_final_norm(prefix):
+    names = [
+        f"{prefix}embed_tokens.weight",
+        f"{prefix}layers.0.input_layernorm.weight",
+        f"{prefix}norm.weight",
+        "lm_head.weight",
+    ]
+    assert set(_find_norm_names(names, SpinQuantConverterMapping())) == {
+        f"{prefix}layers.0.input_layernorm.weight",
+        f"{prefix}norm.weight",
+    }
 
 
 def test_rejects_norm_bias():
