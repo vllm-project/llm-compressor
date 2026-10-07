@@ -259,6 +259,10 @@ class SequentialPipeline(CalibrationPipeline):
                     subgraph_modules, offload_kwargs = linearize_moe(
                         model, subgraph_modules, offload_kwargs=offload_kwargs
                     )
+                    # Lazy linearization creates new target modules after session
+                    # initialization and calibration_start. Give modifiers a chance
+                    # to attach their per-module state before the first forward.
+                    LifecycleCallbacks.modules_added(subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(

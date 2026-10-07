@@ -161,3 +161,21 @@ def test_nested_parent_modules_produce_valid_global_scale():
             assert (
                 torch.isfinite(param).all() and param.item() > 0
             ), f"{name} not valid: {param.item()}"
+
+
+def test_modules_added_during_calibration_are_initialized():
+    model = nn.Module()
+    model.experts = nn.ModuleList()
+    modifier = QuantizationModifier(targets=["Linear"], scheme="W8A8")
+    state = State(model=model)
+    modifier.on_initialize(state)
+    modifier.on_calibration_start(state, None)
+    modifier.started_ = True  # normally set by Modifier.update_event
+
+    linear = nn.Linear(8, 8)
+    model.experts.append(linear)
+    modifier.on_modules_added(state, {"experts.0": linear})
+
+    assert hasattr(linear, "quantization_scheme")
+    assert hasattr(linear, "weight_observer")
+    assert linear.quantization_status.value == "calibration"

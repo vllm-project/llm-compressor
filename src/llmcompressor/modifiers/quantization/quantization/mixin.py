@@ -19,12 +19,13 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
+    initialize_module_for_quantization,
     is_cached_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
-from compressed_tensors.utils import match_named_modules
+from compressed_tensors.utils import is_match, match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
@@ -239,6 +240,69 @@ class QuantizationMixin(HooksMixin):
 
         # disable quantization until calibration
         model.apply(disable_quantization)
+
+    def initialize_new_modules(
+        self,
+        model: torch.nn.Module,
+        modules: dict[str, torch.nn.Module],
+    ):
+        """Initialize quantization state for modules added after session setup.
+
+        Lazy model transformations can create target modules after
+        ``initialize_quantization`` and ``start_calibration`` have already run.
+        This applies the same resolved scheme and calibration state to only those
+        modules, avoiding a second model-wide initialization pass.
+        """
+        config = self.resolved_config
+        target_to_scheme = {
+            target: scheme
+            for scheme in config.config_groups.values()
+            for target in scheme.targets
+        }
+        force_zero_point = config.quantization_status < QuantizationStatus.COMPRESSED
+        added = []
+
+        for name, module in modules.items():
+            if not isinstance(module, (torch.nn.Linear, torch.nn.Embedding)):
+                continue
+            # linearization is intentionally idempotent and the pipeline
+            # notifies us even when a subgraph was already linearized. Do not
+            # recreate observers or reset qparams on modules initialized during
+            # the normal session setup.
+            if hasattr(module, "quantization_scheme"):
+                continue
+
+            matched_targets = [
+                target
+                for target in target_to_scheme
+                if is_match(name, module, target)
+            ]
+            if not matched_targets or is_match(name, module, self.ignore or ()):
+                continue
+
+            scheme = target_to_scheme[matched_targets[0]]
+            initialize_module_for_quantization(
+                module,
+                scheme=scheme,
+                force_zero_point=force_zero_point,
+            )
+            added.append(module)
+
+        if not added:
+            return
+
+        # A module added during calibration needs observers and hooks immediately;
+        # otherwise its first (and possibly only) sequential pass is invisible to
+        # the quantization modifier.
+        if getattr(self, "started_", False):
+            for module in added:
+                self._initialize_observers(module)
+                self._calibration_hooks |= self._initialize_hooks(module)
+                apply_calibration_status(module)
+            fuse_weight_observers(model, modules=modules.values())
+        else:
+            for module in added:
+                disable_quantization(module)
 
     def start_calibration(self, model: torch.nn.Module):
         """
