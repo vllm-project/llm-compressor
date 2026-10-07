@@ -350,19 +350,18 @@ class SequentialTracer(HFTracer):
         self._pending_stack = []
         self._forward_hook_handles = []
 
-        # Only hook modules that can be wrap-hidden: not ancestors (inlined) and not
-        # under sequential targets (those are owned by call_module + recurse).
-        under_targets = self._modules_under_targets()
-        for module, name in self._module_to_name.items():
-            if module in self.ancestors or module in under_targets:
-                continue
-            # Native autograd hooks (not HooksMixin) so recording still works under
-            # HooksMixin.disable_hooks() during calibration tracing.
-            self._forward_hook_handles.append(
-                module.register_forward_hook(self._record_invoked_module)
-            )
-
         try:
+            # Only hook modules that can be wrap-hidden: not ancestors (inlined) and not
+            # under sequential targets (those are owned by call_module + recurse).
+            under_targets = self._modules_under_targets()
+            for module, name in self._module_to_name.items():
+                if module in self.ancestors or module in under_targets:
+                    continue
+                # Native autograd hooks (not HooksMixin) so recording still works under
+                # HooksMixin.disable_hooks() during calibration tracing.
+                self._forward_hook_handles.append(
+                    module.register_forward_hook(self._record_invoked_module)
+                )
             return super().trace(root, *args, **kwargs)
         finally:
             for handle in self._forward_hook_handles:
