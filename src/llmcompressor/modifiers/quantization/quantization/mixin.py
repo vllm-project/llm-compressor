@@ -273,9 +273,7 @@ class QuantizationMixin(HooksMixin):
                 continue
 
             matched_targets = [
-                target
-                for target in target_to_scheme
-                if is_match(name, module, target)
+                target for target in target_to_scheme if is_match(name, module, target)
             ]
             if not matched_targets or is_match(name, module, self.ignore or ()):
                 continue

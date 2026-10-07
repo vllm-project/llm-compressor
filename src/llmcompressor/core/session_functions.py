@@ -154,9 +154,7 @@ class LifecycleCallbacks:
         return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod
-    def modules_added(
-        cls, modules: dict[str, "Module"], **kwargs
-    ) -> ModifiedState:
+    def modules_added(cls, modules: dict[str, "Module"], **kwargs) -> ModifiedState:
         """Notify modifiers about modules created during an active session.
 
         Some model transformations, such as lazy MoE linearization, add modules
