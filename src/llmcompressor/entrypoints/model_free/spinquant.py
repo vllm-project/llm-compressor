@@ -285,6 +285,11 @@ class SpinQuantConverter(Converter):
         self, module_name: str, param: str, tensor: torch.Tensor
     ) -> torch.Tensor:
         if module_name in self.norms:
+            if param == "bias":
+                raise ValueError(
+                    f"{module_name} has a bias, but SpinQuantConverter only supports "
+                    "norms without bias, such as RMSNorm"
+                )
             return torch.ones_like(tensor)
 
         is_attn_in = _search_any(self._attn_in, module_name)

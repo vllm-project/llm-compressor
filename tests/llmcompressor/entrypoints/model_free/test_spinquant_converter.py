@@ -150,6 +150,15 @@ def test_rejects_unmapped_residual_layers():
         converter.process({"model.layers.0.mlp.other.weight": torch.randn(8, 32)})
 
 
+def test_rejects_norm_bias():
+    norm = "model.layers.0.input_layernorm"
+    converter = SpinQuantConverter(
+        hidden_size=32, head_dim=16, norms={norm: torch.ones(32)}
+    )
+    with pytest.raises(ValueError, match="norms without bias"):
+        converter.process({f"{norm}.bias": torch.zeros(32)})
+
+
 def test_ignore_skips_tensors():
     converter = SpinQuantConverter(
         hidden_size=32, head_dim=16, norms={}, ignore=[r"^visual\."]
