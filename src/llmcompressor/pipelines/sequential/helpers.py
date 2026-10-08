@@ -128,14 +128,14 @@ def _resolve_sequential_targets(
     requested_targets = list(match_named_modules(model, sequential_targets))
     targets = {module for _, module in requested_targets}
 
-    # Add attention boundaries; _outermost_targets removes any contained by a
-    # requested target.
+    # Add attention modules as targets (we don't want to trace inside attention)
     targets.update(
         module for _, module in model.named_modules() if _is_attention_module(module)
     )
 
     target_names = {name: mod for name, mod in model.named_modules() if mod in targets}
 
+    # get rid of any targets that are contained by another
     outer_targets = {
         target
         for name, target in target_names.items()
