@@ -147,6 +147,9 @@ setup(
         ),
     ],
     extras_require={
+        "higgs": [
+            ("pulp>=2.7.0,<=2.10.0" if BUILD_TYPE == "release" else "pulp>=2.7.0"),
+        ],
         "dev": [
             # testing framework
             "pytest>=6.0.0",
@@ -176,6 +179,7 @@ setup(
             "einops",
             "tiktoken",
             "qwen_vl_utils",
+            "pulp>=2.7.0",
         ],
         "qwen": [
             "qwen_vl_utils",  # TODO: remove
