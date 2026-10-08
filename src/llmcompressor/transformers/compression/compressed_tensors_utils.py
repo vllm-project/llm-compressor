@@ -2,7 +2,7 @@ import datetime
 import json
 import os
 import weakref
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import wraps
 
 import torch
@@ -11,7 +11,7 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from compressed_tensors.utils import deprecated, patch_attr
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -21,6 +21,12 @@ from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.transformers.compression.mtp import (
+    map_mtp_quantization_config,
+    register_mtp_save_conversions,
+    save_mtp_tensors,
+    validate_mtp_copy_source,
+)
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
@@ -96,6 +102,8 @@ def modify_save_pretrained(model: PreTrainedModel):
     3. Copies any necessary python files from the model cache
     """
 
+    register_mtp_save_conversions(model)
+
     def save_pretrained_compressed(save_pretrained_method):
         if getattr(save_pretrained_method, "_overridden", False):
             # `model.save_pretrained` has already been replaced, return.
@@ -113,6 +121,8 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             quantization_format: str | None = None,
             save_compressed: bool = True,
+            *,
+            mtp_source: str | None = None,
             **kwargs,
         ):
             """
@@ -126,9 +136,19 @@ def modify_save_pretrained(model: PreTrainedModel):
             :param save_compressed: whether or not to compress the model. If true,
                 weights will be compressed. Otherwise, weights will remain in full
                 precision in the "FROZEN" state.
+            :param mtp_source: checkpoint directory to copy unloaded MTP
+                weights from. Defaults to the snapshot retained by load_context,
+                then the model's name_or_path. Use a local snapshot for models loaded
+                outside load_context from a custom offline cache.
             :param kwargs: additional kwargs to pass on to model.save_pretrained
             """
 
+            source_mtp = (
+                validate_mtp_copy_source(model, mtp_source)
+                if is_source_process() and model._modules.get("mtp") is None
+                else None
+            )
+            checkpoint_source = mtp_source or getattr(model, "_mtp_source", None)
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
 
@@ -139,6 +159,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             # compress model using compressor
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
+            )
+            compressor.quantization_config = map_mtp_quantization_config(
+                model, compressor.quantization_config
             )
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
@@ -154,30 +177,33 @@ def modify_save_pretrained(model: PreTrainedModel):
             # convert to accelerate offloaded for optimal saving with transformers
             to_accelerate(model)
 
-            with suspend_distributed_timeout():
+            # Resolve config and auxiliary files from the same snapshot as MTP.
+            with (
+                suspend_distributed_timeout(),
+                patch_attr(model.config, "_name_or_path", checkpoint_source)
+                if checkpoint_source
+                else nullcontext(),
+            ):
                 if is_source_process():
-                    # save model structure
+                    # save the complete model, including loaded MTP layers
                     original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
 
-                    # resave the config with original structure for better vLLM compat
+                    # resave the config with original structure for vLLM
                     resave_config(model.config, save_dir)
 
                     # update config to reflect quantization
                     compressor.update_config(save_dir)
 
                     # update existing recipe
-                    update_and_save_recipe(model.name_or_path, save_dir)
+                    update_and_save_recipe(
+                        checkpoint_source or model.name_or_path, save_dir
+                    )
 
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
 
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
+                    if source_mtp is not None:
+                        save_mtp_tensors(model, save_dir, source_mtp)
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)

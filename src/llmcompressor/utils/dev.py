@@ -33,7 +33,11 @@ __all__ = [
 
 
 @contextlib.contextmanager
-def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+def load_context(
+    model_cls: Type[PreTrainedModel] = AutoModelForCausalLM,
+    *,
+    load_mtp: bool = False,
+):
     """
     Context manager for loading HuggingFace models with both offloading and
     MoE linearization support.
@@ -43,12 +47,24 @@ def load_context(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
     either or both capabilities.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
+    :param load_mtp: Load Transformers-supported MTP layers before MoE conversion
+        and distributed offloading. MTP calibration is not yet supported. When
+        false, retain the resolved checkpoint location to preserve MTP on save.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
+    from llmcompressor.transformers.compression.mtp import load_with_mtp_model
 
     with contextlib.ExitStack() as stack:
-        stack.enter_context(load_offloaded_model(model_cls))
-        stack.enter_context(load_quantizable_moe(model_cls))
+        # Wrappers execute in reverse registration order. MTP must be attached
+        # before the outer offload wrapper synchronizes the complete model.
+        if load_mtp:
+            stack.enter_context(load_with_mtp_model(model_cls))
+            stack.enter_context(load_quantizable_moe(model_cls))
+            stack.enter_context(load_offloaded_model(model_cls))
+        else:
+            stack.enter_context(load_offloaded_model(model_cls))
+            stack.enter_context(load_quantizable_moe(model_cls))
+            stack.enter_context(load_with_mtp_model(model_cls, load_mtp=False))
         yield
 
 

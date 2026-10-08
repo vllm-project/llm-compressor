@@ -294,7 +294,7 @@ class Oneshot:
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(
-            model.config.name_or_path,
+            getattr(model, "_mtp_source", None) or model.config.name_or_path,
             trust_remote_code=self.model_args.trust_remote_code_model,
         )
         qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
