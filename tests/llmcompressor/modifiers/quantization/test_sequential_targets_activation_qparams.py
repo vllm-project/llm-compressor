@@ -1,10 +1,10 @@
 """
 Test that quantization parameters (e.g. kv cache scales) are calibrated for modules
-which are traced through rather than called by a sequential subgraph.
+which are not called by a sequential subgraph.
 
-With `sequential_targets="Linear"`, attention modules are ancestors of the sequential
-targets, so they are traced through and never passed to `on_sequential_epoch_end`.
-Their quantization parameters must still be updated before calibration ends.
+Attention modules are sequential boundaries when they are not contained by a requested
+target. This lets their quantization parameters be updated at the sequential epoch
+boundary, including when `sequential_targets="Linear"`.
 """
 
 import io
@@ -61,11 +61,11 @@ def test_kv_cache_scales_with_linear_sequential_targets():
 
 
 @pytest.mark.parametrize(
-    "sequential_targets,expect_attention",
-    [("LlamaDecoderLayer", False), ("Linear", True)],
+    "sequential_targets",
+    ["LlamaDecoderLayer", "Linear"],
 )
-def test_end_calibration_quantizes_remaining_modules(
-    sequential_targets, expect_attention, monkeypatch
+def test_end_calibration_has_no_remaining_attention_modules(
+    sequential_targets, monkeypatch
 ):
     # record modules passed to `on_sequential_epoch_end` by `end_calibration`
     remaining = []
@@ -88,19 +88,15 @@ def test_end_calibration_quantizes_remaining_modules(
     log_output = io.StringIO()
     handler_id = logger.add(log_output, level="WARNING")
     try:
-        model = _calibrate_kv_cache(sequential_targets)
+        _calibrate_kv_cache(sequential_targets)
     finally:
         logger.remove(handler_id)
 
-    # only modules which were not called by a sequential subgraph are quantized
-    # at the end of calibration, and the user is warned about them
-    attention = [layer.self_attn for layer in model.model.layers]
-    expected = attention if expect_attention else []
-    assert len(remaining) == len(expected)
-    assert set(remaining) == set(expected)
+    # Attention modules are called by a sequential subgraph for both target choices.
+    assert remaining == []
 
     warning = "which were calibrated but not quantized"
-    assert (warning in log_output.getvalue()) == expect_attention
+    assert warning not in log_output.getvalue()
 
 
 class _Observer:
