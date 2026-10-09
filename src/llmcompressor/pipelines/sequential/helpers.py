@@ -125,14 +125,13 @@ def _resolve_sequential_targets(
     model: PreTrainedModel, sequential_targets: list[str]
 ) -> set[Module]:
     """Combine requested targets with attention boundaries and remove nested ones."""
-    requested_targets = list(match_named_modules(model, sequential_targets))
-    requested_modules = {module for _, module in requested_targets}
+    orig_targets = {m for _, m in list(match_named_modules(model, sequential_targets))}
 
     # Add attention modules as targets (we don't want to trace inside attention)
     attention_targets = {
         module for _, module in model.named_modules() if _is_attention_module(module)
     }
-    targets = requested_modules | attention_targets
+    targets = orig_targets | attention_targets
 
     target_names = {name: mod for name, mod in model.named_modules() if mod in targets}
 
@@ -148,14 +147,13 @@ def _resolve_sequential_targets(
     }
 
     if any(
-        isinstance(module, torch.nn.Linear)
-        for module in requested_modules - outer_targets
-    ):
+        isinstance(module, torch.nn.Linear) for module in orig_targets - outer_targets
+    ):  # detect linear being ignored in favor of another target
         logger.warning(
-            "Some requested Linear targets are nested inside another sequential "
-            "target and will not form separate subgraphs. Attention blocks may be "
-            "added as targets to avoid tracing into them; nested Linear modules are "
-            "still calibrated and quantized as part of the outer target.",
+            "Some requested Linear targets are nested inside an outer sequential "
+            "target and will not form separate subgraphs. This commonly happens due to"
+            "attention blocks being added as targets to avoid tracing into them.  "
+            "such Nested Linear modules are still calibrated and quantized as normal.",
             log_once=True,
         )
 
