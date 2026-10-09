@@ -45,7 +45,10 @@ def test_start_calibration_warns_on_inference_mode_forward():
     """
     model = _ToyModel()
     state = State(model=model)
-    modifier = QuantizationModifier(targets=["Linear"], scheme="W4A16")
+    # The toy layers are narrower than one W4A16 group; divisibility is not under test.
+    modifier = QuantizationModifier(
+        targets=["Linear"], scheme="W4A16", bypass_divisibility_checks=True
+    )
 
     logs = []
     handler_id = logger.add(logs.append, format="{message}", level="WARNING")

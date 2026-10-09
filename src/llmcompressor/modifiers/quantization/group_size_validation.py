@@ -50,7 +50,9 @@ def _layer_indivisible(module: torch.nn.Module, weight_args) -> tuple[int, int] 
         return None
     columns = int(module.weight.shape[-1])
     group_size = int(group_size)
-    if columns >= group_size and columns % group_size != 0:
+    # columns < group_size is not a valid single group either: compressed-tensors
+    # reshapes to (ceil(columns / group_size), group_size), which cannot hold it.
+    if columns % group_size != 0:
         return (columns, group_size)
     return None
 
@@ -65,9 +67,9 @@ def get_layers_indivisible_by_group_size(
 
     Only considers layers whose weight scheme is GROUP or TENSOR_GROUP (enum).
     BLOCK and other strategies are not checked.
-    Matches the condition
-    that triggers ValueError in compressed_tensors forward.py (columns >=
-    group_size and columns % group_size != 0).
+    Covers every layer that compressed-tensors cannot split into groups
+    (columns % group_size != 0), including layers narrower than one group,
+    which otherwise fail later with an opaque reshape error.
 
     :param model: Model with quantization schemes already applied (e.g. after
         apply_quantization_config).
