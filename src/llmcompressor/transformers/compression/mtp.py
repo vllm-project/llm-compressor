@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
 
-from compressed_tensors.quantization import QuantizationConfig, QuantizationMetadata
+from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
@@ -69,9 +69,8 @@ def _checkpoint_weights(
 
 def _mtp_weights(
     model: PreTrainedModel,
-    source: str | None = None,
 ) -> tuple[dict[str, tuple[str, str | None]], list[str]]:
-    source = source or getattr(model, "_mtp_source", None) or model.name_or_path
+    source = model.name_or_path
     if not source:
         return {}, []
     weights = _checkpoint_weights(source, getattr(model.config, "_commit_hash", None))
@@ -125,7 +124,8 @@ def _mtp_weights(
     return mtp_weights, patterns
 
 
-def _has_mtp_config(model: PreTrainedModel) -> bool:
+def has_mtp(model: PreTrainedModel) -> bool:
+    """Whether the model config declares MTP layers."""
     text_config = model.config.get_text_config()
     return any(
         getattr(text_config, name, 0)
@@ -139,12 +139,11 @@ def _has_mtp_config(model: PreTrainedModel) -> bool:
 
 def validate_mtp_copy_source(
     model: PreTrainedModel,
-    source: str | None = None,
 ) -> tuple[dict[str, tuple[str, str | None]], list[str]] | None:
-    if not _has_mtp_config(model):
+    if not has_mtp(model):
         return None
 
-    weights, patterns = _mtp_weights(model, source)
+    weights, patterns = _mtp_weights(model)
     qparams = set(QuantizationMetadata.all_qparam_names()) | {
         "weight_packed",
         "weight_scale_inv",
@@ -170,10 +169,8 @@ def validate_mtp_copy_source(
 @contextmanager
 def load_with_mtp_model(
     model_cls: type[PreTrainedModel] = AutoModelForCausalLM,
-    *,
-    load_mtp: bool = True,
 ):
-    """Retain the MTP checkpoint source and optionally attach its layers."""
+    """Attach MTP before MoE conversion and distributed offloading."""
     original_from_pretrained = model_cls.from_pretrained
 
     @classmethod
@@ -182,45 +179,19 @@ def load_with_mtp_model(
         model = original_from_pretrained(*args, **kwargs)
         if hasattr(model, "mtp"):
             return model
-        if not load_mtp and not _has_mtp_config(model):
-            return model
-        if load_mtp and not _mtp_patterns(model):
+        if not _mtp_patterns(model):
             raise ValueError(
                 f"{type(model).__name__} has no registered MTP checkpoint patterns. "
                 f"For unsupported layouts, see {FALLBACK_EXAMPLE}."
             )
 
-        # The upstream MTP loader does not forward Hub download options. Resolve
-        # the same cached snapshot as the backbone before delegating to it.
-        download_kwargs = {
-            key: kwargs[key]
-            for key in ("cache_dir", "token", "local_files_only", "subfolder")
-            if key in kwargs
-        }
-        config_path = cached_file(
-            model.config.name_or_path,
-            "config.json",
-            revision=getattr(model.config, "_commit_hash", None)
-            or kwargs.get("revision"),
-            **download_kwargs,
-        )
-        source = os.path.dirname(config_path)
-        # Keep the resolved snapshot for saving unloaded MTP weights offline.
-        # Transformers does not retain cache_dir/local_files_only/subfolder.
-        model._mtp_source = source
-        if not load_mtp:
-            return model
-
         from transformers.modeling_layers import MtpModel
 
-        with (
-            patch_attr(model.config, "_name_or_path", source),
-            patch_attr(model, "name_or_path", source),
-        ):
-            # Upstream MtpModel does not dequantize source FP8/packed tensors.
-            validate_mtp_copy_source(model)
-            device_map = {"": "meta"} if kwargs.get("device_map") == "meta" else None
-            model.mtp = MtpModel.from_pretrained(model, device_map=device_map)
+        # Upstream MtpModel does not dequantize source FP8/packed tensors.
+        validate_mtp_copy_source(model)
+        device_map = {"": "meta"} if kwargs.get("device_map") == "meta" else None
+        backbone_modules = set(model.modules())
+        model.mtp = MtpModel.from_pretrained(model, device_map=device_map)
 
         # Keep only MTP-specific mappings here. The surrounding MoE loader owns
         # the backbone mappings and finishes configuring them after this returns.
@@ -232,23 +203,24 @@ def load_with_mtp_model(
         # The backbone owns these modules. Keep MTP's references without
         # registering the same modules twice for offloading and serialization.
         for name in ("embed_tokens", "shared_head", "rotary_emb"):
-            shared = model.mtp._modules.pop(name, None)
-            object.__setattr__(model.mtp, name, shared)
+            shared = getattr(model.mtp, name, None)
+            if shared is not None and shared in backbone_modules:
+                model.mtp._modules.pop(name)
+                object.__setattr__(model.mtp, name, shared)
         return model
 
     with patch_attr(model_cls, "from_pretrained", from_pretrained):
         yield
 
 
-def register_mtp_save_conversions(model: PreTrainedModel) -> None:
-    """Register MTP's conversions on the parent used by save_pretrained."""
-    if not hasattr(model, "_mtp_weight_conversions") or getattr(
-        model, "_mtp_save_prepared", False
-    ):
-        return
+def extend_mtp_conversions(model: PreTrainedModel) -> None:
+    """Combine MTP and backbone conversions after the MoE loader finishes."""
     from transformers.core_model_loading import PrefixChange
 
-    conversions = deepcopy(model._mtp_weight_conversions)
+    conversions = deepcopy(model.__dict__.pop("_mtp_weight_conversions", []))
+    if not conversions:
+        return
+    # MtpModel's local names now live under the parent's `mtp` subtree.
     for conv in conversions:
         conv.scope_prefix = "mtp"
         conv.base_model_prefix = ""
@@ -257,49 +229,14 @@ def register_mtp_save_conversions(model: PreTrainedModel) -> None:
         *conversions,
         *model._weight_conversions,
     ]
-    model._mtp_save_prepared = True
-
-
-def map_mtp_quantization_config(
-    model: PreTrainedModel, quantization_config: QuantizationConfig | None
-) -> QuantizationConfig | None:
-    """Use the same checkpoint names for MTP targets as for saved tensors."""
-    if not getattr(model, "_mtp_save_prepared", False) or quantization_config is None:
-        return quantization_config
-    config = quantization_config.model_copy(deep=True)
-    reverse = [conv.reverse_transform() for conv in reversed(model._weight_conversions)]
-    for scheme in config.config_groups.values():
-        names = []
-        for name, module in model.named_modules():
-            if (
-                not name.startswith("mtp.")
-                or getattr(module, "quantization_scheme", None) != scheme
-            ):
-                continue
-            name += ".weight"
-            for conv in reverse:
-                name, _ = conv.rename_source_key(name)
-            names.append(name.removesuffix(".weight"))
-        scheme.targets = list(
-            dict.fromkeys(
-                [
-                    *scheme.targets,
-                    *names,
-                ]
-            )
-        )
-    return config
 
 
 def save_mtp_tensors(
     model: PreTrainedModel,
     destination: str,
-    source_mtp: tuple[dict[str, tuple[str, str | None]], list[str]] | None = None,
 ) -> None:
     """Preserve source MTP when it was not loaded into the model."""
-    source_mtp = (
-        source_mtp if source_mtp is not None else validate_mtp_copy_source(model)
-    )
+    source_mtp = validate_mtp_copy_source(model)
     if source_mtp is None:
         return
     weights, patterns = source_mtp

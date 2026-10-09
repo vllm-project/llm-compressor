@@ -229,27 +229,7 @@ class QuantizationMixin(HooksMixin):
         :param model: model to attach schemes and observers to
         """
 
-        if any("mtp" in target.lower() for target in self.resolved_targets) and not (
-            hasattr(model, "mtp")
-        ):
-            raise ValueError(
-                "Load MTP before applying the recipe with "
-                "load_context(load_mtp=True). For unsupported FP8 layouts, see "
-                "examples/model_free_ptq/mtp_fp8_fallback.py."
-            )
-        targets = list(match_named_modules(model, self.resolved_targets, self.ignore))
-        if self.requires_calibration_data and any(
-            name.startswith("mtp.") for name, _ in targets
-        ):
-            raise ValueError(
-                "MTP calibration in oneshot is deferred; MTP targets currently "
-                "support data-free schemes only. To calibrate the backbone alongside "
-                "data-free MTP quantization, use separate modifiers and backbone-only "
-                "sequential_targets; see "
-                "examples/quantization_non_uniform/glm4_5_air_nvfp4_mtp.py."
-            )
-
-        for _, module in targets:
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
         apply_quantization_config(model, self.resolved_config)

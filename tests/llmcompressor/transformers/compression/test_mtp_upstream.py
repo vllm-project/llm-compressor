@@ -1,19 +1,14 @@
 import json
-import shutil
-from contextlib import nullcontext
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
 from compressed_tensors.offload import OffloadCache
-from compressed_tensors.quantization import preset_name_to_scheme
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from loguru import logger
 from safetensors.torch import load_file, save_file
-from tokenizers import Tokenizer
-from tokenizers.models import WordLevel
-from torch.utils.data import DataLoader
 from transformers import (
     DeepseekV3ForCausalLM,
     Glm4MoeForCausalLM,
@@ -22,18 +17,13 @@ from transformers import (
     InklingForCausalLM,
     InklingTextConfig,
     PretrainedConfig,
-    PreTrainedTokenizerFast,
 )
 
 from llmcompressor import oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
-from llmcompressor.transformers.compression.compressed_tensors_utils import (
-    modify_save_pretrained,
-)
 from llmcompressor.transformers.compression.mtp import (
     _mtp_weights,
-    load_with_mtp_model,
     save_mtp_tensors,
 )
 from llmcompressor.utils import load_context
@@ -89,13 +79,10 @@ def _source_model(tmp_path, with_mtp=True, load_mtp=False):
     return model
 
 
-def test_mtp_target_quantizes_with_upstream_model(tmp_path):
+def test_mtp_quantizes_with_backbone_using_upstream_model(tmp_path):
     model = _source_model(tmp_path, load_mtp=True)
     recipe = QuantizationModifier(
-        config_groups={
-            "mtp": preset_name_to_scheme("FP8_DYNAMIC", [r"re:^mtp\.layers\."]),
-            "backbone": preset_name_to_scheme("FP8_DYNAMIC", ["Linear"]),
-        },
+        scheme="FP8_DYNAMIC",
         ignore=["lm_head"],
     )
     with patch(
@@ -114,9 +101,8 @@ def test_mtp_target_quantizes_with_upstream_model(tmp_path):
     assert not any(name.startswith("mtp.") for name in weights)
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
-    assert any(
-        mtp_weight.removesuffix(".weight") in group["targets"]
-        for group in quant["config_groups"].values()
+    assert all(
+        group["targets"] == ["Linear"] for group in quant["config_groups"].values()
     )
     assert mtp_weight.removesuffix(".weight") not in quant["ignore"]
     assert hasattr(model, "mtp")
@@ -170,46 +156,6 @@ def test_mtp_exists_before_non_source_rank_sync(tmp_path):
     assert seen == [loaded]
 
 
-def test_mtp_loader_resolves_pinned_cached_snapshot(tmp_path):
-    model = _source_model(tmp_path)
-    source = model.name_or_path
-    original = InklingForCausalLM.from_pretrained
-
-    def load_backbone(*args, **kwargs):
-        loaded = original(source)
-        loaded.config.name_or_path = "example/model"
-        loaded.config._commit_hash = "pinned-commit"
-        return loaded
-
-    with (
-        patch.object(InklingForCausalLM, "from_pretrained", side_effect=load_backbone),
-        patch(
-            "llmcompressor.transformers.compression.mtp.cached_file",
-            return_value=str(tmp_path / "source" / "config.json"),
-        ) as resolve,
-        load_with_mtp_model(InklingForCausalLM),
-    ):
-        loaded = InklingForCausalLM.from_pretrained(
-            "example/model",
-            cache_dir="custom-cache",
-            local_files_only=True,
-            revision="requested-branch",
-            token="test-token",
-            subfolder="weights",
-        )
-    resolve.assert_called_once_with(
-        "example/model",
-        "config.json",
-        revision="pinned-commit",
-        cache_dir="custom-cache",
-        local_files_only=True,
-        token="test-token",
-        subfolder="weights",
-    )
-    assert loaded.config.name_or_path == "example/model"
-    assert hasattr(loaded, "mtp")
-
-
 def test_mtp_source_quantization_fails_during_loading(tmp_path):
     model = _source_model(tmp_path)
     source = tmp_path / "source" / "model.safetensors"
@@ -221,33 +167,6 @@ def test_mtp_source_quantization_fails_during_loading(tmp_path):
     with load_context(InklingForCausalLM, load_mtp=True):
         with pytest.raises(ValueError, match="source-quantized MTP"):
             InklingForCausalLM.from_pretrained(model.name_or_path)
-
-
-@pytest.mark.parametrize(
-    "targets",
-    [
-        ["Linear", r"re:^mtp\.layers\."],
-        [r"re:^(?:model\.layers|mtp\.layers)\."],
-    ],
-)
-def test_mixed_target_group_keeps_backbone_target(tmp_path, targets):
-    model = _source_model(tmp_path, load_mtp=True)
-    recipe = QuantizationModifier(
-        config_groups={"mixed": preset_name_to_scheme("FP8_DYNAMIC", targets)},
-        ignore=["lm_head"],
-    )
-    oneshot(model=model, recipe=recipe)
-    destination = tmp_path / "destination"
-    model.save_pretrained(destination)
-
-    with open(destination / "config.json", encoding="utf-8") as handle:
-        groups = json.load(handle)["quantization_config"]["config_groups"]
-    saved_targets = next(iter(groups.values()))["targets"]
-    assert all(target in saved_targets for target in targets)
-    assert "model.mtp.layers.0.transformer_block.mlp.up_proj" in saved_targets
-    weights = get_weight_mappings(destination)
-    assert "model.layers.0.mlp.up_proj.weight_scale" in weights
-    assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight_scale" in weights
 
 
 def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
@@ -292,50 +211,6 @@ def test_mtp_copy_uses_backbone_hub_revision(tmp_path):
     )
 
 
-@pytest.mark.parametrize("subfolder", ["", "weights"])
-@pytest.mark.parametrize("use_load_context", [True, False])
-def test_mtp_copy_from_custom_offline_cache(tmp_path, subfolder, use_load_context):
-    source = _source_model(tmp_path)
-    cache = tmp_path / "custom-cache"
-    revision = "a" * 40
-    snapshot = cache / "models--example--mtp" / "snapshots" / revision / subfolder
-    shutil.copytree(source.name_or_path, snapshot)
-    reference = load_file(snapshot / "model.safetensors")
-    context = load_context(InklingForCausalLM) if use_load_context else nullcontext()
-    with (
-        patch("huggingface_hub.constants.HF_HUB_OFFLINE", True),
-        patch("transformers.utils.hub.is_offline_mode", return_value=True),
-        context,
-    ):
-        model = InklingForCausalLM.from_pretrained(
-            "example/mtp",
-            cache_dir=cache,
-            revision=revision,
-            subfolder=subfolder,
-            local_files_only=True,
-        )
-        assert model.name_or_path == "example/mtp"
-        assert not hasattr(model, "mtp")
-        if use_load_context:
-            oneshot(
-                model=model,
-                recipe=QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"]),
-            )
-        else:
-            modify_save_pretrained(model)
-        destination = tmp_path / "destination"
-        kwargs = {} if use_load_context else {"mtp_source": str(snapshot)}
-        model.save_pretrained(destination, **kwargs)
-        assert model.name_or_path == "example/mtp"
-
-    weights = get_weight_mappings(destination)
-    for name, tensor in reference.items():
-        if name.startswith("model.mtp."):
-            torch.testing.assert_close(
-                load_file(weights[name])[name], tensor, rtol=0, atol=0
-            )
-
-
 def test_unquantized_mtp_copy_from_quantized_backbone_config(tmp_path):
     model = _source_model(tmp_path)
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
@@ -367,12 +242,12 @@ def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
     destination = tmp_path / "destination"
     with pytest.raises(ValueError, match="Cannot copy source-quantized MTP weights"):
         model.save_pretrained(destination)
-    assert not destination.exists()
+    assert not (destination / "model_mtp.safetensors").exists()
 
 
 def test_dense_save_uses_normal_model_serialization(tmp_path):
     model = _source_model(tmp_path, load_mtp=True).to(torch.bfloat16)
-    recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
+    recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
     oneshot(model=model, recipe=recipe)
     model.mtp.to(torch.bfloat16)
     model.mtp.layers[0].register_buffer(
@@ -420,21 +295,6 @@ def test_non_mtp_config_does_not_require_layer_count(tmp_path, patterns):
     assert not list(tmp_path.iterdir())
 
 
-def test_unsupported_mtp_target_points_to_fallback(tmp_path):
-    model = _source_model(tmp_path)
-    model._keys_to_ignore_on_load_unexpected = []
-    recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
-    with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
-        oneshot(model=model, recipe=recipe)
-
-
-def test_mtp_targets_require_loaded_mtp(tmp_path):
-    model = _source_model(tmp_path, with_mtp=False)
-    recipe = QuantizationModifier(scheme={"FP8_DYNAMIC": [r"re:^mtp\.layers\."]})
-    with pytest.raises(ValueError, match="mtp_fp8_fallback.py"):
-        oneshot(model=model, recipe=recipe)
-
-
 def test_unsupported_untargeted_mtp_copies_with_fallback_warning(tmp_path):
     model = _source_model(tmp_path)
     model._keys_to_ignore_on_load_unexpected = []
@@ -480,59 +340,60 @@ def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
         oneshot(model=model, recipe=recipe)
 
 
-@pytest.mark.parametrize("mtp_first", [True, False])
-def test_calibrated_backbone_with_data_free_mtp(tmp_path, mtp_first):
-    model = _source_model(tmp_path, load_mtp=True)
-    backbone = QuantizationModifier(
-        scheme="NVFP4", targets=["Linear"], ignore=["lm_head", r"re:^mtp\."]
-    )
-    mtp = QuantizationModifier(
-        scheme="FP8_DYNAMIC",
-        targets=[r"re:^mtp\.layers\."],
-        ignore=[r"re:.*\.eh_proj$"],
-    )
-    recipe = [mtp, backbone] if mtp_first else [backbone, mtp]
-    dataset = DataLoader(
-        [
-            {
-                "input_ids": torch.randint(0, 128, (16,)),
-                "attention_mask": torch.ones(16, dtype=torch.long),
-            }
-            for _ in range(2)
-        ]
-    )
-    tokenizer = PreTrainedTokenizerFast(
-        tokenizer_object=Tokenizer(WordLevel({"[UNK]": 0}, unk_token="[UNK]")),
-        unk_token="[UNK]",
-    )
-    oneshot(
-        model=model,
-        recipe=recipe,
-        dataset=dataset,
-        processor=tokenizer,
-        pipeline="independent",
-        sequential_targets=[r"re:^model\.layers\.\d+$"],
-    )
-    destination = tmp_path / "destination"
-    model.save_pretrained(destination)
+def test_unloaded_mtp_warns_for_default_linear_targets(tmp_path):
+    model = _source_model(tmp_path)
+    logs = []
+    handler_id = logger.add(logs.append, format="{message}", level="WARNING")
+    try:
+        oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
+    finally:
+        logger.remove(handler_id)
+    mtp_warnings = [log for log in logs if "Use load_context(load_mtp=True)" in log]
+    assert len(mtp_warnings) == 1
+    assert "copied unchanged when saving" in mtp_warnings[0]
 
-    weights = get_weight_mappings(destination)
-    backbone_prefix = "model.layers.0.mlp.up_proj"
-    mtp_prefix = "model.mtp.layers.0.transformer_block.mlp.up_proj"
-    backbone_tensors = load_file(weights[f"{backbone_prefix}.weight_packed"])
-    mtp_tensors = load_file(weights[f"{mtp_prefix}.weight"])
-    assert backbone_tensors[f"{backbone_prefix}.weight_packed"].dtype == torch.uint8
-    assert mtp_tensors[f"{mtp_prefix}.weight"].dtype == torch.float8_e4m3fn
-    for name in (f"{backbone_prefix}.input_global_scale", f"{mtp_prefix}.weight_scale"):
-        scale = load_file(weights[name])[name]
-        assert torch.isfinite(scale).all() and (scale > 0).all()
-    assert f"{mtp_prefix}.input_global_scale" not in weights
-    with open(destination / "config.json", encoding="utf-8") as handle:
-        quant = json.load(handle)["quantization_config"]
-    assert quant["format"] == "mixed-precision"
-    assert {
-        group["weights"]["num_bits"] for group in quant["config_groups"].values()
-    } == {4, 8}
+
+def test_copied_mtp_embedding_participates_in_offloading(tmp_path):
+    source = _source_model(tmp_path)
+    original = MtpModel.from_pretrained
+
+    def load_with_copied_embedding(*args, **kwargs):
+        mtp = original(*args, **kwargs)
+        mtp.embed_tokens = deepcopy(mtp.embed_tokens)
+        return mtp
+
+    with (
+        patch.object(
+            MtpModel, "from_pretrained", side_effect=load_with_copied_embedding
+        ),
+        load_context(InklingForCausalLM, load_mtp=True),
+    ):
+        model = InklingForCausalLM.from_pretrained(source.name_or_path)
+    assert model.mtp.embed_tokens is not model.get_input_embeddings()
+    assert isinstance(model.mtp.embed_tokens._parameters, OffloadCache)
+    assert "mtp.embed_tokens.weight" in model.state_dict()
+
+
+@pytest.mark.parametrize("model_cls", [InklingForCausalLM, Glm4MoeForCausalLM])
+def test_load_context_supports_normal_save_before_oneshot(tmp_path, model_cls):
+    source = (
+        _source_model(tmp_path)
+        if model_cls is InklingForCausalLM
+        else _source_glm_model(tmp_path, model_cls)
+    )
+    with (
+        patch("huggingface_hub.constants.HF_HUB_OFFLINE", True),
+        patch("transformers.utils.hub.is_offline_mode", return_value=True),
+        load_context(model_cls, load_mtp=True),
+    ):
+        model = model_cls.from_pretrained(source.name_or_path, local_files_only=True)
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination, max_shard_size="100KB")
+    expected = load_file(tmp_path / "source" / "model.safetensors")
+    saved = get_weight_mappings(destination)
+    assert saved.keys() == expected.keys()
+    for name, value in expected.items():
+        torch.testing.assert_close(load_file(saved[name])[name], value, rtol=0, atol=0)
 
 
 def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
@@ -610,16 +471,7 @@ def test_trailing_mtp_layer_uses_upstream_weight_mapping(
     with load_context(model_cls, load_mtp=target_mtp):
         model = model_cls.from_pretrained(source)
 
-    if target_mtp:
-        recipe = QuantizationModifier(
-            config_groups={
-                "mtp": preset_name_to_scheme("FP8_DYNAMIC", [r"re:^mtp\.layers\."]),
-                "backbone": preset_name_to_scheme("FP8_DYNAMIC", ["Linear"]),
-            },
-            ignore=["lm_head"],
-        )
-    else:
-        recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
+    recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
     oneshot(model=model, recipe=recipe)
 
     destination = tmp_path / "destination"

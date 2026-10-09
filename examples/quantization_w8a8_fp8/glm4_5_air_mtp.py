@@ -1,15 +1,12 @@
 """Quantize GLM-4.5-Air and its Transformers-supported MTP layer together.
 
 For unsupported FP8 MTP layouts, see examples/model_free_ptq/mtp_fp8_fallback.py.
-For an NVFP4 backbone with FP8 MTP, see
-examples/quantization_non_uniform/glm4_5_air_nvfp4_mtp.py.
 """
 
 import os
 
 import torch
 from compressed_tensors.offload import init_dist, set_onload_device
-from compressed_tensors.quantization import preset_name_to_scheme
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
@@ -31,10 +28,7 @@ with load_context(load_mtp=True):
 set_onload_device(model, "cuda")
 
 recipe = QuantizationModifier(
-    config_groups={
-        "mtp": preset_name_to_scheme("FP8_DYNAMIC", targets=[r"re:^mtp\.layers\."]),
-        "backbone": preset_name_to_scheme("FP8_DYNAMIC", targets=["Linear"]),
-    },
+    scheme="FP8_DYNAMIC",
     ignore=["lm_head", r"re:.*\.eh_proj$"],
 )
 oneshot(model=model, recipe=recipe, output_dir=SAVE_DIR)
