@@ -126,16 +126,18 @@ def _resolve_sequential_targets(
 ) -> set[Module]:
     """Combine requested targets with attention boundaries and remove nested ones."""
     requested_targets = list(match_named_modules(model, sequential_targets))
-    targets = {module for _, module in requested_targets}
+    requested_modules = {module for _, module in requested_targets}
 
     # Add attention modules as targets (we don't want to trace inside attention)
-    targets.update(
+    attention_targets = {
         module for _, module in model.named_modules() if _is_attention_module(module)
-    )
+    }
+    targets = requested_modules | attention_targets
 
     target_names = {name: mod for name, mod in model.named_modules() if mod in targets}
 
-    # get rid of any targets that are contained by another
+    # Keep only the outermost target. The tracer treats it as a leaf, so nested
+    # targets cannot appear as independent call_module nodes in the graph.
     outer_targets = {
         target
         for name, target in target_names.items()
@@ -144,6 +146,19 @@ def _resolve_sequential_targets(
             for other_name in target_names.keys()
         )
     }
+
+    if any(
+        isinstance(module, torch.nn.Linear)
+        for module in requested_modules - outer_targets
+    ):
+        logger.warning(
+            "Some requested Linear targets are nested inside another sequential "
+            "target and will not form separate subgraphs. Attention blocks may be "
+            "added as targets to avoid tracing into them; nested Linear modules are "
+            "still calibrated and quantized as part of the outer target.",
+            log_once=True,
+        )
+
     return outer_targets
 
 
