@@ -12,6 +12,7 @@ import gc
 import importlib.metadata
 import json
 import os
+import re
 import subprocess
 import time
 from collections import defaultdict
@@ -46,6 +47,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuaRotModifier
 from llmcompressor.modifiers.transform.flex_smooth import base as flex_base
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.sequential import pipeline as sequential_pipeline
 from llmcompressor.pipelines.sequential.helpers import Subgraph
 from llmcompressor.recipe import Recipe
 from llmcompressor.utils import load_context
@@ -54,8 +56,11 @@ from llmcompressor.utils import load_context
 class Profile:
     """Example-local timings and I/O counters; does not change algorithm behavior."""
 
-    def __init__(self, device):
+    def __init__(self, device, mode="summary", sample_every=1000):
+        if mode not in ("summary", "sampled", "full") or sample_every < 1:
+            raise ValueError("Use summary/sampled/full and a positive sample interval")
         self.device = device
+        self.mode, self.sample_every = mode, sample_every
         self.npu_devices = (
             (
                 [torch.npu.current_device()]
@@ -68,7 +73,25 @@ class Profile:
         self.process = psutil.Process()
         self.stages = defaultdict(lambda: {"calls": 0, "seconds": 0.0})
         self.cache_io = defaultdict(lambda: {"calls": 0, "logical_bytes": 0})
-        self.report = {"stages": self.stages, "cache_io": self.cache_io}
+        self.report = {
+            "schema_version": 2,
+            "stages": self.stages,
+            "cache_io": self.cache_io,
+            "profiling": {
+                "mode": mode,
+                "sample_every": sample_every,
+                "hot_seconds": "synchronized_wall"
+                if mode == "full"
+                else "host_dispatch",
+                "sample_policy": (
+                    "first and every Nth call per hot label; no extrapolation"
+                ),
+                "nested_stages": "inclusive; do not sum parent and child seconds",
+                "memory_policy": (
+                    "boundary/sample observations; allocator peaks are process-wide"
+                ),
+            },
+        }
 
     def synchronize(self):
         for device in self.npu_devices:
@@ -93,25 +116,89 @@ class Profile:
         return result
 
     @contextmanager
-    def stage(self, name):
-        self.synchronize()
-        before, started = self.memory(), time.perf_counter()
+    def stage(self, name, *, hot=False):
+        record = self.stages[name]
+        sampled = (
+            not hot
+            or self.mode == "full"
+            or (self.mode == "sampled" and record["calls"] % self.sample_every == 0)
+        )
+        kind = (
+            "synchronized_wall" if not hot or self.mode == "full" else "host_dispatch"
+        )
+        record["timing_kind"] = kind
+        if sampled:
+            sync_start = time.perf_counter()
+            self.synchronize()
+            sync_before = time.perf_counter() - sync_start
+            before = self.memory()
+        started = time.perf_counter()
         try:
             yield
         finally:
-            self.synchronize()
-            record = self.stages[name]
+            dispatched = time.perf_counter() - started
             record["calls"] += 1
-            record["seconds"] += time.perf_counter() - started
-            after = self.memory()
-            record["last_memory"] = after
-            record["max_observed_cpu_rss_bytes"] = max(
-                record.get("max_observed_cpu_rss_bytes", 0),
-                before["cpu_rss_bytes"],
-                after["cpu_rss_bytes"],
+            record["host_dispatch_seconds"] = (
+                record.get("host_dispatch_seconds", 0) + dispatched
             )
-            for key in ("process_read_bytes", "process_write_bytes"):
-                record[key] = record.get(key, 0) + after[key] - before[key]
+            sync_after = 0.0
+            if sampled:
+                sync_start = time.perf_counter()
+                self.synchronize()
+                sync_after = time.perf_counter() - sync_start
+                record["synchronized_samples"] = (
+                    record.get("synchronized_samples", 0) + 1
+                )
+                record["sampled_synchronized_seconds"] = (
+                    record.get("sampled_synchronized_seconds", 0)
+                    + dispatched
+                    + sync_after
+                )
+                record["sync_before_seconds"] = (
+                    record.get("sync_before_seconds", 0) + sync_before
+                )
+                record["sync_after_seconds"] = (
+                    record.get("sync_after_seconds", 0) + sync_after
+                )
+                after = self.memory()
+                record["last_memory"] = after
+                record["max_observed_cpu_rss_bytes"] = max(
+                    record.get("max_observed_cpu_rss_bytes", 0),
+                    before["cpu_rss_bytes"],
+                    after["cpu_rss_bytes"],
+                )
+                for key in ("process_read_bytes", "process_write_bytes"):
+                    record[key] = record.get(key, 0) + after[key] - before[key]
+            record["seconds"] += dispatched + (
+                sync_after if kind == "synchronized_wall" else 0
+            )
+
+    def progress(self, original):
+        """Suppress batch bars at their source; keep source-rank 5% summaries."""
+
+        def batches(iterable, index, total, phase):
+            source = not dist.is_initialized() or dist.get_rank() == 0
+            if source and index == 1 and phase == "Calibrating":
+                logger.info("[GLM calibration][rank 0] starting {} subgraphs", total)
+            yield from iterable
+            if (
+                source
+                and phase == "Propagating"
+                and (index == total or index % max(1, (total + 19) // 20) == 0)
+            ):
+                logger.info(
+                    "[GLM calibration][rank 0] completed {}/{} subgraphs", index, total
+                )
+
+        def progress(iterable, *args, **kwargs):
+            match = re.fullmatch(
+                r"\((\d+)/(\d+)\): (Calibrating|Propagating)", kwargs.get("desc", "")
+            )
+            if self.mode == "full" or match is None:
+                return original(iterable, *args, **kwargs)
+            return batches(iterable, int(match[1]), int(match[2]), match[3])
+
+        return progress
 
     @contextmanager
     def instrument(self):
@@ -119,7 +206,7 @@ class Profile:
             @wraps(original)
             def call(*args, **kwargs):
                 label = name() if callable(name) else name
-                with self.stage(label):
+                with self.stage(label, hot=label != "quarot"):
                     return original(*args, **kwargs)
 
             return call
@@ -136,6 +223,11 @@ class Profile:
             return call
 
         with ExitStack() as stack:
+            stack.enter_context(
+                patch_attr(
+                    sequential_pipeline, "tqdm", self.progress(sequential_pipeline.tqdm)
+                )
+            )
             for owner, method, label in (
                 (QuaRotModifier, "on_calibration_start", "quarot"),
                 (flex_base, "search_alpha_beta", "flex_search"),
@@ -174,6 +266,10 @@ def parse_args():
     )
     parser.add_argument("--device", choices=("npu", "cpu"), default="npu")
     parser.add_argument("--device-map", choices=("auto", "auto_offload"))
+    parser.add_argument(
+        "--profile-mode", choices=("summary", "sampled", "full"), default="summary"
+    )
+    parser.add_argument("--profile-sample-every", type=int, default=1000)
     parser.add_argument(
         "--max-memory",
         type=json.loads,
@@ -424,6 +520,7 @@ def main():
         or args.sequence_length <= 0
         or args.targets_per_subgraph <= 0
         or args.batch_size <= 0
+        or args.profile_sample_every <= 0
     ):
         raise ValueError(
             "Use positive lengths/partition size and at least one sample per rank"
@@ -444,7 +541,7 @@ def main():
             backend="cpu:gloo,npu:hccl" if args.device == "npu" else "gloo",
             timeout=timedelta(hours=3),
         )
-    profile = Profile(args.device)
+    profile = Profile(args.device, args.profile_mode, args.profile_sample_every)
     report_dir = args.report_dir or args.output.with_name(args.output.name + "-profile")
     report_dir.mkdir(parents=True, exist_ok=True)
     offload = args.offload_dir or args.output.with_name(args.output.name + "-offload")
