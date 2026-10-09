@@ -40,6 +40,37 @@ Some popular datasets include:
 | `wikitext-2-raw-v1` | General language models | Clean Wikipedia text for broad language understanding |
 | `c4` | General pre-training | Large-scale web text for general-purpose models |
 
+### Language alignment
+If the model will serve non-English traffic, the calibration set should
+contain that language. Calibration determines the activation scales, and
+every dataset listed above is English — so an English-only calibration fits
+the scales to English activation ranges, and the languages you actually serve
+inherit whatever error is left over.
+
+A mixed set is usually enough: half target-language, half English preserves
+English behavior while covering the target language's activation ranges. In
+one NVFP4 run on a Thai-capable 30B model, a 50/50 Thai/English calibration
+set (512 samples) left Thai multiple-choice accuracy statistically unchanged
+against the BF16 source, while English tasks moved within the same small
+band. Building such a set is a few lines:
+
+```python
+from datasets import load_dataset
+
+th = load_dataset("wikimedia/wikipedia", "20231101.th", split="train", streaming=True)
+en = load_dataset("HuggingFaceH4/ultrachat_200k", split="train_sft", streaming=True)
+# take N/2 from each, shuffle, then pass the result to oneshot(dataset=...)
+```
+
+The same reasoning applies to any modality split in your traffic — code,
+long-context documents, tool-call transcripts. Calibrate on what you serve.
+
+!!! tip
+    Whatever mixture you choose, evaluate the quantized model in the target
+    language too. A quantized model can hold its English scores while losing
+    ground in another language, and an English-only evaluation will not show
+    it.
+
 ### Dataset size
 Most calibration algorithms work well with relatively small datasets:
 
