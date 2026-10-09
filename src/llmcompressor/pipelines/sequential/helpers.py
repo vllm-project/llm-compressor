@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from compressed_tensors.offload import disable_onloading
+from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -120,12 +121,39 @@ def find_modules_outside_subgraphs(
     }
 
 
+def _resolve_sequential_targets(
+    model: PreTrainedModel, sequential_targets: list[str]
+) -> set[Module]:
+    """Combine requested targets with attention boundaries and remove nested ones."""
+    requested_targets = list(match_named_modules(model, sequential_targets))
+    targets = {module for _, module in requested_targets}
+
+    # Add attention modules as targets (we don't want to trace inside attention)
+    targets.update(
+        module for _, module in model.named_modules() if _is_attention_module(module)
+    )
+
+    target_names = {name: mod for name, mod in model.named_modules() if mod in targets}
+
+    # get rid of any targets that are contained by another
+    outer_targets = {
+        target
+        for name, target in target_names.items()
+        if not any(
+            name.startswith(f"{other_name}.")  # if not a child of another
+            for other_name in target_names.keys()
+        )
+    }
+    return outer_targets
+
+
 def trace_subgraphs(
     model: PreTrainedModel,
     sample_input: dict[str, Any],
     sequential_targets: list[str],
     ignore: list[str],
     targets_per_subgraph: int = 1,
+    eager_attention: bool = False,
 ) -> list[Subgraph]:
     """
     Trace a model to produce subgraphs, where each sequential target belongs to exactly
@@ -135,15 +163,15 @@ def trace_subgraphs(
     :param model: model being traced
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
-    :param sequential_targets: list of patterns matching sequential targets
+    :param sequential_targets: list of patterns matching sequential targets. Detected
+        attention modules are also used as targets when not contained by a requested
+        target.
     :param ignore: function and method names to skip during tracing
     :param targets_per_subgraph: number of targets to include per subgraph
+    :param eager_attention: whether to force eager attention while tracing
     :return: a list of Subgraphs in order of execution
     """
-    # find modules
-    targets = set(
-        module for _, module in match_named_modules(model, sequential_targets)
-    )
+    targets = _resolve_sequential_targets(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
@@ -152,11 +180,12 @@ def trace_subgraphs(
 
     with contextlib.ExitStack() as stack:
         # calibration context
-        stack.enter_context(calibration_forward_context(model))
+        stack.enter_context(calibration_forward_context(model, eager_attention))
         stack.enter_context(HooksMixin.disable_hooks())
 
         # flags useful for tracing
-        # note: eager attention is forced by `calibration_forward_context`
+        # Attention uses the model's configured implementation unless
+        # `eager_attention` is enabled.
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
 
         # autowrap forwards
