@@ -14,7 +14,6 @@ from compressed_tensors.quantization import fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 from llmcompressor.observers import Observer
-from tests.testing_utils import requires_cadence
 
 
 def _create_base_quantization_args(num_bits, strategy, symmetric, group_size):
@@ -192,7 +191,6 @@ def test_mse_vs_minmax_extreme_values():
         )
 
 
-@requires_cadence("weekly")
 @pytest.mark.parametrize(
     "strategy,symmetric,num_bits",
     [
