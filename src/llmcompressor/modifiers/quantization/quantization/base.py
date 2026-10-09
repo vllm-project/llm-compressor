@@ -80,6 +80,15 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         QuantizationMixin.start_calibration(self, state.model)
 
+    def on_modules_added(
+        self,
+        state: State,
+        modules: dict[str, torch.nn.Module],
+        **kwargs,
+    ):
+        """Initialize modules created after the calibration lifecycle started."""
+        self.initialize_new_modules(state.model, modules)
+
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):

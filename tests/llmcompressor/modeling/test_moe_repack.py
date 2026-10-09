@@ -1,26 +1,34 @@
 """Tests for explicit LinearExperts2D -> fused 3D MoE repack (issues #2699, #3183)."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
 from compressed_tensors.offload import disable_onloading, offload_module
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
 from transformers import Qwen3VLMoeConfig, Qwen3VLMoeForConditionalGeneration
+from transformers import initialization as init
 from transformers.conversion_mapping import get_checkpoint_conversion_mapping
 from transformers.core_model_loading import (
     WeightRenaming,
     revert_weight_conversion,
 )
+from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 from llmcompressor.modeling.moe.linear_experts import (
     CompressedFusedLinear,
     LinearExperts2D,
 )
-from llmcompressor.modeling.moe.linearize import linearize_moe, repack_moe
+from llmcompressor.modeling.moe.linearize import (
+    linearize_moe,
+    repack_moe,
+)
 from llmcompressor.utils.dev import skip_weights_initialize
 
 
@@ -52,6 +60,32 @@ def _tiny_qwen3_vl_moe():
     return model
 
 
+def _tiny_qwen3_moe_blocks():
+    config = Qwen3MoeConfig(
+        hidden_size=16,
+        intermediate_size=32,
+        num_experts=4,
+        num_experts_per_tok=2,
+    )
+    with skip_weights_initialize():
+        block1 = Qwen3MoeExperts(config)
+        block2 = Qwen3MoeExperts(config)
+    init.normal_(block1.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block1.down_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block2.gate_up_proj, mean=0.0, std=config.initializer_range)
+    init.normal_(block2.down_proj, mean=0.0, std=config.initializer_range)
+
+    model = torch.nn.Module()
+    model.config = config
+    model.block1 = torch.nn.Module()
+    model.block1.mlp = torch.nn.Module()
+    model.block1.mlp.experts = block1
+    model.block2 = torch.nn.Module()
+    model.block2.mlp = torch.nn.Module()
+    model.block2.mlp.experts = block2
+    return model
+
+
 def test_repack_restores_fused_experts_and_weights():
     model = _tiny_qwen3_vl_moe()
     experts = model.model.language_model.layers[0].mlp.experts
@@ -73,6 +107,58 @@ def test_repack_restores_fused_experts_and_weights():
     assert not isinstance(experts, LinearExperts2D)
     assert torch.allclose(experts.gate_up_proj, ref_gate_up)
     assert torch.allclose(experts.down_proj, ref_down)
+
+
+def test_repack_directly_loaded_linear_experts():
+    model = _tiny_qwen3_moe_blocks()
+    config = model.config
+    linear_experts_cls = LinearExperts2D.get_linear_experts_cls(Qwen3MoeExperts)
+    model.block1.mlp.experts = linear_experts_cls(config)
+
+    repack_moe(model)
+
+    experts = model.block1.mlp.experts
+    assert isinstance(experts, FusedExpertsProtocol)
+    assert not isinstance(experts, LinearExperts2D)
+    assert not any(
+        isinstance(module._parameters, OffloadCache) for module in experts.modules()
+    )
+
+
+def test_linearize_uses_nested_model_config():
+    model = _tiny_qwen3_moe_blocks()
+    text_config = model.config
+    model.config = SimpleNamespace(get_text_config=lambda: text_config)
+
+    linearize_moe(model)
+
+    assert isinstance(model.block1.mlp.experts, LinearExperts2D)
+
+
+def test_linearize_plain_model_does_not_add_offload_cache():
+    model = _tiny_qwen3_moe_blocks()
+
+    linearize_moe(model)
+
+    experts = model.block1.mlp.experts
+    assert not any(
+        isinstance(module._parameters, OffloadCache) for module in experts.modules()
+    )
+
+
+@torch.no_grad()
+def test_linearize_and_repack_preserve_offload_cache():
+    model = _tiny_qwen3_vl_moe()
+    experts = model.model.language_model.layers[0].mlp.experts
+    offload_module(experts, onload_device="cpu", offload_device="cpu")
+
+    linearize_moe(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts._parameters, OffloadCache)
+
+    repack_moe(model)
+    experts = model.model.language_model.layers[0].mlp.experts
+    assert isinstance(experts._parameters, OffloadCache)
 
 
 @torch.no_grad()
@@ -514,3 +600,75 @@ def test_llama4_from_experts_accepts_text_config():
     parent = Llama4Config(text_config=text_config)
     from_parent = Llama4LinearExperts.from_experts_module(experts, parent)
     assert from_parent._source_config is parent.text_config
+
+
+@torch.no_grad()
+def test_moe_replacement_updates_subgraph_offload_bookkeeping():
+    model = _tiny_qwen3_moe_blocks()
+    experts_name = "block1.mlp.experts"
+    subgraph_modules = {experts_name: model.block1.mlp.experts}
+    offload_kwargs = {
+        experts_name: {"onload_device": "cpu", "offload_device": "disk"},
+    }
+
+    linearized_modules, updated_offload_kwargs = linearize_moe(
+        model, subgraph_modules, offload_kwargs=offload_kwargs
+    )
+
+    assert linearized_modules is not None
+    assert experts_name in linearized_modules
+    assert f"{experts_name}.0.gate_proj" in linearized_modules
+    assert updated_offload_kwargs is not None
+    assert f"{experts_name}.0.gate_proj" in updated_offload_kwargs
+    assert (
+        updated_offload_kwargs[f"{experts_name}.0.gate_proj"]["offload_device"]
+        == "disk"
+    )
+
+    repacked_modules, updated_offload_kwargs = repack_moe(
+        model, linearized_modules, offload_kwargs=updated_offload_kwargs
+    )
+
+    assert repacked_modules is not None
+    assert not any(name.startswith(f"{experts_name}.0.") for name in repacked_modules)
+    assert updated_offload_kwargs is not None
+    assert not any(
+        name.startswith(f"{experts_name}.0.") for name in updated_offload_kwargs
+    )
+    assert experts_name in repacked_modules
+    assert experts_name in updated_offload_kwargs
+    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+
+
+@torch.no_grad()
+def test_linearize_moe_subgraph_traverses_nested_modules():
+    model = _tiny_qwen3_moe_blocks()
+    subgraph_modules = {
+        name: module
+        for name, module in model.named_modules()
+        if name == "block1" or name.startswith("block1.")
+    }
+
+    linearized_modules, _ = linearize_moe(model, subgraph_modules)
+
+    assert isinstance(model.block1.mlp.experts, LinearExperts2D)
+    assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert linearized_modules is not None
+
+
+@torch.no_grad()
+def test_repack_moe_subgraph_only_targets_selected_module():
+    model = _tiny_qwen3_moe_blocks()
+    linearize_moe(model)
+
+    subgraph_modules = {
+        name: module
+        for name, module in model.named_modules()
+        if name == "block2" or name.startswith("block2.")
+    }
+    subgraph_modules["block1.mlp.experts"] = model.block1.mlp.experts
+    repacked_modules, _ = repack_moe(model, subgraph_modules)
+
+    assert isinstance(model.block1.mlp.experts, FusedExpertsProtocol)
+    assert not isinstance(model.block2.mlp.experts, LinearExperts2D)
+    assert repacked_modules is not None
