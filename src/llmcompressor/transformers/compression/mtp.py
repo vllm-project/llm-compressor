@@ -3,23 +3,20 @@
 import json
 import os
 import re
-from collections import defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
 
 from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils import patch_attr
+from compressed_tensors.utils.mtp import save_mtp_tensors_to_checkpoint
 from compressed_tensors.utils.safetensors_load import (
     get_checkpoint_files,
     get_safetensors_header,
     get_weight_map,
-    get_weight_mappings,
-    update_safetensors_index,
 )
 from loguru import logger
 from safetensors import safe_open
-from safetensors.torch import save_file
 from transformers import AutoModelForCausalLM, PreTrainedModel
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, cached_file
 
@@ -246,57 +243,8 @@ def save_mtp_tensors(
             message += f". For unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
         logger.warning(message)
         return
-    message = (
-        "MTP weights were not targeted for quantization; copying them "
-        "unchanged from the source checkpoint"
+    save_mtp_tensors_to_checkpoint(
+        model.name_or_path,
+        destination,
+        source_weight_map={name: shard for name, (shard, _) in weights.items()},
     )
-    if not patterns:
-        message += (
-            ". Transformers' MtpModel has no registered pattern for them; "
-            f"for unsupported FP8 layouts, see {FALLBACK_EXAMPLE}."
-        )
-    logger.warning(message)
-    by_shard = defaultdict(list)
-    for name, (shard, _) in weights.items():
-        by_shard[shard].append(name)
-    tensors = {}
-    for shard, names in by_shard.items():
-        with safe_open(shard, framework="pt") as handle:
-            tensors.update({name: handle.get_tensor(name) for name in names})
-
-    shard_name = "model_mtp.safetensors"
-    save_file(tensors, os.path.join(destination, shard_name))
-    weight_map = {
-        name: os.path.basename(path)
-        for name, path in get_weight_mappings(destination).items()
-        if name not in tensors
-    }
-    backbone = os.path.join(destination, "model.safetensors")
-    if os.path.exists(backbone):
-        os.replace(backbone, os.path.join(destination, "model_backbone.safetensors"))
-        weight_map = {
-            name: "model_backbone.safetensors"
-            if shard == "model.safetensors"
-            else shard
-            for name, shard in weight_map.items()
-        }
-    weight_map.update({name: shard_name for name in tensors})
-    total_size = sum(
-        os.path.getsize(os.path.join(destination, shard))
-        for shard in set(weight_map.values())
-    )
-    update_safetensors_index(destination, total_size, weight_map)
-
-    config_path = os.path.join(destination, "config.json")
-    with open(config_path, encoding="utf-8") as handle:
-        config = json.load(handle)
-    quant = config.get("quantization_config")
-    if quant is None:
-        return
-    ignores = quant.get("ignore") or []
-    ignores.extend(
-        name.removesuffix(".weight") for name in tensors if name.endswith(".weight")
-    )
-    quant["ignore"] = list(dict.fromkeys(ignores))
-    with open(config_path, "w", encoding="utf-8") as handle:
-        json.dump(config, handle, indent=2)

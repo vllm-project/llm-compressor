@@ -181,7 +181,7 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     finally:
         logger.remove(handler_id)
 
-    assert any("MTP weights were not targeted" in log for log in logs)
+    assert not any("MTP" in log for log in logs)
     weights = get_weight_mappings(destination)
     assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight" in weights
     assert (
@@ -224,8 +224,13 @@ def test_unquantized_mtp_copy_from_quantized_backbone_config(tmp_path):
 
 
 @pytest.mark.parametrize("source_format", ["scale", "float8", "packed_fp4"])
-def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
+@pytest.mark.parametrize("entrypoint", ["oneshot", "save"])
+def test_source_quantized_mtp_copy_requires_conversion(
+    tmp_path, source_format, entrypoint
+):
     model = _source_model(tmp_path)
+    if entrypoint == "save":
+        oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
     source = tmp_path / "source" / "model.safetensors"
     weights = load_file(source)
     name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
@@ -237,12 +242,66 @@ def test_source_quantized_mtp_copy_requires_conversion(tmp_path, source_format):
         weights[name] = torch.zeros_like(weights[name], dtype=torch.int8)
         weights[f"{name.removesuffix('.weight')}.scale"] = torch.ones(1)
     save_file(weights, source)
-    oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
-
     destination = tmp_path / "destination"
     with pytest.raises(ValueError, match="Cannot copy source-quantized MTP weights"):
+        if entrypoint == "oneshot":
+            oneshot(
+                model=model,
+                recipe=QuantizationModifier(scheme="FP8_DYNAMIC"),
+                output_dir=str(destination),
+            )
+        else:
+            model.save_pretrained(destination)
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize("target_backbone", [False, True])
+@pytest.mark.parametrize(
+    "model_cls",
+    [
+        InklingForCausalLM,
+        Glm4MoeForCausalLM,
+        Glm4MoeLiteForCausalLM,
+        GlmMoeDsaForCausalLM,
+        DeepseekV3ForCausalLM,
+    ],
+)
+def test_named_mtp_targets_match_saved_weights(tmp_path, target_backbone, model_cls):
+    if model_cls is InklingForCausalLM:
+        model = _source_model(tmp_path, load_mtp=True)
+        projection = "model.mtp.layers.0.input_proj"
+    else:
+        source = _source_glm_model(tmp_path, model_cls)
+        with load_context(model_cls, load_mtp=True):
+            model = model_cls.from_pretrained(source.name_or_path)
+        projection = f"model.layers.{model.config.num_hidden_layers}.eh_proj"
+    targets = [r"re:^mtp\.layers\."]
+    if target_backbone:
+        targets.append("model.layers.0.mlp.up_proj")
+    recipe = QuantizationModifier(scheme="FP8_DYNAMIC", targets=targets)
+    oneshot(model=model, recipe=recipe)
+    original_targets = list(model.mtp.layers[0].eh_proj.quantization_scheme.targets)
+
+    for name in ("first", "second"):
+        destination = tmp_path / name
         model.save_pretrained(destination)
-    assert not (destination / "model_mtp.safetensors").exists()
+        weights = get_weight_mappings(destination)
+        quantized_modules = {
+            name.removesuffix(".weight_scale")
+            for name in weights
+            if name.endswith(".weight_scale")
+        }
+        config = json.loads((destination / "config.json").read_text())
+        exported = {
+            target
+            for group in config["quantization_config"]["config_groups"].values()
+            for target in group["targets"]
+        }
+        assert exported == quantized_modules
+        assert projection in exported
+        assert (
+            model.mtp.layers[0].eh_proj.quantization_scheme.targets == original_targets
+        )
 
 
 def test_dense_save_uses_normal_model_serialization(tmp_path):
@@ -295,7 +354,7 @@ def test_non_mtp_config_does_not_require_layer_count(tmp_path, patterns):
     assert not list(tmp_path.iterdir())
 
 
-def test_unsupported_untargeted_mtp_copies_with_fallback_warning(tmp_path):
+def test_unsupported_untargeted_mtp_copies_without_duplicate_warning(tmp_path):
     model = _source_model(tmp_path)
     model._keys_to_ignore_on_load_unexpected = []
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
@@ -307,7 +366,7 @@ def test_unsupported_untargeted_mtp_copies_with_fallback_warning(tmp_path):
     finally:
         logger.remove(handler_id)
 
-    assert any("mtp_fp8_fallback.py" in log for log in logs)
+    assert not any("MTP" in log for log in logs)
     assert (
         "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
         in get_weight_mappings(destination)
@@ -345,11 +404,16 @@ def test_unloaded_mtp_warns_for_default_linear_targets(tmp_path):
     logs = []
     handler_id = logger.add(logs.append, format="{message}", level="WARNING")
     try:
-        oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
+        oneshot(
+            model=model,
+            recipe=QuantizationModifier(scheme="FP8_DYNAMIC"),
+            output_dir=str(tmp_path / "destination"),
+        )
     finally:
         logger.remove(handler_id)
-    mtp_warnings = [log for log in logs if "Use load_context(load_mtp=True)" in log]
+    mtp_warnings = [log for log in logs if "MTP" in log]
     assert len(mtp_warnings) == 1
+    assert "Use load_context(load_mtp=True)" in mtp_warnings[0]
     assert "copied unchanged when saving" in mtp_warnings[0]
 
 
@@ -435,6 +499,9 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
     # fused expert tensors, which are allocated with torch.empty.
     mtp.layers.apply(model._init_weights)
     linearize_moe(mtp)
+    # Keep the fixture's checkpoint layout independent of mappings registered
+    # by earlier load_context calls in this process.
+    linearize_moe(model)
     source = tmp_path / "source"
     model.save_pretrained(source)
     weights = load_file(source / "model.safetensors")

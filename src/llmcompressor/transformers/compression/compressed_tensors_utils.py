@@ -24,6 +24,7 @@ from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.compression.mtp import (
     has_mtp,
     save_mtp_tensors,
+    validate_mtp_copy_source,
 )
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
@@ -135,6 +136,9 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
+
+            if has_mtp(model) and not hasattr(model, "mtp"):
+                validate_mtp_copy_source(model)
 
             # without this, quantization format will be inferred from the model
             if not save_compressed and quantization_format is None:
