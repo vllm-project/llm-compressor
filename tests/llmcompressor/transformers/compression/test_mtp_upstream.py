@@ -192,22 +192,42 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     assert "model.mtp.layers.0.transformer_block.mlp.up_proj" in quant["ignore"]
 
 
-def test_mtp_copy_uses_backbone_hub_revision(tmp_path):
+@pytest.mark.parametrize("entrypoint", ["helper", "save"])
+def test_mtp_copy_uses_backbone_hub_revision(tmp_path, entrypoint):
     model = _source_model(tmp_path)
     source = tmp_path / "source" / "model.safetensors"
     destination = tmp_path / "destination"
-    model.save_pretrained(destination)
+    oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
+    if entrypoint == "helper":
+        model.save_pretrained(destination)
     model.name_or_path = "example/model"
     model.config._commit_hash = "pinned-commit"
-    with patch(
-        "llmcompressor.transformers.compression.mtp.cached_file",
-        side_effect=[None, str(source)],
-    ) as lookup:
-        save_mtp_tensors(model, str(destination))
+    with (
+        patch(
+            "llmcompressor.transformers.compression.mtp.cached_file",
+            side_effect=[None, str(source)],
+        ) as lookup,
+        patch(
+            "llmcompressor.transformers.compression.compressed_tensors_utils."
+            "infer_recipe_from_model_path",
+            return_value=None,
+        ),
+        patch(
+            "llmcompressor.transformers.compression.compressed_tensors_utils."
+            "copy_python_files_from_model_cache",
+        ),
+    ):
+        if entrypoint == "helper":
+            save_mtp_tensors(model, str(destination))
+        else:
+            model.save_pretrained(destination)
 
     assert len(lookup.call_args_list) == 2
     assert all(
         call.kwargs["revision"] == "pinned-commit" for call in lookup.call_args_list
+    )
+    assert "model.mtp.layers.0.transformer_block.mlp.up_proj.weight" in (
+        get_weight_mappings(destination)
     )
 
 

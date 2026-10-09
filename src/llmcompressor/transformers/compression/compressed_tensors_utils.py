@@ -137,8 +137,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
 
+            source_mtp = None
             if has_mtp(model) and not hasattr(model, "mtp"):
-                validate_mtp_copy_source(model)
+                source_mtp = validate_mtp_copy_source(model)
 
             # without this, quantization format will be inferred from the model
             if not save_compressed and quantization_format is None:
@@ -181,7 +182,7 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     if has_mtp(model) and not hasattr(model, "mtp"):
                         logger.info("Use load_context(load_mtp=True) to quantize MTP.")
-                        save_mtp_tensors(model, save_dir)
+                        save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
