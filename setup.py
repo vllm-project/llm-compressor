@@ -127,7 +127,7 @@ setup(
             if BUILD_TYPE == "release"
             else "transformers>=4.56.1,<=4.57.6"
         ),
-        ("datasets>=4.0.0,<=4.6.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
+        ("datasets>=4.0.0,<5.1.0" if BUILD_TYPE == "release" else "datasets>=4.0.0"),
         (
             # auto-round 0.9.1 cannot work with accelerate <1.10.0
             "auto-round>=0.9.6,<=0.10.2"
@@ -135,7 +135,7 @@ setup(
             else "auto-round>=0.9.6"
         ),
         (
-            "accelerate>=1.6.0,<=1.12.0"
+            "accelerate>=1.6.0,<=1.15.0"
             if BUILD_TYPE == "release"
             else "accelerate>=1.6.0"
         ),
