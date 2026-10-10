@@ -1,5 +1,9 @@
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    get_execution_device,
+    offload_module,
+)
 from transformers.activations import ACT2FN
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
@@ -35,7 +39,8 @@ class Llama4LinearExperts(LinearExperts2D):
         experts.has_bias = cls.has_bias
         experts.has_gate = cls.has_gate
 
-        with skip_weights_initialize():
+        construction_device = get_execution_device(experts)
+        with torch.device(construction_device), skip_weights_initialize():
             self = cls(
                 experts.num_experts,
                 experts.hidden_size,
