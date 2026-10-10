@@ -172,6 +172,65 @@ def test_rejects_quantized_weights_and_qparams():
     )
 
 
+def test_bare_multistream_parameter_is_rotated():
+    hidden = 32
+    name = "model.layers.0.hc_attn_fn"
+    tensor = torch.randn(24, 4 * hidden)
+    converter = SpinQuantConverter(hidden_size=hidden, head_dim=16, norms={})
+
+    rotated = converter.process({name: tensor})[name]
+    streams = tensor.reshape(24, 4, hidden)
+    torch.testing.assert_close(
+        rotated,
+        (streams.to(converter.r1.dtype) @ converter.r1)
+        .reshape(24, 4 * hidden)
+        .to(tensor.dtype),
+    )
+    assert not torch.allclose(rotated, tensor)
+
+    unmapped = SpinQuantConverter(
+        hidden_size=hidden,
+        head_dim=16,
+        norms={},
+        mapping=SpinQuantConverterMapping(residual=[]),
+    )
+    with pytest.raises(ValueError, match="not covered"):
+        unmapped.process({name: tensor})
+
+
+def test_r2_rejects_compressed_attention_path():
+    converter = SpinQuantConverter(
+        hidden_size=32,
+        head_dim=16,
+        norms={"model.layers.0.input_layernorm": torch.ones(32)},
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        mapping=SpinQuantConverterMapping(
+            attn_out=[r"\.self_attn\.wo_b$"],
+            attn_o=r"\.self_attn\.wo_b$",
+        ),
+    )
+    with pytest.raises(ValueError, match="R2"):
+        converter.process({"model.layers.0.self_attn.wo_b.weight": torch.randn(32, 48)})
+
+
+def test_mla_defaults_to_r1(tmp_path):
+    source = tmp_path / "source"
+    _save_tiny_model(LlamaConfig(**_COMMON, tie_word_embeddings=False), source)
+    config_path = source / "config.json"
+    config = json.loads(config_path.read_text())
+    config["kv_lora_rank"] = 16
+    config_path.write_text(json.dumps(config))
+
+    converter = SpinQuantConverter.from_pretrained(source)
+    assert converter.rotations == ("R1",)
+    assert converter.r2 is None
+
+    explicit = SpinQuantConverter.from_pretrained(source, rotations=("R1", "R2"))
+    assert explicit.rotations == ("R1", "R2")
+    assert explicit.r2 is not None
+
+
 def test_rejects_unmapped_residual_layers():
     converter = SpinQuantConverter(hidden_size=32, head_dim=16, norms={})
     with pytest.raises(ValueError, match="not covered"):

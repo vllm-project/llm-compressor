@@ -37,6 +37,11 @@ class SpinQuantConverterMapping(BaseModel):
     :param mlp_in: mlp layers reading the residual stream
     :param mlp_out: mlp layers writing the residual stream
     :param lm_head: language model head
+    :param residual: bare parameters, without a `.weight` suffix, whose last
+        dimension is one or more residual streams. Each stream is rotated by R1,
+        i.e. a last dimension of `k * hidden_size` is rotated by a block-diagonal
+        R1. Defaults include DeepSeek-V4 mHC mixers (`hc_attn_fn`, `hc_ffn_fn`,
+        `hc_head_fn`)
     :param attn_norm: norm fused into `attn_in`, relative to the decoder layer
     :param mlp_norm: norm fused into `mlp_in`, relative to the decoder layer
     :param final_norm: norm fused into `lm_head`, relative to the decoder prefix
@@ -56,6 +61,9 @@ class SpinQuantConverterMapping(BaseModel):
     )
     mlp_out: list[str] = Field(default_factory=lambda: [r"\.mlp\.(.+\.)?down_proj$"])
     lm_head: str = r"(^|\.)lm_head$"
+    residual: list[str] = Field(
+        default_factory=lambda: [r"(^|\.)hc_(attn|ffn|head)_fn$"]
+    )
     attn_norm: str = "input_layernorm"
     mlp_norm: str = "post_attention_layernorm"
     final_norm: str = "norm"
@@ -120,7 +128,10 @@ class SpinQuantConverter(Converter):
         and embedding differ
     :param emit_lm_head: whether to create `lm_head.weight` from the embedding,
         for tied checkpoints which do not save `lm_head.weight`
-    :param rotations: offline rotations to apply
+    :param rotations: offline rotations to apply. `from_pretrained` defaults an
+        MLA model (one with `kv_lora_rank`) to R1 only: R2 needs an uncompressed
+        `num_heads * head_dim` path between `v_proj` and `o_proj`, which MLA
+        replaces with a compressed latent
     :param transform_type: `"hadamard"` supports power-of-two sizes,
         `"random-hadamard"` also supports sizes with a known hadamard divisor
     :param transform_block_size: R1 block size. Defaults to `hidden_size`. The
@@ -146,6 +157,8 @@ class SpinQuantConverter(Converter):
         precision: torch.dtype = torch.float64,
         mapping: SpinQuantConverterMapping | None = None,
         ignore: list[str] = (),
+        num_attention_heads: int | None = None,
+        num_key_value_heads: int | None = None,
     ):
         rotations = tuple(r.upper() for r in rotations)
         if not rotations or not set(rotations) <= {"R1", "R2"}:
@@ -170,7 +183,19 @@ class SpinQuantConverter(Converter):
             )
         generator = torch.Generator().manual_seed(seed)
         self.r1 = _hadamard(block_size, transform_type, precision, generator)
-        self.r2 = _hadamard(head_dim, transform_type, precision, generator)
+        # R2's head-sized matrix is only needed, and only constructible for every
+        # head_dim, when R2 is actually applied.
+        self.r2 = (
+            _hadamard(head_dim, transform_type, precision, generator)
+            if "R2" in rotations
+            else None
+        )
+        self.r2_v_dim = (
+            None if num_key_value_heads is None else num_key_value_heads * head_dim
+        )
+        self.r2_o_dim = (
+            None if num_attention_heads is None else num_attention_heads * head_dim
+        )
 
         m = self.mapping
         self._embedding = re.compile(m.embedding)
@@ -181,6 +206,7 @@ class SpinQuantConverter(Converter):
         self._mlp_out = [re.compile(p) for p in m.mlp_out]
         self._attn_v = re.compile(m.attn_v)
         self._attn_o = re.compile(m.attn_o)
+        self._residual = [re.compile(p) for p in m.residual]
         self._ignore = [re.compile(p) for p in ignore]
 
     @classmethod
@@ -232,6 +258,16 @@ class SpinQuantConverter(Converter):
                 for name in names:
                     norms[name.removesuffix(".weight")] = file.get_tensor(name)
 
+        if "rotations" not in kwargs and _is_mla(text_config):
+            kwargs["rotations"] = ("R1",)
+            logger.warning(
+                "MLA model detected (kv_lora_rank is set). SpinQuant R2 needs an "
+                "uncompressed head dimension between v_proj and o_proj, so "
+                "rotations default to R1 only. Pass rotations explicitly to override"
+            )
+        kwargs.setdefault("num_attention_heads", text_config.get("num_attention_heads"))
+        kwargs.setdefault("num_key_value_heads", text_config.get("num_key_value_heads"))
+
         return cls(
             hidden_size=hidden_size,
             head_dim=head_dim,
@@ -264,7 +300,13 @@ class SpinQuantConverter(Converter):
             elif param == "weight" and self._lm_head.search(module_name):
                 result[name] = self._rotate_lm_head(module_name, tensor)
             elif param in ("weight", "bias"):
-                result[name] = self._rotate_layer(module_name, param, tensor)
+                result[name] = self._rotate_layer(name, module_name, param, tensor)
+            elif self._is_residual(name, module_name):
+                result[name] = self._rotate_residual_streams(name, tensor)
+            elif self._touches_residual(tensor):
+                raise ValueError(
+                    _unmapped_residual_message(name, tensor, self.hidden_size)
+                )
             else:
                 result[name] = tensor
         return result
@@ -289,7 +331,7 @@ class SpinQuantConverter(Converter):
         return set()
 
     def _rotate_layer(
-        self, module_name: str, param: str, tensor: torch.Tensor
+        self, name: str, module_name: str, param: str, tensor: torch.Tensor
     ) -> torch.Tensor:
         if module_name in self.norms:
             if param == "bias":
@@ -310,8 +352,10 @@ class SpinQuantConverter(Converter):
                 return self._apply(_rotate_bias, tensor, self.r1)
             if is_v:
                 return self._apply(_rotate_bias, tensor, self.r2)
-            if not (is_attn_in or is_mlp_in) and self._reads_hidden(tensor):
-                raise ValueError(f"{module_name}.bias is not covered by the mapping")
+            if not (is_attn_in or is_mlp_in) and self._touches_residual(tensor):
+                raise ValueError(
+                    _unmapped_residual_message(name, tensor, self.hidden_size)
+                )
             return tensor
 
         if is_attn_in or is_mlp_in:
@@ -321,24 +365,23 @@ class SpinQuantConverter(Converter):
             if "R1" in self.rotations:
                 tensor = self._apply(_rotate_cols, tensor, self.r1)
             if is_v:
+                self._check_r2_dim(name, tensor, -2, self.r2_v_dim)
                 tensor = self._apply(_rotate_rows, tensor, self.r2)
             return tensor
 
         if is_out:
             if is_o:
+                self._check_r2_dim(name, tensor, -1, self.r2_o_dim)
                 tensor = self._apply(_rotate_cols, tensor, self.r2)
             if "R1" in self.rotations:
                 self._check_dim(module_name, tensor, -2)
                 tensor = self._apply(_rotate_rows, tensor, self.r1)
             return tensor
 
-        if self._reads_hidden(tensor):
-            raise ValueError(
-                f"{module_name} has a dimension of hidden_size={self.hidden_size} "
-                "but is not covered by the SpinQuant mapping. Rotating the residual "
-                "stream without rotating this layer would change the model's "
-                "outputs. Please provide a SpinQuantConverterMapping which covers it"
-            )
+        if self._is_residual(name, module_name):
+            return self._rotate_residual_streams(name, tensor)
+        if self._touches_residual(tensor):
+            raise ValueError(_unmapped_residual_message(name, tensor, self.hidden_size))
         return tensor
 
     def _rotate_embedding(self, tensor: torch.Tensor) -> torch.Tensor:
@@ -378,8 +421,42 @@ class SpinQuantConverter(Converter):
         rotation = rotation.to(device=tensor.device)
         return fn(tensor.to(self.precision), rotation).to(tensor.dtype)
 
-    def _reads_hidden(self, tensor: torch.Tensor) -> bool:
-        return tensor.ndim >= 1 and tensor.shape[-1] == self.hidden_size
+    def _is_residual(self, name: str, module_name: str) -> bool:
+        return _search_any(self._residual, name) or _search_any(
+            self._residual, module_name
+        )
+
+    def _touches_residual(self, tensor: torch.Tensor) -> bool:
+        """A dimension is one or more residual streams (`k * hidden_size`)."""
+        return any(size > 0 and size % self.hidden_size == 0 for size in tensor.shape)
+
+    def _rotate_residual_streams(self, name: str, tensor: torch.Tensor) -> torch.Tensor:
+        if "R1" not in self.rotations:
+            return tensor
+        last = tensor.shape[-1] if tensor.ndim >= 1 else 0
+        if last == 0 or last % self.hidden_size != 0:
+            raise ValueError(
+                f"{name} is marked as a residual tensor but its last dimension "
+                f"{last} is not a multiple of hidden_size={self.hidden_size}"
+            )
+        return self._apply(_rotate_cols, tensor, self.r1)
+
+    def _check_r2_dim(
+        self, name: str, tensor: torch.Tensor, dim: int, expected: int | None
+    ):
+        size = tensor.shape[dim]
+        if expected is not None and size != expected:
+            raise ValueError(
+                f"R2 cannot rotate {name}: dimension {dim} has size {size}, "
+                f"expected {expected} (number of heads times head_dim="
+                f"{self.head_dim}). Compressed attention paths such as MLA do not "
+                "have that shape; use rotations=('R1',)"
+            )
+        if size % self.head_dim != 0:
+            raise ValueError(
+                f"R2 cannot rotate {name}: dimension {dim} has size {size}, "
+                f"which is not divisible by head_dim={self.head_dim}"
+            )
 
     def _check_dim(self, module_name: str, tensor: torch.Tensor, dim: int):
         if tensor.ndim < 2 or tensor.shape[dim] != self.hidden_size:
@@ -387,6 +464,23 @@ class SpinQuantConverter(Converter):
                 f"Expected dim {dim} of {module_name} with shape "
                 f"{tuple(tensor.shape)} to equal hidden_size={self.hidden_size}"
             )
+
+
+def _is_mla(text_config: dict) -> bool:
+    return "kv_lora_rank" in text_config
+
+
+def _unmapped_residual_message(
+    name: str, tensor: torch.Tensor, hidden_size: int
+) -> str:
+    return (
+        f"{name} with shape {tuple(tensor.shape)} touches the residual stream "
+        f"(a dimension is a multiple of hidden_size={hidden_size}) but is not "
+        "covered by the SpinQuant mapping. Rotating the stream without rotating "
+        "this tensor would change the model's outputs. Bare parameters such as "
+        "mHC mixers belong in mapping.residual, which rotates the last dimension "
+        "by a block-diagonal R1, one block per stream"
+    )
 
 
 def _find_norm_names(names, mapping: SpinQuantConverterMapping) -> list[str]:
