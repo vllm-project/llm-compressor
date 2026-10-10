@@ -433,6 +433,10 @@ def _hadamard(
         matrix = random_hadamard_matrix(size, precision, gen=generator)
     else:
         raise ValueError(f"Unsupported transform_type {transform_type}")
+    # The constructors return a ±1 Hadamard, whose square is `size * I`. Dividing
+    # by sqrt(size) once, as HadamardTransform.forward does, makes the rotation
+    # orthogonal: R @ R.T = I. Both R1 and R2 need this so an input rotation and
+    # the matching output rotation cancel.
     return matrix / torch.tensor(size, dtype=precision).sqrt()
 
 

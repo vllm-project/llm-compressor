@@ -135,6 +135,20 @@ def test_fused_3d_experts_match_2d_experts():
         )
 
 
+@pytest.mark.parametrize("transform_type", ("hadamard", "random-hadamard"))
+def test_rotations_are_orthogonal(transform_type):
+    converter = SpinQuantConverter(
+        hidden_size=64,
+        head_dim=16,
+        norms={},
+        transform_type=transform_type,
+        transform_block_size=32,
+    )
+    for rotation in (converter.r1, converter.r2):
+        gram = rotation @ rotation.T
+        torch.testing.assert_close(gram, torch.eye(rotation.shape[0], dtype=gram.dtype))
+
+
 def test_rejects_quantized_weights_and_qparams():
     converter = SpinQuantConverter(hidden_size=32, head_dim=16, norms={})
     weight = {
