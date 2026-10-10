@@ -135,17 +135,27 @@ def test_fused_3d_experts_match_2d_experts():
         )
 
 
-def test_rejects_quantized_tensors():
+def test_rejects_quantized_weights_and_qparams():
     converter = SpinQuantConverter(hidden_size=32, head_dim=16, norms={})
-    with pytest.raises(ValueError, match="dequantize"):
-        converter.process(
-            {
-                "model.layers.0.self_attn.q_proj.weight": torch.zeros(
-                    32, 32, dtype=torch.float8_e4m3fn
-                ),
-                "model.layers.0.self_attn.q_proj.weight_scale_inv": torch.ones(1, 1),
-            }
+    weight = {
+        "model.layers.0.self_attn.q_proj.weight": torch.zeros(
+            32, 32, dtype=torch.float8_e4m3fn
         )
+    }
+    qparam = {"model.layers.0.self_attn.q_proj.weight_scale_inv": torch.ones(1, 1)}
+    with pytest.raises(ValueError, match="dequantize"):
+        converter.process(weight)
+    with pytest.raises(ValueError, match="dequantize"):
+        converter.process(qparam)
+
+    # integer tensors that are neither weights nor qparams pass through
+    other = torch.zeros(4, dtype=torch.int32)
+    assert (
+        converter.process({"model.layers.0.mlp.other": other})[
+            "model.layers.0.mlp.other"
+        ]
+        is other
+    )
 
 
 def test_rejects_unmapped_residual_layers():

@@ -62,17 +62,22 @@ class SpinQuantConverterMapping(BaseModel):
 
 
 _LAYER_RE = re.compile(r"^(?P<layer>(.*\.)?layers\.\d+)\.")
-_QPARAM_SUFFIXES = (
-    "weight_scale",
-    "input_scale",
-    "_scale_inv",
-    "weight_zero_point",
-    "_global_scale",
-    "weight_packed",
-    "weight_shape",
-    ".qweight",
-    ".qzeros",
-    ".scales",
+# Parameter names produced by compressed-tensors and by GPTQ/AWQ checkpoints.
+# Matched exactly, so a tensor whose name merely ends in one of these is left alone.
+_QPARAM_NAMES = frozenset(
+    {
+        "weight_scale",
+        "weight_scale_inv",
+        "input_scale",
+        "weight_zero_point",
+        "weight_global_scale",
+        "input_global_scale",
+        "weight_packed",
+        "weight_shape",
+        "qweight",
+        "qzeros",
+        "scales",
+    }
 )
 _QUANTIZED_DTYPES = {
     torch.float8_e4m3fn,
@@ -243,13 +248,15 @@ class SpinQuantConverter(Converter):
                 result[name] = tensor
                 continue
 
-            if name.endswith(_QPARAM_SUFFIXES) or tensor.dtype in _QUANTIZED_DTYPES:
+            module_name, param = _split_param(name, tensor)
+            if param in _QPARAM_NAMES or (
+                param == "weight" and tensor.dtype in _QUANTIZED_DTYPES
+            ):
                 raise ValueError(
                     f"{name} is quantized. Please dequantize the checkpoint before "
                     "SpinQuantConverter, e.g. by chaining a dequantizer before it"
                 )
 
-            module_name, param = _split_param(name, tensor)
             if param == "weight" and self._embedding.search(module_name):
                 result[name] = self._rotate_embedding(tensor)
                 if self.emit_lm_head:
