@@ -191,7 +191,7 @@ def _worker(rank, store, directory, kind):
 
         if kind == "cpu":
             patch.setattr(DistributedCPUCache, "onload", separate_weight_resident)
-        profile = Profile("cpu")
+        profile = Profile("cpu", attribution=True)
         profile.report.update(rank=rank, world_size=2, device_map="auto_offload")
         uneven = {}
         _data(directory, model, tokenizer, uneven, samples=3)
@@ -310,7 +310,22 @@ def _worker(rank, store, directory, kind):
         torch.testing.assert_close(logits, expected["logits"], atol=2e-6, rtol=2e-5)
         rotary = model.model.rotary_emb.inv_freq.detach().clone()
         dist.barrier()
-        model.save_pretrained(directory / "compressed", save_compressed=True)
+        with profile.attribution_scope("save"):
+            model.save_pretrained(directory / "compressed", save_compressed=True)
+        attribution = profile.report["attribution"]
+        assert not attribution["unavailable_hooks"]
+        operations = attribution["operations"]
+        assert operations["initialization/initialize_qparams"]["calls"] > 0
+        assert any(
+            key.startswith("initialization/")
+            and key.endswith(".offload")
+            and value["calls"] > 0
+            for key, value in attribution["cache_by_phase_backend"].items()
+        )
+        assert operations["save.compress/total"]["calls"] == 1
+        assert operations["save.restore_dispatch/total"]["calls"] == 1
+        assert operations.get("save/write_shard", {}).get("calls", 0) == int(rank == 0)
+        assert bool(attribution["quarot_segments"]) == (rank == 0)
         signatures = [None, None]
         dist.all_gather_object(signatures, state_signature(model))
         assert signatures[0] == signatures[1]

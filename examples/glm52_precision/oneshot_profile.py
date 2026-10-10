@@ -56,7 +56,7 @@ from llmcompressor.utils import load_context
 class Profile:
     """Example-local timings and I/O counters; does not change algorithm behavior."""
 
-    def __init__(self, device, mode="summary", sample_every=1000):
+    def __init__(self, device, mode="summary", sample_every=1000, attribution=False):
         if mode not in ("summary", "sampled", "full") or sample_every < 1:
             raise ValueError("Use summary/sampled/full and a positive sample interval")
         self.device = device
@@ -92,6 +92,21 @@ class Profile:
                 ),
             },
         }
+        self.attribution = None
+        if attribution:
+            if __package__:
+                from .profile_attribution import PhaseAttribution
+            else:
+                from profile_attribution import PhaseAttribution
+            self.attribution = PhaseAttribution(self.report)
+
+    @contextmanager
+    def attribution_scope(self, root):
+        if self.attribution is None:
+            yield
+        else:
+            with self.attribution.instrument(root):
+                yield
 
     def synchronize(self):
         for device in self.npu_devices:
@@ -223,6 +238,7 @@ class Profile:
             return call
 
         with ExitStack() as stack:
+            stack.enter_context(self.attribution_scope("oneshot"))
             stack.enter_context(
                 patch_attr(
                     sequential_pipeline, "tqdm", self.progress(sequential_pipeline.tqdm)
@@ -270,6 +286,11 @@ def parse_args():
         "--profile-mode", choices=("summary", "sampled", "full"), default="summary"
     )
     parser.add_argument("--profile-sample-every", type=int, default=1000)
+    parser.add_argument(
+        "--profile-attribution",
+        action="store_true",
+        help="Opt-in host/cache/phase attribution; no added tensor sync",
+    )
     parser.add_argument(
         "--max-memory",
         type=json.loads,
@@ -541,7 +562,12 @@ def main():
             backend="cpu:gloo,npu:hccl" if args.device == "npu" else "gloo",
             timeout=timedelta(hours=3),
         )
-    profile = Profile(args.device, args.profile_mode, args.profile_sample_every)
+    profile = Profile(
+        args.device,
+        args.profile_mode,
+        args.profile_sample_every,
+        args.profile_attribution,
+    )
     report_dir = args.report_dir or args.output.with_name(args.output.name + "-profile")
     report_dir.mkdir(parents=True, exist_ok=True)
     offload = args.offload_dir or args.output.with_name(args.output.name + "-offload")
@@ -615,7 +641,7 @@ def main():
         tiles = quantized_tiles(model) if rank == 0 else None
         if dist.is_initialized():
             dist.barrier()  # Finish the source's reads before any rank compresses.
-        with profile.stage("save"):
+        with profile.stage("save"), profile.attribution_scope("save"):
             # Match GenerationConfig.save_pretrained before expensive compression.
             model.generation_config.validate(strict=True)
             profile.report["generation_config"]["pre_save_validation"] = "passed"
