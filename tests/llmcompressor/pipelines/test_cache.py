@@ -1,11 +1,16 @@
 from dataclasses import dataclass, fields, is_dataclass
+from types import SimpleNamespace
 from typing import Optional
 
 import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
 
-from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
+from llmcompressor.pipelines.cache import (
+    IntermediatesCache,
+    OverrideEqMode,
+    _supports_record_stream,
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +81,51 @@ def test_iter_prefetch_matches_iter(sample_cache):
     assert len(via_iter) == len(via_prefetch)
     for i, (b_iter, b_prefetch) in enumerate(zip(via_iter, via_prefetch)):
         assert batch_dicts_equal(b_iter, b_prefetch), f"batch {i} differs"
+
+
+@pytest.mark.unit
+def test_record_stream_skips_unsupported_backend(monkeypatch):
+    """_record_stream must not call record_stream on backends where it is
+    unimplemented (e.g. MPS), otherwise iter_prefetch crashes."""
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.cache._supports_record_stream", lambda device: False
+    )
+
+    def fail(self, stream):
+        raise AssertionError("record_stream must not be called")
+
+    monkeypatch.setattr(torch.Tensor, "record_stream", fail)
+
+    tensor = torch.zeros(1)
+    stream = SimpleNamespace(device=tensor.device)
+    # dict branch exercised as well; must complete without calling record_stream
+    IntermediatesCache._record_stream({"hidden": [tensor]}, stream)
+
+
+@pytest.mark.unit
+def test_supports_record_stream_cpu_unsupported():
+    _supports_record_stream.cache_clear()
+    assert _supports_record_stream(torch.device("cpu")) is False
+
+
+@pytest.mark.unit
+def test_iter_prefetch_onloads_accelerator_tensors(monkeypatch):
+    """Regression test: prefetching tensors which onload to a device without
+    record_stream support (e.g. MPS) must not crash."""
+    accel = torch.accelerator.current_accelerator()
+    if accel is None:
+        pytest.skip("No accelerator available")
+
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.cache._supports_record_stream", lambda device: False
+    )
+    cache = IntermediatesCache.empty(2, torch.device("cpu"))
+    for i in range(2):
+        cache.update(i, {"hidden_states": torch.randn(2, 3, device=accel)})
+
+    batches = list(cache.iter_prefetch())
+    assert len(batches) == 2
+    assert batches[0]["hidden_states"].device.type == accel.type
 
 
 @pytest.mark.unit
