@@ -62,8 +62,10 @@ def model_free_ptq(
     :param device: device(s) for quantization. Accepts a single device
         string/object or a list. When multiple devices are given, shards
         are dynamically assigned based on real-time GPU memory.
-    :param converter: optional converter or list of converters to apply, in
-        order, to the checkpoint before running model-free PTQ, e.g. an fp8
+    :param converter: optional converter to apply to the checkpoint before
+        running model-free PTQ. Accepts a single converter, a list, or a tuple;
+        they run in the given order and model-free PTQ is applied last. A
+        single converter behaves as before. For example, pass an fp8
         dequantizer followed by a SpinQuantConverter
     """
     model_files = get_checkpoint_files(model_stub)
