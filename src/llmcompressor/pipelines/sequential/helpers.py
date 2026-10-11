@@ -138,6 +138,16 @@ def find_modules_outside_subgraphs(
     }
 
 
+def find_modules_outside_graph(model: Module, graph: GraphModule) -> dict[str, Module]:
+    """
+    Return modules that no node of a traced graph calls. These are the same modules as
+    `find_modules_outside_subgraphs` returns for any partition of the graph, so they
+    can be found before the graph is partitioned
+    """
+    whole_graph = Subgraph(graph=graph.graph, input_names=set(), consumed_names=set())
+    return find_modules_outside_subgraphs(model, [whole_graph])
+
+
 def _resolve_sequential_targets(
     model: PreTrainedModel, sequential_targets: list[str]
 ) -> set[Module]:
@@ -201,6 +211,34 @@ def trace_subgraphs(
     :param eager_attention: whether to force eager attention while tracing
     :return: a list of Subgraphs in order of execution
     """
+    graph, targets = trace_graph(
+        model, sample_input, sequential_targets, ignore, eager_attention
+    )
+    return partition_subgraphs(model, graph, targets, targets_per_subgraph)
+
+
+def trace_graph(
+    model: PreTrainedModel,
+    sample_input: dict[str, Any],
+    sequential_targets: list[str],
+    ignore: list[str],
+    eager_attention: bool = False,
+) -> tuple[GraphModule, set[Module]]:
+    """
+    Trace a model into a graph in which each sequential target is a leaf node.
+    Tracing is the expensive step, so the returned graph can be partitioned more than
+    once, for example with different numbers of targets per subgraph
+
+    :param model: model being traced
+    :param sample_input: inputs whose values will change during execution but whose
+        __len__, __bool__, and __contains__ values are assumed constant across batches
+    :param sequential_targets: list of patterns matching sequential targets. Detected
+        attention modules are also used as targets when not contained by a requested
+        target.
+    :param ignore: function and method names to skip during tracing
+    :param eager_attention: whether to force eager attention while tracing
+    :return: the traced graph and the set of sequential target modules
+    """
     targets = _resolve_sequential_targets(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
 
@@ -249,25 +287,12 @@ def trace_subgraphs(
     graph.class_for_deserialization = model.__class__
     graph.device = model.device
 
-    # perform subgraph partition
-    partitions = topological_partition(graph, targets, targets_per_subgraph)
-    subgraphs = partition_graph(model, partitions)
-    trace_consumed_names(subgraphs)
-
-    # As currently implemented, `topological_partition` generates an extra subgraph at
-    # the beginning which does not contain a target. This adds a little more runtime,
-    # and could be folded into the first subgraph in the future
-    if len(subgraphs) != len(targets) + 1:
-        logger.warning(
-            f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
-            "This is likely due to having wrapped code which calls sequential targets"
-        )
-
     # Modules with parameters which are neither ancestors nor owned by a subgraph were
-    # not seen during tracing (e.g. a wrapped function failed to execute on meta)
+    # not seen during tracing (e.g. a wrapped function failed to execute on meta).
+    # Every partition of the graph owns the same modules, so this is checked here
     unowned = [
         name
-        for name, module in find_modules_outside_subgraphs(model, subgraphs).items()
+        for name, module in find_modules_outside_graph(model, graph).items()
         if module not in ancestors and module._parameters
     ]
     if unowned:
@@ -276,6 +301,44 @@ def trace_subgraphs(
             "onloaded for the whole calibration",
             log_once=True,
         )
+
+    return graph, targets
+
+
+def partition_subgraphs(
+    model: Module,
+    graph: GraphModule,
+    targets: set[Module],
+    targets_per_subgraph: int = 1,
+    is_full: Callable[[list[Node], list[Node]], bool] | None = None,
+) -> list[Subgraph]:
+    """
+    Partition a traced graph into subgraphs, where each sequential target belongs to
+    exactly one subgraph and where executing each subgraph in order is equivalent to
+    executing the original model
+
+    :param model: model which owns the produced Subgraphs
+    :param graph: graph produced by `trace_graph`
+    :param targets: sequential target modules produced by `trace_graph`
+    :param targets_per_subgraph: number of targets to include per subgraph
+    :param is_full: optional memory check used instead of `targets_per_subgraph`,
+        see `topological_partition`
+    :return: a list of Subgraphs in order of execution
+    """
+    num_target_nodes = len(find_target_nodes(graph, targets))
+    if num_target_nodes != len(targets):
+        logger.warning(
+            f"Expected {len(targets)} sequential targets in the traced graph, but "
+            f"found {num_target_nodes}. This is likely due to having wrapped code "
+            "which calls sequential targets"
+        )
+
+    # As currently implemented, `topological_partition` generates an extra subgraph at
+    # the beginning which does not contain a target. This adds a little more runtime,
+    # and could be folded into the first subgraph in the future
+    partitions = topological_partition(graph, targets, targets_per_subgraph, is_full)
+    subgraphs = partition_graph(model, partitions)
+    trace_consumed_names(subgraphs)
 
     return subgraphs
 
@@ -400,7 +463,10 @@ def find_target_nodes(graph: GraphModule, targets: set[Module]) -> set[Node]:
 
 
 def topological_partition(
-    graph: GraphModule, targets: set[Module], targets_per_subgraph: int = 1
+    graph: GraphModule,
+    targets: set[Module],
+    targets_per_subgraph: int = 1,
+    is_full: Callable[[list[Node], list[Node]], bool] | None = None,
 ) -> list[list[Node]]:
     """
     Partition the graph into partitions such that each `target` belongs to exactly one
@@ -410,6 +476,10 @@ def topological_partition(
     :param graph: graph being partitioned
     :param targets: target modules which will be assigned to disjoint partitions
     :param targets_per_subgraph: number of targets to include per subgraph
+    :param is_full: optional memory check used instead of `targets_per_subgraph`. At
+        each target after the first one in a partition, it is called with the nodes
+        already in the partition and the nodes from this target up to the next one,
+        and returns True when they do not fit together, which starts a new partition
     :return: list of partitions, where each partition is a list of nodes belonging to
         that partition
     """
@@ -421,32 +491,28 @@ def topological_partition(
             "targets_per_subgraph is required to be greater than or equal to one"
         )
 
+    order = get_topological_order(graph)
+    chunks = _get_target_chunks(order, target_nodes) if is_full is not None else {}
+
     partitions: list[list[Node]] = [[]]
     node_to_partition: dict[Node, int] = {}
-    remaining_indegrees = {
-        node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
-        for node in graph.graph.nodes
-    }
     partition_index = 0  # global counter
     targets_seen = 0  # number of targets encountered so far
 
-    # start with graph input nodes,
-    # but delay the `get_attr` nodes as long as possible
-    queue = deque(
-        node
-        for node in graph.graph.nodes
-        if remaining_indegrees[node] == 0 and node.op != "get_attr"
-    )
-    while len(queue) > 0:
-        node = queue.popleft()
-
+    for node in order:
         is_target = node in target_nodes
         if is_target:
             # put all nodes prior to first target into separate subgraph
             is_head = partition_index == 0 and len(partitions[partition_index]) > 0
 
-            # finish creating subgraph when number of targets has been seen
-            is_complete = targets_seen >= targets_per_subgraph
+            # finish creating subgraph when number of targets has been seen, or when
+            # the next target and the nodes after it would not fit in memory
+            if is_full is None:
+                is_complete = targets_seen >= targets_per_subgraph
+            else:
+                is_complete = targets_seen > 0 and is_full(
+                    partitions[partition_index], chunks[node]
+                )
 
             if is_head or is_complete:
                 partition_index += 1
@@ -460,13 +526,6 @@ def topological_partition(
         # increment after assignment so is_complete fires after the target is placed
         if is_target:
             targets_seen += 1
-
-        # recurse on last indegree only in order to guarantee that
-        # the node is assigned to maximal partition
-        for user in node.users:
-            remaining_indegrees[user] -= 1
-            if remaining_indegrees[user] == 0:
-                queue.append(user)
 
     # an ideal implementation would involve implicitly consolidating partition indices
     # so that each node is assigned to the maximum partition possible (in order to delay
@@ -485,6 +544,65 @@ def topological_partition(
             node_to_partition[node] = partition_index
 
     return partitions
+
+
+def get_topological_order(graph: GraphModule) -> list[Node]:
+    """
+    Order the graph's nodes so that every node comes after its inputs. A node is
+    visited once its last input has been visited, which places it in the latest
+    partition possible. `get_attr` nodes are left out: `topological_partition` places
+    them last, in the earliest partition that uses them
+
+    :param graph: graph being ordered
+    :return: nodes in the order `topological_partition` assigns them
+    """
+    remaining_indegrees = {
+        node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
+        for node in graph.graph.nodes
+    }
+
+    # start with graph input nodes,
+    # but delay the `get_attr` nodes as long as possible
+    queue = deque(
+        node
+        for node in graph.graph.nodes
+        if remaining_indegrees[node] == 0 and node.op != "get_attr"
+    )
+    order: list[Node] = []
+    while len(queue) > 0:
+        node = queue.popleft()
+        order.append(node)
+
+        # recurse on last indegree only in order to guarantee that
+        # the node is assigned to maximal partition
+        for user in node.users:
+            remaining_indegrees[user] -= 1
+            if remaining_indegrees[user] == 0:
+                queue.append(user)
+
+    return order
+
+
+def _get_target_chunks(
+    order: list[Node], target_nodes: set[Node]
+) -> dict[Node, list[Node]]:
+    """
+    Map each target node to the nodes from it up to the next target, which always land
+    in the same partition as it. The last target's chunk runs to the end of the graph
+
+    :param order: nodes in topological order
+    :param target_nodes: nodes which call sequential targets
+    :return: map of target node to the nodes of its chunk, in order
+    """
+    chunks: dict[Node, list[Node]] = {}
+    chunk: list[Node] | None = None
+    for node in order:
+        if node in target_nodes:
+            chunk = chunks[node] = []
+        if chunk is not None:
+            chunk.append(node)
+
+    return chunks
 
 
 def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgraph]:
@@ -643,7 +761,9 @@ def handle_sequential_oom(func):
                 "use the attention module and individual expert class instead, "
                 "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
                 "sequential_targets_per_subgraph set to batch multiple experts per "
-                "subgraph and reduce memory overhead. Choosing a smaller "
+                "subgraph and reduce memory overhead. "
+                "sequential_targets_per_subgraph='auto' chooses as many targets per "
+                "subgraph as fit in free memory. Choosing a smaller "
                 "calibration dataset can also help: reduce `max_seq_length` "
                 "(when unset, calibration samples are not truncated, so a few "
                 "long samples can dominate memory) or `num_calibration_samples` "

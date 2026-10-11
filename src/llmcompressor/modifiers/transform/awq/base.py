@@ -259,6 +259,52 @@ class AWQModifier(Modifier):
         # remove activation hooks
         self.remove_hooks()
 
+    def estimate_sequential_memory(self, module: Module) -> tuple[int, int] | None:
+        """
+        Estimate the memory AWQ needs for a mapping parent. The parent's inputs are
+        cached for every calibration token until its subgraph is smoothed, unless
+        `offload_device` is set. While smoothing, the parent's outputs before and
+        after quantization are kept for every token, along with a copy of the
+        balance layer weights. Keyword arguments cached with the inputs, such as
+        position embeddings, are not counted, and add a few percent for attention
+        parents
+
+        :param module: module belonging to the subgraph being calibrated
+        :return: tuple of (held, scratch) bytes, or None if the number of calibration
+            tokens is not in the session state
+        """
+        mappings = [m for m in self._resolved_mappings if m.parent is module]
+        if len(mappings) == 0:
+            return 0, 0
+
+        num_tokens = active_session().state.num_calibration_tokens
+        if num_tokens is None:
+            return None
+
+        # the parent's input is the input of its balance layers
+        balance_weight = mappings[0].balance_layers[0].weight
+        in_features = balance_weight.shape[-1]
+        out_features = (
+            module.weight.shape[0]
+            if isinstance(module, torch.nn.Linear)
+            else in_features
+        )
+        value_bytes = balance_weight.element_size()
+
+        held = (
+            num_tokens * in_features * value_bytes if self.offload_device is None else 0
+        )
+        weight_copies = max(
+            sum(
+                layer.weight.numel() * layer.weight.element_size()
+                for layer in m.balance_layers
+            )
+            for m in mappings
+        )
+        scratch = 2 * num_tokens * out_features * value_bytes + weight_copies
+
+        return held, scratch
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the activations and mapping data

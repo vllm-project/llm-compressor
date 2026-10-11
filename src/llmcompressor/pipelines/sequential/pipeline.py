@@ -24,9 +24,17 @@ from llmcompressor.pipelines.sequential.error_logging import (
     compute_subgraph_sqnr,
     process_batch_error,
 )
+from llmcompressor.pipelines.sequential.grouping import (
+    count_calibration_tokens,
+    log_subgraph_memory,
+    plan_subgraph_memory,
+)
 from llmcompressor.pipelines.sequential.helpers import (
+    find_modules_outside_graph,
     find_modules_outside_subgraphs,
     handle_sequential_oom,
+    partition_subgraphs,
+    trace_graph,
     trace_subgraphs,
 )
 from llmcompressor.utils.dev import get_main_device
@@ -137,15 +145,29 @@ class SequentialPipeline(CalibrationPipeline):
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(
-            model,
-            sample_input,
-            sequential_targets,
-            ignore,
-            dataset_args.sequential_targets_per_subgraph,
-        )
-        num_subgraphs = len(subgraphs)
-        persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
+        auto_group = targets_per_subgraph == "auto"
+        if isinstance(targets_per_subgraph, str) and not auto_group:
+            raise ValueError(
+                "sequential_targets_per_subgraph must be a positive integer or "
+                f'"auto", got "{targets_per_subgraph}"'
+            )
+
+        if auto_group:
+            # partitioned once memory can be measured, below
+            graph, targets = trace_graph(
+                model, sample_input, sequential_targets, ignore
+            )
+            persistent_modules = find_modules_outside_graph(model, graph)
+        else:
+            subgraphs = trace_subgraphs(
+                model,
+                sample_input,
+                sequential_targets,
+                ignore,
+                targets_per_subgraph,
+            )
+            persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
         if persistent_modules:
             subgraph_onload_modules(persistent_modules)
 
@@ -169,6 +191,10 @@ class SequentialPipeline(CalibrationPipeline):
             )
             stack.callback(setattr, session.state, "sequential_activations", None)
             stack.callback(setattr, session.state, "sequential_propagate_error", True)
+
+            # lets modifiers estimate memory which grows with the calibration data
+            session.state.num_calibration_tokens = count_calibration_tokens(activations)
+            stack.callback(setattr, session.state, "num_calibration_tokens", None)
 
             # prepare error-logging cache (separate from activations so that
             # log_sequential_error does not force propagate_error=True)
@@ -201,6 +227,22 @@ class SequentialPipeline(CalibrationPipeline):
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
+
+            # measured after persistent modules are onloaded and the cache is built,
+            # and before any subgraph is staged
+            if auto_group:
+                memory = plan_subgraph_memory(
+                    model,
+                    graph,
+                    activations,
+                    modifiers,
+                    onload_device,
+                    dataset_args.gpu_memory_utilization,
+                )
+                subgraphs = partition_subgraphs(model, graph, targets, is_full=memory)
+                if memory is not None:
+                    log_subgraph_memory(memory, subgraphs, model, targets)
+            num_subgraphs = len(subgraphs)
 
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))

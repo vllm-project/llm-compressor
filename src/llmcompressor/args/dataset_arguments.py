@@ -261,11 +261,22 @@ class DatasetArguments(CustomDatasetArguments):
             "than one gpu. Default is cpu."
         },
     )
-    sequential_targets_per_subgraph: int = field(
+    sequential_targets_per_subgraph: int | str = field(
         default=1,
         metadata={
             "help": "Number of sequential targets to include per subgraph. "
-            "Higher values use more VRAM but are faster to calibrate. Default is 1."
+            "Higher values use more VRAM but are faster to calibrate. Use 'auto' to "
+            "group as many consecutive targets as fit within "
+            "`gpu_memory_utilization`. Default is 1."
+        },
+    )
+    gpu_memory_utilization: float = field(
+        default=0.9,
+        metadata={
+            "help": "Only used when sequential_targets_per_subgraph='auto'. Fraction "
+            "of the GPU's total memory that sequential calibration may use. Memory "
+            "already in use, by other processes, persistent modules or cached "
+            "activations, counts against it. Default is 0.9."
         },
     )
     quantization_aware_calibration: bool = field(

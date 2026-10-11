@@ -26,10 +26,12 @@ from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import quantize_weight
 from llmcompressor.modifiers.gptq.helpers import (
+    GPTQ_PRECISION,
     accumulate_hessian,
     assign_batches,
     make_empty_hessian,
     prepare_batch,
+    quantization_peak_bytes,
     update_batch_qparams,
 )
 from llmcompressor.modifiers.quantization.calibration import (
@@ -214,13 +216,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         for _, module in match_named_modules(
             state.model, self.resolved_targets, self.ignore
         ):
-            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
-                # HACK: previously, embeddings were not quantized because they were not
-                # accessible by the layer compressor. For now, we manually ignore it,
-                # but in the FUTURE this should be ignored by the user
-                if not isinstance(module, torch.nn.Embedding):
-                    self.register_hook(module, self.calibrate_module, "forward")
-                    added_hook = True
+            if self._is_calibrated(module):
+                self.register_hook(module, self.calibrate_module, "forward")
+                added_hook = True
 
         if not added_hook:
             raise ValueError(
@@ -243,6 +241,42 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         QuantizationMixin.end_calibration(self, state.model)
         self.remove_hooks()  # remove gptq hooks
+
+    def estimate_sequential_memory(self, module: torch.nn.Module) -> tuple[int, int]:
+        """
+        Estimate the Hessian held for a module until its subgraph is compressed, and
+        the temporary memory needed to compress it
+
+        :param module: module belonging to the subgraph being calibrated
+        :return: tuple of (held, scratch) bytes
+        """
+        if not self._is_calibrated(module):
+            return 0, 0
+
+        num_columns = module.weight.shape[1]
+        held = num_columns * num_columns * GPTQ_PRECISION.itemsize
+
+        # batched_quantization="auto" sizes batches to the memory left over at
+        # compression time, so only a batch of one module has to fit
+        batch_size = (
+            self.batched_quantization
+            if isinstance(self.batched_quantization, int)
+            else 1
+        )
+        scratch = batch_size * quantization_peak_bytes(module, self.block_size)
+
+        return held, scratch
+
+    def _is_calibrated(self, module: torch.nn.Module) -> bool:
+        """Whether this modifier accumulates a Hessian for the module"""
+        # HACK: previously, embeddings were not quantized because they were not
+        # accessible by the layer compressor. For now, we manually ignore it,
+        # but in the FUTURE this should be ignored by the user
+        return (
+            module in self._module_names
+            and getattr_chain(module, "quantization_scheme.weights", None) is not None
+            and not isinstance(module, torch.nn.Embedding)
+        )
 
     def calibrate_module(
         self,
