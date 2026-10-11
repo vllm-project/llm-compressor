@@ -1,5 +1,6 @@
 import math
 import sys
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -18,8 +19,10 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_sequential_ancestors,
     handle_sequential_oom,
     partition_graph,
+    partition_subgraphs,
     topological_partition,
     trace_consumed_names,
+    trace_graph,
     trace_subgraphs,
 )
 from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
@@ -101,6 +104,22 @@ class DummyModelWithBranch(torch.nn.Module):
         merged = torch.cat([left, right], dim=-1)
         merged = self.merge(merged)
         return self.layer3(merged)
+
+
+class DummyModelWithParameters(torch.nn.Module):
+    """Reads parameters directly in forward, which produces `get_attr` nodes"""
+
+    def __init__(self):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(torch.nn.Linear(10, 10) for _ in range(6))
+        self.scales = torch.nn.ParameterList(
+            torch.nn.Parameter(torch.ones(10)) for _ in range(6)
+        )
+
+    def forward(self, x):
+        for layer, scale in zip(self.layers, self.scales):
+            x = layer(x * scale)
+        return x
 
 
 def _multiple_layer_targets(model: DummyModelMultipleSequentialLayers):
@@ -281,6 +300,104 @@ def test_topological_partition_invalid():
 
     with pytest.raises(ValueError):
         topological_partition(gm, targets, 0)
+
+
+@pytest.mark.parametrize("targets_per_subgraph", [1, 2, 3, 4, 6])
+def test_topological_partition_is_full_matches_targets_per_subgraph(
+    targets_per_subgraph,
+):
+    with skip_weights_initialize():
+        model = DummyModelWithParameters()
+
+    targets = set(model.layers)
+    graph_module = torch.fx.symbolic_trace(model)
+    assert len(graph_module.graph.find_nodes(op="get_attr")) > 0
+    target_nodes = find_target_nodes(graph_module, targets)
+
+    def is_full(partition, chunk):
+        return len(target_nodes.intersection(partition)) >= targets_per_subgraph
+
+    # a memory check which counts targets partitions exactly like the integer setting
+    assert topological_partition(
+        graph_module, targets, is_full=is_full
+    ) == topological_partition(graph_module, targets, targets_per_subgraph)
+
+
+def test_topological_partition_is_full_sees_next_chunk():
+    with skip_weights_initialize():
+        model = DummyModelMultipleSequentialLayers()
+
+    targets = _multiple_layer_targets(model)
+    graph_module = torch.fx.symbolic_trace(model)
+
+    chunks = []
+
+    def is_full(partition, chunk):
+        chunks.append([node.name for node in chunk])
+        return False
+
+    partitions = topological_partition(graph_module, targets, is_full=is_full)
+
+    # asked at every target after the first, never full: preamble + one partition
+    assert len(partitions) == 2
+    assert chunks[0] == ["layer2"]
+    assert chunks[-1] == ["layer6", "output"]  # nodes after the last target too
+    _assert_partition_coverage(graph_module, partitions, targets)
+
+
+def test_partition_subgraphs_memory_check_groups_whole_targets(monkeypatch):
+    warning = MagicMock()
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.logger.warning", warning
+    )
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B")
+
+    graph, targets = trace_graph(
+        model,
+        model.dummy_inputs,
+        sequential_targets=["Qwen3DecoderLayer"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+    num_layers = len(model.model.layers)
+    target_nodes = find_target_nodes(graph, targets)
+
+    def is_full(partition, chunk):
+        return len(target_nodes.intersection(partition)) >= 7
+
+    single = partition_subgraphs(model, graph, targets, 1)
+    grouped = partition_subgraphs(model, graph, targets, is_full=is_full)
+
+    # a group's modules are the union of its targets' modules, so per-target costs
+    # add up to the cost of a group
+    assert len(single) == num_layers + 1
+    assert len(grouped) == num_layers // 7 + 1
+    for index, subgraph in enumerate(grouped[1:]):
+        expected = set().union(
+            *(s.submodule_dict(model) for s in single[1 + 7 * index : 8 + 7 * index])
+        )
+        assert set(subgraph.submodule_dict(model)) == expected
+
+    # grouping more than one target per subgraph is not a target mismatch
+    warning.assert_not_called()
+
+
+def test_partition_subgraphs_warns_on_target_mismatch(monkeypatch):
+    warning = MagicMock()
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.logger.warning", warning
+    )
+    with skip_weights_initialize():
+        model = DummyModelMultipleSequentialLayers()
+
+    graph_module = torch.fx.symbolic_trace(model)
+    targets = _multiple_layer_targets(model)
+    partition_subgraphs(model, graph_module, targets, 4)
+    warning.assert_not_called()
+
+    uncalled = torch.nn.Linear(10, 10)
+    partition_subgraphs(model, graph_module, targets | {uncalled}, 4)
+    warning.assert_called_once()
 
 
 @pytest.mark.parametrize("targets_per_subgraph", [1, 2, 3, 4, 5])

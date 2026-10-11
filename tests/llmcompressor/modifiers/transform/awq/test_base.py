@@ -16,6 +16,7 @@ from torch.testing import assert_close
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
+from llmcompressor.core import active_session
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
@@ -871,3 +872,72 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
 
     # Verify QKV and gate/up are NOT fused together
     assert abs(q_gs - gate_gs) > 1e-6, f"QKV and gate/up incorrectly fused: {q_gs}"
+
+
+@pytest.fixture()
+def num_calibration_tokens():
+    state = active_session().state
+    state.num_calibration_tokens = 10
+    yield 10
+    state.num_calibration_tokens = None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("offload_device", [None, torch.device("cpu")])
+def test_estimate_sequential_memory(num_calibration_tokens, offload_device):
+    awq = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+            ),
+            AWQMapping("re:.*up_proj", ["re:.*down_proj"]),
+        ],
+        offload_device=offload_device,
+    )
+    self_attn = torch.nn.ModuleDict(
+        {name: Linear(8, 8) for name in ("q_proj", "k_proj", "v_proj", "o_proj")}
+    )
+    mlp = torch.nn.ModuleDict({"up_proj": Linear(8, 16), "down_proj": Linear(16, 8)})
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "input_layernorm": torch.nn.LayerNorm(8),
+                    "self_attn": self_attn,
+                    "mlp": mlp,
+                }
+            )
+        }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+
+    tokens, value_bytes = num_calibration_tokens, 4  # float32
+    held_per_feature = tokens * value_bytes if offload_device is None else 0
+
+    # parent module: input and output widths are those of the balance layers
+    qkv_weights = 3 * 8 * 8 * value_bytes
+    assert awq.estimate_sequential_memory(self_attn) == (
+        held_per_feature * 8,
+        2 * tokens * 8 * value_bytes + qkv_weights,
+    )
+
+    # parent Linear: its own output width
+    down_weight = 16 * 8 * value_bytes
+    assert awq.estimate_sequential_memory(mlp.down_proj) == (
+        held_per_feature * 16,
+        2 * tokens * 8 * value_bytes + down_weight,
+    )
+
+    # modules which are not mapping parents cache nothing
+    assert awq.estimate_sequential_memory(self_attn.q_proj) == (0, 0)
+    assert awq.estimate_sequential_memory(model) == (0, 0)
+
+    # without the number of calibration tokens, the cache size is unknown
+    active_session().state.num_calibration_tokens = None
+    assert awq.estimate_sequential_memory(self_attn) is None
+    assert awq.estimate_sequential_memory(self_attn.q_proj) == (0, 0)
