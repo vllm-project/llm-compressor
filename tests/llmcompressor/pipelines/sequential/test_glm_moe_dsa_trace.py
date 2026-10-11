@@ -7,6 +7,7 @@ from transformers.models.glm_moe_dsa.configuration_glm_moe_dsa import (  # noqa:
     GlmMoeDsaConfig,
 )
 from transformers.models.glm_moe_dsa.modeling_glm_moe_dsa import (  # noqa: E402
+    GlmMoeDsaAttention,
     GlmMoeDsaForCausalLM,
 )
 
@@ -41,17 +42,22 @@ def tiny_glm_moe_dsa():
     return model
 
 
-def test_linear_target_fails_trace(tiny_glm_moe_dsa):
-    """sequential_targets=['Linear'] must fail: GlmMoeDsaIndexer is untraceable."""
+def test_linear_targets_trace_with_attention_boundaries(tiny_glm_moe_dsa):
+    """Attention boundaries keep the untraceable indexer out of the FX trace."""
     model = tiny_glm_moe_dsa
     sample_input = {"input_ids": torch.zeros(1, 8, dtype=torch.long)}
-    with pytest.raises(Exception):
-        trace_subgraphs(
-            model,
-            sample_input,
-            sequential_targets=["Linear"],
-            ignore=DatasetArguments().tracing_ignore,
-        )
+    subgraphs = trace_subgraphs(
+        model,
+        sample_input,
+        sequential_targets=["Linear"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+    assert len(subgraphs) > 1
+    assert any(
+        isinstance(module, GlmMoeDsaAttention)
+        for subgraph in subgraphs
+        for module in subgraph.submodules(model, recurse=False)
+    )
 
 
 def test_attention_expert_targets_trace(tiny_glm_moe_dsa):
