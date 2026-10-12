@@ -1,7 +1,8 @@
 """IterSmooth + dynamic W8A8 for dense Qwen3.6-27B on CUDA or Ascend.
 
-Set the model, dataset and output paths below before running this example.
-The calibration JSON/JSONL must contain raw user prompts in a ``text`` column.
+By default, calibration uses a public dataset of instruction prompts.
+To use local JSON/JSONL, set CALIBRATION_DATA to a file with raw user prompts
+in a ``text`` column. Adjust the model and output paths below as needed.
 On Ascend, expose one NPU with ASCEND_RT_VISIBLE_DEVICES=0.
 """
 
@@ -19,7 +20,8 @@ from llmcompressor.utils import load_context
 from llmcompressor.utils.dev import get_main_device
 
 MODEL_ID = "Qwen/Qwen3.6-27B"
-CALIBRATION_DATA = "calib.jsonl"
+DATASET_ID = "neuralmagic/LLM_compression_calibration"
+CALIBRATION_DATA = None  # Set to "calib.jsonl" to use local calibration prompts.
 SAVE_DIR = "Qwen3.6-27B-IterSmooth-W8A8"
 NUM_CALIBRATION_SAMPLES = 128
 MAX_SEQUENCE_LENGTH = 2048
@@ -48,7 +50,12 @@ print(f"Calibration device: {device}")
 # Prepare calibration data using the model's chat template.
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 tokenizer = processor.tokenizer
-dataset = load_dataset("json", data_files=CALIBRATION_DATA, split="train")
+if CALIBRATION_DATA is None:
+    dataset = load_dataset(DATASET_ID, split="train")
+    # Use the raw user prompt, rather than the dataset's preformatted text.
+    dataset = dataset.map(lambda sample: {"text": sample["messages"][0]["content"]})
+else:
+    dataset = load_dataset("json", data_files=CALIBRATION_DATA, split="train")
 if "text" not in dataset.column_names or len(dataset) == 0:
     raise ValueError("Calibration data must be nonempty and contain a text column")
 dataset = dataset.shuffle(seed=42).select(
@@ -76,6 +83,8 @@ def tokenize(sample):
 dataset = dataset.map(tokenize, remove_columns=dataset.column_names)
 
 # Keep weights on CPU; the native offload lifecycle loads them as needed.
+# Qwen3.6-27B uses the Qwen3.5 architecture and its standard Transformers class.
+# See https://huggingface.co/Qwen/Qwen3.6-27B/blob/main/config.json.
 with load_context(Qwen3_5ForConditionalGeneration):
     model = Qwen3_5ForConditionalGeneration.from_pretrained(
         MODEL_ID,
@@ -100,6 +109,8 @@ recipe = [
 
 # Run smoothing first, then derive weight scales from the smoothed weights.
 # Dynamic W8A8 uses a data-free second stage, without another forward pass.
+# Qwen3.6-27B's text decoder layers are Qwen3_5DecoderLayer; target them explicitly
+# to keep the vision tower out of the calibration subgraphs.
 oneshot(
     model=model,
     processor=processor,
