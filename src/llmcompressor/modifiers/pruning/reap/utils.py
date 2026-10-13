@@ -222,8 +222,9 @@ class REAPSaliencyTracker:
 
     def __init__(self, num_experts: int):
         self.num_experts = num_experts
-        self.sum_saliency: torch.Tensor | None = None
         self.count: torch.Tensor | None = None
+        self.topk_weights: torch.Tensor | None = None
+        self.sum_saliency: torch.Tensor | None = None
 
     def _ensure(self, device: torch.device):
         if self.sum_saliency is None:
@@ -295,10 +296,11 @@ class REAPSaliencyTracker:
             flat_idx = topk_indices.reshape(-1).to(torch.long)
             gathered_norms = stacked_norms.gather(1, topk_indices.to(torch.long))
             contrib = topk_weights.to(torch.float64) * gathered_norms.to(torch.float64)
-            self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
+            self.topk_weights = topk_weights.clone()
             self.count.index_add_(
                 0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
             )
+            self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
         else:
             # Flatten in (slot, token) order to match torch.where order
             # in LinearExperts2D torch.where scans row-by-row (slot 0 all
@@ -323,6 +325,7 @@ class REAPSaliencyTracker:
 
             # Vectorized computation using index_add_
             contrib = flat_weights * flat_norms
+            self.topk_weights = topk_weights.clone()
             self.sum_saliency.index_add_(0, flat_idx, contrib)
             self.count.index_add_(
                 0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
