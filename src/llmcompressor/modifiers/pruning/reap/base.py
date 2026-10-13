@@ -260,7 +260,7 @@ class REAPPruningModifier(Modifier):
         if self.report_path is not None and is_source_process():
             report = {
                 key: [
-                    self._report[layer_name][key]
+                    self._report[layer_name].get(key, [])
                     for layer_name in self._moe_attrs.moe_layer_names
                 ]
                 for key in ("topk_weights", "count", "saliency")
