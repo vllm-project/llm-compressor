@@ -1,10 +1,10 @@
 # Norm distillation of compressed checkpoints
 
-`NormDistillationModifier` improves a quantized model by training only the gains
-of its normalization layers (RMSNorm/LayerNorm `weight`) so that its next-token
-distribution matches the unquantized teacher's. Every packed weight, scale and
-zero point is saved unchanged, so the result runs anywhere the original
-checkpoint runs, with the same size and kernels.
+`NormDistillationModifier` improves a quantized model by training the gains of
+its normalization layers (RMSNorm/LayerNorm `weight`), its weight quantization
+scales, or both, so that its next-token distribution matches the unquantized
+teacher's. Packed weights stay unchanged, so the result runs anywhere the
+original checkpoint runs, with the same size and kernels.
 
 The main use is a checkpoint that is already compressed, such as a published
 W4A16 model. Load it with `from_pretrained` and pass the model object to
@@ -40,11 +40,17 @@ python qwen3_example.py --output ./qwen3-0.6b-w4a16-norm-distilled
 The modifier can also follow a weight quantization modifier in the same recipe;
 it trains after every other modifier has finalized.
 
+Norm tuning is enabled by default. To tune only scales, use
+`NormDistillationModifier(teacher=..., tune_norms=False, tune_scales=True)`.
+Set both switches to `True` to tune norms and scales together. Scale tuning
+updates `weight_scale` and, when present, `weight_global_scale` while retaining
+the packed quantized values.
+
 ## How it works
 
 - Targets: every module whose name ends in `norm` (`targets=["re:.*norm$"]`),
   for Qwen3 the input, post-attention, q/k and final norms. Only their 1-D
-  `weight` is trained.
+  `weight` is trained when `tune_norms=True`.
 - Loss: token-averaged KL divergence from the teacher's next-token distribution
   to the student's, over the calibration batches, with Adam on FP32 master
   copies of the gains (`lr=1e-3`) and dynamic loss scaling for FP16 models.
