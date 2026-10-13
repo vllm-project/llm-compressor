@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
-from compressed_tensors.offload import OffloadCache
+from compressed_tensors.offload import OffloadCache, get_device_map
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from loguru import logger
 from safetensors.torch import load_file, save_file
@@ -19,7 +19,7 @@ from transformers import (
     PretrainedConfig,
 )
 
-from llmcompressor import oneshot
+from llmcompressor import oneshot, reset_session
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers.compression.mtp import (
@@ -481,6 +481,56 @@ def test_load_context_supports_normal_save_before_oneshot(tmp_path, model_cls):
     assert saved.keys() == expected.keys()
     for name, value in expected.items():
         torch.testing.assert_close(load_file(saved[name])[name], value, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("load_mtp", [False, True])
+def test_mtp_disk_offload_matches_cpu_save(tmp_path, load_mtp):
+    source = _source_glm_model(tmp_path)
+    saved = []
+    for device_map in ("cpu", "auto_offload"):
+        reset_session()
+        kwargs = (
+            {"max_memory": {"cpu": "2MB"}, "offload_folder": str(tmp_path / "offload")}
+            if device_map == "auto_offload"
+            else {}
+        )
+        with load_context(Glm4MoeForCausalLM, load_mtp=load_mtp):
+            model = Glm4MoeForCausalLM.from_pretrained(
+                source.name_or_path,
+                device_map=device_map,
+                local_files_only=True,
+                **kwargs,
+            )
+        if device_map == "auto_offload":
+            assert any(
+                name.startswith("model.layers.") and offload == "disk"
+                for name, (_, offload) in get_device_map(model).items()
+            )
+        oneshot(
+            model=model,
+            recipe=QuantizationModifier(
+                scheme="FP8_DYNAMIC", ignore=["lm_head", r"re:.*\.eh_proj$"]
+            ),
+        )
+        destination = tmp_path / device_map
+        model.save_pretrained(destination, max_shard_size="1MB")
+        mapping = get_weight_mappings(destination)
+        saved.append(
+            {
+                name: tensor
+                for shard in set(mapping.values())
+                for name, tensor in load_file(shard).items()
+            }
+        )
+
+    cpu, disk = saved
+    assert cpu.keys() == disk.keys()
+    mtp_prefix = f"model.layers.{source.config.num_hidden_layers}."
+    assert any(name.startswith(mtp_prefix) for name in disk)
+    for name in cpu:
+        torch.testing.assert_close(
+            cpu[name].float(), disk[name].float(), rtol=0, atol=0
+        )
 
 
 def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
