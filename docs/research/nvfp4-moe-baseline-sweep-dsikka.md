@@ -71,7 +71,6 @@ Caveats: 1 and 2 swap places depending on whether gsm8k is counted — `GPTQ-IMA
 
 ## Takeaways
 
-
 - **Nothing recovers BF16.** Best 0.9885, mean over 20 is 0.9746. The gap is almost entirely gpqa_diamond (0.9485) and aime25 (0.9503) — the worst task for **19 of 20** variants. ifeval (0.9923) and math_500 (0.9993) are untouched.
 - **Take GPTQ.** The only axis with a consistent, resolvable effect: gsm8k +0.0204 over 10 matched pairs, 9 of 10 positive. Costs a small but well-measured −0.0062 on mmlu_pro.
 - **UltraChat buys mmlu_pro (+0.0231, 6 of 6 pairs) and costs math_500 (−0.0148).** The single most reliable effect in the sweep. Use it unless math is the target.
