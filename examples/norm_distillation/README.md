@@ -53,10 +53,12 @@ the packed quantized values.
   `weight` is trained when `tune_norms=True`.
 - Loss: token-averaged KL divergence from the teacher's next-token distribution
   to the student's, over the calibration batches, with Adam on FP32 master
-  copies of the gains (`lr=1e-3`) and dynamic loss scaling for FP16 models.
+  copies of the selected gains and scales (`lr=1e-3`) and dynamic loss scaling
+  for FP16 models.
 - Selection: `validation_fraction=0.1` of the batches are held out, and the
-  gains with the lowest validation KL after each epoch are kept. The original
-  gains are a candidate, so a run that does not help leaves the model unchanged.
+  gains and scales with the lowest validation KL after each epoch are kept. The
+  original parameters are a candidate, so a run that does not help leaves the
+  model unchanged.
 - Memory: the student and teacher run full forward and backward passes and must
   both fit on the execution device. The calibration batches are read from the
   dataloader; no calibration forward passes are needed.
