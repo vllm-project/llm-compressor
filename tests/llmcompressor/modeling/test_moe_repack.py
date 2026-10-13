@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from compressed_tensors.offload import disable_onloading, offload_module
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
@@ -72,6 +73,31 @@ def test_repack_restores_fused_experts_and_weights():
     assert not isinstance(experts, LinearExperts2D)
     assert torch.allclose(experts.gate_up_proj, ref_gate_up)
     assert torch.allclose(experts.down_proj, ref_down)
+
+
+@torch.no_grad()
+def test_repack_disk_offloaded_experts_does_not_construct_on_meta(tmp_path: Path):
+    model = _tiny_qwen3_vl_moe()
+    experts = model.model.language_model.layers[0].mlp.experts
+    offload_module(
+        experts,
+        onload_device="cpu",
+        offload_device="disk",
+        offload_dir=tmp_path,
+    )
+
+    linearize_moe(model)
+    linearized = model.model.language_model.layers[0].mlp.experts
+
+    # Disk-offloaded parameters are meta tensors when onloading is disabled. Repack
+    # must construct and populate the replacement on the execution device.
+    with disable_onloading():
+        assert next(linearized.parameters()).is_meta
+    repack_moe(model)
+
+    repacked = model.model.language_model.layers[0].mlp.experts
+    assert repacked.gate_up_proj.device.type == "cpu"
+    assert repacked.down_proj.device.type == "cpu"
 
 
 def test_repack_packs_weight_qparams():

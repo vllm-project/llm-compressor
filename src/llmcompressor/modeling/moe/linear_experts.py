@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    get_execution_device,
+    offload_module,
+)
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -261,7 +265,11 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
-        with skip_weights_initialize():
+        # Offloaded parameters are represented by meta tensors while onloading is
+        # disabled. Construct on the module's execution device instead of using a
+        # parameter's storage device so copying from the source works reliably.
+        construction_device = get_execution_device(experts)
+        with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
         for index in range(self.num_experts):
@@ -299,12 +307,12 @@ class LinearExperts2D(torch.nn.ModuleList):
         experts_cls, config = self._require_source_metadata()
         pack_mode = self._expert_pack_mode()
 
-        with skip_weights_initialize():
+        # ``self.parameters()`` may yield meta tensors for a disk-offloaded module.
+        # Use the configured onload device when constructing the replacement.
+        construction_device = get_execution_device(self)
+        with torch.device(construction_device), skip_weights_initialize():
             fused: FusedExpertsProtocol = experts_cls(config)
 
-        first_param = next(self.parameters(), None)
-        if first_param is not None:
-            fused.to(device=first_param.device)
         float_param = next(
             (
                 param
