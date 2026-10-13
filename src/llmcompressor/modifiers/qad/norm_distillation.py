@@ -410,7 +410,10 @@ class NormDistillationModifier(Modifier):
 
 def _log_probs(model, batch):
     device = get_execution_device(model)
-    inputs = {key: value.to(device) for key, value in batch.items()}
+    inputs = {
+        key: value.to(device) if isinstance(value, torch.Tensor) else value
+        for key, value in batch.items()
+    }
     logits = model(**inputs, use_cache=False).logits
     # FP32 keeps the softmax and KL reductions accurate for FP16/BF16 logits
     return logits.float().log_softmax(-1)
