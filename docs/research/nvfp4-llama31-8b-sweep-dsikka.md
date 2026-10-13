@@ -24,6 +24,7 @@ Generation params: temperature=0.6, top_p=0.9
 Serving: vLLM v0.25.1, TP=1, max-model-len=20480  
 
 ## Summary
+
 - GTPQ models were calibrated with Ultrachat and Perfect Blend
 - Autoround models were calibrated using the autoround default dataset NeelNanda/pile-10k and a second set of models were calibrated using Ultrachat for an easier comparison
 - An attempt at MRCR results are below; note: the task was missing from MLR's fork so claude added it based on other longcontext evals available 
@@ -60,6 +61,7 @@ Scripts: https://github.com/vllm-project/llm-compressor/compare/nvfp4_scripts?ex
 | NVFP4-GPTQ-AWQ-imatrix-perf-blend | 0.9647 | 0.9497 | 0.9118 | 0.9859 | 0.9139 | 0.9452 |
 
 ## gsm8k_platinum_cot_llama
+
 Metric: `exact_match,strict-match`
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -95,6 +97,7 @@ Metric: `exact_match,strict-match`
 | NVFP4-AutoRound-SmoothQuant-Ultrachat-More-Iter | 0.8169 | 0.8147 | 0.8255 | 0.8106 | 0.9421 |
 
 ## mmlu_cot_llama
+
 Metric: `exact_match,strict_match`
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -130,6 +133,7 @@ Metric: `exact_match,strict_match`
 | NVFP4-AutoRound-SmoothQuant-Ultrachat-More-Iter | 0.6943 | 0.6952 | 0.6913 | 0.6963 | 0.9544 |
 
 ## mmlu_pro_chat
+
 Metric: `exact_match,custom-extract`
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -165,6 +169,7 @@ Metric: `exact_match,custom-extract`
 | NVFP4-AutoRound-SmoothQuant-Ultrachat-More-Iter | 0.4224 | 0.4205 | 0.4234 | 0.4234 | 0.8975 |
 
 ## ifeval
+
 Metric: `inst_level_strict_acc,none`
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -200,6 +205,7 @@ Metric: `inst_level_strict_acc,none`
 | NVFP4-AutoRound-SmoothQuant-Ultrachat-More-Iter | 0.7990 | 0.7974 | 0.7890 | 0.8106 | 0.9790 |
 
 ## math_500
+
 Metric: `pass@k:k=1&n=1`
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |

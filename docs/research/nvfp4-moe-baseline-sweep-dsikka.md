@@ -153,6 +153,7 @@ Bold = top two quantized variants on that task. Observer-sweep variants (`-IMATR
 ## Per-task detail
 
 ### gsm8k_platinum_cot_llama
+
 `exact_match,strict-match` · noise floor ±0.0111
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -180,6 +181,7 @@ Bold = top two quantized variants on that task. Observer-sweep variants (`-IMATR
 | NVFP4-SmoothQuant | 0.8781 | 0.8668 | 0.8801 | 0.8875 | 0.9226 |
 
 ### mmlu_pro_chat
+
 `exact_match,custom-extract` · noise floor ±0.0036
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -207,6 +209,7 @@ Bold = top two quantized variants on that task. Observer-sweep variants (`-IMATR
 | NVFP4-GPTQ-AWQ | 0.7116 | 0.7118 | 0.7117 | 0.7114 | 0.9437 |
 
 ### ifeval
+
 `inst_level_strict_acc,none` · noise floor ±0.0125
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -234,6 +237,7 @@ Bold = top two quantized variants on that task. Observer-sweep variants (`-IMATR
 | NVFP4-MSE &dagger; | 0.8785 | 0.8885 | 0.8741 | 0.8729 | 0.9834 |
 
 ### math_500
+
 `pass@k:k=1&n=1` · noise floor ±0.0177
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -261,6 +265,7 @@ Bold = top two quantized variants on that task. Observer-sweep variants (`-IMATR
 | NVFP4-IMATRIX &dagger; | 0.8840 | 0.9000 | 0.8680 | 0.8840 | 0.9664 |
 
 ### gpqa_diamond
+
 `gpqa_pass@k:k=1` · noise floor ±0.0490
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Recovery |
@@ -288,6 +293,7 @@ Bold = top two quantized variants on that task. Observer-sweep variants (`-IMATR
 | NVFP4-GPTQ-SmoothQuant | 0.5909 | 0.5909 | 0.5657 | 0.6162 | 0.9047 |
 
 ### aime25
+
 `pass@k:k=1&n=1` · noise floor ±0.0807
 
 | Model | Mean | Seed 1234 | Seed 2345 | Seed 3456 | Seed 4567 | Seed 5678 | Seed 6789 | Seed 7890 | Seed 8901 | Recovery |
