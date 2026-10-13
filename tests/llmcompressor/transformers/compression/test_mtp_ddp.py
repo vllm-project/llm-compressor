@@ -1,6 +1,5 @@
 """Exercise MTP loading, quantization and ordinary sharded saving on two ranks."""
 
-import gc
 import shutil
 import tempfile
 from pathlib import Path
@@ -8,7 +7,7 @@ from pathlib import Path
 import pytest
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import OffloadCache, init_dist, set_onload_device
+from compressed_tensors.offload import OffloadCache, set_onload_device
 from compressed_tensors.offload.utils import as_single_threaded
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from safetensors.torch import load_file
@@ -32,9 +31,8 @@ from tests.testing_utils import requires_gpu, torchrun
 
 @pytest.mark.multi_gpu
 @requires_gpu(2)
-@torchrun(world_size=2)
+@torchrun(world_size=2, init_dist=True)
 def test_mtp_two_rank_quantization():
-    init_dist()
     models = (
         InklingForCausalLM,
         Glm4MoeForCausalLM,
@@ -43,7 +41,6 @@ def test_mtp_two_rank_quantization():
         DeepseekV3ForCausalLM,
     )
     for model_cls in models:
-        print(f"Checking {model_cls.__name__} on rank {dist.get_rank()}", flush=True)
         root = [tempfile.mkdtemp(prefix="mtp-ddp-") if dist.get_rank() == 0 else None]
         dist.broadcast_object_list(root, src=0)
         root = Path(root[0])
@@ -106,9 +103,6 @@ def test_mtp_two_rank_quantization():
             scale = load_file(mapping[name])[name]
             assert torch.isfinite(scale).all() and (scale > 0).all()
 
-        del model, reference
-        gc.collect()
-        torch.accelerator.empty_cache()
         dist.barrier()
         if dist.get_rank() == 0:
             shutil.rmtree(root)
