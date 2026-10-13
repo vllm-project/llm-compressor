@@ -56,17 +56,18 @@ class REAPPruningModifier(Modifier):
     completes (``SEQUENTIAL_EPOCH_END``). The config is updated to reflect the new
     number of experts in ``on_finalize``.
 
-    :param sparsity: fraction of experts to remove per layer (0, 1).
+    :param sparsity: fraction of experts to remove per layer, in ``[0, 1)``.
+        When ``0.0``, no experts are pruned; saliency is still computed so
+        that a ``report_path`` can be written, but the model weights and
+        config are never modified.
     :param ignore: module name patterns to skip during MoE layer detection.
     :param report_path: optional path to a ``.json`` file where the per-expert
         statistics are written after calibration completes. The report is a JSON
         object mapping ``topk_weights``, ``count``, and ``saliency`` to one inner
         list per MoE layer (ordered by layer). Use
         ``tools/plot_reap_report.py`` to generate a saliency visualization.
-    :param prune: whether to structurally prune the model. When ``False`` the
-        model weights and config are never modified; saliency is still computed
-        so that a ``report_path`` can be written. At least one of ``report_path``
-        or ``prune`` must be set.
+        Required when ``sparsity`` is ``0.0``, since the report is then the
+        modifier's only output.
 
     Example recipe::
 
@@ -79,7 +80,6 @@ class REAPPruningModifier(Modifier):
     sparsity: float = 0.0
     ignore: list[str] = Field(default_factory=list)
     report_path: Optional[str] = Field(default=None)
-    prune: bool = Field(default=True)
 
     _moe_attrs: MoeModelAttrs | None = PrivateAttr(default=None)
     _saliency_trackers: dict[str, REAPSaliencyTracker] = PrivateAttr(
@@ -95,8 +95,8 @@ class REAPPruningModifier(Modifier):
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
-        if self.prune and not 0.0 < self.sparsity < 1.0:
-            raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
+        if not 0.0 <= self.sparsity < 1.0:
+            raise ValueError(f"sparsity must be in [0, 1), got {self.sparsity}")
         return self
 
     @model_validator(mode="after")
@@ -110,11 +110,12 @@ class REAPPruningModifier(Modifier):
         return self
 
     @model_validator(mode="after")
-    def _validate_prune_or_report(self) -> "REAPPruningModifier":
-        if not self.prune and self.report_path is None:
+    def _validate_noop(self) -> "REAPPruningModifier":
+        if self.sparsity == 0.0 and self.report_path is None:
             raise ValueError(
-                "At least one of report_path or prune must be set; with "
-                "prune=False and no report_path, REAP would do nothing"
+                "sparsity is 0.0 (no pruning) and no report_path is set; REAP "
+                "would do nothing. Set sparsity > 0 to prune experts, or set "
+                "report_path to write a saliency report"
             )
         return self
 
@@ -124,12 +125,22 @@ class REAPPruningModifier(Modifier):
         self._moe_attrs = get_moe_attrs(model, self.ignore)
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
-        if self.prune and self._n_experts_to_drop == 0:
-            raise ValueError(
-                f"sparsity={self.sparsity} results in 0 "
-                f"experts to drop (out of {self._moe_attrs.num_experts}). "
-                "No pruning will be performed."
+        if self._n_experts_to_drop == 0:
+            if self.sparsity > 0.0:
+                raise ValueError(
+                    f"sparsity={self.sparsity} results in 0 "
+                    f"experts to drop (out of {self._moe_attrs.num_experts}). "
+                    "No pruning will be performed."
+                )
+            # sparsity == 0.0: report-only mode (report_path is guaranteed to be
+            # set by validation); saliency is still collected, but there is no
+            # pruning to set up
+            logger.info(
+                f"REAP initialized: {len(self._moe_attrs.moe_layer_names)} MoE "
+                f"layers, {self._moe_attrs.num_experts} experts/layer, no "
+                "experts will be dropped (sparsity=0.0)"
             )
+            return True
 
         if self._moe_attrs.n_group is not None:
             self._n_experts_to_drop_per_group = round(
@@ -154,7 +165,7 @@ class REAPPruningModifier(Modifier):
         else:
             available = self._moe_attrs.num_experts - self._n_experts_to_drop
 
-        if self.prune and self._moe_attrs.top_k > available:
+        if self._moe_attrs.top_k > available:
             raise ValueError(
                 f"REAP sparsity is too aggressive: the router selects "
                 f"top_k={self._moe_attrs.top_k} experts per token, "
@@ -168,7 +179,7 @@ class REAPPruningModifier(Modifier):
             f"{self._moe_attrs.num_experts} experts/layer, will drop "
             f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
         )
-        if self.prune and self._n_experts_to_drop_per_group is not None:
+        if self._n_experts_to_drop_per_group is not None:
             logger.info(
                 f"Group-limited router detected: will drop "
                 f"{self._n_experts_to_drop_per_group} experts/group "
@@ -242,7 +253,7 @@ class REAPPruningModifier(Modifier):
 
         model = state.model
 
-        if self.prune:
+        if self._n_experts_to_drop > 0:
             new_num_experts = self._moe_attrs.num_experts - self._n_experts_to_drop
             update_model_config(model, self._moe_attrs, new_num_experts)
 
@@ -268,8 +279,8 @@ class REAPPruningModifier(Modifier):
     # -- decision finalization ----------------------------------------------
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """Record saliency for (and, when ``prune`` is set, prune) any tracked
-        layer whose saliency is complete, then release its activation norm
+        """Record saliency for any tracked layer whose saliency is complete,
+        prune it when ``sparsity > 0``, then release its activation norm
         buffers."""
 
         model = state.model
@@ -294,7 +305,7 @@ class REAPPruningModifier(Modifier):
                 self._report[layer_name]["topk_weights"] = tracker.topk_weights.tolist()
                 self._report[layer_name]["saliency"] = tracker.mean_saliency.tolist()
 
-            if self.prune:
+            if self._n_experts_to_drop > 0:
                 if is_source_process():
                     retained = tracker.compute_retained_experts(
                         self._n_experts_to_drop,

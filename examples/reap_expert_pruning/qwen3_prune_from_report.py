@@ -1,7 +1,7 @@
 # Prune experts from a Qwen3 MoE checkpoint using a REAP saliency report.
 #
 # The report is produced ahead of time by calibrating with
-# `REAPPruningModifier(prune=False, report_path="qwen3_report.json")`
+# `REAPPruningModifier(sparsity=0.0, report_path="qwen3_report.json")`
 # (see qwen3_example.py). Pruning then runs directly on the safetensors
 # checkpoint, shard by shard, without loading the model into memory. This makes
 # it cheap to try several sparsities / metrics from a single calibration run.

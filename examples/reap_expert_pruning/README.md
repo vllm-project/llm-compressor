@@ -26,13 +26,13 @@ However, excess pruning can lead to a degradation in model quality, as shown in 
 
 ## Saliency reports and checkpoint-space pruning
 
-`REAPPruningModifier` can run in report-only mode with `prune=False`, writing
+`REAPPruningModifier` can run in report-only mode with `sparsity=0.0`, writing
 per-expert statistics (router `topk_weights`, routed-token `count`, and
 `saliency`, one inner list per MoE layer, ordered by layer) to a `.json` report
 without modifying the model (see `qwen3_example.py`):
 
 ```python
-recipe = REAPPruningModifier(prune=False, report_path="qwen3_report.json")
+recipe = REAPPruningModifier(sparsity=0.0, report_path="qwen3_report.json")
 ```
 
 A report can be visualized as a per-layer heatmap with

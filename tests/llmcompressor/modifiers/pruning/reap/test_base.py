@@ -701,9 +701,6 @@ def test_reap_is_registered():
 @pytest.mark.unit
 def test_reap_validation():
     with pytest.raises(ValueError, match="sparsity"):
-        REAPPruningModifier(sparsity=0.0)
-
-    with pytest.raises(ValueError, match="sparsity"):
         REAPPruningModifier(sparsity=1.0)
 
     with pytest.raises(ValueError, match="sparsity"):
@@ -713,12 +710,12 @@ def test_reap_validation():
     with pytest.raises(ValueError, match=r"\.json"):
         REAPPruningModifier(sparsity=0.5, report_path="report.pkl")
 
-    # at least one of report_path or prune must be set
-    with pytest.raises(ValueError, match="report_path or prune"):
-        REAPPruningModifier(sparsity=0.5, prune=False)
+    # sparsity=0.0 (report-only) requires a report_path
+    with pytest.raises(ValueError, match="report_path"):
+        REAPPruningModifier(sparsity=0.0)
 
-    # prune=False with a report_path is valid
-    REAPPruningModifier(sparsity=0.5, prune=False, report_path="report.json")
+    # sparsity=0.0 with a report_path is valid
+    REAPPruningModifier(sparsity=0.0, report_path="report.json")
 
 
 def _make_state(model):
@@ -845,7 +842,7 @@ def test_reap_full_lifecycle():
 
 @pytest.mark.unit
 def test_reap_report_only_does_not_modify_model(tmp_path):
-    """With prune=False, saliency is reported but weights/config are untouched."""
+    """With sparsity=0.0, saliency is reported but weights/config are untouched."""
     torch.manual_seed(42)
 
     config = FakeMoEConfig(
@@ -855,7 +852,7 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
     model.eval()
 
     report_path = str(tmp_path / "report.json")
-    modifier = REAPPruningModifier(sparsity=0.5, prune=False, report_path=report_path)
+    modifier = REAPPruningModifier(sparsity=0.0, report_path=report_path)
     state = _make_state(model)
 
     modifier.initialize(state)
