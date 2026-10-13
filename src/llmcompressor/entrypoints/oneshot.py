@@ -313,7 +313,7 @@ class Oneshot:
                     )
                 ):
                     raise ValueError(
-                        "MTP calibration in oneshot is deferred; MTP targets "
+                        "MTP calibration is not supported in oneshot; MTP targets "
                         "currently support data-free schemes only."
                     )
         # Check on-disk config first because decompressed models

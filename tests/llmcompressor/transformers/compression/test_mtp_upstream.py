@@ -25,6 +25,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers.compression.mtp import (
     _mtp_weights,
     save_mtp_tensors,
+    validate_mtp_copy_source,
 )
 from llmcompressor.utils import load_context
 
@@ -218,7 +219,8 @@ def test_mtp_copy_uses_backbone_hub_revision(tmp_path, entrypoint):
         ),
     ):
         if entrypoint == "helper":
-            save_mtp_tensors(model, str(destination))
+            source_mtp = validate_mtp_copy_source(model)
+            save_mtp_tensors(model, str(destination), source_mtp=source_mtp)
         else:
             model.save_pretrained(destination)
 
@@ -370,7 +372,8 @@ def test_non_mtp_config_does_not_require_layer_count(tmp_path, patterns):
     model = SimpleNamespace(
         config=PretrainedConfig(), _keys_to_ignore_on_load_unexpected=patterns
     )
-    save_mtp_tensors(model, str(tmp_path))
+    source_mtp = validate_mtp_copy_source(model)
+    save_mtp_tensors(model, str(tmp_path), source_mtp=source_mtp)
     assert not list(tmp_path.iterdir())
 
 

@@ -232,11 +232,9 @@ def save_mtp_tensors(
     model: PreTrainedModel,
     destination: str,
     *,
-    source_mtp: tuple[dict[str, tuple[str, str | None]], list[str]] | None = None,
+    source_mtp: tuple[dict[str, tuple[str, str | None]], list[str]] | None,
 ) -> None:
-    """Preserve unloaded MTP, reusing a validated source from this save if supplied."""
-    if source_mtp is None:
-        source_mtp = validate_mtp_copy_source(model)
+    """Preserve unloaded MTP using an already validated source."""
     if source_mtp is None:
         return
     weights, patterns = source_mtp
