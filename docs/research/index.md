@@ -1,8 +1,8 @@
 ---
-title: Experimental Results Journal
+title: Open Research Hub
 ---
 
-# Experimental Results Journal
+# Open Research Hub
 
 A community log of experimental compression results. If you have tried an
 algorithm, scheme, or model combination that is not yet covered by the official
@@ -21,7 +21,7 @@ is the fastest way to find prior work before you start your own run.
 
 ## How to submit
 
-Copy the template below into `docs/results/<short-title>-<username>.md`, fill
+Copy the template below into `docs/research/<short-title>-<username>.md`, fill
 it in, and open a pull request. For example,
 `awq-hadamard-qwen3-soyr-redhat.md`. You do not need to edit any navigation
 file; new entries are picked up automatically.
@@ -39,8 +39,8 @@ tags:
   - Qwen3.5
 ---
 
-<div class="result-byline" markdown>
-[![USERNAME](https://github.com/USERNAME.png?size=64){ .result-avatar }](https://github.com/USERNAME)
+<div class="entry-byline" markdown>
+[![USERNAME](https://github.com/USERNAME.png?size=64){ .entry-avatar }](https://github.com/USERNAME)
 **[@USERNAME](https://github.com/USERNAME)** posted on **YYYY-MM-DD**
 </div>
 
@@ -81,10 +81,10 @@ them. The avatars stack automatically, so the byline stays compact no matter
 how many you add.
 
 ```markdown
-<div class="result-byline" markdown>
-[![ALICE](https://github.com/ALICE.png?size=64){ .result-avatar }](https://github.com/ALICE)
-[![BOB](https://github.com/BOB.png?size=64){ .result-avatar }](https://github.com/BOB)
-[![CAROL](https://github.com/CAROL.png?size=64){ .result-avatar }](https://github.com/CAROL)
+<div class="entry-byline" markdown>
+[![ALICE](https://github.com/ALICE.png?size=64){ .entry-avatar }](https://github.com/ALICE)
+[![BOB](https://github.com/BOB.png?size=64){ .entry-avatar }](https://github.com/BOB)
+[![CAROL](https://github.com/CAROL.png?size=64){ .entry-avatar }](https://github.com/CAROL)
 **[@ALICE](https://github.com/ALICE)**, **[@BOB](https://github.com/BOB)**, and
 **[@CAROL](https://github.com/CAROL)** posted on **YYYY-MM-DD**
 </div>

@@ -1,4 +1,4 @@
-.result-byline {
+.entry-byline {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -9,11 +9,11 @@
   font-size: 0.75rem;
 }
 
-.result-byline p {
+.entry-byline p {
   margin: 0;
 }
 
-.result-avatar {
+.entry-avatar {
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
@@ -26,6 +26,6 @@
    regardless of author count. Scoped with :has() so that it only applies to
    avatar links, never to the author name links that follow them. Browsers
    without :has() fall back to avatars sitting side by side. */
-.result-byline a:has(.result-avatar) + a:has(.result-avatar) .result-avatar {
+.entry-byline a:has(.entry-avatar) + a:has(.entry-avatar) .entry-avatar {
   margin-left: -1.1rem;
 }

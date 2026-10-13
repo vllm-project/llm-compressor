@@ -50,9 +50,9 @@ Review the [LLM Compressor v0.14.0 release notes](https://github.com/vllm-projec
 | **AutoRound** | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 
 Trying something that is not listed here, such as a new algorithm or an
-unusual combination of techniques? The [Experimental Results
-Journal](./results/index.md) collects community field reports on exactly that,
-and it accepts submissions by pull request.
+unusual combination of techniques? The [Open Research Hub](./research/index.md)
+collects community field reports on exactly that, and it accepts submissions by
+pull request.
 
 ## Supported quantization schemes
 

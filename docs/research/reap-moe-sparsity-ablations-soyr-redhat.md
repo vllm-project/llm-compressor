@@ -9,9 +9,9 @@ tags:
   - Moonlight-16B
 ---
 
-<div class="result-byline" markdown>
-[![soyr-redhat](https://github.com/soyr-redhat.png?size=64){ .result-avatar }](https://github.com/soyr-redhat)
-[![kylesayrs](https://github.com/kylesayrs.png?size=64){ .result-avatar }](https://github.com/kylesayrs)
+<div class="entry-byline" markdown>
+[![soyr-redhat](https://github.com/soyr-redhat.png?size=64){ .entry-avatar }](https://github.com/soyr-redhat)
+[![kylesayrs](https://github.com/kylesayrs.png?size=64){ .entry-avatar }](https://github.com/kylesayrs)
 **[@soyr-redhat](https://github.com/soyr-redhat)** and **[@kylesayrs](https://github.com/kylesayrs)** posted on **2026-08-25**, updated **2026-10-09**
 </div>
 
@@ -238,7 +238,7 @@ comment.
 
 ## Reproducing
 
-Compression, eval, and throughput scripts are in
-[this gist](https://gist.github.com/soyr-redhat/287a37158f4f5dbef56e7642dfab7e4a).
-Full tables, including the cross-architecture comparison, are in
+The [REAP compression, eval, and throughput scripts](https://gist.github.com/soyr-redhat/287a37158f4f5dbef56e7642dfab7e4a)
+used for these runs are published as a gist. Full tables, including the
+cross-architecture comparison, are in
 [issue #3094](https://github.com/vllm-project/llm-compressor/issues/3094).
