@@ -180,7 +180,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
 
-                    if has_mtp(model) and not hasattr(model, "mtp"):
+                    if source_mtp is not None:
                         logger.info("Use load_context(load_mtp=True) to quantize MTP.")
                         save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
 
