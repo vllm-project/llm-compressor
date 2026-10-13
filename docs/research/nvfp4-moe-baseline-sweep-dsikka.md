@@ -80,6 +80,7 @@ Caveats: 1 and 2 swap places depending on whether gsm8k is counted — `GPTQ-IMA
 - **Read gpqa and aime25 loosely** (floors ±0.0490, ±0.0807); ifeval carries no signal at all. **mmlu_pro is the clean discriminator** — 4.2 pt spread on a ~0.2 seed std. Recovery above 1.0 means "no measurable loss," not a gain.
 
 ## Knobs to turn:
+
 1. GPTQ — always on. Only axis with a resolvable, consistent effect (gsm8k +0.0204, 9/10).
 2. Calibration set → UltraChat vs Perfectblend
 3. Observer → imatrix — biggest single resolvable cell in the document (gpqa +0.0618 over plain GPTQ)
