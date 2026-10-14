@@ -106,6 +106,7 @@ shows how to migrate from `preprocessing_func`.
 | `sequential_offload_device` | `str` | `"cpu"` | Device to offload intermediate activations between sequential layers. Use `"cuda:1"` if a second GPU is available |
 | `quantization_aware_calibration` | `bool` | `True` | Apply quantization during the calibration forward pass in the sequential pipeline |
 | `stage_weights_in_pinned_memory` | `bool` | `False` | Stage offloaded module tensors in pinned CPU memory before onloading them |
+| `use_eager_attention` | `bool` | `False` | Force eager attention during tracing and calibration instead of using the model's configured attention implementation |
 
 ### Miscellaneous Arguments
 
