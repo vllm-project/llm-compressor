@@ -51,14 +51,18 @@ def load_context(
         and distributed offloading. MTP calibration is not yet supported.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
-    from llmcompressor.transformers.compression.mtp import load_with_mtp_model
+    from llmcompressor.transformers.compression.mtp import (
+        _finalize_mtp_weight_conversions,
+        load_with_mtp_model,
+    )
 
     with contextlib.ExitStack() as stack:
         if load_mtp:
             stack.enter_context(load_with_mtp_model(model_cls))
-        else:
-            stack.enter_context(load_offloaded_model(model_cls))
-            stack.enter_context(load_quantizable_moe(model_cls))
+        stack.enter_context(load_offloaded_model(model_cls))
+        stack.enter_context(load_quantizable_moe(model_cls))
+        if load_mtp:
+            stack.enter_context(_finalize_mtp_weight_conversions(model_cls))
         yield
 
 

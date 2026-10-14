@@ -407,12 +407,15 @@ def test_unsupported_untargeted_mtp_copies_without_duplicate_warning(tmp_path):
 )
 def test_unexpected_mtp_load_error_is_not_reframed(tmp_path, error):
     model = _source_model(tmp_path)
+    original_from_pretrained = InklingForCausalLM.from_pretrained
     with patch(
         "transformers.modeling_layers.MtpModel.from_pretrained", side_effect=error
     ):
-        with pytest.raises(type(error), match=str(error)):
+        with pytest.raises(type(error), match=str(error)) as exc_info:
             with load_context(InklingForCausalLM, load_mtp=True):
                 InklingForCausalLM.from_pretrained(model.name_or_path)
+    assert exc_info.value is error
+    assert InklingForCausalLM.from_pretrained == original_from_pretrained
 
 
 def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):

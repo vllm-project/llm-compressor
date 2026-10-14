@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
 
-from compressed_tensors.offload import load_offloaded_model
 from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.mtp import save_mtp_tensors_to_checkpoint
@@ -168,11 +167,7 @@ def validate_mtp_copy_source(
 def load_with_mtp_model(
     model_cls: type[PreTrainedModel] = AutoModelForCausalLM,
 ):
-    """Load MTP with MoE conversion and distributed offloading."""
-    from transformers.core_model_loading import PrefixChange
-
-    from llmcompressor.modeling.moe.linearize import load_quantizable_moe
-
+    """Attach MTP before the surrounding loaders convert and offload the model."""
     original_from_pretrained = model_cls.from_pretrained
 
     @classmethod
@@ -211,35 +206,37 @@ def load_with_mtp_model(
                 object.__setattr__(model.mtp, name, shared)
         return model
 
-    # Attach MTP before offload synchronizes the model, using the same
-    # offload/MoE wrapper order as load_context without MTP.
-    with (
-        patch_attr(model_cls, "from_pretrained", from_pretrained),
-        load_offloaded_model(model_cls),
-        load_quantizable_moe(model_cls),
-    ):
-        loaded_from_pretrained = model_cls.from_pretrained
+    with patch_attr(model_cls, "from_pretrained", from_pretrained):
+        yield
 
-        @classmethod
-        @wraps(loaded_from_pretrained)
-        def finalize_conversions(cls, *args, **kwargs):
-            model = loaded_from_pretrained(*args, **kwargs)
-            conversions = deepcopy(model.__dict__.pop("_mtp_weight_conversions", []))
-            if conversions:
-                # MoE has now finalized the backbone mappings. MtpModel's local
-                # names live under the parent's `mtp` subtree.
-                for conv in conversions:
-                    conv.scope_prefix = "mtp"
-                    conv.base_model_prefix = ""
-                model._weight_conversions = [
-                    PrefixChange(prefix_to_add="mtp"),
-                    *conversions,
-                    *model._weight_conversions,
-                ]
-            return model
 
-        with patch_attr(model_cls, "from_pretrained", finalize_conversions):
-            yield
+@contextmanager
+def _finalize_mtp_weight_conversions(model_cls: type[PreTrainedModel]):
+    """Finalize MTP checkpoint mappings after the surrounding MoE loader returns."""
+    from transformers.core_model_loading import PrefixChange
+
+    loaded_from_pretrained = model_cls.from_pretrained
+
+    @classmethod
+    @wraps(loaded_from_pretrained)
+    def finalize_conversions(cls, *args, **kwargs):
+        model = loaded_from_pretrained(*args, **kwargs)
+        conversions = deepcopy(model.__dict__.pop("_mtp_weight_conversions", []))
+        if conversions:
+            # MoE has now finalized the backbone mappings. MtpModel's local
+            # names live under the parent's `mtp` subtree.
+            for conv in conversions:
+                conv.scope_prefix = "mtp"
+                conv.base_model_prefix = ""
+            model._weight_conversions = [
+                PrefixChange(prefix_to_add="mtp"),
+                *conversions,
+                *model._weight_conversions,
+            ]
+        return model
+
+    with patch_attr(model_cls, "from_pretrained", finalize_conversions):
+        yield
 
 
 def save_mtp_tensors(
