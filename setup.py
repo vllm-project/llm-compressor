@@ -123,7 +123,6 @@ setup(
         "sparsity, optimization, model optimization, model compression, "
     ),
     license="Apache 2.0",
-    license_files=["LICENSE", "csrc/third_party/LICENSE.picojson"],
     url="https://github.com/vllm-project/llm-compressor",
     include_package_data=True,
     package_dir={"": "src"},
