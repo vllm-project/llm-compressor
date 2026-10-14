@@ -82,6 +82,8 @@ config.json while a local format is indicated for each group of targeted layers.
 | NVFP4 - float  | nvfp4_pack_quantized   |
 | MXFP4A16 - float | mxfp4_pack_quantized |
 | MXFP4 - float  | mxfp4_pack_quantized   |
+| MXFP6A16 - float | mxfp6_pack_quantized |
+| MXFP6A8 - float  | mxfp6_pack_quantized |
 | MXFP8A16 - float | mxfp8_pack_quantized |
 | MXFP8 - float  | mxfp8_pack_quantized   |
 | W4A16 - int   | pack_quantized          |
