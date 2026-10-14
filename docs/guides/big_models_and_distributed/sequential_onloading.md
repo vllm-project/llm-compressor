@@ -37,6 +37,29 @@ If you are compressing a model using a GPU with a small amount of memory, you ma
 
 ![sequential_onloading](../../assets/seq_targets.jpg)
 
+## Disk staging ##
+
+The sequential pipeline prefetches the next disjoint subgraph on a background
+thread. For standard disk caches on little-endian hosts with `os.preadv`, it
+reads safetensors payloads directly into PyTorch CPU allocations. Tensors from
+the same resolved shard share header parsing within each staging batch.
+
+Direct reads are enabled automatically and work with either value of
+`stage_weights_in_pinned_memory`. When pinning is enabled for accelerator
+execution, reads go directly into pinned storage. Dtype conversion uses a
+temporary source tensor when the stored dtype differs from the requested dtype.
+Each tensor has its own allocation, managed by PyTorch through the subsequent
+onload; staging does not retain a separate buffer pool.
+
+CPU caches, custom/distributed caches, tensor subclasses, unsupported source
+dtypes and unsupported platforms use the existing compressed-tensors reader.
+Read errors propagate through the staging future, and direct-read cache mappings
+are published after the batch succeeds.
+
+This path uses Python and existing PyTorch/NumPy APIs with no additional build
+step. Python metadata handling and the per-tensor loop still share the GIL with
+calibration, so it does not eliminate all thread contention.
+
 ## More information ##
 
 For more information, see the [RedHat AI blog post](https://developers.redhat.com/articles/2025/05/09/llm-compressor-optimize-llms-low-latency-deployments#generalizing_to_multimodal_and_moe_architectures) or the [LLM Compressor Office Hours Recording](https://www.youtube.com/watch?v=GrhuqQDmBk8).
