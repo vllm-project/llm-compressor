@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import torch
@@ -222,24 +222,43 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def initialize_quantization(self, model: torch.nn.Module):
+    def initialize_quantization(
+        self,
+        model: torch.nn.Module,
+        modules: Iterable[torch.nn.Module] | None = None,
+    ):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
+        :param modules: optional modules to restrict initialization to
         """
-
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        modules = None if modules is None else tuple(modules)
+        matching_modules = list(
+            match_named_modules(
+                model, self.resolved_targets, self.ignore, modules=modules
+            )
+        )
+        for _, module in matching_modules:
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        apply_quantization_config(model, self.resolved_config, modules=modules)
 
         if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
+            validate_group_size_divisibility(
+                model,
+                self.resolved_targets,
+                self.ignore,
+                modules=modules,
+            )
 
         # disable quantization until calibration
-        model.apply(disable_quantization)
+        if modules is None:
+            model.apply(disable_quantization)
+        else:
+            for _, module in matching_modules:
+                module.apply(disable_quantization)
 
     def initialize_new_modules(
         self,
@@ -305,25 +324,42 @@ class QuantizationMixin(HooksMixin):
                 apply_calibration_status(module)
             fuse_weight_observers(model, modules=modules.values())
 
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: Iterable[torch.nn.Module] | None = None,
+    ):
         """
         Attach observers, register activation calibration hooks (including
         kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
+        :param modules: optional modules to restrict calibration setup to
         """
-        targets = match_named_modules(model, self.resolved_targets, self.ignore)
+        modules = None if modules is None else tuple(modules)
+        targets = list(
+            match_named_modules(
+                model, self.resolved_targets, self.ignore, modules=modules
+            )
+        )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
         warn_inference_mode_forwards(model)
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in targets:
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
         # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
-        fuse_weight_observers(model)
+        fuse_weight_observers(model, modules=modules)
+
+    def start_layerwise_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module]
+    ):
+        """Initialize quantization and calibration state for one subgraph."""
+        self.initialize_quantization(model, modules=modules)
+        self.start_calibration(model, modules=modules)
 
     def end_calibration(self, model: torch.nn.Module):
         """

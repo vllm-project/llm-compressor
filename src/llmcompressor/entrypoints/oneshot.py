@@ -40,7 +40,7 @@ from llmcompressor.entrypoints.utils import (
 )
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.offset_norm import norm_calibration_context
-from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pipelines import CalibrationPipeline, SequentialPipeline
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -253,6 +253,11 @@ class Oneshot:
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
 
+            session.state.layerwise_decompression = (
+                self.dataset_args.layerwise_decompression
+            )
+            session.state.layerwise_compression = self.dataset_args.layerwise_compression
+
             session.initialize(
                 model=self.model,
                 start=-1,
@@ -267,6 +272,15 @@ class Oneshot:
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
+
+            if (
+                self.dataset_args.layerwise_decompression
+                or self.dataset_args.layerwise_compression
+            ) and not isinstance(pipeline, SequentialPipeline):
+                raise ValueError(
+                    "Layerwise decompression/compression requires the sequential "
+                    "calibration pipeline."
+                )
 
             pipeline(
                 self.model,

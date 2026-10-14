@@ -6,7 +6,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import set_onload_device
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -261,6 +264,41 @@ class SequentialPipeline(CalibrationPipeline):
                     # to attach their per-module state before the first forward.
                     LifecycleCallbacks.modules_added(subgraph_modules)
 
+                recompress_targets = [
+                    module
+                    for name, module in subgraph_modules.items()
+                    if "mlp" in name
+                    and "shared" not in name
+                ]
+                if dataset_args.layerwise_decompression:
+                    decompress_targets = [
+                        module
+                        for module in recompress_targets
+                        if is_module_quantized(module)
+                    ]
+                    if is_distributed():
+                        if decompress_targets:
+                            replace_module_parallel(
+                                decompress_targets,
+                                decompress_module,
+                                desc="Decompressing layer",
+                            )
+                    else:
+                        for module in decompress_targets:
+                            decompress_module(module)
+
+                    for modifier in modifiers:
+                        if hasattr(modifier, "start_layerwise_calibration"):
+                            modifier.start_layerwise_calibration(
+                                model, recompress_targets
+                            )
+
+                recompress_targets = [
+                    module
+                    for module in recompress_targets
+                    if is_module_quantized(module)
+                ]
+
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
                     activations,
@@ -317,6 +355,19 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
+
+                if dataset_args.layerwise_compression:
+                    if is_distributed():
+                        if recompress_targets:
+                            replace_module_parallel(
+                                recompress_targets,
+                                compress_module,
+                                desc="Compressing layer",
+                            )
+                    else:
+                        for module in recompress_targets:
+                            compress_module(module)
+
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####

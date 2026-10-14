@@ -317,6 +317,21 @@ class DatasetArguments(CustomDatasetArguments):
             "sequential pipeline."
         },
     )
+    layerwise_decompression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, decompress the current MLP modules before calibration "
+            "and initialize their quantization state for that subgraph. Intended for "
+            "recalibrating pre-compressed models. Default is False."
+        },
+    )
+    layerwise_compression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, compress the current MLP modules after calibration "
+            "and error propagation to reduce peak memory. Default is False."
+        },
+    )
     moe_lazy_linearization_and_repack: bool = field(
         default=True,
         metadata={

@@ -24,6 +24,8 @@ strategy_cdiv in compressed_tensors.quantization.utils.helpers.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import torch
 from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization import QuantizationScheme, QuantizationStrategy
@@ -59,6 +61,7 @@ def get_layers_indivisible_by_group_size(
     model: torch.nn.Module,
     resolved_targets: set[str],
     ignore: list[str],
+    modules: Iterable[torch.nn.Module] | None = None,
 ) -> list[tuple[str, int, int]]:
     """
     Find targeted layers whose weight columns are not divisible by group_size.
@@ -74,12 +77,15 @@ def get_layers_indivisible_by_group_size(
     :param resolved_targets: Target module name patterns (e.g. from
         QuantizationMixin.resolved_targets).
     :param ignore: Module name patterns to exclude (e.g. QuantizationMixin.ignore).
+    :param modules: optional modules to restrict validation to.
     :return: List of (fqn, columns, group_size) for each layer that would
         fail at save/forward due to indivisibility.
     """
     with disable_onloading():
         indivisible: list[tuple[str, int, int]] = []
-        for name, module in match_named_modules(model, resolved_targets, ignore):
+        for name, module in match_named_modules(
+            model, resolved_targets, ignore, modules=modules
+        ):
             scheme: QuantizationScheme | None = getattr(
                 module, "quantization_scheme", None
             )
@@ -98,6 +104,7 @@ def validate_group_size_divisibility(
     ignore: list[str],
     *,
     bypass: bool = False,
+    modules: Iterable[torch.nn.Module] | None = None,
 ) -> None:
     """
     Ensure targeted group/tensor_group layers have columns divisible by group_size.
@@ -107,7 +114,9 @@ def validate_group_size_divisibility(
     """
     if bypass:
         return
-    indivisible = get_layers_indivisible_by_group_size(model, resolved_targets, ignore)
+    indivisible = get_layers_indivisible_by_group_size(
+        model, resolved_targets, ignore, modules=modules
+    )
     if not indivisible:
         return
     lines = [
