@@ -42,7 +42,6 @@ model_free_ptq(
         MODEL_ID,
         ignore=ignore,
     ),
-    max_workers=2,
     device="cuda:0",
 )
 ```

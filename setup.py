@@ -125,9 +125,9 @@ setup(
         ),
         ("datasets>=4.8.4,<=5.0.1" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "auto-round>=0.14.1,<=0.15.1"
+            "auto-round>=0.15.1,<=0.15.1"
             if BUILD_TYPE == "release"
-            else "auto-round>=0.14.1"
+            else "auto-round>=0.15.1"
         ),
         (
             "accelerate>=1.15.0,<=1.15.0"
@@ -147,6 +147,9 @@ setup(
         ),
     ],
     extras_require={
+        "higgs": [
+            ("pulp>=2.7.0,<=2.10.0" if BUILD_TYPE == "release" else "pulp>=2.7.0"),
+        ],
         "dev": [
             # testing framework
             "pytest>=6.0.0",
@@ -176,6 +179,7 @@ setup(
             "einops",
             "tiktoken",
             "qwen_vl_utils",
+            "pulp>=2.7.0",
         ],
         "qwen": [
             "qwen_vl_utils",  # TODO: remove
