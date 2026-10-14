@@ -196,7 +196,8 @@ class TestvLLM:
         import json
         import subprocess
 
-        llm_kwargs = {"model": self.config.save_dir}
+        llm_kwargs = dict(self.config.vllm_kwargs)
+        llm_kwargs["model"] = self.config.save_dir
 
         # if FP8A16 scheme, must set VLLM_TEST_FORCE_FP8_MARLIN=1
         # to force usage of marlin kernel

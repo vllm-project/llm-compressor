@@ -10,7 +10,6 @@ from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
-    subgraph_stage_modules,
 )
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
@@ -29,6 +28,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     trace_subgraphs,
 )
+from llmcompressor.pipelines.sequential.staging import subgraph_stage_modules
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets

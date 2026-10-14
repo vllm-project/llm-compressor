@@ -1,3 +1,7 @@
 cadence: "nightly"
 model: Qwen/Qwen3-30B-A3B
 scheme: FP8_DYNAMIC
+# vLLM's H100 VLLM_CUTLASS FP8 MoE backend currently produces incorrect
+# generations for this checkpoint. Use Triton until that runtime issue is fixed.
+vllm_kwargs:
+  moe_backend: triton

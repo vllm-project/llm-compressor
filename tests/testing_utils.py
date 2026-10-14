@@ -124,6 +124,8 @@ class BaseTestConfig(BaseModel):
         Enable pipeline parallelism for vLLM serving (default: False).
         When True, pipeline_parallel_size is set to num_gpus.
         Useful for large models that don't fit on a single GPU.
+    vllm_kwargs : dict[str, Any]
+        Additional keyword arguments passed to the vLLM ``LLM`` constructor.
     test_group : str | None
         Optional test group tag (e.g. "rhaiis") used by CI to filter test runs.
         Allows selective test execution based on environment or requirements.
@@ -290,6 +292,10 @@ class BaseTestConfig(BaseModel):
             "Enable pipeline parallelism for vLLM serving. "
             "When True, pipeline_parallel_size is set to num_gpus."
         ),
+    )
+    vllm_kwargs: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional keyword arguments passed to the vLLM LLM constructor.",
     )
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"

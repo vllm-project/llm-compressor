@@ -1,3 +1,4 @@
 include LICENSE
+recursive-include csrc *.cpp *.h *.md
 recursive-include src/llmcompressor py.typed
 recursive-exclude src *.png *.jpg *.jpeg *.gif *.svg *.bmp *.webp
