@@ -37,6 +37,47 @@ If you are compressing a model using a GPU with a small amount of memory, you ma
 
 ![sequential_onloading](../../assets/seq_targets.jpg)
 
+## Staging in a Python process ##
+
+The sequential pipeline prefetches the next disjoint subgraph using a persistent
+Python worker process. The worker parses safetensors headers and reads tensor
+payloads while the parent continues calibration. Its interpreter has a separate
+GIL, so Python execution in the worker can run in parallel with the parent's
+Python execution. The staging thread in the parent submits batches and receives
+their results.
+
+Process staging is enabled automatically on little-endian Linux hosts with
+`os.preadv` and `os.posix_fallocate`. Other platforms, CPU caches,
+custom/distributed caches and tensor subclasses retain the upstream staging
+behavior. Unsupported source dtypes also use the upstream reader.
+
+Each batch is written to a fresh anonymous shared-memory file. The worker sends
+one file descriptor and tensor metadata to the parent, without serializing the
+tensor payload through the pipe. It receives only filenames and tensor keys;
+the model and CUDA stay in the parent. The worker imports only the standard
+library and runs as a standalone script, so callers do not need a multiprocessing
+`if __name__ == "__main__"` guard. There is no extra compilation step.
+
+The parent wraps shared memory as CPU tensors, restores module metadata, and
+copies into pinned memory when `stage_weights_in_pinned_memory=True` for an
+accelerator. These operations still run in the parent interpreter. With pinning
+disabled and no dtype conversion, tensors keep the shared mapping alive without
+another payload copy. Pinning or dtype conversion needs an additional allocation
+and copy, so separate GILs do not guarantee faster total calibration time.
+
+By default, shared files use `/dev/shm`. It must hold a staging batch (about 7 GB
+for four decoder layers in the Gemma-4-26B-A4B example); pinned allocations can
+coexist with those shared pages during copying. Use
+`LLMCOMPRESSOR_STAGING_SHM_DIR` to select another suitable directory if necessary.
+A directory backed by disk can add I/O costs. Space is reserved before writing
+so allocation failures propagate as errors. There is no retained buffer pool.
+
+The worker persists across subgraphs. On exit, including errors, the pipeline
+joins the staging thread before closing the worker. Shared files are anonymous
+and close with their last mapping/descriptor; pageable tensor views can outlive
+the worker. Read failures propagate through the staging future before the new
+batch is installed in the module caches.
+
 ## More information ##
 
 For more information, see the [RedHat AI blog post](https://developers.redhat.com/articles/2025/05/09/llm-compressor-optimize-llms-low-latency-deployments#generalizing_to_multimodal_and_moe_architectures) or the [LLM Compressor Office Hours Recording](https://www.youtube.com/watch?v=GrhuqQDmBk8).

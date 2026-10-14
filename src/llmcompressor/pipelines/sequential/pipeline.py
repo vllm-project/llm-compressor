@@ -10,7 +10,6 @@ from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
-    subgraph_stage_modules,
 )
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
@@ -29,6 +28,10 @@ from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     trace_subgraphs,
 )
+from llmcompressor.pipelines.sequential.staging import (
+    ModuleStager,
+    subgraph_stage_modules,
+)
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -44,13 +47,14 @@ def _submit_subgraph_staging(
     modules: dict[str, torch.nn.Module],
     current_modules: dict[str, torch.nn.Module],
     pin_memory: bool,
+    stager: ModuleStager | None = None,
 ) -> tuple[dict[str, torch.nn.Module], Future] | None:
     """Stage disjoint next-subgraph modules in the background."""
     if set(modules.values()) & set(current_modules.values()):
         return None
 
     future = executor.submit(
-        subgraph_stage_modules,
+        subgraph_stage_modules if stager is None else stager.stage,
         modules,
         pin_memory=pin_memory,
     )
@@ -202,6 +206,8 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
+            # Join the staging thread before shutting down its persistent process.
+            stager = stack.enter_context(ModuleStager())
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -212,12 +218,13 @@ class SequentialPipeline(CalibrationPipeline):
                 next_subgraph_modules,
                 {},
                 stage_weights_in_pinned_memory,
+                stager,
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 if prefetched_staging is None:
                     subgraph_modules = subgraph.submodule_dict(model)
-                    subgraph_stage_modules(
+                    stager.stage(
                         subgraph_modules, pin_memory=stage_weights_in_pinned_memory
                     )
                     warnings.warn(
@@ -253,6 +260,7 @@ class SequentialPipeline(CalibrationPipeline):
                         next_subgraph_modules,
                         subgraph_modules,
                         stage_weights_in_pinned_memory,
+                        stager,
                     )
 
                 #######################

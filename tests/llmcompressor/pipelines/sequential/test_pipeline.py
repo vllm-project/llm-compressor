@@ -1,8 +1,28 @@
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import torch
 
 import llmcompressor.pipelines.sequential.pipeline as pipeline
+
+
+def test_submit_uses_pipeline_stager(monkeypatch):
+    modules = {"next": torch.nn.Linear(2, 2)}
+    calls = []
+    stager = SimpleNamespace(
+        stage=lambda modules, pin_memory: calls.append((modules, pin_memory))
+    )
+
+    def unexpected_single_batch(*args, **kwargs):
+        raise AssertionError("The pipeline should reuse its persistent stager")
+
+    monkeypatch.setattr(pipeline, "subgraph_stage_modules", unexpected_single_batch)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        _, future = pipeline._submit_subgraph_staging(
+            executor, modules, {}, pin_memory=True, stager=stager
+        )
+        future.result()
+    assert calls == [(modules, True)]
 
 
 def test_submit_subgraph_staging_runs_for_disjoint_modules(monkeypatch):
