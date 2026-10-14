@@ -6,6 +6,7 @@ All tests run on CPU: device movement is stubbed and ``dist.broadcast`` is
 patched so no CUDA or process group is required.
 """
 
+from importlib import import_module
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,7 +19,7 @@ from llmcompressor.utils.dist import (
     broadcast_qparams_and_cleanup,
 )
 
-_DIST_MODULE = "llmcompressor.utils.dist"
+_DIST_MODULE = import_module("llmcompressor.utils.dist")
 _QPARAMS = ["weight", "weight_scale"]
 # value a fake broadcast "receives"; used to trace propagation into offloaded copies
 _SENTINEL = 7.0
@@ -80,7 +81,7 @@ def _run_broadcast(modules, module_to_rank, qparam_names=_QPARAMS, **kwargs):
 
     with (
         patch("torch.distributed.broadcast", side_effect=fake_broadcast),
-        patch(_DIST_MODULE + "._wait_for_comms"),
+        patch.object(_DIST_MODULE, "_wait_for_comms"),
     ):
         broadcast_qparams_and_cleanup(modules, module_to_rank, qparam_names, **kwargs)
     return calls
@@ -264,7 +265,7 @@ def test_gptq_non_distributed_skips_broadcast():
         patch(
             "llmcompressor.modifiers.gptq.base.GPTQModifier.compress_module_list"
         ) as mock_cml,
-        patch("llmcompressor.utils.dist.broadcast_qparams_and_cleanup") as mock_bc,
+        patch.object(_DIST_MODULE, "broadcast_qparams_and_cleanup") as mock_bc,
     ):
         modifier.compress_modules()
 
