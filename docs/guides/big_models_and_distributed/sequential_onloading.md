@@ -37,44 +37,6 @@ If you are compressing a model using a GPU with a small amount of memory, you ma
 
 ![sequential_onloading](../../assets/seq_targets.jpg)
 
-## Native disk staging (experimental) ##
-
-The sequential pipeline prefetches the next disjoint group of modules on one
-background thread. An optional native backend releases the Python GIL across
-the batch of file opens, safetensors header parsing, CPU tensor allocations,
-disk reads, and dtype conversions. The main thread can continue submitting GPU
-work during that batch. Python still prepares requests and installs tensors in
-the module caches before the staging future completes.
-
-Build against the PyTorch already installed in your environment (Linux, C++17
-compiler and Python development headers required):
-
-```bash
-python -m pip install setuptools wheel setuptools_scm==8.2.0
-LLMCOMPRESSOR_BUILD_NATIVE_STAGING=1 python -m pip install --no-build-isolation --no-deps -e .
-```
-
-Rebuild after changing PyTorch or Python. Normal installs remain pure Python.
-When the extension is available, disk staging uses it automatically and logs
-`Using native disk staging with GIL release`. Set
-`LLMCOMPRESSOR_NATIVE_STAGING=0` to compare against Python staging without
-rebuilding. There is no runtime compilation.
-
-This works with both values of `stage_weights_in_pinned_memory`. Reads go directly
-into individually allocated CPU tensors, pinned when requested for accelerator
-execution. There is no reusable buffer pool. Dtype conversions use a temporary
-CPU tensor when the stored dtype differs from the requested dtype. The existing
-onload path consumes these tensors on its current accelerator stream; PyTorch
-owns their allocation and asynchronous transfer lifetime.
-
-CPU caches, custom/distributed caches, tensor subclasses, unsupported source
-dtypes, and installations without the extension use the existing staging path.
-The extension requires little-endian hosts. Disk errors propagate through the
-staging future; native results are installed only after the batch succeeds.
-Native staging can still contend with the foreground for allocator locks,
-memory bandwidth, and disk bandwidth. Measure the complete calibration run as
-well as staging time.
-
 ## More information ##
 
 For more information, see the [RedHat AI blog post](https://developers.redhat.com/articles/2025/05/09/llm-compressor-optimize-llms-low-latency-deployments#generalizing_to_multimodal_and_moe_architectures) or the [LLM Compressor Office Hours Recording](https://www.youtube.com/watch?v=GrhuqQDmBk8).
