@@ -1,4 +1,4 @@
-"""Quantize MTP layers and exercise vLLM speculative decoding."""
+"""Quantize MTP layers and exercise supported vLLM speculative decoding."""
 
 import json
 import os
@@ -10,7 +10,12 @@ import pytest
 import torch
 from compressed_tensors.offload import set_onload_device
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
-from transformers import AutoProcessor, Glm4MoeForCausalLM
+from safetensors import safe_open
+from transformers import (
+    AutoProcessor,
+    Glm4MoeForCausalLM,
+    InklingForConditionalGeneration,
+)
 
 from llmcompressor import oneshot, reset_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -78,3 +83,41 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
         check=True,
         timeout=300,
     )
+
+
+@requires_gpu(1)
+@requires_cadence("nightly")
+def test_inkling_mtp_quantize_and_save(tmp_path):
+    # vLLM's Inkling MTP loader does not yet support quantized draft weights.
+    with load_context(InklingForConditionalGeneration, load_mtp=True):
+        model = InklingForConditionalGeneration.from_pretrained(
+            "soyrsoyr/Inkling-Dense-54M-MTP",
+            revision="3dae4716b1b529bab25e6a8ca0697c21844e83a2",
+            dtype=torch.bfloat16,
+            device_map="cpu",
+        )
+    assert len(model.mtp.layers) == 1
+    set_onload_device(model, "cuda")
+    oneshot(
+        model=model,
+        recipe=QuantizationModifier(
+            scheme="FP8_DYNAMIC",
+            ignore=["lm_head", r"re:.*\.eh_proj$", r"re:.*(vision|audio).*"],
+        ),
+        output_dir=str(tmp_path),
+    )
+    weights = get_weight_mappings(tmp_path)
+    mtp_scales = [
+        name
+        for name in weights
+        if name.startswith("model.mtp.layers.0.") and name.endswith(".weight_scale")
+    ]
+    assert len(mtp_scales) == 7
+    assert not any(name.startswith("mtp.") for name in weights)
+    for scale in mtp_scales:
+        weight = scale.removesuffix("_scale")
+        with safe_open(weights[weight], framework="pt") as checkpoint:
+            assert checkpoint.get_tensor(weight).dtype == torch.float8_e4m3fn
+        with safe_open(weights[scale], framework="pt") as checkpoint:
+            assert torch.isfinite(checkpoint.get_tensor(scale)).all()
+    reset_session()
