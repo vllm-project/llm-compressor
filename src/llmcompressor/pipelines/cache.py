@@ -5,6 +5,7 @@ import warnings
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
+from functools import lru_cache
 from typing import Any, Generator
 from weakref import WeakKeyDictionary
 
@@ -28,6 +29,17 @@ class IntermediateValue:
 
 
 IntermediateValues = dict[str, IntermediateValue]
+
+
+@lru_cache(maxsize=None)
+def _supports_record_stream(device: torch.device) -> bool:
+    # record_stream only exists on devices with stream-ordered allocators
+    # (CUDA and similar accelerators); on others such as MPS it raises
+    try:
+        torch.zeros(1, device=device).record_stream(torch.Stream(device=device))
+    except (RuntimeError, NotImplementedError):
+        return False
+    return True
 
 
 class IntermediatesCache:
@@ -56,6 +68,7 @@ class IntermediatesCache:
     ):
         self.batch_intermediates = batch_intermediates or []
         self.offload_device = offload_device
+        self._prefetch_stream = None
 
     @classmethod
     def empty(cls, num_batches: int, offload_device: torch.device):
@@ -174,6 +187,19 @@ class IntermediatesCache:
         intermediates = {k: self._offload_value(v, device) for k, v in values.items()}
         self.batch_intermediates[batch_index].update(intermediates)
 
+    def transfer(self, src: "IntermediatesCache", batch_index: int):
+        """
+        Copy all entries from src into this cache for the given batch,
+        sharing the raw IntermediateValue objects without onloading or
+        offloading
+
+        :param src: source cache to copy entries from
+        :param batch_index: index of batch whose values will be copied
+        """
+        self.batch_intermediates[batch_index].update(
+            src.batch_intermediates[batch_index]
+        )
+
     def delete(self, batch_index: int, consumed_names: list[str] | None = None):
         """
         Delete values from the cache
@@ -264,7 +290,12 @@ class IntermediatesCache:
         # separate stream from the main thread's compute stream. Without this,
         # both threads default to the null stream (stream 0) which serializes
         # all operations and prevents any overlap.
-        h2d_stream = torch.Stream() if torch.accelerator.is_available() else None
+        if torch.accelerator.is_available():
+            if self._prefetch_stream is None:
+                self._prefetch_stream = torch.Stream()
+            h2d_stream = self._prefetch_stream
+        else:
+            h2d_stream = None
 
         def _fetch_and_record(batch_index):
             event = None
@@ -291,7 +322,9 @@ class IntermediatesCache:
                 # Make the main CUDA stream wait for the background H2D copy
                 # before any GPU kernel consumes the prefetched tensors
                 if event is not None:
-                    torch.accelerator.current_stream().wait_event(event)
+                    compute_stream = torch.accelerator.current_stream()
+                    compute_stream.wait_event(event)
+                    self._record_stream(current, compute_stream)
                 yield current
 
     def __iter__(self) -> Generator[Any, None, None]:
@@ -299,6 +332,25 @@ class IntermediatesCache:
 
     def __len__(self) -> int:
         return len(self.batch_intermediates)
+
+    @classmethod
+    def _record_stream(cls, value: Any, stream: torch.Stream) -> None:
+        """Keep prefetched tensors alive until their compute-stream work completes."""
+        match value:
+            case torch.Tensor():
+                if value.device == stream.device and _supports_record_stream(
+                    stream.device
+                ):
+                    value.record_stream(stream)
+            case list() | tuple():
+                for item in value:
+                    cls._record_stream(item, stream)
+            case dict():
+                for item in value.values():
+                    cls._record_stream(item, stream)
+            case _ if is_dataclass(value):
+                for field in fields(value):
+                    cls._record_stream(getattr(value, field.name), stream)
 
     @classmethod
     def _onload_value(cls, intermediate: IntermediateValue) -> Any:

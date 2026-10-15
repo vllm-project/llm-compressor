@@ -25,13 +25,12 @@ convert_checkpoint(
             r"re:.*self_attn.*\.(kv_b|o|q_a|q_b)_proj$",
         ],
     ),
-    max_workers=4,
 )
 ```
 
 ## How It Works
 
-`convert_checkpoint` accepts a `model_stub` (HuggingFace model ID or local path), a `save_directory`, a `converter`, and an optional `max_workers` count for parallelism. It processes the checkpoint in four stages:
+`convert_checkpoint` accepts a `model_stub` (HuggingFace model ID or local path), a `save_directory`, a `converter`, and an optional `max_workers` count for parallelism (`"auto"` by default, which picks the count from the number of shards, their estimated memory, free device memory, and available CPUs). It processes the checkpoint in four stages:
 
 1. **Resolve** — collect all safetensors files and build a weight map from weight name to shard file
 2. **Plan** — compute an inverse weight map so each output shard knows which source files to load (converters may require tensors from other shards as dependencies, declared via `converter.get_dependencies()`)
@@ -148,7 +147,6 @@ model_free_ptq(
         **FP8_BLOCK,
         targets=["re:.*self_attn.(kv_a_proj_with_mqa|q_a_proj|o_proj|q_b_proj).*"],
     ),
-    max_workers=8,
     device="cuda:0",
     converter=ModelOptNvfp4Converter(
         targets=["re:.*mlp.*(gate_up|gate|up|down)_proj$"],
@@ -178,7 +176,6 @@ convert_checkpoint(
             r"re:.*self_attn.*\.(kv_b|o|q_a|q_b)_proj$",
         ],
     ),
-    max_workers=4,
 )
 
 # Step 2: re-quantize with oneshot
@@ -211,7 +208,6 @@ convert_checkpoint(
             "re:.*embed_tokens$",
         ],
     ),
-    max_workers=4,
 )
 ```
 

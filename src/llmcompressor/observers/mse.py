@@ -1,12 +1,14 @@
 import warnings
 
 import torch
-from compressed_tensors.quantization import QuantizationStrategy
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.grid_search import (
+    _default_triton_error_buffer,
+    _grid_search_observer,
+)
 from llmcompressor.observers.helpers import lerp
-from llmcompressor.observers.mse_quant import _grid_search_mse
 
 __all__ = ["MovingAverageMSEObserver"]
 
@@ -27,30 +29,23 @@ class MemorylessMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
-        self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.triton_error_buffer = observer_kwargs.get(
+            "triton_error_buffer", _default_triton_error_buffer(self.args)
+        )
         self.expand = observer_kwargs.get("expand", 1.0)
-        if self.chunk_size <= 0:
-            raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
-        # Pre-create token_args to avoid patch_attr context manager
-        # which causes torch.compile graph breaks
-        self._token_args = self.args.model_copy(
-            update={"strategy": QuantizationStrategy.TOKEN}
-        )
-
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
-        self.min_vals, self.max_vals = _grid_search_mse(
+        self.min_vals, self.max_vals = _grid_search_observer(
             observed,
             self.args,
-            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
-            self.chunk_size,
-            self.expand,
+            self.triton_error_buffer,
+            expand=self.expand,
         )
 
 
@@ -74,30 +69,23 @@ class MovingAverageMSEObserver(Observer):
         self.patience = observer_kwargs.get("patience", 5)
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
-        self.chunk_size = observer_kwargs.get("chunk_size", 5)
+        self.triton_error_buffer = observer_kwargs.get(
+            "triton_error_buffer", _default_triton_error_buffer(self.args)
+        )
         self.expand = observer_kwargs.get("expand", 1.0)
-        if self.chunk_size <= 0:
-            raise ValueError(f"chunk_size must be positive, got {self.chunk_size}")
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
 
-        # Pre-create token_args to avoid patch_attr context manager
-        # which causes torch.compile graph breaks
-        self._token_args = self.args.model_copy(
-            update={"strategy": QuantizationStrategy.TOKEN}
-        )
-
     def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
-        min_vals, max_vals = _grid_search_mse(
+        min_vals, max_vals = _grid_search_observer(
             observed,
             self.args,
-            self._token_args,
             self.maxshrink,
             self.patience,
             self.grid,
             self.norm,
-            self.chunk_size,
-            self.expand,
+            self.triton_error_buffer,
+            expand=self.expand,
         )
 
         if hasattr(self, "min_vals") and self.avg_constant != 1.0:
@@ -137,6 +125,7 @@ class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
         self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = observer_kwargs.get("grid", 200.0)
         self.patience = observer_kwargs.get("patience", 1000)
+        self.triton_error_buffer = observer_kwargs.get("triton_error_buffer", 1.00)
 
 
 @Observer.register("fouroversix")

@@ -25,9 +25,11 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.utils import match_named_modules
+from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
+from llmcompressor.core import Event, EventType, active_session
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
@@ -266,7 +268,34 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        modules = [
+            module
+            for _, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        ]
+
+        # observer statistics are consumed when qparams are updated. Modules which
+        # still have statistics were never passed to `on_sequential_epoch_end`, for
+        # example modules which are traced through rather than called by a sequential
+        # subgraph (e.g. attention when using `sequential_targets="Linear"`)
+        remaining = [module for module in modules if _has_observer_statistics(module)]
+        if len(remaining) > 0:
+            module_types = sorted({type(module).__name__ for module in remaining})
+            logger.warning(
+                f"Found {len(remaining)} modules of type(s) {module_types} which were "
+                "calibrated but not quantized. This can occur when setting highly "
+                "granular sequential targets. Consider setting less granular "
+                "sequential targets for better performance. Quantizing remaining "
+                "modules now."
+            )
+            self.on_sequential_epoch_end(
+                active_session().state,
+                Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+                modules=remaining,
+            )
+
+        for module in modules:
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
@@ -507,3 +536,11 @@ class QuantizationMixin(HooksMixin):
             hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
+
+
+def _has_observer_statistics(module: torch.nn.Module) -> bool:
+    return any(
+        getattr(observer, "has_statistics", False)
+        for base_name in ACTIVATION_OBS + ("weight",)
+        if (observer := getattr(module, f"{base_name}_observer", None)) is not None
+    )

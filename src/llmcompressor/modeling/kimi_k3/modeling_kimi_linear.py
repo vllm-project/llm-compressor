@@ -933,7 +933,7 @@ class KimiSparseMoeBlock(nn.Module):
 
         if self.use_latent_moe:
             hidden_states = self.routed_expert_down_proj(hidden_states)
-        if not self.training:
+        if not get_calibrate_all_experts_flag():
             y = self.moe_infer(hidden_states, topk_idx, topk_weight)
         else:
             y = self.moe_train(hidden_states, topk_idx, topk_weight)
@@ -950,7 +950,7 @@ class KimiSparseMoeBlock(nn.Module):
         return y
 
     def moe_train(self, x, topk_ids, topk_weight):
-        """Training-compatible MoE dispatch with gradient flow."""
+        """Calibration-compatible MoE dispatch with gradient flow."""
         y = torch.zeros_like(x)
 
         with torch.no_grad():
@@ -959,10 +959,7 @@ class KimiSparseMoeBlock(nn.Module):
         for expert_idx, expert in enumerate(self.experts):
             top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
 
-            if get_calibrate_all_experts_flag():
-                expert_out = expert(x)[token_indices]
-            else:
-                expert_out = expert(x[token_indices])
+            expert_out = expert(x)[token_indices]
 
             expert_weights = topk_weight[token_indices, top_k_pos, None]
             y.index_add_(0, token_indices, (expert_out * expert_weights).to(y.dtype))

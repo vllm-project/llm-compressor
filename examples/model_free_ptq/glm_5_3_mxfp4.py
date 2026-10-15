@@ -23,6 +23,5 @@ model_free_ptq(
     # load path can't unpack mxfp4 weights — keep wk in bf16 instead
     ignore=ignore + ["re:.*self_attn.indexer.wk$"],
     converter=FP8BlockDequantizer(ignore=ignore),
-    max_workers=2,
     device="cuda:0",
 )
