@@ -81,9 +81,8 @@ class TextGenerationDataset(RegistryMixin):
     # used to mask out the prompt so prompt tokens do not contribute to training loss
     PROMPT_KEY = "prompt"
 
-    # False when dataset_template already rendered a chat template into `text`.
-    # The tokenizer default prepends BOS on top of a template that emitted it.
-    add_special_tokens = True
+    # Overrides the tokenizer's default special token behavior if not None.
+    add_special_tokens: bool | None = None
 
     def __init__(
         self,
@@ -306,8 +305,8 @@ class TextGenerationDataset(RegistryMixin):
 
         # tokenize
         special_tokens = {}
-        if not self.add_special_tokens:
-            special_tokens["add_special_tokens"] = False
+        if self.add_special_tokens is not None:
+            special_tokens["add_special_tokens"] = self.add_special_tokens
         data = self.processor(
             **data,
             padding=self.padding,
