@@ -57,6 +57,27 @@ with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ```
 
+## Multi-Token Prediction (MTP) ##
+
+A checkpoint can contain MTP weights without those layers being loaded into the model. `has_mtp_in_checkpoint(model)` checks whether the config declares MTP layers. `hasattr(model, "mtp")` checks whether the model has an attached MTP module.
+
+### Loading and quantizing MTP
+
+1. `load_context()` defaults to `load_mtp=True`. During `from_pretrained()`, `load_with_mtp_model()` loads supported MTP layers with Transformers' `MtpModel` and attaches them as `model.mtp` before MoE conversion and offloading. Models whose config does not declare MTP load normally.
+2. `_finalize_mtp_weight_conversions()` preserves the mapping between MTP module names and checkpoint names after MoE conversion, so saving can restore the original checkpoint names.
+3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP must use a data-free scheme such as `FP8_DYNAMIC`; methods requiring calibration are rejected. The recipe then applies to matching backbone and MTP modules.
+4. `save_pretrained()` serializes loaded MTP with the rest of the model.
+
+See the [GLM-4.5-Air MTP example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/quantization_w8a8_fp8/glm4_5_air_mtp.py).
+
+### Preserving unloaded MTP
+
+Use `load_context(load_mtp=False)` to skip attaching MTP. `oneshot()` does not load these layers later. Its `validate_model()` calls `validate_mtp_copy_source()` to check the source weights and warns that MTP will be copied unchanged. The recipe only affects loaded modules.
+
+The save wrapper also calls `validate_mtp_copy_source()` before writing any checkpoint files. This prevents a validation failure from leaving a partial checkpoint, including when calling `save_pretrained()` directly. After saving the backbone, it passes the validated source to `save_mtp_tensors()`, which copies the MTP weights unchanged and adds their module names to the exported quantization ignore list. If the config declares MTP but no weights are found, saving warns that there is nothing to copy.
+
+Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. For these checkpoints or unsupported loading layouts, see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/model_free_ptq/mtp_fp8_fallback.py), which works directly on checkpoint tensors.
+
 ## Basic Pipeline ##
 It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxiliary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
 
