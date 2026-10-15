@@ -29,7 +29,7 @@ from tests.testing_utils import requires_cadence, requires_gpu
     "model_id,revision,model_cls,mtp_prefix",
     [
         pytest.param(
-            "inference-optimization/GLM-4.5-Air-0.72B-MTP",
+            "nm-testing/GLM-4.5-Air-0.72B-MTP",
             "317504c08f5d3628bdcfed44a5016cdd70c73b74",
             Glm4MoeForCausalLM,
             "model.layers.46.",
@@ -91,7 +91,7 @@ def test_inkling_mtp_quantize_and_save(tmp_path):
     # vLLM's Inkling MTP loader does not yet support quantized draft weights.
     with load_context(InklingForConditionalGeneration, load_mtp=True):
         model = InklingForConditionalGeneration.from_pretrained(
-            "soyrsoyr/Inkling-Dense-54M-MTP",
+            "nm-testing/Inkling-Dense-54M-MTP",
             revision="3dae4716b1b529bab25e6a8ca0697c21844e83a2",
             dtype=torch.bfloat16,
             device_map="cpu",
