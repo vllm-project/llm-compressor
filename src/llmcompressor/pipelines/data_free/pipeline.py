@@ -4,6 +4,8 @@ import torch
 from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 
+from llmcompressor.core import active_session
+from llmcompressor.core.initialization import PipelineInitializationPlan
 from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.utils.dev import get_main_device
@@ -21,6 +23,7 @@ class DataFreePipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: Optional[DataLoader],
         dataset_args: "DatasetArguments",
+        initialization_plan: PipelineInitializationPlan | None = None,
     ):
         """
         A pipeline for data-free calibration
@@ -29,6 +32,10 @@ class DataFreePipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        session = active_session()
+        plan = initialization_plan or session.lifecycle.initialization_plan
+        plan.initialize(state=session.state, model=model, pipeline="datafree")
+
         # some ops are still performed on the model by modifiers
         # we want those ops to occur on the GPU
         onload_device = get_main_device()

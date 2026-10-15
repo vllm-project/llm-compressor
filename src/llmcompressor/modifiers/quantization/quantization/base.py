@@ -6,7 +6,12 @@ from compressed_tensors.distributed import (
 )
 from compressed_tensors.quantization.utils import is_module_quantized
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -55,30 +60,38 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
         """
-        Prepare to calibrate activations and weights
+        Return a list of functions that will be called during the initialization phase
+        """
+        return []
 
-        According to the quantization config, a quantization scheme is attached to each
-        targeted module. The module's forward call is also overwritten to perform
-        quantization to inputs, weights, and outputs.
+    def get_module_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
 
-        Then, according to the module's quantization scheme, observers and calibration
-        hooks are added. These hooks are disabled until the modifier starts.
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
+        """
+        Initialization function, called during initialization
         """
         if not QuantizationMixin.has_config(self):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        QuantizationMixin.initialize_quantization(self, state.model)
-
-        return True
+        QuantizationMixin.initialize_quantization(
+            self, context.model, modules=context.modules
+        )
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
         Begin calibrating activations.
         """
-        QuantizationMixin.start_calibration(self, state.model)
+        QuantizationMixin.start_calibration(
+            self, state.model, modules=kwargs.get("modules")
+        )
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs

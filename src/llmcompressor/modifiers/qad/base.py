@@ -9,19 +9,24 @@ from compressed_tensors.quantization.lifecycle.forward import forward_quantize
 from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import (
     getattr_chain,
-    match_named_modules,
     update_offload_parameter,
 )
 from loguru import logger
 from pydantic import ConfigDict, Field, PrivateAttr
 from torch.utils._pytree import tree_map_only
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
 from llmcompressor.utils.pytorch import infer_sequential_targets
+from llmcompressor.utils.pytorch.module import match_named_modules_in_scope
 
 __all__ = ["QADModifier"]
 
@@ -124,6 +129,7 @@ class QADModifier(Modifier):
     )
     # sequential targets whose distillation has finished
     _distilled: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+    _hooked_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
     # sequential target -> the target whose output is its first input, or None if
     # it starts its subgraph's chain
     _predecessors: dict[torch.nn.Module, torch.nn.Module | None] = PrivateAttr(
@@ -132,36 +138,64 @@ class QADModifier(Modifier):
     # most recently run sequential target and its hidden states
     _cur_seq_target: torch.nn.Module | None = PrivateAttr(default=None)
     _cur_seq_target_output: torch.Tensor | None = PrivateAttr(default=None)
+    _found_quantized_modules: bool = PrivateAttr(default=False)
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        pipeline = kwargs.get("pipeline")
-        if pipeline and standardize_lookup_name(pipeline) != "sequential":
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return []
+
+    def get_module_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
+        if (
+            context.pipeline
+            and standardize_lookup_name(context.pipeline) != "sequential"
+        ):
             raise ValueError(
                 'QADModifier requires pipeline="sequential" so the preceding '
                 "weight quantization modifier and QAD share each subgraph's "
-                f"calibration stage; got pipeline={pipeline!r}"
+                f"calibration stage; got pipeline={context.pipeline!r}"
             )
-        modules = _modules_to_quantize(state.model.modules())
-        if not modules:
+        modules = (
+            context.model.modules() if context.modules is None else context.modules
+        )
+        if not _modules_to_quantize(modules):
+            if context.modules is not None:
+                return
             raise ValueError(
                 "Place QADModifier after a weight quantization modifier, such as "
                 "QuantizationModifier (RTN) or GPTQModifier, in the same recipe"
             )
+        self._found_quantized_modules = True
         # TODO add distributed support for QAD calibration
         if is_distributed() and torch.distributed.get_world_size() > 1:
             raise ValueError("QAD currently supports single-process calibration")
         seq_target_patterns = infer_sequential_targets(
-            state.model, kwargs.get("sequential_targets")
+            context.model,
+            sequential_targets=context.initialization_kwargs.get("sequential_targets"),
         )
-        self._seq_target_names = {
-            module: name or type(module).__name__
-            for name, module in match_named_modules(state.model, seq_target_patterns)
-            if _modules_to_quantize(module.modules())
-        }
-        return True
+        self._seq_target_names.update(
+            {
+                module: name or type(module).__name__
+                for name, module in match_named_modules_in_scope(
+                    context.model, seq_target_patterns, modules=context.modules
+                )
+                if _modules_to_quantize(module.modules())
+            }
+        )
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules")
+        module_scope = None if modules is None else set(modules)
         for seq_target in self._seq_target_names:
+            if module_scope is not None and seq_target not in module_scope:
+                continue
+            if seq_target in self._hooked_targets:
+                continue
             self.register_hook(
                 seq_target,
                 partial(self._input_capture_hook, state=state),
@@ -171,6 +205,7 @@ class QADModifier(Modifier):
             self.register_hook(
                 seq_target, self._output_capture_hook, "forward", with_kwargs=True
             )
+            self._hooked_targets.add(seq_target)
 
     def _input_capture_hook(self, module, args, kwargs, *, state):
         if module not in self._input_caches:
@@ -525,6 +560,11 @@ class QADModifier(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         try:
+            if not self._found_quantized_modules:
+                raise ValueError(
+                    "Place QADModifier after a weight quantization modifier, such as "
+                    "QuantizationModifier (RTN) or GPTQModifier, in the same recipe"
+                )
             if len(self._distilled) != len(self._seq_target_names):
                 raise ValueError(
                     "QAD did not optimize every target; use the sequential pipeline "

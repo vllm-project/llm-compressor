@@ -6,6 +6,7 @@ from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
+from llmcompressor.core.initialization import PipelineInitializationPlan
 from llmcompressor.modifiers import Modifier
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        initialization_plan: PipelineInitializationPlan | None = None,
     ):
         raise NotImplementedError()
 

@@ -2,7 +2,7 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.core import State
+from llmcompressor.core import PipelineInitializationPlan, State
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
 from tests.testing_utils import get_accelerator_type, requires_gpu
@@ -51,7 +51,9 @@ def test_quantization_with_automatic_untie():
         baseline_output = model(**input_data)
 
     # Initialize and start calibration (should automatically untie if needed)
-    modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
@@ -100,7 +102,9 @@ def test_quantization_untie_only_when_targeted():
     with torch.no_grad():
         baseline_output = model(**input_data)
 
-    modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
@@ -150,7 +154,9 @@ def test_spinquant_with_tied_embeddings(rotations):
     with torch.no_grad():
         baseline_output = model(**input_data)
 
-    spinquant_modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([spinquant_modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
     spinquant_modifier.on_calibration_start(state, None)
 
     # Verify embeddings were untied by SpinQuant
@@ -208,7 +214,9 @@ def test_quip_with_tied_embeddings(rotations):
     )
 
     # Initialize QuIP
-    quip_modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([quip_modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
 
     # Embeddings should still be tied after initialization
     assert (
@@ -263,7 +271,9 @@ def test_quip_untie_only_when_targeted(rotations):
     )
 
     # Initialize and start QuIP
-    quip_modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([quip_modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
     quip_modifier.on_calibration_start(state, None)
 
     # Verify embeddings are still tied (since lm_head was ignored)

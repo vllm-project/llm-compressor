@@ -8,12 +8,18 @@ from compressed_tensors.transform import (
     apply_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, match_named_modules
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
 from llmcompressor.utils import (
+    get_embeddings,
     get_high_precision,
     targets_embeddings,
     untie_word_embeddings,
@@ -38,7 +44,7 @@ class QuIPModifier(Modifier):
 
     Lifecycle:
 
-    - on_initialize
+    - pipeline initialization
         - as needed, create transform schemes for V (input) and U (output)
     - on_calibration_start
         - apply TransformConfig
@@ -86,6 +92,10 @@ class QuIPModifier(Modifier):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
+    _applied_transform_modules: set[torch.nn.Module] = PrivateAttr(
+        default_factory=set
+    )
+    _embeddings_untied: bool = PrivateAttr(default=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -99,27 +109,53 @@ class QuIPModifier(Modifier):
             value = [v.lower() if isinstance(v, str) else v for v in value]
         return value
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
         if self.transform_config is None:
             self.transform_config = self._create_config()
 
-        return True
-
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
+        modules = kwargs.get("modules")
+        targets = self._get_targets(model, modules)
 
         # Untie embeddings if they will be targeted by transforms
-        if targets_embeddings(model, self._get_targets(model)):
+        input_embed, output_embed = get_embeddings(model)
+        targets_embedding = any(
+            module is input_embed or module is output_embed
+            for _, module in targets
+        )
+        if (
+            not self._embeddings_untied
+            and targets_embedding
+            and targets_embeddings(model, targets)
+        ):
             untie_word_embeddings(model)
+            self._embeddings_untied = True
 
-        apply_transform_config(model, self.transform_config)
+        new_modules = [
+            module
+            for _, module in targets
+            if module not in self._applied_transform_modules
+        ]
+        if new_modules:
+            apply_transform_config(model, self.transform_config, modules=new_modules)
+            self._applied_transform_modules.update(new_modules)
 
-    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+    def _get_targets(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ) -> NamedModules:
         return [
             (name, module)
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
-            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+            for name, module in match_named_modules(
+                model, arg.targets, arg.ignore, modules=modules
+            )
         ]
 
     def _create_config(self) -> TransformConfig:

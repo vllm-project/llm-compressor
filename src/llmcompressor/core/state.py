@@ -5,12 +5,17 @@ Provides classes for holding and updating the state information
 related to data, hardware, and model compression.
 """
 
+from __future__ import annotations
+
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from loguru import logger
+
+if TYPE_CHECKING:
+    from llmcompressor.core.initialization import PipelineInitializationPlan
 
 __all__ = ["State", "Data", "Hardware", "ModifiedState"]
 
@@ -221,14 +226,24 @@ class ModifiedState:
     :param modifier_data: The modifier data used to modify the
         model, optimizer, and loss
     :type modifier_data: Optional[List[Dict[str, Any]]]
+    :param initialization_plan: Deferred initialization functions contributed by
+        modifiers during session initialization, if any.
     """
 
     model: Any | None = None
     optimizer: Any | None = None
     loss: Any | None = None
     modifier_data: list[dict[str, Any]] | None = None
+    initialization_plan: PipelineInitializationPlan | None = None
 
-    def __init__(self, model, optimizer, loss, modifier_data):
+    def __init__(
+        self,
+        model,
+        optimizer,
+        loss,
+        modifier_data,
+        initialization_plan: PipelineInitializationPlan | None = None,
+    ):
         """
         Initialize the ModifiedState with the given parameters.
 
@@ -246,3 +261,4 @@ class ModifiedState:
         self.optimizer = optimizer
         self.loss = loss
         self.modifier_data = modifier_data
+        self.initialization_plan = initialization_plan

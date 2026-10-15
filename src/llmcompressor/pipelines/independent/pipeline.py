@@ -6,6 +6,7 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import active_session
+from llmcompressor.core.initialization import PipelineInitializationPlan
 from llmcompressor.pipelines.registry import CalibrationPipeline
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ class IndependentPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        initialization_plan: PipelineInitializationPlan | None = None,
     ):
         """
         Data pipeline where each modifier is assigned its own calibration epoch and data
@@ -33,6 +35,8 @@ class IndependentPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="IndependentPipeline"))
 
         session = active_session()
+        plan = initialization_plan or session.lifecycle.initialization_plan
+        plan.initialize(state=session.state, model=model, pipeline="independent")
         modifiers = session.lifecycle.recipe.modifiers
         with patch_attr(session.lifecycle.recipe, "modifiers", None):
             for modifier in modifiers:
@@ -42,6 +46,11 @@ class IndependentPipeline(CalibrationPipeline):
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                pipeline(model, dataloader, dataset_args)
+                pipeline(
+                    model,
+                    dataloader,
+                    dataset_args,
+                    initialization_plan=PipelineInitializationPlan(),
+                )
 
                 # restore modifiers on exit so model can be compressed based on recipe

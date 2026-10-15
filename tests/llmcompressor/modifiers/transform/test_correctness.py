@@ -2,7 +2,7 @@ import pytest
 import torch
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.core import State
+from llmcompressor.core import PipelineInitializationPlan, State
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
 from tests.testing_utils import requires_gpu
 
@@ -38,7 +38,9 @@ def test_apply_correctness(
     with torch.no_grad():
         true_output = model(**input)
 
-    modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():

@@ -11,7 +11,13 @@ from pydantic import ValidationError
 from transformers import LlamaConfig, LlamaForCausalLM
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
-from llmcompressor.core import Event, EventType, State, create_session
+from llmcompressor.core import (
+    Event,
+    EventType,
+    PipelineInitializationPlan,
+    State,
+    create_session,
+)
 from llmcompressor.entrypoints.oneshot import Oneshot
 from llmcompressor.modifiers import ModifierFactory
 from llmcompressor.modifiers.gptq import GPTQModifier
@@ -101,6 +107,16 @@ def _quantizer(kind, scheme="NVFP4A16"):
     )
 
 
+def _initialize_modifiers(state, modifiers, **kwargs):
+    plan = PipelineInitializationPlan.from_modifiers(modifiers, state, **kwargs)
+    plan.initialize(
+        state,
+        state.model,
+        pipeline=kwargs.get("pipeline", "sequential"),
+    )
+    return plan
+
+
 def _prepare(kind="rtn", dtype=torch.float32, model_class=BranchModel, **qad_kwargs):
     torch.manual_seed(17)
     model = model_class().to(dtype)
@@ -115,8 +131,7 @@ def _prepare(kind="rtn", dtype=torch.float32, model_class=BranchModel, **qad_kwa
     state = State(model=model)
     quant = _quantizer(kind)
     qad = QADModifier(**qad_kwargs)
-    quant.on_initialize(state)
-    qad.on_initialize(state)
+    _initialize_modifiers(state, [quant, qad], pipeline="sequential")
     start = Event(type_=EventType.CALIBRATION_START)
     quant.on_calibration_start(state, start)
     qad.on_calibration_start(state, start)
@@ -402,7 +417,8 @@ def test_validation_split():
 
 def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
     with pytest.raises(ValueError, match="after a weight quantization"):
-        QADModifier().on_initialize(State(model=BranchModel()))
+        state = State(model=BranchModel())
+        _initialize_modifiers(state, [QADModifier()], pipeline="sequential")
     with pytest.raises(ValidationError):
         QADModifier(teacher_mode="full")
 
@@ -412,7 +428,7 @@ def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
 )
 def test_qad_requires_single_process_calibration(distributed, world_size):
     state = State(model=BranchModel())
-    _quantizer("rtn").on_initialize(state)
+    quantizer = _quantizer("rtn")
     qad = QADModifier()
     with (
         patch(
@@ -422,9 +438,9 @@ def test_qad_requires_single_process_calibration(distributed, world_size):
     ):
         if world_size == 2:
             with pytest.raises(ValueError, match="single-process calibration"):
-                qad.on_initialize(state)
+                _initialize_modifiers(state, [quantizer, qad], pipeline="sequential")
         else:
-            assert qad.on_initialize(state)
+            _initialize_modifiers(state, [quantizer, qad], pipeline="sequential")
     if not distributed:
         get_size.assert_not_called()
 

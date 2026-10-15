@@ -8,7 +8,11 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
-from llmcompressor.core import active_session
+from llmcompressor.core import (
+    ModuleScopedInitializationFunction,
+    PipelineInitializationPlan,
+    active_session,
+)
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 
 # known signal and noise for predictable SQNR
@@ -41,6 +45,7 @@ class FakeSubgraph:
 
     input_names: set[str]
     consumed_names: set[str]
+    modules: dict[str, torch.nn.Module] = field(default_factory=dict)
     _call_count: int = field(default=0, repr=False)
 
     def forward(self, model, **kwargs):
@@ -49,10 +54,10 @@ class FakeSubgraph:
         return {"h": h, "decoy": DECOY, "note": "not a tensor"}
 
     def submodules(self, model):
-        return []
+        return list(self.modules.values())
 
     def submodule_dict(self, model, recurse=True):
-        return {}
+        return self.modules
 
 
 def _sqnr_values(messages):
@@ -179,3 +184,59 @@ def test_disabled_propagate_false(
     )
 
     assert _sqnr_values(messages) == []
+
+
+@pytest.mark.parametrize(
+    "lazy_initialization,requires_eager_initialization",
+    [(True, False), (False, False), (True, True)],
+)
+def test_initialization_plan_uses_pipeline_scope(
+    monkeypatch, lazy_initialization, requires_eager_initialization
+):
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 4))
+    model.persistent = torch.nn.Linear(4, 4)
+    subgraphs = [
+        FakeSubgraph(input_names={"h"}, consumed_names=set(), modules={"0": model[0]}),
+        FakeSubgraph(input_names={"h"}, consumed_names=set(), modules={"1": model[1]}),
+    ]
+    monkeypatch.setattr(
+        f"{_PIPELINE}.infer_sequential_targets", lambda *_args, **_kwargs: ["Linear"]
+    )
+    monkeypatch.setattr(
+        f"{_PIPELINE}.trace_subgraphs", lambda *_args, **_kwargs: subgraphs
+    )
+
+    scopes = []
+    plan = PipelineInitializationPlan(
+        [
+            ModuleScopedInitializationFunction(
+                lambda context: scopes.append(context.modules)
+            )
+        ],
+        requires_eager_initialization=requires_eager_initialization,
+    )
+    session = active_session()
+    session.reset()
+    session.initialize(model=model, start=-1)
+
+    try:
+        SequentialPipeline()(
+            model,
+            DataLoader(
+                [{"h": SIGNAL} for _ in range(NUM_BATCHES)],
+                batch_size=1,
+                collate_fn=lambda batch: batch[0],
+            ),
+            DatasetArguments(
+                lazy_initialization=lazy_initialization,
+                propagate_error=False,
+            ),
+            initialization_plan=plan,
+        )
+    finally:
+        session.finalize()
+
+    if lazy_initialization and not requires_eager_initialization:
+        assert scopes == [(model.persistent, model[0]), (model[1],)]
+    else:
+        assert scopes == [None]

@@ -41,7 +41,7 @@ class SparseGPTModifier(SparsityModifierBase):
 
     Lifecycle:
 
-    - on_initialize
+    - pipeline initialization
         - register_hook(module, calibrate_module, "forward")
     - on_sequential_batch_end
         - sparsify_weight

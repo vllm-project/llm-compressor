@@ -158,7 +158,7 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-def fuse_weight_observers(model: Module):
+def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -169,13 +169,29 @@ def fuse_weight_observers(model: Module):
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
+    :param modules: optional module scope; fused groups are linked only when every
+        member is in the scope
     """
     from llmcompressor.observers.fusion import FusionHandler
 
+    module_scope = None if modules is None else set(modules)
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
             fusion_name_group = tuple(fused_layers.keys())
             layers_to_fuse = list(fused_layers.values())
+            if module_scope is not None:
+                in_scope = [layer in module_scope for layer in layers_to_fuse]
+                if not all(in_scope):
+                    if any(
+                        in_scope and getattr(layer, "weight_observer", None) is not None
+                        for in_scope, layer in zip(in_scope, layers_to_fuse)
+                    ):
+                        raise ValueError(
+                            "A fused weight observer group spans sequential subgraphs. "
+                            "Include the fused modules in one sequential target or "
+                            "use a non-sequential pipeline."
+                        )
+                    continue
 
             only_obs = True
             only_tensor_group = True

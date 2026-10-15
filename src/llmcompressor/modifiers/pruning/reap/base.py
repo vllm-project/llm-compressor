@@ -19,7 +19,12 @@ from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 from torch import distributed as dist
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers import Modifier
@@ -81,6 +86,7 @@ class REAPPruningModifier(Modifier):
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
+    _logged_calibrate_all_experts: bool = PrivateAttr(default=False)
     _cpu_pg: Any = PrivateAttr(default=None)
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
 
@@ -100,8 +106,13 @@ class REAPPruningModifier(Modifier):
             Path(self.report_path).parent.mkdir(parents=True, exist_ok=True)
         return self
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        model = state.model
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
+        model = context.model
         self._cpu_pg = dist.new_group(backend="gloo") if is_distributed() else None
         self._moe_attrs = get_moe_attrs(model, self.ignore)
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
@@ -173,13 +184,16 @@ class REAPPruningModifier(Modifier):
                     self._n_experts_to_drop_per_group * self._moe_attrs.n_group
                 )
 
-        return True
-
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
+        modules = kwargs.get("modules")
+        module_scope = None if modules is None else set(modules)
 
         # Info if moe_calibrate_all_experts is enabled, which is not necessary for REAP
-        if get_calibrate_all_experts_flag():
+        if (
+            get_calibrate_all_experts_flag()
+            and not self._logged_calibrate_all_experts
+        ):
             logger.info(
                 "REAP: moe_calibrate_all_experts is enabled, which is not necessary"
                 " for REAP. You can disable it explicity by setting "
@@ -187,9 +201,14 @@ class REAPPruningModifier(Modifier):
                 "result in faster and/or more memory-efficient calibration, "
                 "depending on your model and hardware."
             )
+            self._logged_calibrate_all_experts = True
 
         for layer_name in self._moe_attrs.moe_layer_names:
             module = model.get_submodule(layer_name)
+            if module_scope is not None and module not in module_scope:
+                continue
+            if layer_name in self._saliency_trackers:
+                continue
 
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(
                 self._moe_attrs.num_experts

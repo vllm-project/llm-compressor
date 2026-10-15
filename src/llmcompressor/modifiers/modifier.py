@@ -1,9 +1,11 @@
-from abc import abstractmethod
-
 import torch
 from pydantic import ConfigDict
 
 from llmcompressor.core.events import Event, EventType
+from llmcompressor.core.initialization import (
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+)
 from llmcompressor.core.state import State
 from llmcompressor.modifiers.interface import ModifierInterface
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -20,7 +22,9 @@ class Modifier(ModifierInterface, HooksMixin):
     Lifecycle:
     1. initialize
     2. on_event ->
-        * on_calibration_start if event.type_ == EventType.CALIBRATION_START
+        * on_calibration_start if event.type_ == EventType.CALIBRATION_START; this
+          event may be emitted once per sequential subgraph with ``modules`` scoped
+          to that subgraph
         * on_start if self.start <= event.current_index
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
@@ -55,6 +59,11 @@ class Modifier(ModifierInterface, HooksMixin):
     ended_: bool = False
 
     @property
+    def requires_eager_initialization(self) -> bool:
+        """Whether initialization requires the model to be resident as a whole."""
+        return False
+
+    @property
     def initialized(self) -> bool:
         """
         :return: True if the modifier has been initialized
@@ -70,7 +79,9 @@ class Modifier(ModifierInterface, HooksMixin):
 
     def initialize(self, state: State, **kwargs):
         """
-        Initialize the modifier for the given model and state.
+        Mark the modifier initialized. Model-specific setup is deferred to the
+        initialization functions consumed by the selected pipeline; extra arguments
+        are forwarded to those functions by the lifecycle.
 
         :raises RuntimeError: if the modifier has already been finalized
         :param state: The current state of the model
@@ -86,13 +97,45 @@ class Modifier(ModifierInterface, HooksMixin):
                 "Cannot initialize a modifier that has already been finalized"
             )
 
-        self.initialized_ = self.on_initialize(state=state, **kwargs)
+        self.initialized_ = True
 
-        # trigger starts
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        """Return model-wide initialization functions for the selected pipeline.
+
+        These functions run once; subclasses should reserve them for model-wide
+        metadata or setup that does not need to be repeated per subgraph.
+        """
+        return []
+
+    def get_module_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        """Return initialization functions to run once per pipeline module scope."""
+        return []
+
+    def start_pipeline(self, context: PipelineInitializationContext) -> None:
+        """Run the initial start event after pipeline-owned setup is complete."""
         fake_start_event = Event(type_=EventType.BATCH_START, global_step=0)
-        if self.should_start(fake_start_event):
-            self.on_start(state, fake_start_event, **kwargs)
-            self.started_ = True
+        if not self.should_start(fake_start_event):
+            return
+
+        if context.modules is None:
+            if self.started_:
+                return
+            kwargs = context.initialization_kwargs
+        else:
+            kwargs = {
+                **context.initialization_kwargs,
+                "modules": list(context.modules),
+            }
+        self.on_start(
+            context.state,
+            fake_start_event,
+            **kwargs,
+        )
+        self.started_ = True
 
     def finalize(self, state: State, **kwargs):
         """
@@ -195,21 +238,6 @@ class Modifier(ModifierInterface, HooksMixin):
 
         return self.end is not None and current >= self.end
 
-    ## Required events ##
-
-    @abstractmethod
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        on_initialize is called on modifier initialization and
-        must be implemented by the inheriting modifier.
-
-        :param state: The current state of the model
-        :param kwargs: Additional arguments for initializing the modifier
-        :return: True if the modifier was initialized successfully,
-            False otherwise
-        """
-        raise NotImplementedError()
-
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         on_finalize is called on modifier finalization and
@@ -272,11 +300,14 @@ class Modifier(ModifierInterface, HooksMixin):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
-        on_calibration_start is called at the start of a calibration epoch.
+        on_calibration_start is called before calibration forwards. Sequential
+        pipelines call it once per subgraph and pass the subgraph's modules; other
+        pipelines call it once for the full model.
 
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch start
-        :param kwargs: Additional arguments for the calibration epoch start
+        :param kwargs: Additional arguments for calibration setup, including an
+            optional ``modules`` scope
         """
         pass
 

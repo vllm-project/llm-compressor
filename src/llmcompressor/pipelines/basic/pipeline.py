@@ -8,6 +8,7 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.core.initialization import PipelineInitializationPlan
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
@@ -26,6 +27,7 @@ class BasicPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: Union["DatasetArguments", None],
+        initialization_plan: PipelineInitializationPlan | None = None,
     ):
         """
         Run a basic data pipeline.
@@ -40,6 +42,8 @@ class BasicPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         session = active_session()
+        plan = initialization_plan or session.lifecycle.initialization_plan
+        plan.initialize(state=session.state, model=model, pipeline="basic")
         model_device = get_execution_device(model)
         if model_device == torch.device("cpu"):
             logger.warning(

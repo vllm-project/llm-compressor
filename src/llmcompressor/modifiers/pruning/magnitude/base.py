@@ -3,7 +3,14 @@ from typing import Any
 
 from pydantic import field_validator
 
-from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
+from llmcompressor.core import (
+    Event,
+    EventType,
+    ModelParameterizedLayer,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.pruning.helpers import (
     PruningCreateSettings,
@@ -48,7 +55,18 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             )
         return False
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return []
+
+    def get_module_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
+        kwargs = context.initialization_kwargs
         if self.apply_globally:
             raise NotImplementedError("global pruning not implemented yet for PyTorch")
 
@@ -57,37 +75,40 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
         if "use_hooks" in kwargs:
             self._use_hooks = kwargs["use_hooks"]
 
-        if not state.model:
-            return False
+        if context.model is None:
+            raise ValueError("MagnitudePruningModifier requires a model")
 
-        self.scheduler_function_ = PruningSchedulerFactory.create_scheduler(
-            self.update_scheduler,
-            PruningCreateSettings(
-                self.start,
-                self.end,
-                self.update,
-                self.init_sparsity,
-                self.final_sparsity,
-                self.scheduler_args,
-            ),
-        )
-        self.mask_creator_function_ = PruningMaskFactory.create_mask_creator(
-            self.mask_structure
-        )
+        if self.scheduler_function_ is None:
+            self.scheduler_function_ = PruningSchedulerFactory.create_scheduler(
+                self.update_scheduler,
+                PruningCreateSettings(
+                    self.start,
+                    self.end,
+                    self.update,
+                    self.init_sparsity,
+                    self.final_sparsity,
+                    self.scheduler_args,
+                ),
+            )
+        if self.mask_creator_function_ is None:
+            self.mask_creator_function_ = PruningMaskFactory.create_mask_creator(
+                self.mask_structure
+            )
 
-        self.parameterized_layers_ = build_parameterized_layers(
-            state.model, self.targets
-        )
-
-        for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
+        if self.parameterized_layers_ is None:
+            self.parameterized_layers_ = {}
+        for layer_param_name, parameterized_layer in build_parameterized_layers(
+            context.model, self.targets, modules=context.modules
+        ).items():
+            if layer_param_name in self.parameterized_layers_:
+                continue
+            self.parameterized_layers_[layer_param_name] = parameterized_layer
             self.add_mask(
                 layer_param_name,
                 parameterized_layer,
                 persistent=self._save_masks,
                 add_hooks=self._use_hooks,
             )
-
-        return True
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         for layer_param_name, _ in self.parameterized_layers_.items():
@@ -99,7 +120,14 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
         sparsity = self.scheduler_function_(event, state)
         self.current_sparsity_ = sparsity
 
+        module_scope = kwargs.get("modules")
+        module_scope = None if module_scope is None else set(module_scope)
         for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
+            if (
+                module_scope is not None
+                and parameterized_layer.layer not in module_scope
+            ):
+                continue
             mask = self.mask_creator_function_(
                 PruningMaskCreatorArgs(
                     parameter=parameterized_layer.param,

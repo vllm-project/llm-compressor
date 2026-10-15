@@ -22,7 +22,12 @@ from loguru import logger
 from pydantic import PrivateAttr, StrictInt, field_validator
 from torch import distributed as dist
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import quantize_weight
 from llmcompressor.modifiers.gptq.helpers import (
@@ -41,6 +46,7 @@ from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
+from llmcompressor.utils.pytorch.module import match_named_modules_in_scope
 
 __all__ = ["GPTQModifier"]
 
@@ -78,7 +84,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - on_initialize
+    - pipeline initialization
         - apply config to model
     - on_calibration_start
         - add activation calibration hooks
@@ -140,6 +146,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
     )
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
+    _gptq_hooked_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+    _found_weight_targets: bool = PrivateAttr(default=False)
 
     @field_validator("batched_quantization")
     @classmethod
@@ -184,49 +192,67 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         return config
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        Initialize and run the GPTQ algorithm on the current state
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_target_names]
 
-        :param state: session state storing input model and calibration data
-        """
-        # apply config to model and prepare calibration hooks
+    def get_module_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            QuantizationMixin.initialize_quantization(
+                self, context.model, modules=context.modules
+            )
 
-        # prepare module names
+    def initialize_target_names(self, context: PipelineInitializationContext) -> None:
         self._module_names = {
-            m: name
-            for name, m in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
+            module: name
+            for name, module in match_named_modules(
+                context.model, self.resolved_targets, self.ignore
             )
         }
 
-        return True
-
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules")
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
+        QuantizationMixin.start_calibration(self, state.model, modules=modules)
+
+        has_weight_targets = any(
+            getattr_chain(module, "quantization_scheme.weights", None) is not None
+            and not isinstance(module, torch.nn.Embedding)
+            for _, module in match_named_modules_in_scope(
+                state.model,
+                self.resolved_targets,
+                self.ignore,
+                modules=modules,
+            )
+        )
+        self._found_weight_targets |= has_weight_targets
+        if not has_weight_targets and modules is None:
+            raise ValueError(
+                "GPTQModifier was unable to find any modules to quantize. Please "
+                "check quantization `config_groups` and `targets` in recipe"
+            )
 
         # register gptq hooks
-        added_hook = False
-        for _, module in match_named_modules(
-            state.model, self.resolved_targets, self.ignore
+        for _, module in match_named_modules_in_scope(
+            state.model, self.resolved_targets, self.ignore, modules=modules
         ):
             if getattr_chain(module, "quantization_scheme.weights", None) is not None:
                 # HACK: previously, embeddings were not quantized because they were not
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
-                if not isinstance(module, torch.nn.Embedding):
+                if (
+                    not isinstance(module, torch.nn.Embedding)
+                    and module not in self._gptq_hooked_modules
+                ):
                     self.register_hook(module, self.calibrate_module, "forward")
-                    added_hook = True
-
-        if not added_hook:
-            raise ValueError(
-                "GPTQModifier was unable to find any modules to quantize. Please "
-                "check quantization `config_groups` and `targets` in recipe"
-            )
+                    self._gptq_hooked_modules.add(module)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -241,8 +267,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove gptq hooks
+        try:
+            if not self._found_weight_targets:
+                raise ValueError(
+                    "GPTQModifier was unable to find any modules to quantize. Please "
+                    "check quantization `config_groups` and `targets` in recipe"
+                )
+        finally:
+            QuantizationMixin.end_calibration(self, state.model)
+            self.remove_hooks()  # remove gptq hooks
+            self._gptq_hooked_modules.clear()
 
     def calibrate_module(
         self,

@@ -11,6 +11,7 @@ from typing import Any
 from loguru import logger
 
 from llmcompressor.core.events import Event, EventType
+from llmcompressor.core.initialization import PipelineInitializationPlan
 from llmcompressor.core.state import State
 from llmcompressor.recipe import Recipe, RecipeArgsInput, RecipeInput, RecipeStageInput
 
@@ -32,6 +33,9 @@ class CompressionLifecycle:
 
     state: State = field(default_factory=State)
     recipe: Recipe = field(default_factory=Recipe)
+    initialization_plan: PipelineInitializationPlan = field(
+        default_factory=PipelineInitializationPlan
+    )
 
     initialized_: bool = False
     finalized: bool = False
@@ -105,6 +109,10 @@ class CompressionLifecycle:
             logger.debug("Initialized modifier: {}", mod)
             if data is not None:
                 mod_data.append(data)
+
+        self.initialization_plan = PipelineInitializationPlan.from_modifiers(
+            self.recipe.modifiers, self.state, **kwargs
+        )
 
         self.initialized_ = True
         logger.info(

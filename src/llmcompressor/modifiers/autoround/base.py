@@ -23,7 +23,13 @@ from loguru import logger
 from pydantic import PrivateAttr
 from torch.utils._pytree import tree_map
 
-from llmcompressor.core import Event, State, active_session
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+    active_session,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.autoround.utils import (
     fix_attention_mask,
@@ -31,9 +37,17 @@ from llmcompressor.modifiers.autoround.utils import (
 )
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.utils import targets_embeddings, untie_word_embeddings
+from llmcompressor.utils import (
+    get_embeddings,
+    targets_embeddings,
+    untie_word_embeddings,
+)
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.pytorch import infer_sequential_targets
+from llmcompressor.utils.pytorch.module import (
+    match_named_modules_in_scope,
+    named_modules_in_scope,
+)
 
 __all__ = ["AutoRoundModifier", "fix_batch_if_needed"]
 
@@ -132,7 +146,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - on_initialize
+    - pipeline initialization
         - apply config to model
     - on_calibration_start
         - add input capture hooks to decoding layers
@@ -181,13 +195,34 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
     _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _sequential_targets: str | list[str] = PrivateAttr(default_factory=list)
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_model]
+
+    def get_module_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_model(self, context: PipelineInitializationContext) -> None:
+        self._sequential_targets = infer_sequential_targets(
+            context.model,
+            sequential_targets=context.initialization_kwargs.get("sequential_targets"),
+        )
+        logger.info(
+            "AutoRound: set propagate_error=False in dataset_args to reuse "
+            "SequentialPipeline cached activations as FP16 reference output, "
+            "skipping collect_reference and its CPU RAM allocation."
+        )
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
         """
         Initialize the model state for quantization and calibration.
-
-        :param state: session state storing input model and calibration data
         """
+        model = context.model
         # apply config to model and prepare calibration hooks.
         # Wrap in disable_onloading to suppress DistributedCPUCache's
         # per-param broadcast+barrier when creating quant params (scale,
@@ -199,40 +234,44 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             from compressed_tensors.offload import disable_onloading
 
             with disable_onloading():
-                QuantizationMixin.initialize_quantization(self, state.model)
+                QuantizationMixin.initialize_quantization(
+                    self, model, modules=context.modules
+                )
 
         # prepare module names
-        self._add_temporary_names(state.model)
-        # freeze all model parameters
-        for _, param in state.model.named_parameters():
-            param.requires_grad_(False)
+        self._add_temporary_names(model, modules=context.modules)
+        # Freeze parameters as their layers are initialized.
+        modules = model.modules() if context.modules is None else context.modules
+        for module in modules:
+            for param in module.parameters(recurse=False):
+                param.requires_grad_(False)
 
-        self._sequential_targets = infer_sequential_targets(
-            state.model, sequential_targets=kwargs.get("sequential_targets")
-        )
-
-        logger.info(
-            "AutoRound: set propagate_error=False in dataset_args to reuse "
-            "SequentialPipeline cached activations as FP16 reference output, "
-            "skipping collect_reference and its CPU RAM allocation."
-        )
-        return True
-
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
         """
         Register activation calibration hooks and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.targets, self.ignore)
-        if targets_embeddings(model, targets):
+        targets = match_named_modules_in_scope(
+            model, self.targets, self.ignore, modules=modules
+        )
+        input_embed, output_embed = get_embeddings(model)
+        if any(
+            module is input_embed or module is output_embed for _, module in targets
+        ) and targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in targets:
             # skip register observers for auto-round
             apply_calibration_status(module)
 
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+        if modules is None:
+            model.apply(enable_quantization)
+        else:
+            for module in modules:
+                enable_quantization(module)
 
     def input_capture_hook(self, module, args, kwargs):
         name = module._tmp_name
@@ -249,11 +288,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules")
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        self.start_calibration(state.model)
-        for _, module in state.model.named_modules():
+        self.start_calibration(state.model, modules=modules)
+        for _, module in named_modules_in_scope(state.model, modules):
             if self._is_decoding_layer(module):
+                if module._tmp_name in self._capture_hooks:
+                    continue
                 handle = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
@@ -516,8 +558,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     setattr(model, name, module.orig_layer)
         return model
 
-    def _add_temporary_names(self, model: torch.nn.Module):
-        for name, mod in model.named_modules():
+    def _add_temporary_names(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | tuple[torch.nn.Module, ...] | None = None,
+    ):
+        for name, mod in named_modules_in_scope(model, modules):
             mod._tmp_name = name
 
     def _remove_temporary_names(self, model: torch.nn.Module):

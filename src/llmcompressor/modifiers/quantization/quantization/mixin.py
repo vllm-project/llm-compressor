@@ -47,10 +47,12 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
+    get_embeddings,
     targets_embeddings,
     untie_word_embeddings,
     warn_inference_mode_forwards,
 )
+from llmcompressor.utils.pytorch.module import match_named_modules_in_scope
 
 __all__ = ["QuantizationMixin"]
 
@@ -62,7 +64,7 @@ class QuantizationMixin(HooksMixin):
 
     Lifecycle:
 
-    - on_initialize: QuantizationMixin.initialize_quantization
+    - pipeline initialization: QuantizationMixin.initialize_quantization
         - Attach schemes to modules
         - Attach observers to modules
         - Disable quantization until calibration starts/finishes
@@ -142,6 +144,10 @@ class QuantizationMixin(HooksMixin):
     bypass_divisibility_checks: bool = False
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
+    _calibration_started_modules: set[torch.nn.Module] = PrivateAttr(
+        default_factory=set
+    )
+    _warned_inference_mode_forwards: bool = PrivateAttr(default=False)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
@@ -221,7 +227,11 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def initialize_quantization(self, model: torch.nn.Module):
+    def initialize_quantization(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
@@ -229,36 +239,60 @@ class QuantizationMixin(HooksMixin):
         :param model: model to attach schemes and observers to
         """
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in match_named_modules_in_scope(
+            model, self.resolved_targets, self.ignore, modules=modules
+        ):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        apply_quantization_config(model, self.resolved_config, modules=modules)
 
         if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
+            validate_group_size_divisibility(
+                model, self.resolved_targets, self.ignore, modules=modules
+            )
 
         # disable quantization until calibration
-        model.apply(disable_quantization)
+        if modules is None:
+            model.apply(disable_quantization)
+        else:
+            for module in modules:
+                disable_quantization(module)
 
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
         """
         Attach observers, register activation calibration hooks (including
         kv_cache quantization) and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.resolved_targets, self.ignore)
-        if targets_embeddings(model, targets):
+        targets = match_named_modules_in_scope(
+            model, self.resolved_targets, self.ignore, modules=modules
+        )
+        targets = [
+            (name, module)
+            for name, module in targets
+            if module not in self._calibration_started_modules
+        ]
+        input_embed, output_embed = get_embeddings(model)
+        targets_embedding = any(
+            module is input_embed or module is output_embed for _, module in targets
+        )
+        if targets_embedding and targets_embeddings(model, targets):
             untie_word_embeddings(model)
-        warn_inference_mode_forwards(model)
+        if not self._warned_inference_mode_forwards:
+            warn_inference_mode_forwards(model)
+            self._warned_inference_mode_forwards = True
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in targets:
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
+            self._calibration_started_modules.add(module)
 
         # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
-        fuse_weight_observers(model)
+        fuse_weight_observers(model, modules=modules)
 
     def end_calibration(self, model: torch.nn.Module):
         """
@@ -299,6 +333,8 @@ class QuantizationMixin(HooksMixin):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
+        self._calibration_started_modules.clear()
+        self._warned_inference_mode_forwards = False
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """

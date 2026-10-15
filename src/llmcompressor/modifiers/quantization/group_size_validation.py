@@ -59,6 +59,7 @@ def get_layers_indivisible_by_group_size(
     model: torch.nn.Module,
     resolved_targets: set[str],
     ignore: list[str],
+    modules: list[torch.nn.Module] | None = None,
 ) -> list[tuple[str, int, int]]:
     """
     Find targeted layers whose weight columns are not divisible by group_size.
@@ -79,7 +80,9 @@ def get_layers_indivisible_by_group_size(
     """
     with disable_onloading():
         indivisible: list[tuple[str, int, int]] = []
-        for name, module in match_named_modules(model, resolved_targets, ignore):
+        for name, module in match_named_modules(
+            model, resolved_targets, ignore, modules=modules
+        ):
             scheme: QuantizationScheme | None = getattr(
                 module, "quantization_scheme", None
             )
@@ -98,6 +101,7 @@ def validate_group_size_divisibility(
     ignore: list[str],
     *,
     bypass: bool = False,
+    modules: list[torch.nn.Module] | None = None,
 ) -> None:
     """
     Ensure targeted group/tensor_group layers have columns divisible by group_size.
@@ -107,7 +111,9 @@ def validate_group_size_divisibility(
     """
     if bypass:
         return
-    indivisible = get_layers_indivisible_by_group_size(model, resolved_targets, ignore)
+    indivisible = get_layers_indivisible_by_group_size(
+        model, resolved_targets, ignore, modules=modules
+    )
     if not indivisible:
         return
     lines = [

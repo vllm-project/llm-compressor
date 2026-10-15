@@ -119,6 +119,13 @@ def test_fuse_weight_observers_kimi_g_proj():
         assert not parent.o_proj.weight_observer.fusion_handler.is_fused
 
 
+def test_fuse_weight_observers_rejects_a_split_scoped_group():
+    model = _module_with("q_proj", "k_proj", "v_proj")
+
+    with pytest.raises(ValueError, match="spans sequential subgraphs"):
+        fuse_weight_observers(model, modules=[model.q_proj])
+
+
 def test_fuse_weight_observers_nested_layer():
     """transformers nests Kimi delta attention f_a_proj under forget_gate"""
     model = _module_with("q_proj", "k_proj", "v_proj", "b_proj")

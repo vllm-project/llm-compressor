@@ -116,7 +116,8 @@ class CompressionSession:
         :param batches_per_step: the number of batches per step to use for
             compression
         :param kwargs: additional kwargs to pass to the lifecycle's initialize method
-        :return: the modified state of the session after initializing
+        :return: the modified state and any pipeline-owned initialization functions
+            collected while initializing
         """
         mod_data = self._lifecycle.initialize(
             recipe=recipe,
@@ -142,6 +143,7 @@ class CompressionSession:
             optimizer=self.state.optimizer,
             loss=self.state.loss,
             modifier_data=mod_data,
+            initialization_plan=self.lifecycle.initialization_plan,
         )
 
     def finalize(self, **kwargs) -> ModifiedState:

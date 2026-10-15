@@ -11,15 +11,25 @@ from compressed_tensors.transform import (
     apply_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, get_head_dim
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
 from torch.utils._pytree import tree_leaves
 from transformers import PreTrainedModel
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import get_high_precision, untie_word_embeddings
+from llmcompressor.utils import (
+    get_embeddings,
+    get_high_precision,
+    targets_embeddings,
+    untie_word_embeddings,
+)
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -49,7 +59,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     Lifecycle:
 
-    - on_initialize
+    - pipeline initialization
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
     - on_calibration_start
@@ -109,6 +119,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
+    _applied_transform_modules: set[torch.nn.Module] = PrivateAttr(
+        default_factory=set
+    )
+    _centered_embeddings: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+    _fused_norm_groups: set[tuple[int, ...]] = PrivateAttr(default_factory=set)
+    _embeddings_untied: bool = PrivateAttr(default=False)
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -122,13 +138,18 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             return tuple(v.upper() for v in value)
         return value
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        if self.transform_config is not None:
-            return True
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
 
-        self.mappings = infer_mapping_from_model(state.model)
-        self.norm_mappings = infer_norm_mapping_from_model(state.model)
-        head_dim = get_head_dim(state.model.config)
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
+        if self.transform_config is not None:
+            return
+
+        self.mappings = infer_mapping_from_model(context.model)
+        self.norm_mappings = infer_norm_mapping_from_model(context.model)
+        head_dim = get_head_dim(context.model.config)
 
         config_groups = {}
         if SpinquantRotation.R1 in self.rotations:
@@ -145,43 +166,90 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self.transform_config = TransformConfig(config_groups=config_groups)
 
-        return True
-
     @torch.no_grad()
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
+        modules = kwargs.get("modules")
+        targets = self._get_targets(model, modules)
 
         # untie embeddings to avoid unintended effects of `_center_embeddings`
-        untie_word_embeddings(model)
+        input_embed, output_embed = get_embeddings(model)
+        targets_embedding = any(
+            module is input_embed or module is output_embed
+            for _, module in targets
+        )
+        if (
+            not self._embeddings_untied
+            and targets_embedding
+            and targets_embeddings(model, targets)
+        ):
+            untie_word_embeddings(model)
+            self._embeddings_untied = True
 
         # needs to happen after the model has been hooked to execute on the GPU
         # otherwise we're applying weight transforms on CPU
-        self._center_embeddings(model)
-        self._fuse_norms(model)
-        apply_transform_config(model, self.transform_config)
+        self._center_embeddings(model, modules)
+        self._fuse_norms(model, modules)
+        new_modules = [
+            module
+            for _, module in targets
+            if module not in self._applied_transform_modules
+        ]
+        if new_modules:
+            apply_transform_config(model, self.transform_config, modules=new_modules)
+            self._applied_transform_modules.update(new_modules)
 
-    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+    def _get_targets(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ) -> NamedModules:
         return [
             (name, module)
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
-            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+            for name, module in match_named_modules(
+                model, arg.targets, arg.ignore, modules=modules
+            )
         ]
 
-    def _center_embeddings(self, model: PreTrainedModel):
+    def _center_embeddings(
+        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
+    ):
         for _, embedding in match_named_modules(
-            model, [self.mappings.embedding], warn_on_fail=True
+            model,
+            [self.mappings.embedding],
+            warn_on_fail=modules is None,
+            modules=modules,
         ):
-            center_embeddings(embedding)
+            if embedding not in self._centered_embeddings:
+                center_embeddings(embedding)
+                self._centered_embeddings.add(embedding)
 
-    def _fuse_norms(self, model: PreTrainedModel):
+    def _fuse_norms(
+        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
+    ):
+        module_scope = None if modules is None else set(modules)
         for mapping in self.norm_mappings:
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
             ):
                 # match_modules_set returns a list of lists
                 assert len(norm) == 1
-                fuse_norm_linears(norm[0], tree_leaves(linears))
+                group = [*norm, *tree_leaves(linears)]
+                if module_scope is not None:
+                    overlaps_scope = bool(set(group) & module_scope)
+                    if overlaps_scope and not set(group).issubset(module_scope):
+                        raise ValueError(
+                            "SpinQuant norm mappings must be contained in one "
+                            "sequential subgraph when calibration starts lazily. "
+                            "Increase sequential_targets granularity or use a "
+                            "non-sequential pipeline."
+                        )
+                    if not set(group).issubset(module_scope):
+                        continue
+                key = tuple(id(module) for module in group)
+                if key not in self._fused_norm_groups:
+                    fuse_norm_linears(norm[0], tree_leaves(linears))
+                    self._fused_norm_groups.add(key)
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(

@@ -32,7 +32,7 @@ def test_sequential_epoch_end_only_observes_passed_modules():
         initialize_observer(layer, "weight")
     modifier = QuantizationModifier(targets="Linear", scheme="FP8")
     state = State(model=model)
-    modifier.on_initialize(state)
+    modifier.initialize(state)
     modifier.on_calibration_start(state, None)
 
     # Wrap update_statistics_from_observed to track which observers are called
@@ -70,11 +70,12 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
             layer, QuantizationScheme(targets=[], input_activations=act_args)
         )
         initialize_observer(layer, "input")
-        layer.input_observer(layer.weight)  # Trigger observer to have statistics
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     state = State(model=model)
-    modifier.on_initialize(state)
+    modifier.initialize(state)
     modifier.on_calibration_start(state, None)
+    for layer in model:
+        layer.input_observer(layer.weight)  # Trigger observer to have statistics
 
     # Patch get_qparams and sync_activation_stats to track calls
     with patch.object(
@@ -143,7 +144,7 @@ def test_nested_parent_modules_produce_valid_global_scale():
 
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
     state = State(model=model)
-    modifier.on_initialize(state)
+    modifier.initialize(state)
     modifier.on_calibration_start(state, None)
 
     for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):

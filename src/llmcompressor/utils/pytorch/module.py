@@ -16,6 +16,8 @@ from llmcompressor.core import ModelParameterizedLayer
 __all__ = [
     "expand_special_targets",
     "build_parameterized_layers",
+    "named_modules_in_scope",
+    "match_named_modules_in_scope",
     "qat_active",
     "get_no_split_params",
     "infer_sequential_targets",
@@ -24,6 +26,33 @@ __all__ = [
 ALL_TARGET = "__ALL__"
 ALL_PRUNABLE_TARGET = "__ALL_PRUNABLE__"
 ALL_QUANTIZABLE_TARGET = "__ALL_QUANTIZABLE__"
+
+
+def named_modules_in_scope(
+    model: Module, modules: list[Module] | None = None
+) -> list[tuple[str, Module]]:
+    """Return named modules in ``modules``, preserving their model-qualified names."""
+    module_ids = None if modules is None else {id(module) for module in modules}
+    return [
+        (name, module)
+        for name, module in model.named_modules()
+        if module_ids is None or id(module) in module_ids
+    ]
+
+
+def match_named_modules_in_scope(
+    model: Module,
+    targets: str | list[str] | None,
+    ignore: str | list[str] | None = None,
+    modules: list[Module] | None = None,
+) -> list[tuple[str, Module]]:
+    """Match modules by their model-qualified names, optionally within a scope."""
+    module_ids = None if modules is None else {id(module) for module in modules}
+    return [
+        (name, module)
+        for name, module in match_named_modules(model, targets, ignore)
+        if module_ids is None or id(module) in module_ids
+    ]
 
 
 def expand_special_targets(targets: str | list[str]) -> list[str]:
@@ -74,6 +103,7 @@ def build_parameterized_layers(
     model: Module,
     targets: str | list[str],
     param_name: str = "weight",
+    modules: list[Module] | tuple[Module, ...] | None = None,
 ) -> dict[str, ModelParameterizedLayer]:
     """
     Build ModelParameterizedLayer objects for modules matching the given targets.
@@ -93,7 +123,7 @@ def build_parameterized_layers(
     targets = expand_special_targets(targets)
 
     parameterized_layers = {}
-    for layer_name, module in match_named_modules(model, targets):
+    for layer_name, module in match_named_modules(model, targets, modules=modules):
         # Get the parameter from the module
         param = getattr(module, param_name, None)
         if param is None:

@@ -7,6 +7,12 @@ process.
 """
 
 from llmcompressor.core.events import Event, EventType
+from llmcompressor.core.initialization import (
+    ModuleScopedInitializationFunction,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    PipelineInitializationPlan,
+)
 from llmcompressor.core.lifecycle import CompressionLifecycle
 from llmcompressor.core.model_layer import ModelParameterizedLayer
 from llmcompressor.core.session import CompressionSession
@@ -22,6 +28,10 @@ from llmcompressor.core.state import Data, Hardware, ModifiedState, State
 __all__ = [
     "Event",
     "EventType",
+    "ModuleScopedInitializationFunction",
+    "PipelineInitializationContext",
+    "PipelineInitializationFunction",
+    "PipelineInitializationPlan",
     "State",
     "Data",
     "Hardware",

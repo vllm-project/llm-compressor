@@ -10,7 +10,12 @@ from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -44,6 +49,11 @@ class SparsityModifierBase(Modifier):
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _target_layers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
     _module_sparsities: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+
+    @property
+    def requires_eager_initialization(self) -> bool:
+        """OWL estimates sparsity with a forward pass through the full model."""
+        return self.sparsity_profile == "owl"
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -102,20 +112,24 @@ class SparsityModifierBase(Modifier):
     def compress_modules(self):
         raise NotImplementedError()
 
-    def on_initialize(self, state: "State", **kwargs) -> bool:
-        """
-        Initialize and run the SparseGPT algorithm on the current state
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
 
-        :param state: session state storing input model and calibration data
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
         """
-        model: torch.nn.Module = state.model
-        dataloader: torch.utils.data.DataLoader = state.data.calib
+        Prepare SparseGPT target layers and per-layer sparsities.
+        """
+        model: torch.nn.Module = context.model
+        dataloader: torch.utils.data.DataLoader = context.state.data.calib
 
         # infer module and sequential targets
         # Note: only pass sequential_targets from kwargs, not the full kwargs dict
         # which may contain 'model' and cause duplicate argument errors
         self._sequential_targets = infer_sequential_targets(
-            model, sequential_targets=kwargs.get("sequential_targets")
+            model,
+            sequential_targets=context.initialization_kwargs.get("sequential_targets"),
         )
         layers = dict(match_named_modules(model, self._sequential_targets))
         self._target_layers = dict(
@@ -139,10 +153,10 @@ class SparsityModifierBase(Modifier):
                 f"sparsities values, but model has {len(layers)} target layers"
             )
 
-        return True
-
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register hooks
+        modules = kwargs.get("modules")
+        module_scope = None if modules is None else set(modules)
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
             match self.sparsity:
                 case list():
@@ -152,6 +166,9 @@ class SparsityModifierBase(Modifier):
 
             for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
                 name = f"{layer_name}.{name}"
+
+                if module_scope is not None and module not in module_scope:
+                    continue
 
                 if match_targets(name, module, self.ignore):
                     continue
@@ -169,6 +186,8 @@ class SparsityModifierBase(Modifier):
                         "your ignore list if this was unintentional"
                     )
 
+                if module in self._module_names:
+                    continue
                 self._module_names[module] = name
                 self._module_sparsities[module] = layer_sparsity
                 self.register_hook(module, self.calibrate_module, "forward")

@@ -26,7 +26,13 @@ from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 from tqdm import tqdm
 
-from llmcompressor.core import Event, State, active_session
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+    active_session,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
     observe,
@@ -90,8 +96,8 @@ class AWQModifier(Modifier):
 
     Lifecycle:
 
-    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
-    - on_initialize
+    - quantization config applied by the quantization modifier's pipeline initializer
+    - pipeline initialization
         - set unresolved mappings if not set by user, based on model architecture
     - on_calibration_start
         - resolve mappings
@@ -162,26 +168,31 @@ class AWQModifier(Modifier):
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
+    _mappings_resolved: bool = PrivateAttr(default=False)
+    _hooked_mappings: set[tuple[str, tuple[str, ...]]] = PrivateAttr(
+        default_factory=set
+    )
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
         """
-        Start AWQ on the given state. This runs before quantization config has been
-        applied
+        Prepare AWQ mappings and offload defaults before calibration.
 
         - infer unresolved mappings based on model architecture, if not set manually
-
-        :param state: state to run AWQ on
-        :return: True on a successful run, False otherwise
         """
 
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
-            self.mappings = get_layer_mappings_from_model(state.model)
+            self.mappings = get_layer_mappings_from_model(context.model)
 
         # Set default offload_device
         if self.offload_device == Sentinel("not_provided"):
             # Check if we have a MoE model
-            if is_moe_model(state.model):
+            if is_moe_model(context.model):
                 self.offload_device = torch.device("cpu")
                 logger.info(
                     "MoE model detected: setting offload_device to 'cpu' by default "
@@ -193,25 +204,29 @@ class AWQModifier(Modifier):
                 # (no offloading by default)
                 self.offload_device = None
 
-        return True
-
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
-        Start AWQ on the given state. This runs after quantization mixin has been
-        initialized (i.e. after quantization config has been applied)
+        Start AWQ calibration after pipeline initialization has applied quantization
+        configuration.
 
         - resolve mappings
         - validate mappings and quant scheme
         - setup activation cache hooks
 
-        :param state: state to run AWQ on
-        :return: True on a successful run, False otherwise
+        :param state: session state
         """
 
-        self._set_resolved_mappings(state.model)
+        first_start = not self._mappings_resolved
+        if first_start:
+            self._set_resolved_mappings(state.model)
+            self._mappings_resolved = True
 
         # Check for unsupported token masking with MoE up_proj -> down_proj mappings
-        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
+        if (
+            first_start
+            and state.loss_masks is not None
+            and self._has_moe_up_down_proj_mapping()
+        ):
             raise ValueError(
                 "Token masking (use_loss_mask=True) is not supported with "
                 "up_proj -> down_proj mappings in MoE models. The MoE routing "
@@ -222,7 +237,7 @@ class AWQModifier(Modifier):
             )
 
         # Validate that duo_scaling is only used with per-channel quantization
-        if self.duo_scaling is not False:
+        if first_start and self.duo_scaling is not False:
 
             def _validate_balance_layer(name, module):
                 if (
@@ -244,7 +259,36 @@ class AWQModifier(Modifier):
                 ):
                     _validate_balance_layer(balance_name, balance_layer)
 
-        self._setup_activation_cache_hooks()
+        modules = kwargs.get("modules")
+        module_scope = None if modules is None else set(modules)
+        mappings_to_hook = []
+        for mapping in self._resolved_mappings:
+            mapping_modules = {
+                mapping.parent,
+                mapping.smooth_layer,
+                *mapping.balance_layers,
+            }
+            if mapping.activation_hook_target is not None:
+                mapping_modules.add(mapping.activation_hook_target)
+
+            key = (mapping.smooth_name, tuple(mapping.balance_names))
+            if module_scope is not None:
+                overlaps_scope = bool(mapping_modules & module_scope)
+                if overlaps_scope and not mapping_modules.issubset(module_scope):
+                    raise ValueError(
+                        "AWQ mappings must be contained in one sequential subgraph "
+                        "when calibration starts lazily. Increase "
+                        "sequential_targets granularity or use a non-sequential "
+                        "pipeline."
+                    )
+                if not mapping_modules.issubset(module_scope):
+                    continue
+
+            if key not in self._hooked_mappings:
+                mappings_to_hook.append(mapping)
+                self._hooked_mappings.add(key)
+
+        self._setup_activation_cache_hooks(mappings_to_hook)
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         self._apply_smoothing(state.model)
@@ -386,7 +430,9 @@ class AWQModifier(Modifier):
         self._resolved_mappings = resolved_mappings
         return
 
-    def _setup_activation_cache_hooks(self) -> None:
+    def _setup_activation_cache_hooks(
+        self, mappings: list[ResolvedMapping] | None = None
+    ) -> None:
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -449,7 +495,7 @@ class AWQModifier(Modifier):
 
             return cache_smooth_activations_hook
 
-        for mapping in self._resolved_mappings:
+        for mapping in self._resolved_mappings if mappings is None else mappings:
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
             if mapping.parent not in self._parent_args_cache:

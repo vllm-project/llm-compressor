@@ -262,7 +262,7 @@ class Oneshot:
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
 
-            session.initialize(
+            initialized_state = session.initialize(
                 model=self.model,
                 start=-1,
                 recipe=self.recipe,
@@ -282,6 +282,7 @@ class Oneshot:
                 self.model,
                 calibration_dataloader,
                 self.dataset_args,
+                initialization_plan=initialized_state.initialization_plan,
             )
 
         session.finalize()
@@ -363,6 +364,7 @@ def oneshot(
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
     pipeline: str | None = "independent",
+    lazy_initialization: bool = True,
     use_eager_attention: bool = False,
     tracing_ignore: list[str] = [
         "_update_causal_mask",
@@ -462,6 +464,9 @@ def oneshot(
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
         ['basic', 'datafree', 'sequential', 'independent']
+    :param lazy_initialization: Initialize modifiers one sequential subgraph at a
+        time immediately before calibration. Defaults to True. Modifiers that require
+        whole-model initialization use eager initialization instead.
     :param use_eager_attention: Whether to force eager attention during tracing and
         calibration. By default, the model's configured attention implementation is
         used for both.

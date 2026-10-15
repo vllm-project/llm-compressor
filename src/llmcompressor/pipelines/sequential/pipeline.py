@@ -12,11 +12,13 @@ from compressed_tensors.offload.module import (
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
+from compressed_tensors.quantization import disable_quantization
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.core.initialization import PipelineInitializationPlan
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -82,6 +84,7 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        initialization_plan: PipelineInitializationPlan | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -116,6 +119,21 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
         session = active_session()
+        plan = initialization_plan or session.lifecycle.initialization_plan
+        lazy_initialization = (
+            getattr(dataset_args, "lazy_initialization", True)
+            and not plan.requires_eager_initialization
+        )
+        if not lazy_initialization:
+            if (
+                getattr(dataset_args, "lazy_initialization", True)
+                and plan.requires_eager_initialization
+            ):
+                logger.info(
+                    "Using eager initialization because a modifier requires the "
+                    "whole model before calibration"
+                )
+            plan.initialize(state=session.state, model=model, pipeline="sequential")
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -146,10 +164,9 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
         persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        persistent_module_list = list(persistent_modules.values())
         if persistent_modules:
             subgraph_onload_modules(persistent_modules)
-
-        LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -259,6 +276,25 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                # Persistent modules stay onloaded and can be called from every
+                # traced subgraph, so they share its initialization/calibration scope.
+                initialization_modules = list(
+                    dict.fromkeys([*persistent_module_list, *subgraph_modules.values()])
+                )
+
+                if lazy_initialization:
+                    plan.initialize(
+                        state=session.state,
+                        model=model,
+                        modules=initialization_modules,
+                        pipeline="sequential",
+                    )
+                LifecycleCallbacks.calibration_start(modules=initialization_modules)
+                # Match the original pipeline ordering: calibration setup runs before
+                # this subgraph's unquantized preliminary pass, even for modifiers
+                # such as AutoRound that enable quantization while setting up hooks.
+                for module in initialization_modules:
+                    disable_quantization(module)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(

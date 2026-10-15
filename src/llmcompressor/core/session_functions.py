@@ -144,13 +144,18 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def calibration_start(cls, **kwargs) -> ModifiedState:
+    def calibration_start(
+        cls, modules: list["Module"] | None = None, **kwargs
+    ) -> ModifiedState:
         """
-        Invoke a start event for the active session during calibration. This event
-        should be called before calibration starts for one epoch
+        Start calibration for the given module scope, or for the full model when
+        ``modules`` is None. Sequential pipelines may call this once per subgraph;
+        other pipelines call it once for the full model.
 
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
+        if modules is not None:
+            kwargs["modules"] = modules
         return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod

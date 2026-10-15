@@ -222,6 +222,14 @@ class DatasetArguments(CustomDatasetArguments):
             "Options: ['basic', 'datafree', 'sequential', independent]"
         },
     )
+    lazy_initialization: bool = field(
+        default=True,
+        metadata={
+            "help": "Initialize modifiers one sequential subgraph at a time before "
+            "calibration. This currently applies to the sequential pipeline; "
+            "modifiers that require whole-model initialization run eagerly."
+        },
+    )
     tracing_ignore: list[str] = field(
         default_factory=lambda: [
             "_update_causal_mask",

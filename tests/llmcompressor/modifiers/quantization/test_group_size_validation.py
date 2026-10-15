@@ -5,7 +5,7 @@ import types
 import pytest
 import torch
 
-from llmcompressor.core import State
+from llmcompressor.core import PipelineInitializationPlan, State
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.quantization.group_size_validation import (
     _layer_indivisible,
@@ -27,6 +27,11 @@ class _FlatModel(torch.nn.Module):
     def __init__(self, in_features: int, out_features: int):
         super().__init__()
         self.linear = torch.nn.Linear(in_features, out_features)
+
+
+def _initialize_quantization(modifier, state):
+    plan = PipelineInitializationPlan.from_modifiers([modifier], state)
+    plan.initialize(state, state.model)
 
 
 def test_get_layers_indivisible_by_group_size_empty():
@@ -103,7 +108,7 @@ def test_initialize_quantization_raises_early_for_indivisible():
     with torch.no_grad():
         try:
             with pytest.raises(ValueError) as exc_info:
-                modifier.on_initialize(state)
+                _initialize_quantization(modifier, state)
         except Exception:
             pytest.skip(
                 "no indivisible layers targeted (CT may not attach to simple models)"
@@ -128,7 +133,7 @@ def test_initialize_quantization_succeeds_when_indivisible_ignored():
     )
 
     with torch.no_grad():
-        modifier.on_initialize(state)
+        _initialize_quantization(modifier, state)
 
 
 def test_initialize_quantization_succeeds_when_bypass_divisibility_checks():
@@ -141,7 +146,7 @@ def test_initialize_quantization_succeeds_when_bypass_divisibility_checks():
     )
 
     with torch.no_grad():
-        modifier.on_initialize(state)
+        _initialize_quantization(modifier, state)
 
 
 def test_initialize_quantization_succeeds_when_all_divisible():
@@ -152,4 +157,4 @@ def test_initialize_quantization_succeeds_when_all_divisible():
     modifier = QuantizationModifier(scheme="W4A16", targets=["Linear"])
 
     with torch.no_grad():
-        modifier.on_initialize(state)
+        _initialize_quantization(modifier, state)

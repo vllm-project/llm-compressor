@@ -18,7 +18,7 @@ import torch.nn as nn
 from compressed_tensors.offload import align_module_device, set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
-from llmcompressor.core import State
+from llmcompressor.core import PipelineInitializationPlan, State
 from llmcompressor.modifiers.gptq import GPTQModifier
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -67,7 +67,9 @@ def test_gptq_distributed_global_scale_writeback():
     modifier = GPTQModifier(config_groups={"group_0": scheme}, block_size=16)
 
     state = State(model=model)
-    modifier.on_initialize(state)
+    PipelineInitializationPlan.from_modifiers([modifier], state).initialize(
+        state, model, pipeline="sequential"
+    )
     modifier.on_calibration_start(state, None)
 
     torch.manual_seed(100 + dist.get_rank())  # different calibration data per rank

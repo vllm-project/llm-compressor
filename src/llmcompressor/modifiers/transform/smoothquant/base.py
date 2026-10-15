@@ -9,11 +9,16 @@ from compressed_tensors.offload import update_offload_parameter
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, PrivateAttr
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import (
+    Event,
+    PipelineInitializationContext,
+    PipelineInitializationFunction,
+    State,
+)
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
     get_layer_mappings_from_model,
@@ -115,13 +120,16 @@ class SmoothQuantModifier(Modifier):
         default=None, repr=False
     )
     scales_: dict | None = Field(default=None, repr=False)
+    _hooked_smooth_names: set[str] = PrivateAttr(default_factory=set)
 
-    def on_initialize(self, state: State, **kwargs) -> bool:
+    def get_initialization_functions(
+        self, state: State, **kwargs
+    ) -> list[PipelineInitializationFunction]:
+        return [self.initialize_pipeline]
+
+    def initialize_pipeline(self, context: PipelineInitializationContext) -> None:
         """
-        Initialize and run SmoothQuant on the given state
-
-        :param state: state to run SmoothQuant on
-        :return: True on a successful run, False otherwise
+        Prepare SmoothQuant mappings and calibration state for the selected pipeline.
         """
         if self.end and self.end != -1:
             raise ValueError(
@@ -134,20 +142,37 @@ class SmoothQuantModifier(Modifier):
                 f"Expected start to be None or -1, got {self.end}"
             )
 
-        if not hasattr(state, "data") or state.data.calib is None:
+        if not hasattr(context.state, "data") or context.state.data.calib is None:
             raise ValueError(
                 f"{self.__class__.__name__} requires a calibration dataset to be "
                 "provided"
             )
         self.ignore = [] if not self.ignore else self.ignore
-        self.mappings = self._infer_mappings_from_model(state.model)
-        self.resolved_mappings_ = self._resolve_mappings(state.model)
+        self.mappings = self._infer_mappings_from_model(context.model)
+        self.resolved_mappings_ = self._resolve_mappings(context.model)
         self.scales_ = {}
 
-        return True
-
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._setup_scale_hooks()
+        modules = kwargs.get("modules")
+        module_scope = None if modules is None else set(modules)
+        mappings_to_hook = []
+        for mapping in self.resolved_mappings_:
+            mapping_modules = {mapping.smooth_layer, *mapping.balance_layers}
+            if module_scope is not None:
+                overlaps_scope = bool(mapping_modules & module_scope)
+                if overlaps_scope and not mapping_modules.issubset(module_scope):
+                    raise ValueError(
+                        "SmoothQuant mappings must be contained in one sequential "
+                        "subgraph when calibration starts lazily. Increase "
+                        "sequential_targets granularity or use a non-sequential "
+                        "pipeline."
+                    )
+                if not mapping_modules.issubset(module_scope):
+                    continue
+            if mapping.smooth_name not in self._hooked_smooth_names:
+                mappings_to_hook.append(mapping)
+                self._hooked_smooth_names.add(mapping.smooth_name)
+        self._setup_scale_hooks(mappings_to_hook)
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
         self._apply_smoothing(state.model)
@@ -248,7 +273,7 @@ class SmoothQuantModifier(Modifier):
 
         return resolved_mappings
 
-    def _setup_scale_hooks(self):
+    def _setup_scale_hooks(self, mappings: list[SmoothQuantMapping] | None = None):
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -279,7 +304,7 @@ class SmoothQuantModifier(Modifier):
 
             return hook_fn
 
-        for mapping in self.resolved_mappings_:
+        for mapping in self.resolved_mappings_ if mappings is None else mappings:
             name = mapping.smooth_name
             layer = mapping.smooth_layer
             self.register_hook(layer, create_hook_fn(name), "forward")
