@@ -6,7 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
+from compressed_tensors.offload import AsyncDiskWriteback, set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -57,6 +57,15 @@ def _submit_subgraph_staging(
         pin_memory=pin_memory,
     )
     return modules, future
+
+
+def _detach_async_writeback(model: torch.nn.Module, writeback: AsyncDiskWriteback):
+    """Remove a completed pipeline writer from caches retained by the model."""
+    for module in model.modules():
+        for name in ("_parameters", "_buffers"):
+            cache = getattr(module, name, None)
+            if getattr(cache, "async_writer", None) is writeback:
+                cache.async_writer = None
 
 
 def _get_batches(
@@ -203,6 +212,13 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
+            # Keep disk serialization off the calibration thread. DiskCache copies
+            # each completed tensor to CPU before queueing it, so this worker only
+            # retains stable host snapshots. Register detachment after entering the
+            # context so model caches no longer retain the closed writer on exit.
+            async_writeback = AsyncDiskWriteback()
+            stack.enter_context(async_writeback)
+            stack.callback(_detach_async_writeback, model, async_writeback)
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -336,10 +352,18 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(
+                    subgraph_modules,
+                    offload_kwargs,
+                    async_writer=async_writeback,
+                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
+
+            # Finalization may read/update disk-backed parameters directly, so
+            # ensure the last subgraph's atomic writes are published first.
+            async_writeback.flush()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
