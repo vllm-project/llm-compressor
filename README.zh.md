@@ -134,7 +134,7 @@ pip install llmcompressor
 * [激活值量化至 `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
 * [激活值量化至 `fp4` (MXFP4)](examples/quantization_w4a4_mxfp4)
 * [使用 AutoRound 进行 `fp4` 激活值量化](examples/autoround/quantization_w4a4_fp4/README.md)
-* [激活值量化至 `fp8` 且权重截断至 `int4`](examples/quantization_w4a8_fp8)
+* [激活值量化至 fp8 且权重量化至 int4](examples/quantization_w4a8_fp8)
 
 ### 纯权重量化 (Weight Only Quantization)
 * [纯权重导出为 `fp4`（NVFP4 格式）](examples/quantization_w4a16_fp4/nvfp4)
