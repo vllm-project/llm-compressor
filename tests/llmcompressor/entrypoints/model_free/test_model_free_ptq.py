@@ -272,8 +272,8 @@ def _assert_qconfig_equal(a_path: str, b_path: str):
         # TODO: remove this pop after
         # https://github.com/vllm-project/compressed-tensors/pull/489 lands and
         # src/llmcompressor/entrypoints/weights_ptq/helpers.py:34 is removed
-        a_scheme["weights"].pop("observer")
-        b_scheme["weights"].pop("observer")
+        a_scheme["weights"].pop("observer", None)
+        b_scheme["weights"].pop("observer", None)
 
         assert a_scheme == b_scheme
 
