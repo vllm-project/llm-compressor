@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors.offload import AsyncDiskWriteback
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -42,6 +43,15 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
+
+
+def _detach_async_writeback(model: torch.nn.Module, writeback: AsyncDiskWriteback):
+    """Remove a completed pipeline writer from caches retained by the model."""
+    for module in model.modules():
+        for name in ("_parameters", "_buffers"):
+            cache = getattr(module, name, None)
+            if getattr(cache, "async_writer", None) is writeback:
+                cache.async_writer = None
 
 
 def _get_batches(
@@ -201,6 +211,13 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
+            # Keep disk serialization off the calibration thread. DiskCache copies
+            # each completed tensor to CPU before queueing it, so this worker only
+            # retains stable host snapshots. Register detachment after entering the
+            # context so model caches no longer retain the closed writer on exit.
+            async_writeback = AsyncDiskWriteback()
+            stack.enter_context(async_writeback)
+            stack.callback(_detach_async_writeback, model, async_writeback)
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -334,7 +351,9 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(subgraph_modules)
 
                 restructure_handler.restore_restructured_modules(subgraph_modules)
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(
+                    subgraph_modules, offload_kwargs, async_writer=async_writeback
+                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
@@ -342,7 +361,10 @@ class SequentialPipeline(CalibrationPipeline):
             # Restore temporary conversions that weren't part of a traced subgraph,
             # such as persistent modules.
             restructure_handler.restore_restructured_modules(persistent_modules)
-            subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
+            subgraph_offload_modules(
+                persistent_modules, persistent_offload_kwargs, async_writer=async_writeback
+            )
+            async_writeback.flush()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

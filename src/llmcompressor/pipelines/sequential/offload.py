@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -141,6 +142,7 @@ def subgraph_offload_modules(
     modules: dict[str, Module],
     offload_kwargs: dict[str, dict],
     default: dict | None = None,
+    async_writer=None,
 ) -> None:
     """Offload exactly the supplied modules using saved or inherited settings.
 
@@ -154,11 +156,18 @@ def subgraph_offload_modules(
             offload_name = offload_name.rpartition(".")[0]
 
         if offload_name in offload_kwargs:
-            return offload_kwargs[offload_name]
-        module_kwargs = get_cache_init_kwargs(module)
-        if default is not None:
-            module_kwargs.update(default)
+            module_kwargs = offload_kwargs[offload_name].copy()
+        else:
+            module_kwargs = get_cache_init_kwargs(module)
+            if default is not None:
+                module_kwargs.update(default)
+        if async_writer is not None and str(module_kwargs.get("offload_device")) == "disk":
+            module_kwargs["async_writer"] = async_writer
         return module_kwargs
 
-    for name, module in modules.items():
-        offload_module(module, **get_offload_kwargs(name, module))
+    batch_context = (
+        async_writer.batch() if async_writer is not None else contextlib.nullcontext()
+    )
+    with batch_context:
+        for name, module in modules.items():
+            offload_module(module, **get_offload_kwargs(name, module))
