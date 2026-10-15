@@ -121,7 +121,7 @@ def _mtp_weights(
     return mtp_weights, patterns
 
 
-def has_mtp(model: PreTrainedModel) -> bool:
+def has_mtp_in_checkpoint(model: PreTrainedModel) -> bool:
     """Whether the model config declares MTP layers."""
     text_config = model.config.get_text_config()
     return any(
@@ -137,7 +137,7 @@ def has_mtp(model: PreTrainedModel) -> bool:
 def validate_mtp_copy_source(
     model: PreTrainedModel,
 ) -> tuple[dict[str, tuple[str, str | None]], list[str]] | None:
-    if not has_mtp(model):
+    if not has_mtp_in_checkpoint(model):
         return None
 
     weights, patterns = _mtp_weights(model)
@@ -174,7 +174,7 @@ def load_with_mtp_model(
     @wraps(original_from_pretrained)
     def from_pretrained(cls, *args, **kwargs):
         model = original_from_pretrained(*args, **kwargs)
-        if hasattr(model, "mtp"):
+        if hasattr(model, "mtp") or not has_mtp_in_checkpoint(model):
             return model
         if not _mtp_patterns(model):
             raise ValueError(

@@ -41,7 +41,10 @@ from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.recipe import Recipe
-from llmcompressor.transformers.compression.mtp import has_mtp, validate_mtp_copy_source
+from llmcompressor.transformers.compression.mtp import (
+    has_mtp_in_checkpoint,
+    validate_mtp_copy_source,
+)
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
@@ -295,7 +298,7 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        if has_mtp(model) and not hasattr(model, "mtp"):
+        if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
             validate_mtp_copy_source(model)
             logger.warning(
                 "MTP layers are not loaded for quantization and will be copied "

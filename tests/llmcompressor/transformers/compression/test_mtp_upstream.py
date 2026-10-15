@@ -10,12 +10,15 @@ from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from loguru import logger
 from safetensors.torch import load_file, save_file
 from transformers import (
+    AutoModelForCausalLM,
     DeepseekV3ForCausalLM,
     Glm4MoeForCausalLM,
     Glm4MoeLiteForCausalLM,
     GlmMoeDsaForCausalLM,
     InklingForCausalLM,
     InklingTextConfig,
+    LlamaConfig,
+    LlamaForCausalLM,
     PretrainedConfig,
 )
 
@@ -75,9 +78,28 @@ def _source_model(tmp_path, with_mtp=True, load_mtp=False):
     model.name_or_path = str(source)
     model._weight_conversions = []
     if load_mtp:
-        with load_context(InklingForCausalLM, load_mtp=True):
+        with load_context(InklingForCausalLM):
             return InklingForCausalLM.from_pretrained(source, local_files_only=True)
     return model
+
+
+def test_load_context_without_mtp(tmp_path):
+    source = LlamaForCausalLM(
+        LlamaConfig(
+            vocab_size=128,
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+        )
+    )
+    source.save_pretrained(tmp_path)
+    with load_context():
+        model = AutoModelForCausalLM.from_pretrained(tmp_path, local_files_only=True)
+
+    assert not hasattr(model, "mtp")
+    torch.testing.assert_close(model.state_dict(), source.state_dict())
 
 
 def test_mtp_quantizes_with_backbone_using_upstream_model(tmp_path):
@@ -474,7 +496,7 @@ def test_load_context_supports_normal_save_before_oneshot(tmp_path, model_cls):
     with (
         patch("huggingface_hub.constants.HF_HUB_OFFLINE", True),
         patch("transformers.utils.hub.is_offline_mode", return_value=True),
-        load_context(model_cls, load_mtp=True),
+        load_context(model_cls),
     ):
         model = model_cls.from_pretrained(source.name_or_path, local_files_only=True)
     destination = tmp_path / "destination"
@@ -504,6 +526,7 @@ def test_mtp_disk_offload_matches_cpu_save(tmp_path, load_mtp):
                 local_files_only=True,
                 **kwargs,
             )
+        assert hasattr(model, "mtp") == load_mtp
         if device_map == "auto_offload":
             assert any(
                 name.startswith("model.layers.") and offload == "disk"

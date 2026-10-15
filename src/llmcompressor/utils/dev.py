@@ -36,7 +36,7 @@ __all__ = [
 def load_context(
     model_cls: Type[PreTrainedModel] = AutoModelForCausalLM,
     *,
-    load_mtp: bool = False,
+    load_mtp: bool = True,
 ):
     """
     Context manager for loading HuggingFace models with both offloading and
@@ -48,7 +48,8 @@ def load_context(
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     :param load_mtp: Load Transformers-supported MTP layers before MoE conversion
-        and distributed offloading. MTP calibration is not yet supported.
+        and distributed offloading. Defaults to True. MTP calibration is not yet
+        supported.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
     from llmcompressor.transformers.compression.mtp import (

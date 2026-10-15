@@ -22,7 +22,7 @@ from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.compression.mtp import (
-    has_mtp,
+    has_mtp_in_checkpoint,
     save_mtp_tensors,
     validate_mtp_copy_source,
 )
@@ -138,7 +138,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             kwargs.setdefault("max_shard_size", "20GB")
 
             source_mtp = None
-            if has_mtp(model) and not hasattr(model, "mtp"):
+            if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
                 source_mtp = validate_mtp_copy_source(model)
 
             # without this, quantization format will be inferred from the model
