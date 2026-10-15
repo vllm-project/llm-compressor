@@ -51,6 +51,8 @@ def _write_checkpoint(
     with_bias=False,
     hash_layers=0,
     vocab=10,
+    n_group=None,
+    topk_group=None,
 ):
     """Write a tiny synthetic MoE checkpoint (config.json + model.safetensors).
 
@@ -59,7 +61,8 @@ def _write_checkpoint(
 
     ``with_bias`` adds a per-expert ``gate.bias`` (filled with the expert index).
     ``hash_layers`` makes the first N layers carry a ``gate.tid2eid`` expert-index
-    table of shape ``[vocab, num_experts_per_tok]``."""
+    table of shape ``[vocab, num_experts_per_tok]``.
+    ``n_group`` / ``topk_group`` declare group-limited routing in config.json."""
     tensors = {}
     for layer in range(n_layers):
         prefix = f"model.layers.{layer}.mlp"
@@ -95,6 +98,10 @@ def _write_checkpoint(
     experts_cfg = {num_experts_key: n_experts}
     if num_experts_per_tok is not None:
         experts_cfg["num_experts_per_tok"] = num_experts_per_tok
+    if n_group is not None:
+        experts_cfg["n_group"] = n_group
+    if topk_group is not None:
+        experts_cfg["topk_group"] = topk_group
     config = {"text_config": experts_cfg} if text_config else experts_cfg
     (dirpath / "config.json").write_text(json.dumps(config))
 
@@ -165,6 +172,27 @@ def test_compute_retained_experts():
 def test_compute_retained_experts_keeps_at_least_one():
     scores = {"l0": torch.tensor([1.0, 3.0, 2.0])}
     assert _compute_retained_experts(scores, sparsity=1.0) == {"l0": [1]}
+
+
+def test_compute_retained_experts_grouped_keeps_groups_balanced():
+    # two groups of 2 ([0, 1] and [2, 3]); the globally highest scores are both
+    # in group 0, but each group must keep its own highest-scoring experts
+    scores = {"l0": torch.tensor([4.0, 3.0, 2.0, 1.0])}
+    retained = _compute_retained_experts(scores, sparsity=0.5, n_group=2)
+    assert retained == {"l0": [0, 2]}
+
+
+def test_compute_retained_experts_grouped_rejects_indivisible_count():
+    scores = {"l0": torch.arange(7, dtype=torch.float64)}
+    with pytest.raises(ValueError, match="divisible"):
+        _compute_retained_experts(scores, sparsity=0.25, n_group=2)
+
+
+def test_compute_retained_experts_grouped_rejects_empty_group_drop():
+    # 8 experts in 8 groups: any nonzero drop rounds to 0 per group
+    scores = {"l0": torch.arange(8, dtype=torch.float64)}
+    with pytest.raises(ValueError, match="per group"):
+        _compute_retained_experts(scores, sparsity=0.25, n_group=8)
 
 
 def test_compute_retained_experts_nonuniform_global_budget():
@@ -622,6 +650,122 @@ def test_nonuniform_convert_checkpoint(tmp_path, layout):
             assert all(out[n].shape[0] == count for n in expert_names)
         else:
             assert {extract_expert_index(n) for n in expert_names} == set(range(count))
+
+
+# ---------------------------------------------------------------------------
+# Group-limited routers (e.g. DeepSeek-V3 n_group / topk_group)
+# ---------------------------------------------------------------------------
+
+
+def test_nonuniform_rejects_grouped_router(tmp_path):
+    # group-limited routers must keep their groups balanced, so experts cannot
+    # be redistributed across layers (config read from text_config)
+    _write_checkpoint(
+        tmp_path, n_layers=3, n_experts=8, n_group=2, topk_group=1, text_config=True
+    )
+    report = tmp_path / "r.json"
+    _skewed_report(report, 3, 8, low_layer=1)
+    with pytest.raises(ValueError, match="group-limited"):
+        _pruner(
+            tmp_path,
+            sparsity=0.25,
+            metric="saliency",
+            uniform=False,
+            saliency_report_path=report,
+        )
+
+
+def test_nonuniform_allows_inactive_grouping(tmp_path):
+    # n_group=1 (as on GLM / Kimi configs) declares inactive grouping and must
+    # not trigger the group-limited rejection
+    _write_checkpoint(tmp_path, n_layers=3, n_experts=8, n_group=1, topk_group=1)
+    report = tmp_path / "r.json"
+    _skewed_report(report, 3, 8, low_layer=1)
+
+    pruner = _pruner(
+        tmp_path,
+        sparsity=0.25,
+        metric="saliency",
+        uniform=False,
+        saliency_report_path=report,
+    )
+    assert [len(v) for v in pruner.retained_experts.values()] == [8, 2, 8]
+
+
+def test_grouped_requires_topk_group(tmp_path):
+    _write_checkpoint(tmp_path, n_layers=1, n_experts=8, n_group=2)
+    report = tmp_path / "r.json"
+    _descending_report(report, 1, 8)
+    with pytest.raises(ValueError, match="topk_group"):
+        _pruner(tmp_path, sparsity=0.25, metric="saliency", saliency_report_path=report)
+
+
+def test_uniform_grouped_prunes_evenly_per_group(tmp_path):
+    # two groups of 4 (experts 0-3 and 4-7); saliency is globally descending,
+    # so without group awareness the retained experts would all come from
+    # group 0
+    _write_checkpoint(tmp_path, n_layers=1, n_experts=8, n_group=2, topk_group=1)
+    report = tmp_path / "r.json"
+    _write_report(report, [[8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]])
+
+    pruner = _pruner(
+        tmp_path, sparsity=0.5, metric="saliency", saliency_report_path=report
+    )
+    router = "model.layers.0.mlp.gate.weight"
+    # drop 4 experts -> 2 per group: the top 2 of each group
+    assert pruner.retained_experts[router] == [0, 1, 4, 5]
+
+    out = pruner.validate(_load_all(tmp_path / "model.safetensors"))
+    # experts are renumbered so the groups stay contiguous and balanced
+    # (new group 0 = experts 0, 1; new group 1 = experts 2, 3)
+    for new_idx, old_idx in enumerate([0, 1, 4, 5]):
+        name = f"model.layers.0.mlp.experts.{new_idx}.up_proj.weight"
+        assert out[name][0, 0].item() == old_idx
+    assert out[router].shape[0] == 4
+
+
+def test_grouped_rounds_drop_to_whole_groups(tmp_path):
+    # 9 experts in 3 groups: dropping round(0.25 * 9) = 2 experts would
+    # unbalance the groups, so 1 per group (3 total) is dropped instead
+    _write_checkpoint(tmp_path, n_layers=1, n_experts=9, n_group=3, topk_group=1)
+    report = tmp_path / "r.json"
+    _descending_report(report, 1, 9)
+
+    pruner = _pruner(
+        tmp_path, sparsity=0.25, metric="saliency", saliency_report_path=report
+    )
+    router = "model.layers.0.mlp.gate.weight"
+    # descending saliency: each group of 3 keeps its top 2 experts
+    assert pruner.retained_experts[router] == [0, 1, 3, 4, 6, 7]
+
+
+def test_grouped_routing_floor_accounts_for_topk_group(tmp_path):
+    # topk_group=1 of 2 groups: retaining 2 experts per group leaves only 2
+    # reachable per token, below num_experts_per_tok=3, even though 4 experts
+    # are retained in total
+    _write_checkpoint(
+        tmp_path,
+        n_layers=1,
+        n_experts=8,
+        num_experts_per_tok=3,
+        n_group=2,
+        topk_group=1,
+    )
+    report = tmp_path / "r.json"
+    _descending_report(report, 1, 8)
+    with pytest.raises(ValueError, match="routing floor"):
+        _pruner(tmp_path, sparsity=0.5, metric="saliency", saliency_report_path=report)
+
+
+def test_grouped_sparsity_zero_keeps_all_experts(tmp_path):
+    _write_checkpoint(tmp_path, n_layers=2, n_experts=8, n_group=2, topk_group=1)
+    report = tmp_path / "r.json"
+    _descending_report(report, 2, 8)
+
+    pruner = _pruner(
+        tmp_path, sparsity=0.0, metric="saliency", saliency_report_path=report
+    )
+    assert all(v == list(range(8)) for v in pruner.retained_experts.values())
 
 
 # ---------------------------------------------------------------------------

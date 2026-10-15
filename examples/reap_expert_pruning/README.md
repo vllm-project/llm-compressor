@@ -55,6 +55,12 @@ across all layers, so layers may retain different numbers of experts, and the
 per-layer counts are recorded in the checkpoint's
 `quantization_config.moe_sparsity_config`.
 
+Group-limited routers (e.g. DeepSeek-V3's `n_group`/`topk_group`) partition each
+layer's experts into groups and only route tokens to experts of the top
+`topk_group` groups, so the groups must stay balanced: `ExpertPruner` prunes
+such models uniformly, dropping the same number of experts from every group,
+and rejects `uniform=False`.
+
 ## Results
 
 The end-to-end examples in `examples/reap_expert_pruning` were used to compress two different models. 

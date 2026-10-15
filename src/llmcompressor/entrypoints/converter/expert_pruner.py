@@ -36,6 +36,12 @@ __all__ = ["ExpertPruner"]
 # metrics which are read from a saliency report written by ``REAPPruningModifier``
 REPORT_METRICS = ("saliency", "layerwise_saliency", "count")
 
+# config.json keys declaring group-limited routing (e.g. DeepSeek-V3): experts
+# are partitioned into ``n_group`` contiguous groups and only experts of the
+# top ``topk_group`` groups are routable per token
+N_GROUP_CONFIG_KEYS = ("n_group", "num_expert_group", "n_expert_groups")
+TOP_K_GROUP_CONFIG_KEYS = ("topk_group", "top_k_group", "n_limited_groups")
+
 
 class ExpertPruner(Converter):
     """
@@ -78,6 +84,15 @@ class ExpertPruner(Converter):
     raises. With ``uniform=False`` every expert in a hash layer is protected
     (never pruned), so its table stays valid and the global budget is spent on
     the remaining learned-routing layers.
+
+    Group-limited routers (declared in config.json via ``n_group`` /
+    ``topk_group``, e.g. DeepSeek-V3) partition each layer's experts into
+    contiguous groups and only route tokens to experts of the top
+    ``topk_group`` groups, so every group must retain the same number of
+    experts. Uniform pruning drops the same number of experts from every
+    group (the per-layer drop count is rounded to a whole number of experts
+    per group, like the in-memory REAP pruning path), while non-uniform
+    pruning, which would unbalance the groups, is rejected.
 
     :param router_pattern: regex matching router weight tensor names
     :param expert_pattern: regex matching expert weight tensor names
@@ -143,7 +158,9 @@ class ExpertPruner(Converter):
             ``round(sparsity * total_experts)`` lowest-scoring experts across all
             layers, never taking a layer below ``num_experts_per_tok``, and
             record the per-layer counts in the quantization config's
-            ``moe_sparsity_config``
+            ``moe_sparsity_config``. Group-limited routers (``n_group > 1``)
+            must prune uniformly, dropping the same number of experts from
+            every group, so ``uniform=False`` is rejected for them
         :param router_pattern: regex matching router weight tensor names
         :param expert_pattern: regex matching expert weight tensor names
         :param aux_pattern: regex matching per-expert router vectors (e.g.
@@ -184,6 +201,27 @@ class ExpertPruner(Converter):
 
         # detect num_experts_per_tok for routing-floor validation
         num_experts_per_tok = get_num_experts_per_tok(config_data)
+
+        # detect group-limited routing (e.g. DeepSeek-V3): experts are
+        # partitioned into ``n_group`` contiguous groups of which only the top
+        # ``topk_group`` are routable per token, so every group must retain the
+        # same number of experts
+        n_group, topk_group = _get_group_routing(config_data)
+        grouped = n_group is not None and n_group > 1
+        if grouped and not uniform:
+            raise ValueError(
+                f"non-uniform expert pruning is not supported for group-limited "
+                f"routers (config.json n_group={n_group}): every group must "
+                "retain the same number of experts, so the pruning budget "
+                "cannot be redistributed across layers. Use uniform=True, "
+                "which drops the same number of experts from every group"
+            )
+        if grouped and topk_group is None:
+            raise ValueError(
+                f"config.json declares n_group={n_group} but none of "
+                f"{TOP_K_GROUP_CONFIG_KEYS}; cannot determine how many groups "
+                "the router makes routable per token"
+            )
 
         # collect router and expert tensor names. Routers are ordered by natural
         # (numeric) layer order to match the saliency report
@@ -235,7 +273,22 @@ class ExpertPruner(Converter):
                     "pruning. Use uniform=False to prune only the learned-routing "
                     "layers while protecting the hash layers"
                 )
-            retained_experts = _compute_retained_experts(scores_by_router, sparsity)
+            if grouped:
+                # the drop count must split evenly across groups, which can
+                # round the effective count (mirrors the in-memory REAP path)
+                num_experts = next(iter(scores_by_router.values())).shape[0]
+                num_prune = round(sparsity * num_experts)
+                prune_per_group = round(num_prune / n_group)
+                if num_prune > 0 and prune_per_group * n_group != num_prune:
+                    logger.warning(
+                        f"group-limited routing requires an equal drop per "
+                        f"group; dropping {prune_per_group * n_group} of "
+                        f"{num_experts} experts instead of the requested "
+                        f"{num_prune} (n_group={n_group})"
+                    )
+            retained_experts = _compute_retained_experts(
+                scores_by_router, sparsity, n_group if grouped else None
+            )
         else:
             retained_experts = _compute_retained_experts_nonuniform(
                 scores_by_router,
@@ -245,12 +298,21 @@ class ExpertPruner(Converter):
             )
 
         if num_experts_per_tok is not None:
-            k = min(len(v) for v in retained_experts.values())
+            if grouped:
+                # only experts of the top ``topk_group`` groups are routable
+                # per token, so the floor applies to the reachable experts,
+                # not the retained count of the whole layer
+                k = min(
+                    topk_group * (len(retained) // n_group)
+                    for retained in retained_experts.values()
+                )
+            else:
+                k = min(len(v) for v in retained_experts.values())
             if k < num_experts_per_tok:
                 raise ValueError(
-                    f"sparsity={sparsity} retains {k} expert(s) per layer but "
-                    f"num_experts_per_tok={num_experts_per_tok}; cannot prune "
-                    "below the per-token routing floor"
+                    f"sparsity={sparsity} retains {k} reachable expert(s) per "
+                    f"layer but num_experts_per_tok={num_experts_per_tok}; "
+                    "cannot prune below the per-token routing floor"
                 )
 
         # non-uniform pruning records per-layer expert counts in the
@@ -492,6 +554,25 @@ def _get_num_decoder_layers(config_data: dict, minimum: int) -> int:
     return num_layers
 
 
+def _get_group_routing(config_data: dict) -> tuple[int | None, int | None]:
+    """Read group-limited routing parameters from the model config (top-level
+    or under ``text_config``), returning ``(n_group, topk_group)``. Each is
+    ``None`` when no declaring key is found; grouping is inactive when
+    ``n_group`` is absent or ``1``."""
+    text = config_data.get("text_config", {})
+    n_group = None
+    for key in N_GROUP_CONFIG_KEYS:
+        if key in config_data or key in text:
+            n_group = int(config_data.get(key, text.get(key)))
+            break
+    topk_group = None
+    for key in TOP_K_GROUP_CONFIG_KEYS:
+        if key in config_data or key in text:
+            topk_group = int(config_data.get(key, text.get(key)))
+            break
+    return n_group, topk_group
+
+
 def _detect_moe_layout(
     expert_names: list[str],
     weight_map: dict[str, str],
@@ -627,19 +708,55 @@ def _report_scores(
 def _compute_retained_experts(
     scores_by_router: dict[str, torch.Tensor],
     sparsity: float,
+    n_group: int | None = None,
 ) -> dict[str, list[int]]:
     """
     Return the retained expert indices (sorted) per router, keeping the highest
     scores. The number kept is derived per router as
     ``max(1, num_experts - round(sparsity * num_experts))``.
+
+    For group-limited routers (``n_group > 1``, e.g. DeepSeek-V3), experts are
+    partitioned into contiguous groups and only experts of the top
+    ``topk_group`` groups are routable, so every group must retain the same
+    number of experts: the drop count is split evenly across groups and the
+    highest-scoring experts are kept within each group's index range, like the
+    in-memory REAP pruning path.
     """
     retained: dict[str, list[int]] = {}
     for rname, scores in scores_by_router.items():
         num_experts = scores.shape[0]
         num_prune = round(sparsity * num_experts)
-        k = max(1, num_experts - num_prune)
-        _, top_indices = torch.topk(scores, k)
-        retained[rname] = sorted(top_indices.tolist())
+
+        if n_group is None or n_group <= 1:
+            k = max(1, num_experts - num_prune)
+            _, top_indices = torch.topk(scores, k)
+            retained[rname] = sorted(top_indices.tolist())
+            continue
+
+        if num_experts % n_group != 0:
+            raise ValueError(
+                f"{rname}: group-limited router has {num_experts} experts, "
+                f"which is not divisible by n_group={n_group}"
+            )
+        group_size = num_experts // n_group
+        # groups must stay balanced, so the drop is rounded to a whole number
+        # of experts per group
+        prune_per_group = round(num_prune / n_group)
+        if num_prune > 0 and prune_per_group == 0:
+            raise ValueError(
+                f"{rname}: sparsity={sparsity} would drop {num_prune} of "
+                f"{num_experts} experts, which rounds to 0 per group "
+                f"(n_group={n_group}); no pruning can be performed"
+            )
+        keep_per_group = max(1, group_size - prune_per_group)
+
+        kept: list[int] = []
+        for g in range(n_group):
+            lo = g * group_size
+            _, top_indices = torch.topk(scores[lo : lo + group_size], keep_per_group)
+            kept.extend(lo + i for i in sorted(top_indices.tolist()))
+        retained[rname] = kept
+
     return retained
 
 
