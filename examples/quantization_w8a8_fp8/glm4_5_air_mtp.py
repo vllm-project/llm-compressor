@@ -1,9 +1,4 @@
-"""Quantize GLM-4.5-Air and its Transformers-supported MTP layer together.
-
-For unsupported FP8 MTP layouts, see examples/model_free_ptq/mtp_fp8_fallback.py.
-"""
-
-import os
+"""Quantize GLM-4.5-Air and its MTP layer to FP8_DYNAMIC."""
 
 import torch
 from compressed_tensors.offload import init_dist, set_onload_device
@@ -13,17 +8,16 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
-MODEL_ID = os.environ.get("MTP_MODEL_ID", "zai-org/GLM-4.5-Air")
-SAVE_DIR = os.environ.get("MTP_OUTPUT_DIR", "GLM-4.5-Air-FP8-Dynamic-MTP")
-OFFLOAD_DIR = os.environ.get("MTP_OFFLOAD_DIR", "offload_folder")
+MODEL_ID = "zai-org/GLM-4.5-Air"
+SAVE_DIR = "GLM-4.5-Air-FP8-Dynamic-MTP"
 
 init_dist()
 with load_context(load_mtp=True):
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         device_map="auto_offload",
-        max_memory={"cpu": os.environ.get("MTP_CPU_MEMORY", "500GiB")},
-        offload_folder=OFFLOAD_DIR,
+        max_memory={"cpu": "500GiB"},
+        offload_folder="offload_folder",
     )
 set_onload_device(model, "cuda")
 
