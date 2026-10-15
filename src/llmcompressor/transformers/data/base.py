@@ -304,15 +304,16 @@ class TextGenerationDataset(RegistryMixin):
         prompt = data.pop(self.PROMPT_KEY, None)
 
         # tokenize
-        special_tokens = {}
+        tokenizer_kwargs = {
+            "max_length": self.max_seq_length,
+            "truncation": True,
+        }
         if self.add_special_tokens is not None:
-            special_tokens["add_special_tokens"] = self.add_special_tokens
+            tokenizer_kwargs["add_special_tokens"] = self.add_special_tokens
         data = self.processor(
             **data,
             padding=self.padding,
-            max_length=self.max_seq_length,
-            truncation=True,
-            **special_tokens,
+            **tokenizer_kwargs,
         )
 
         # strip the extra dim added by multimodal processors
@@ -325,9 +326,7 @@ class TextGenerationDataset(RegistryMixin):
         if prompt is not None:
             data[self.PROMPT_KEY] = self.processor(
                 text=prompt,
-                max_length=self.max_seq_length,
-                truncation=True,
-                **special_tokens,
+                **tokenizer_kwargs,
             )["input_ids"]
 
         return data
