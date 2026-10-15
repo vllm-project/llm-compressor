@@ -137,8 +137,7 @@ pip install llmcompressor
 * [激活值量化至 fp8 且权重量化至 int4](examples/quantization_w4a8_fp8)
 
 ### 纯权重量化 (Weight Only Quantization)
-* [纯权重导出为 `fp4`（NVFP4 格式）](examples/quantization_w4a16_fp4/nvfp4)
-* [纯权重导出为 `fp4`（MXFP4 格式）](examples/quantization_w4a16_fp4/mxfp4)
+* [纯权重量化至 fp4（NVFP4 格式）](examples/quantization_w4a16_fp4/nvfp4)\n* [纯权重量化至 fp4（MXFP4 格式）](examples/quantization_w4a16_fp4/mxfp4)
 * [使用 GPTQ 进行 `int4` 纯权重量化](examples/quantization_w4a16/README.md)
 * [使用 AWQ 进行 `int4` 纯权重量化](examples/awq/README.md)
 * [使用 AutoRound 进行纯权重量化 (`wNa16`)](examples/autoround/quantization_wNa16/README.md)
