@@ -130,34 +130,35 @@ def norm_calibration_context(model: PreTrainedModel):
 
     replaced = {}
 
-    # Step 1: Collect all offset-norm modules that need replacement
-    logger.debug("Entering norm calibration context")
-    modules_to_replace = []
-    for name, module in model.named_modules():
-        class_name = module.__class__.__name__
-        if _is_registered(class_name, NormCalibrationModule):
-            modules_to_replace.append((name, module, class_name))
-
-    # Step 2: Replace modules
-    if modules_to_replace:
-        logger.info(f"Found {len(modules_to_replace)} offset-norm modules to convert")
-        for name, module, class_name in modules_to_replace:
-            offload_kwargs = (
-                get_cache_init_kwargs(module)
-                if isinstance(module._parameters, OffloadCache)
-                else None
-            )
-            replacement = NormCalibrationModule.load_from_registry(
-                class_name,
-                original=module,
-                config=model.config,
-            )
-            model.set_submodule(name, replacement)
-            if offload_kwargs is not None:
-                offload_module(replacement, **offload_kwargs)
-            replaced[name] = (module, replacement)
-
     try:
+        # Step 1: Collect all offset-norm modules that need replacement
+        logger.debug("Entering norm calibration context")
+        modules_to_replace = []
+        for name, module in model.named_modules():
+            class_name = module.__class__.__name__
+            if _is_registered(class_name, NormCalibrationModule):
+                modules_to_replace.append((name, module, class_name))
+
+        # Step 2: Replace modules
+        if modules_to_replace:
+            logger.info(
+                f"Found {len(modules_to_replace)} offset-norm modules to convert"
+            )
+            for name, module, class_name in modules_to_replace:
+                offload_kwargs = (
+                    get_cache_init_kwargs(module)
+                    if isinstance(module._parameters, OffloadCache)
+                    else None
+                )
+                replacement = NormCalibrationModule.load_from_registry(
+                    class_name,
+                    original=module,
+                    config=model.config,
+                )
+                model.set_submodule(name, replacement)
+                replaced[name] = (module, replacement)
+                if offload_kwargs is not None:
+                    offload_module(replacement, **offload_kwargs)
         yield
     finally:
         # Step 3: Restore original modules with updated weights
@@ -174,6 +175,8 @@ def norm_calibration_context(model: PreTrainedModel):
                         model.set_submodule(name, original)
                 except Exception as unmount_exc:
                     failures.append(unmount_exc)
+            if model.get_submodule(name) is replacement:
+                continue
             try:
                 _release_offload(replacement)
             except Exception as release_exc:
