@@ -306,23 +306,16 @@ class Modifier(ModifierInterface, HooksMixin):
         pass
 
     def estimate_sequential_memory(
-        self, module: torch.nn.Module
+        self, module: torch.nn.Module, num_tokens: int
     ) -> tuple[int, int] | None:
         """
-        Estimate the device memory this modifier needs for a module while the
-        sequential pipeline calibrates the subgraph containing it. Used to choose how
-        many sequential targets to group into each subgraph when
-        `sequential_targets_per_subgraph="auto"`. Called under `disable_onloading()`
-
-        Modifiers which need calibration data may keep state that grows with the
-        number of targets per subgraph, so they report None (unknown) unless they
-        override this method. When any modifier reports None, `"auto"` falls back to
-        one target per subgraph
+        Estimate the device memory this modifier needs for a module, for
+        `sequential_targets_per_subgraph="auto"`. Modifiers which need calibration
+        data report None (unknown) unless they override this
 
         :param module: module belonging to the subgraph being calibrated
-        :return: tuple of (held, scratch) bytes, or None if unknown. `held` is kept
-            until `on_sequential_epoch_end` and adds up across the modules of a
-            subgraph. `scratch` is only needed while this module is compressed in
-            `on_sequential_epoch_end`, so only the largest one in a subgraph counts
+        :param num_tokens: number of calibration tokens, including padding
+        :return: (held, scratch) bytes, or None if unknown. Held memory is kept until
+            the subgraph is compressed, scratch only while the module is compressed
         """
         return None if self.requires_calibration_data else (0, 0)

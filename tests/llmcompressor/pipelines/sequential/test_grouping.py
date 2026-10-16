@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 import torch
@@ -7,7 +7,7 @@ import torch.fx
 from compressed_tensors.offload import offload_module
 from datasets import Dataset
 from loguru import logger
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
 
 from llmcompressor import oneshot
@@ -17,22 +17,20 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential import grouping
 from llmcompressor.pipelines.sequential.grouping import (
     ACTIVATION_BYTES,
-    SubgraphMemory,
-    count_calibration_tokens,
     estimate_activation_memory,
+    get_input_shapes,
     get_memory_budget,
     get_module_costs,
-    get_node_modules,
     get_onload_bytes,
     plan_subgraph_memory,
 )
 from llmcompressor.pipelines.sequential.helpers import (
     INVOKED_SUBMODULES_META_KEY,
     find_target_nodes,
+    get_node_modules,
     topological_partition,
 )
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
@@ -56,87 +54,56 @@ class FourLayers(torch.nn.Module):
         return self.head(x)
 
 
-class SharedModule(torch.nn.Module):
-    """Every target is followed by the same shared module"""
-
-    def __init__(self):
-        super().__init__()
-        self.layers = torch.nn.ModuleList(torch.nn.Linear(4, 4) for _ in range(4))
-        self.shared = torch.nn.Linear(4, 4)
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = self.shared(layer(x))
-        return x
-
-
-def _group_sizes(model, costs, activation_memory, budget):
-    """Partition with a memory check and count the targets in each partition"""
+def _group_sizes(module_memory: dict[str, int], max_memory: int) -> list[int]:
+    """
+    Partition FourLayers by memory, where each node costs the memory of the modules
+    it calls, and count the targets in each partition after the first
+    """
+    model = FourLayers()
     targets = set(model.layers)
     graph_module = torch.fx.symbolic_trace(model)
-    memory = SubgraphMemory(model, costs, activation_memory, budget)
-    partitions = topological_partition(graph_module, targets, is_full=memory)
+    node_memory = {
+        node: sum(module_memory.get(name, 0) for name in get_node_modules(model, node))
+        for node in graph_module.graph.nodes
+    }
+    partitions = topological_partition(
+        graph_module, targets, "auto", node_memory, max_memory
+    )
     target_nodes = find_target_nodes(graph_module, targets)
     return [len(target_nodes.intersection(p)) for p in partitions][1:]
 
 
-def _costs(**costs):
-    """Module costs as (weight, held, scratch) bytes, keyed by module name"""
-    return {name.replace("_", "."): tuple(cost) for name, cost in costs.items()}
+LAYERS = {f"layers.{index}": 10 for index in range(4)}
 
 
-LAYER_COSTS = _costs(
-    layers_0=(10, 0, 0), layers_1=(10, 0, 0), layers_2=(10, 0, 0), layers_3=(10, 0, 0)
-)
+def test_partition_by_memory_fits_all():
+    assert _group_sizes(LAYERS | {"head": 10}, max_memory=100) == [4]
 
 
-def test_subgraph_memory_fits_all():
-    costs = {**LAYER_COSTS, "head": (10, 0, 0)}
-    assert _group_sizes(FourLayers(), costs, activation_memory=5, budget=100) == [4]
+def test_partition_by_memory_splits_at_budget():
+    # three layers fit in 30; the last layer starts a new partition with the head
+    assert _group_sizes(LAYERS | {"head": 10}, max_memory=30) == [3, 1]
 
 
-def test_subgraph_memory_splits_at_budget():
-    costs = {**LAYER_COSTS, "head": (10, 0, 0)}
-    # three layers + activations = 35 fit; the last layer and the head start a group
-    assert _group_sizes(FourLayers(), costs, activation_memory=5, budget=35) == [3, 1]
+def test_partition_by_memory_cuts_before_costly_nodes_after_targets():
+    # the head does not fit with the last two layers, so it gets its own partition
+    assert _group_sizes(LAYERS | {"head": 10}, max_memory=25) == [2, 2, 0]
 
 
-def test_subgraph_memory_counts_modules_after_the_last_target():
-    costs = {**LAYER_COSTS, "head": (10, 0, 0)}
-    # the fourth layer alone would fit with the third (25), but not together with
-    # the head that runs after it (35)
-    assert _group_sizes(FourLayers(), costs, activation_memory=5, budget=30) == [
-        2,
-        1,
-        1,
-    ]
+def test_partition_by_memory_oversized_target_gets_its_own_partition():
+    assert _group_sizes(LAYERS | {"layers.1": 100}, max_memory=50) == [1, 1, 2]
 
 
-def test_subgraph_memory_counts_held_memory():
-    costs = {name: (10, 10, 0) for name in LAYER_COSTS} | {"head": (0, 0, 0)}
-    assert _group_sizes(FourLayers(), costs, activation_memory=0, budget=45) == [2, 2]
+def test_partition_by_memory_keeps_free_nodes_with_the_node_before_them():
+    # the head onloads nothing, so it stays with the oversized last layer rather
+    # than starting a partition of its own
+    assert _group_sizes(LAYERS | {"layers.3": 100}, max_memory=50) == [3, 1]
 
 
-def test_subgraph_memory_scratch_and_activations_do_not_add():
-    costs = {name: (10, 0, 8) for name in LAYER_COSTS} | {"head": (0, 0, 0)}
-    # 40 + max(10, 8) = 50 fits; 40 + 10 + 8 = 58 would not
-    assert _group_sizes(FourLayers(), costs, activation_memory=10, budget=50) == [4]
-    assert _group_sizes(FourLayers(), costs, activation_memory=10, budget=49) == [3, 1]
-
-
-def test_subgraph_memory_counts_shared_module_once():
-    costs = {**LAYER_COSTS, "shared": (20, 0, 0)}
-    # two layers + the shared module = 40 fit; counted per call it would be 60
-    assert _group_sizes(SharedModule(), costs, activation_memory=0, budget=45) == [2, 2]
-
-
-def test_subgraph_memory_oversized_target_gets_its_own_group():
-    costs = {**LAYER_COSTS, "head": (0, 0, 0), "layers.1": (100, 0, 0)}
-    assert _group_sizes(FourLayers(), costs, activation_memory=0, budget=50) == [
-        1,
-        1,
-        2,
-    ]
+def test_partition_by_memory_requires_node_memory():
+    model = FourLayers()
+    with pytest.raises(ValueError, match="node_memory"):
+        topological_partition(torch.fx.symbolic_trace(model), set(model.layers), "auto")
 
 
 def test_get_node_modules():
@@ -157,23 +124,26 @@ def test_get_node_modules():
     ]
 
 
+class _KnownModifier:
+    """Holds a byte per calibration token for every module, and 20 bytes of scratch"""
+
+    def estimate_sequential_memory(self, module, num_tokens):
+        return num_tokens, 20
+
+
+class _UnknownModifier:
+    def estimate_sequential_memory(self, module, num_tokens):
+        return None
+
+
 def test_get_module_costs_reports_unknown_modifiers():
-    class KnownModifier:
-        def estimate_sequential_memory(self, module):
-            return 10, 20
-
-    class UnknownModifier:
-        def estimate_sequential_memory(self, module):
-            return None
-
     model = FourLayers()
-    costs, unknown = get_module_costs(
-        model, {"head"}, [KnownModifier(), UnknownModifier()]
-    )
-    assert costs == {"head": (0, 10, 20)}  # not offloaded, so onloading adds nothing
-    assert unknown == {"UnknownModifier"}
+    modifiers = [_KnownModifier(), _UnknownModifier()]
+    costs, unknown = get_module_costs(model, {"head"}, modifiers, num_tokens=7)
+    assert costs == {"head": (7, 20)}  # not offloaded, so onloading adds nothing
+    assert unknown == {"_UnknownModifier"}
 
-    _, unknown = get_module_costs(model, {"head"}, [KnownModifier()])
+    _, unknown = get_module_costs(model, {"head"}, [_KnownModifier()], num_tokens=7)
     assert unknown == set()
 
 
@@ -196,37 +166,44 @@ def test_get_onload_bytes_offloaded():
     assert torch.accelerator.memory_allocated() == allocated  # nothing was onloaded
 
 
-def _cache(*shapes):
-    batches = [{"input_ids": torch.zeros(shape, dtype=torch.long)} for shape in shapes]
-    return IntermediatesCache.from_dataloader(batches, torch.device("cpu"))
+def _batches(*shapes):
+    return [{"input_ids": torch.zeros(shape, dtype=torch.long)} for shape in shapes]
+
+
+def test_get_input_shapes():
+    # largest batch, longest sequence, and every token including padding
+    assert get_input_shapes(_batches((2, 7), (3, 5))) == (3, 7, 2 * 7 + 3 * 5)
+
+    assert get_input_shapes([{"inputs_embeds": torch.zeros(1, 4, 16)}]) is None
+    assert get_input_shapes(_batches((7,))) is None
+    assert get_input_shapes([(torch.zeros(1, 4),)]) is None
+
+
+def test_get_input_shapes_reads_the_batches_calibrated_on():
+    samples = [
+        {"input_ids": torch.zeros(1, length, dtype=torch.long)}
+        for length in range(1, 9)
+    ]
+    sampler = RandomSampler(samples, num_samples=4)
+    dataloader = DataLoader(samples, sampler=sampler, collate_fn=lambda b: b[0])
+
+    # a shuffling sampler picks the same random batches on the pass after counting
+    torch.manual_seed(0)
+    shapes = get_input_shapes(dataloader)
+    lengths = [batch["input_ids"].shape[1] for batch in dataloader]
+    assert shapes == (1, max(lengths), sum(lengths))
 
 
 def test_estimate_activation_memory():
     model = torch.nn.Linear(4, 4)
     model.config = SimpleNamespace(hidden_size=16)
 
-    # 3 samples (largest batch) * 7 tokens (longest batch) * 16 hidden
-    activations = _cache((2, 7), (3, 5))
     expected = 3 * 7 * 16 * ACTIVATION_BYTES
-    assert estimate_activation_memory(model, activations) == expected
+    assert estimate_activation_memory(model, (3, 7, 29)) == expected
+    assert estimate_activation_memory(model, None) is None
 
     model.config = SimpleNamespace()
-    assert estimate_activation_memory(model, activations) is None
-
-    model.config = SimpleNamespace(hidden_size=16)
-    no_ids = IntermediatesCache.from_dataloader(
-        [{"inputs_embeds": torch.zeros(1, 4, 16)}], torch.device("cpu")
-    )
-    assert estimate_activation_memory(model, no_ids) is None
-
-
-def test_count_calibration_tokens():
-    assert count_calibration_tokens(_cache((2, 7), (3, 5))) == 2 * 7 + 3 * 5
-
-    no_ids = IntermediatesCache.from_dataloader(
-        [{"inputs_embeds": torch.zeros(1, 4, 16)}], torch.device("cpu")
-    )
-    assert count_calibration_tokens(no_ids) is None
+    assert estimate_activation_memory(model, (3, 7, 29)) is None
 
 
 def test_get_memory_budget(monkeypatch):
@@ -239,11 +216,6 @@ def test_get_memory_budget(monkeypatch):
     assert get_memory_budget(torch.device("cuda"), 0.9) == pytest.approx(26 * GiB)
     assert get_memory_budget(torch.device("cuda"), 1.0) == pytest.approx(30 * GiB)
 
-    with pytest.raises(ValueError):
-        get_memory_budget(torch.device("cuda"), 0)
-    with pytest.raises(ValueError):
-        get_memory_budget(torch.device("cuda"), 1.5)
-
     def unsupported(device):
         raise RuntimeError("not supported")
 
@@ -251,55 +223,105 @@ def test_get_memory_budget(monkeypatch):
     assert get_memory_budget(torch.device("cuda"), 0.9) is None
 
 
-def test_plan_subgraph_memory_without_accelerator():
-    memory = plan_subgraph_memory(
-        model=torch.nn.Linear(4, 4),
-        graph=MagicMock(),
-        activations=MagicMock(),
-        modifiers=[],
-        device=torch.device("cpu"),
-        gpu_memory_utilization=0.9,
-    )
-    assert memory is None
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"sequential_targets_per_subgraph": "max"},
+        {"sequential_targets_per_subgraph": 0},
+        {"gpu_memory_utilization": 0},
+        {"gpu_memory_utilization": 90},
+    ],
+)
+def test_dataset_arguments_reject_invalid_grouping(kwargs):
+    with pytest.raises(ValueError):
+        DatasetArguments(**kwargs)
 
 
-def _plan_four_layers():
+def test_dataset_arguments_accept_grouping():
+    DatasetArguments(sequential_targets_per_subgraph="auto", gpu_memory_utilization=1)
+    DatasetArguments(sequential_targets_per_subgraph=4)
+
+
+def _plan(monkeypatch, budget, modifiers=(), batches=None):
+    """Plan FourLayers on a simulated accelerator with the given budget"""
+    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cuda"))
+    monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: budget)
+
     model = FourLayers()
     model.config = SimpleNamespace(hidden_size=4)
-    return plan_subgraph_memory(
+    graph_module = torch.fx.symbolic_trace(model)
+    node_modules = {
+        node: get_node_modules(model, node) for node in graph_module.graph.nodes
+    }
+    plan = plan_subgraph_memory(
         model=model,
-        graph=torch.fx.symbolic_trace(model),
-        activations=_cache((1, 8)),
-        modifiers=[],
-        device=torch.device("cuda"),
+        node_modules=node_modules,
+        dataloader=_batches((1, 8)) if batches is None else batches,
+        modifiers=list(modifiers),
         gpu_memory_utilization=0.9,
     )
+    return plan, {node.target: node for node in graph_module.graph.nodes}
 
 
-@pytest.mark.parametrize("budget,planned", [(1000, True), (0, False), (-100, False)])
-def test_plan_subgraph_memory_falls_back_without_budget(monkeypatch, budget, planned):
-    monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: budget)
-    memory = _plan_four_layers()
-    assert (memory is not None) == planned
+def test_plan_subgraph_memory(monkeypatch):
+    activation_memory = 1 * 8 * 4 * ACTIVATION_BYTES
+    plan, nodes = _plan(monkeypatch, budget=10_000, modifiers=[_KnownModifier()])
+    node_memory, max_memory = plan
+
+    # every module holds a byte per token (8), and the scratch is smaller than the
+    # activations, which are reserved from the budget
+    assert node_memory[nodes["layers.0"]] == 8
+    assert node_memory[nodes["head"]] == 8
+    assert max_memory == 10_000 - activation_memory
 
 
-def test_reduce_across_ranks(monkeypatch):
-    """Ranks agree on the smallest budget and the largest estimates"""
+def test_plan_subgraph_memory_without_accelerator(monkeypatch):
+    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cpu"))
+    assert plan_subgraph_memory(FourLayers(), {}, [], [], 0.9) is None
+
+
+@pytest.mark.parametrize("budget", [None, 0, 1 * 8 * 4 * ACTIVATION_BYTES])
+def test_plan_subgraph_memory_falls_back_without_budget(monkeypatch, budget):
+    plan, _ = _plan(monkeypatch, budget=budget)
+    assert plan is None
+
+
+def test_plan_subgraph_memory_falls_back_for_unknown_memory(monkeypatch):
+    plan, _ = _plan(monkeypatch, budget=10_000, modifiers=[_UnknownModifier()])
+    assert plan is None
+
+    plan, _ = _plan(monkeypatch, budget=10_000, batches=[{"inputs_embeds": None}])
+    assert plan is None
+
+
+def _reduce(monkeypatch, local, other):
+    """Reduce (budget, shapes) across this rank and one other rank"""
+
+    def encode(budget, shapes):
+        values = [budget is not None, shapes is not None, budget or 0]
+        return torch.tensor(values + [-value for value in shapes or (0, 0, 0)])
 
     def all_reduce(values, op):
         assert op == grouping.dist.ReduceOp.MIN
-        # the other rank has 1 byte less budget and 1 byte more of every estimate
-        values.copy_(torch.minimum(values, values - 1))
+        values.copy_(torch.minimum(values, encode(*other)))
 
     monkeypatch.setattr(grouping.dist, "all_reduce", all_reduce)
+    return grouping.reduce_across_ranks(*local, torch.device("cpu"))
 
-    costs = _costs(layers_0=(10, 20, 30), head=(0, 5, 0))
-    budget, activation_memory, costs = grouping.reduce_across_ranks(
-        1000, 64, costs, torch.device("cpu")
+
+def test_reduce_across_ranks(monkeypatch):
+    # the smallest budget, and the largest batch, sequence and number of tokens
+    reduced = _reduce(monkeypatch, (1000, (2, 16, 64)), (900, (4, 8, 32)))
+    assert reduced == (900, (4, 16, 64))
+
+
+def test_reduce_across_ranks_falls_back_together(monkeypatch):
+    # a value which one rank could not measure is unknown on every rank
+    assert _reduce(monkeypatch, (1000, (2, 16, 64)), (None, (2, 16, 64))) == (
+        None,
+        (2, 16, 64),
     )
-    assert budget == 999
-    assert activation_memory == 65
-    assert costs == _costs(layers_0=(11, 21, 31), head=(1, 6, 1))
+    assert _reduce(monkeypatch, (1000, (2, 16, 64)), (900, None)) == (900, None)
 
 
 @pytest.fixture()
@@ -334,24 +356,15 @@ class _FakeSubgraph:
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-@patch(f"{_PIPELINE}.log_subgraph_memory")
-@patch(f"{_PIPELINE}.plan_subgraph_memory")
 @patch(f"{_PIPELINE}.partition_subgraphs")
 @patch(f"{_PIPELINE}.find_modules_outside_graph", return_value={})
 @patch(f"{_PIPELINE}.trace_graph")
-def test_pipeline_auto_partitions_once(
-    mock_trace,
-    mock_outside,
-    mock_partition,
-    mock_plan,
-    mock_log,
-    mock_targets,
-    fake_pipeline_inputs,
+def test_pipeline_traces_then_partitions(
+    mock_trace, mock_outside, mock_partition, mock_targets, fake_pipeline_inputs
 ):
     graph, targets = MagicMock(), {MagicMock()}
     mock_trace.return_value = (graph, targets)
     mock_partition.return_value = [_FakeSubgraph()]
-    memory = mock_plan.return_value
     model, dataloader = fake_pipeline_inputs
 
     SequentialPipeline()(
@@ -360,20 +373,11 @@ def test_pipeline_auto_partitions_once(
         DatasetArguments(sequential_targets_per_subgraph="auto"),
     )
 
-    # one partition, after the budget is known, with the memory check
-    mock_partition.assert_called_once_with(model, graph, targets, is_full=memory)
-    assert mock_plan.call_args.args[-1] == 0.9  # gpu_memory_utilization
-    mock_log.assert_called_once()
-
-
-@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-def test_pipeline_invalid_targets_per_subgraph(mock_targets, fake_pipeline_inputs):
-    model, dataloader = fake_pipeline_inputs
-
-    with pytest.raises(ValueError, match="auto"):
-        SequentialPipeline()(
-            model, dataloader, DatasetArguments(sequential_targets_per_subgraph="max")
-        )
+    # the graph is traced once and partitioned once, with what "auto" needs
+    mock_trace.assert_called_once()
+    mock_partition.assert_called_once_with(
+        model, graph, targets, "auto", dataloader, ANY, 0.9
+    )
 
 
 def _run_oneshot_auto(tmp_path, recipe) -> list[str]:
@@ -414,8 +418,7 @@ def _run_oneshot_auto(tmp_path, recipe) -> list[str]:
     return messages
 
 
-@requires_gpu
-@pytest.mark.parametrize(
+parametrize_auto_recipes = pytest.mark.parametrize(
     "recipe",
     [
         lambda: GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
@@ -428,10 +431,24 @@ def _run_oneshot_auto(tmp_path, recipe) -> list[str]:
     ],
     ids=["gptq", "awq"],
 )
+
+
+@requires_gpu
+@parametrize_auto_recipes
 def test_oneshot_auto_group_sizes(tmp_path, recipe):
     messages = _run_oneshot_auto(tmp_path, recipe())
 
     # a tiny model fits in a single subgraph
+    assert any("subgraphs of sizes [4]" in message for message in messages)
+
+
+@parametrize_auto_recipes
+def test_oneshot_auto_simulated_budget(tmp_path, monkeypatch, recipe):
+    """Runs "auto" end to end on any device, with a simulated 1 GiB budget"""
+    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cuda"))
+    monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: 1024**3)
+    messages = _run_oneshot_auto(tmp_path, recipe())
+
     assert any("subgraphs of sizes [4]" in message for message in messages)
 
 

@@ -103,7 +103,6 @@ class State:
     data: Data = field(default_factory=Data)
     hardware: Hardware = field(default_factory=Hardware)
     loss_masks: list[torch.Tensor] | None = None
-    num_calibration_tokens: int | None = None
     current_batch_idx: int = -1
     sequential_activations: Any = None
     sequential_propagate_error: bool = True

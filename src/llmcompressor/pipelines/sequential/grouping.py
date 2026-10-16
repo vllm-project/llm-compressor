@@ -1,6 +1,7 @@
 """
-Group consecutive sequential targets into subgraphs that fit in device memory, from
-the memory each node of the traced graph adds while its subgraph is calibrated
+Estimate the memory each node of a traced graph needs while its subgraph is calibrated,
+so that `topological_partition` can group consecutive sequential targets into
+subgraphs that fit in device memory
 """
 
 from typing import TYPE_CHECKING, Any
@@ -11,24 +12,17 @@ from compressed_tensors.offload import disable_onloading
 from compressed_tensors.offload.cache.base import OffloadCache
 from compressed_tensors.offload.dist_utils import is_distributed
 from loguru import logger
-from torch.fx import GraphModule, Node
+from torch.fx import Node
 from torch.nn import Module
 
-from llmcompressor.pipelines.cache import IntermediatesCache
-from llmcompressor.pipelines.sequential.helpers import (
-    INVOKED_SUBMODULES_META_KEY,
-    Subgraph,
-)
+from llmcompressor.utils.dev import get_main_device
 
 if TYPE_CHECKING:
+    from torch.utils.data import DataLoader
+
     from llmcompressor.modifiers import Modifier
 
-__all__ = [
-    "SubgraphMemory",
-    "plan_subgraph_memory",
-    "log_subgraph_memory",
-    "count_calibration_tokens",
-]
+__all__ = ["plan_subgraph_memory", "log_partitions"]
 
 GiB = 1024**3
 
@@ -37,123 +31,39 @@ GiB = 1024**3
 # and 2.8-4.9 GiB at batch size 8 (estimated 6.25 GiB)
 ACTIVATION_BYTES = 100
 
-# module name -> (onloaded weight bytes, held modifier bytes, modifier scratch bytes)
-ModuleCosts = dict[str, tuple[int, int, int]]
+# module name -> (onloaded weight and held modifier bytes, modifier scratch bytes)
+ModuleCosts = dict[str, tuple[int, int]]
 
-
-class SubgraphMemory:
-    """
-    Memory check passed to `topological_partition`. A partition costs the onloaded
-    weights and held modifier memory of every module its nodes call, plus the larger
-    of the activation estimate and the largest modifier scratch, since activations are
-    freed before modules are compressed. Each module counts once per partition
-
-    :param model: model being calibrated
-    :param module_costs: map of module name to (weight, held, scratch) bytes
-    :param activation_memory: estimated activation memory of a subgraph, in bytes
-    :param budget: device memory available to a subgraph, in bytes
-    """
-
-    def __init__(
-        self,
-        model: Module,
-        module_costs: ModuleCosts,
-        activation_memory: int,
-        budget: int,
-    ):
-        self.model = model
-        self.module_costs = module_costs
-        self.activation_memory = activation_memory
-        self.budget = budget
-        self._node_modules: dict[Node, list[str]] = {}
-
-        # running cost of the partition being filled
-        self._partition: list[Node] | None = None
-        self._names: set[str] = set()
-        self._held = 0
-        self._scratch = 0
-        self._num_seen = 0
-
-    def __call__(self, partition: list[Node], chunk: list[Node]) -> bool:
-        """
-        :param partition: nodes already in the partition being filled
-        :param chunk: nodes from the next target up to the target after it
-        :return: True if the chunk does not fit in the partition
-        """
-        if partition is not self._partition:
-            self._partition, self._names = partition, set()
-            self._held, self._scratch, self._num_seen = 0, 0, 0
-
-        # account for the nodes added to the partition since the last call
-        new_names = self._new_names(partition[self._num_seen :])
-        added_held, added_scratch = self.get_cost(new_names)
-        self._names |= new_names
-        self._held += added_held
-        self._scratch = max(self._scratch, added_scratch)
-        self._num_seen = len(partition)
-
-        added_held, added_scratch = self.get_cost(self._new_names(chunk))
-        held = self._held + added_held
-        scratch = max(self._scratch, added_scratch)
-        return held + max(self.activation_memory, scratch) > self.budget
-
-    def _new_names(self, nodes: list[Node]) -> set[str]:
-        return {
-            name for node in nodes for name in self.node_modules(node)
-        } - self._names
-
-    def get_cost(self, names: set[str]) -> tuple[int, int]:
-        """
-        :param names: names of the modules in a partition
-        :return: (weights + held modifier memory, largest scratch) in bytes
-        """
-        held = sum(
-            self.module_costs[name][0] + self.module_costs[name][1] for name in names
-        )
-        scratch = max((self.module_costs[name][2] for name in names), default=0)
-        return held, scratch
-
-    def get_peak(self, names: set[str]) -> int:
-        """
-        :param names: names of the modules in a partition
-        :return: estimated peak memory of the partition in bytes
-        """
-        held, scratch = self.get_cost(names)
-        return held + max(self.activation_memory, scratch)
-
-    def node_modules(self, node: Node) -> list[str]:
-        """
-        :param node: node of the traced graph
-        :return: names of the modules the node onloads when its subgraph runs
-        """
-        if node not in self._node_modules:
-            self._node_modules[node] = get_node_modules(self.model, node)
-        return self._node_modules[node]
+# largest batch size, longest sequence, and number of tokens including padding
+InputShapes = tuple[int, int, int]
 
 
 def plan_subgraph_memory(
     model: Module,
-    graph: GraphModule,
-    activations: IntermediatesCache,
+    node_modules: dict[Node, list[str]],
+    dataloader: "DataLoader",
     modifiers: list["Modifier"],
-    device: torch.device,
     gpu_memory_utilization: float,
-) -> SubgraphMemory | None:
+) -> tuple[dict[Node, int], int] | None:
     """
-    Estimate what each part of the graph costs and how much memory a subgraph may use.
-    Called after persistent modules are onloaded and the intermediates cache is built,
-    so the memory they use is already taken out of the budget
+    Estimate the memory each node onloads and holds until its subgraph is compressed,
+    and how much of it fits in a subgraph. Activations are freed before modules are
+    compressed, so the larger of the activation estimate and the largest modifier
+    scratch is reserved from the budget of every subgraph
+
+    Called once persistent modules are onloaded, so the memory they use is already
+    taken out of the budget
 
     :param model: model being calibrated
-    :param graph: traced graph which will be partitioned
-    :param activations: cache holding the calibration batches
+    :param node_modules: map of each node to the names of the modules it onloads
+    :param dataloader: calibration data
     :param modifiers: modifiers which will calibrate the subgraphs
-    :param device: device which subgraphs are onloaded to
     :param gpu_memory_utilization: fraction of the device's total memory that
         calibration may use
-    :return: memory check for `topological_partition`, or None to fall back to one
-        target per subgraph when memory cannot be estimated
+    :return: map of node to bytes, and the bytes available to the nodes of a subgraph,
+        or None to fall back to one target per subgraph
     """
+    device = get_main_device()
     if device.type == "cpu":
         logger.warning(
             'sequential_targets_per_subgraph="auto" needs an accelerator to measure '
@@ -161,10 +71,33 @@ def plan_subgraph_memory(
         )
         return None
 
-    names = {
-        name for node in graph.graph.nodes for name in get_node_modules(model, node)
-    }
-    module_costs, unknown_modifiers = get_module_costs(model, names, modifiers)
+    # every rank must choose the same groups, since modifiers communicate when each
+    # subgraph is compressed, so ranks agree on the inputs before estimating anything
+    budget = get_memory_budget(device, gpu_memory_utilization)
+    shapes = get_input_shapes(dataloader)
+    if is_distributed():
+        budget, shapes = reduce_across_ranks(budget, shapes, device)
+
+    if budget is None:
+        logger.warning(
+            f"Unable to measure free memory on {device}. Falling back to one target "
+            "per subgraph"
+        )
+        return None
+
+    activation_memory = estimate_activation_memory(model, shapes)
+    if activation_memory is None:
+        logger.warning(
+            'sequential_targets_per_subgraph="auto" cannot estimate activation memory '
+            "without `input_ids` in every batch and a `hidden_size` in the model "
+            "config. Falling back to one target per subgraph"
+        )
+        return None
+
+    names = {name for names in node_modules.values() for name in names}
+    module_costs, unknown_modifiers = get_module_costs(
+        model, names, modifiers, num_tokens=shapes[2]
+    )
     if len(unknown_modifiers) > 0:
         logger.warning(
             'sequential_targets_per_subgraph="auto" cannot account for the memory '
@@ -174,155 +107,108 @@ def plan_subgraph_memory(
         )
         return None
 
-    activation_memory = estimate_activation_memory(model, activations)
-    if activation_memory is None:
-        logger.warning(
-            'sequential_targets_per_subgraph="auto" cannot estimate activation memory '
-            "without `input_ids` in every batch and a `hidden_size` in the model "
-            "config. Falling back to one target per subgraph"
-        )
-        return None
-
-    budget = get_memory_budget(device, gpu_memory_utilization)
-    if budget is None:
-        logger.warning(
-            f"Unable to measure free memory on {device}. Falling back to one target "
-            "per subgraph"
-        )
-        return None
-
-    # every rank must choose the same groups, since modifiers communicate when
-    # each subgraph is compressed
-    if is_distributed():
-        budget, activation_memory, module_costs = reduce_across_ranks(
-            budget, activation_memory, module_costs, device
-        )
-
-    # checked after the all-reduce so that every rank falls back together
-    if budget <= 0:
+    largest_scratch = max((scratch for _, scratch in module_costs.values()), default=0)
+    reserved = max(activation_memory, largest_scratch)
+    if budget - reserved <= 0:
         logger.warning(
             f"No memory is left on {device} for subgraphs within "
             f"gpu_memory_utilization={gpu_memory_utilization} (budget "
-            f"{budget / GiB:.2f} GiB). Falling back to one target per subgraph"
+            f"{budget / GiB:.2f} GiB, {reserved / GiB:.2f} GiB reserved for "
+            "activations and compression). Falling back to one target per subgraph"
         )
         return None
 
     logger.info(
         f"Memory budget per subgraph {budget / GiB:.2f} GiB "
-        f"(gpu_memory_utilization={gpu_memory_utilization}), estimated activation "
-        f"memory {activation_memory / GiB:.2f} GiB"
+        f"(gpu_memory_utilization={gpu_memory_utilization}), of which "
+        f"{reserved / GiB:.2f} GiB is reserved for activations and compression"
     )
-    return SubgraphMemory(model, module_costs, activation_memory, budget)
+    node_memory = {
+        node: sum(module_costs[name][0] for name in set(names))
+        for node, names in node_modules.items()
+    }
+    return node_memory, budget - reserved
 
 
 def reduce_across_ranks(
-    budget: int,
-    activation_memory: int,
-    module_costs: ModuleCosts,
-    device: torch.device,
-) -> tuple[int, int, ModuleCosts]:
+    budget: int | None, shapes: InputShapes | None, device: torch.device
+) -> tuple[int | None, InputShapes | None]:
     """
-    Agree on the inputs to grouping across ranks, which hold different calibration
-    data and may see different free memory: the smallest budget, and the largest
-    activation estimate and module costs
+    Agree on the inputs to the estimate across ranks, which hold different calibration
+    data and may see different free memory: the smallest budget and the largest input
+    shapes. Values which any rank could not measure become None on every rank
 
-    :param budget: this rank's memory budget in bytes
-    :param activation_memory: this rank's activation estimate in bytes
-    :param module_costs: this rank's map of module name to (weight, held, scratch)
+    :param budget: this rank's memory budget in bytes, or None
+    :param shapes: this rank's input shapes, or None
     :param device: device used to communicate between ranks
-    :return: budget, activation estimate and module costs shared by all ranks
+    :return: budget and input shapes shared by all ranks
     """
-    # estimates are negated so that a single MIN reduction serves every value
-    names = sorted(module_costs)
+    # shapes are negated so that a single MIN reduction serves every value
     values = torch.tensor(
-        [budget, -activation_memory]
-        + [-cost for name in names for cost in module_costs[name]],
+        [budget is not None, shapes is not None, budget or 0]
+        + [-value for value in shapes or (0, 0, 0)],
         dtype=torch.int64,
         device=device,
     )
     dist.all_reduce(values, op=dist.ReduceOp.MIN)
 
-    costs = (-values[2:]).view(-1, 3).tolist()
+    has_budget, has_shapes, budget, *negated_shapes = values.tolist()
     return (
-        int(values[0]),
-        -int(values[1]),
-        {name: tuple(cost) for name, cost in zip(names, costs)},
+        budget if has_budget else None,
+        tuple(-value for value in negated_shapes) if has_shapes else None,
     )
 
 
-def log_subgraph_memory(
-    memory: SubgraphMemory,
-    subgraphs: list[Subgraph],
-    model: Module,
-    targets: set[Module],
+def log_partitions(
+    partitions: list[list[Node]],
+    target_nodes: set[Node],
+    node_memory: dict[Node, int],
+    max_memory: int,
 ):
     """
-    Log the number of targets in each subgraph, and warn about subgraphs whose
-    estimated peak exceeds the budget
+    Log the number of targets in each subgraph, and warn about nodes which do not fit
+    in a subgraph even on their own
 
-    :param memory: memory check the subgraphs were partitioned with
-    :param subgraphs: subgraphs in order of execution
-    :param model: model which owns the subgraphs
-    :param targets: sequential target modules
+    :param partitions: partitions produced by `topological_partition`
+    :param target_nodes: nodes which call sequential targets
+    :param node_memory: map of node to bytes
+    :param max_memory: bytes available to the nodes of a subgraph
     """
-    sizes, over_budget = [], []
-    for index, subgraph in enumerate(subgraphs):
-        modules = subgraph.submodule_dict(model)
-        num_targets = sum(
-            1
-            for node in subgraph.graph.find_nodes(op="call_module")
-            if model.get_submodule(node.target) in targets
-        )
-        if num_targets > 0:
-            sizes.append(num_targets)
-        peak = memory.get_peak(set(modules))
-        if peak > memory.budget:
-            over_budget.append(f"{index} ({peak / GiB:.2f} GiB)")
-
+    sizes = [
+        num_targets
+        for partition in partitions
+        if (num_targets := sum(node in target_nodes for node in partition)) > 0
+    ]
     logger.info(
         f"Grouped {sum(sizes)} sequential targets into {len(sizes)} subgraphs of "
         f"sizes {sizes}"
     )
-    if len(over_budget) > 0:
+
+    oversized = [
+        f"{node.name} ({memory / GiB:.2f} GiB)"
+        for node, memory in node_memory.items()
+        if memory > max_memory
+    ]
+    if len(oversized) > 0:
         logger.warning(
-            f"{len(over_budget)} subgraphs need more than the memory budget of "
-            f"{memory.budget / GiB:.2f} GiB even with a single target, and may run "
-            f"out of memory: {', '.join(over_budget[:10])}"
+            f"{len(oversized)} nodes need more than the {max_memory / GiB:.2f} GiB "
+            "available to a subgraph on their own, and may run out of memory: "
+            f"{', '.join(oversized[:10])}"
         )
 
 
-def get_node_modules(model: Module, node: Node) -> list[str]:
-    """
-    Get the modules a node onloads when its subgraph runs: the module it calls and
-    that module's submodules, plus modules recorded as run inside wrapped code
-
-    :param model: model which owns the graph
-    :param node: node of the traced graph
-    :return: module names
-    """
-    roots = list(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
-    if node.op == "call_module":
-        roots.insert(0, node.target)
-
-    names = []
-    for root in roots:
-        for relative_name, _ in model.get_submodule(root).named_modules():
-            names.append(f"{root}.{relative_name}" if relative_name else root)
-
-    return names
-
-
 def get_module_costs(
-    model: Module, names: set[str], modifiers: list["Modifier"]
+    model: Module, names: set[str], modifiers: list["Modifier"], num_tokens: int
 ) -> tuple[ModuleCosts, set[str]]:
     """
-    Get the onloaded weight bytes and modifier memory of each module, without
-    onloading any weights
+    Get the memory each module onloads and holds until its subgraph is compressed, and
+    the scratch memory needed to compress it, without onloading any weights
 
     :param model: model which owns the modules
     :param names: names of the modules to cost
     :param modifiers: modifiers which will calibrate the modules
-    :return: map of module name to (weight, held, scratch) bytes, and the names of
+    :param num_tokens: number of calibration tokens, including padding
+    :return: map of module name to (weight and held, scratch) bytes, and the names of
         modifiers which could not estimate their memory
     """
     module_costs: ModuleCosts = {}
@@ -330,9 +216,9 @@ def get_module_costs(
     with disable_onloading():
         for name in names:
             module = model.get_submodule(name)
-            held, scratch = 0, 0
+            held, scratch = get_onload_bytes(module), 0
             for modifier in modifiers:
-                estimate = modifier.estimate_sequential_memory(module)
+                estimate = modifier.estimate_sequential_memory(module, num_tokens)
                 if estimate is None:
                     unknown_modifiers.add(type(modifier).__name__)
                     continue
@@ -340,7 +226,7 @@ def get_module_costs(
                 held += estimate[0]
                 scratch = max(scratch, estimate[1])
 
-            module_costs[name] = (get_onload_bytes(module), held, scratch)
+            module_costs[name] = (held, scratch)
 
     return module_costs, unknown_modifiers
 
@@ -369,63 +255,53 @@ def get_onload_bytes(module: Module) -> int:
     )
 
 
-def estimate_activation_memory(
-    model: Module, activations: IntermediatesCache
-) -> int | None:
+def estimate_activation_memory(model: Module, shapes: InputShapes | None) -> int | None:
     """
     Estimate the activation memory of a subgraph as
     max_batch_size * max_seq_len * hidden_size * ACTIVATION_BYTES, since subgraphs
     run one batch at a time
 
     :param model: model being calibrated
-    :param activations: cache holding the calibration batches
-    :return: bytes, or None if the cache has no `input_ids` or the model config has
-        no `hidden_size`
+    :param shapes: input shapes of the calibration data
+    :return: bytes, or None if there are no input shapes or the model config has no
+        `hidden_size`
     """
     config = getattr(model, "config", None)
     if hasattr(config, "get_text_config"):
         config = config.get_text_config()
     hidden_size = getattr(config, "hidden_size", None)
-    if not isinstance(hidden_size, int):
+    if shapes is None or not isinstance(hidden_size, int):
         return None
 
-    shapes = get_input_shapes(activations)
-    if shapes is None:
-        return None
-
-    max_batch_size = max((batch_size for batch_size, _ in shapes), default=0)
-    max_seq_len = max((seq_len for _, seq_len in shapes), default=0)
+    max_batch_size, max_seq_len, _ = shapes
     return max_batch_size * max_seq_len * hidden_size * ACTIVATION_BYTES
 
 
-def count_calibration_tokens(activations: IntermediatesCache) -> int | None:
+def get_input_shapes(dataloader: "DataLoader") -> InputShapes | None:
     """
-    Count the calibration tokens held by the cache, including padding
+    Read the shapes of the calibration batches from the dataloader, without running
+    the model
 
-    :param activations: cache holding the calibration batches
-    :return: number of tokens, or None if the cache has no `input_ids`
+    :param dataloader: calibration data
+    :return: largest batch size, longest sequence and number of tokens including
+        padding of the batches' `input_ids`, or None if a batch has no 2D `input_ids`
     """
-    shapes = get_input_shapes(activations)
-    if shapes is None:
-        return None
+    max_batch_size, max_seq_len, num_tokens = 0, 0, 0
 
-    return sum(batch_size * seq_len for batch_size, seq_len in shapes)
+    # shuffling samplers draw from the global random state on every pass, so it is
+    # restored afterwards: the next pass then calibrates on these same batches
+    with torch.random.fork_rng(devices=[]):
+        for batch in dataloader:
+            input_ids = batch.get("input_ids") if hasattr(batch, "get") else None
+            if not isinstance(input_ids, torch.Tensor) or input_ids.dim() != 2:
+                return None
 
+            batch_size, seq_len = input_ids.shape
+            max_batch_size = max(max_batch_size, batch_size)
+            max_seq_len = max(max_seq_len, seq_len)
+            num_tokens += batch_size * seq_len
 
-def get_input_shapes(activations: IntermediatesCache) -> list[tuple[int, int]] | None:
-    """
-    :param activations: cache holding the calibration batches
-    :return: (batch size, sequence length) of each batch's `input_ids`, or None if a
-        batch has no 2D `input_ids`
-    """
-    shapes = []
-    for batch in activations.batch_intermediates:
-        value = getattr(batch.get("input_ids"), "value", None)
-        if not isinstance(value, torch.Tensor) or value.dim() != 2:
-            return None
-        shapes.append((value.shape[0], value.shape[1]))
-
-    return shapes
+    return max_batch_size, max_seq_len, num_tokens
 
 
 def get_memory_budget(
@@ -440,12 +316,6 @@ def get_memory_budget(
         calibration may use
     :return: bytes, or None if memory cannot be measured
     """
-    if not 0 < gpu_memory_utilization <= 1:
-        raise ValueError(
-            "gpu_memory_utilization must be greater than 0 and at most 1, got "
-            f"{gpu_memory_utilization}"
-        )
-
     try:
         torch.accelerator.empty_cache()
         free_bytes, total_bytes = torch.accelerator.get_memory_info(device)

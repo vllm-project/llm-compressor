@@ -16,7 +16,6 @@ from torch.testing import assert_close
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
-from llmcompressor.core import active_session
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
@@ -874,17 +873,9 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
     assert abs(q_gs - gate_gs) > 1e-6, f"QKV and gate/up incorrectly fused: {q_gs}"
 
 
-@pytest.fixture()
-def num_calibration_tokens():
-    state = active_session().state
-    state.num_calibration_tokens = 10
-    yield 10
-    state.num_calibration_tokens = None
-
-
 @pytest.mark.unit
 @pytest.mark.parametrize("offload_device", [None, torch.device("cpu")])
-def test_estimate_sequential_memory(num_calibration_tokens, offload_device):
+def test_estimate_sequential_memory(offload_device):
     awq = AWQModifier(
         mappings=[
             AWQMapping(
@@ -916,28 +907,23 @@ def test_estimate_sequential_memory(num_calibration_tokens, offload_device):
     )
     awq._set_resolved_mappings(model)
 
-    tokens, value_bytes = num_calibration_tokens, 4  # float32
+    tokens, value_bytes = 10, 4  # float32
     held_per_feature = tokens * value_bytes if offload_device is None else 0
 
     # parent module: input and output widths are those of the balance layers
     qkv_weights = 3 * 8 * 8 * value_bytes
-    assert awq.estimate_sequential_memory(self_attn) == (
+    assert awq.estimate_sequential_memory(self_attn, tokens) == (
         held_per_feature * 8,
         2 * tokens * 8 * value_bytes + qkv_weights,
     )
 
     # parent Linear: its own output width
     down_weight = 16 * 8 * value_bytes
-    assert awq.estimate_sequential_memory(mlp.down_proj) == (
+    assert awq.estimate_sequential_memory(mlp.down_proj, tokens) == (
         held_per_feature * 16,
         2 * tokens * 8 * value_bytes + down_weight,
     )
 
     # modules which are not mapping parents cache nothing
-    assert awq.estimate_sequential_memory(self_attn.q_proj) == (0, 0)
-    assert awq.estimate_sequential_memory(model) == (0, 0)
-
-    # without the number of calibration tokens, the cache size is unknown
-    active_session().state.num_calibration_tokens = None
-    assert awq.estimate_sequential_memory(self_attn) is None
-    assert awq.estimate_sequential_memory(self_attn.q_proj) == (0, 0)
+    assert awq.estimate_sequential_memory(self_attn.q_proj, tokens) == (0, 0)
+    assert awq.estimate_sequential_memory(model, tokens) == (0, 0)

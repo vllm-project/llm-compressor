@@ -230,12 +230,22 @@ def test_estimate_sequential_memory(batched_quantization):
     # fp32 Hessian of the input width, and the activation ordering peak:
     # (3 * 256 * 256 + 2 * 128 * 256) * 4 bytes for one module
     batch_size = 4 if batched_quantization == 4 else 1
-    held, scratch = modifier.estimate_sequential_memory(model[0])
+    held, scratch = modifier.estimate_sequential_memory(model[0], num_tokens=64)
     assert held == 256 * 256 * 4
     assert scratch == batch_size * (3 * 256 * 256 + 2 * 128 * 256) * 4
 
-    assert modifier.estimate_sequential_memory(model[1]) == (0, 0)  # ignored
-    assert modifier.estimate_sequential_memory(model[2]) == (0, 0)  # not targeted
+    assert modifier.estimate_sequential_memory(model[1], 64) == (0, 0)  # ignored
+    assert modifier.estimate_sequential_memory(model[2], 64) == (0, 0)  # not targeted
+
+
+def test_estimate_sequential_memory_unknown_for_non_2d_weights():
+    model = torch.nn.Sequential(torch.nn.Linear(256, 128))
+    modifier = GPTQModifier(targets="Linear", scheme="W4A16")
+    modifier.initialize(State(model=model))
+
+    # e.g. a convolution's weight: only 2D weights are estimated
+    model[0].weight = torch.nn.Parameter(torch.zeros(128, 256, 1, 1))
+    assert modifier.estimate_sequential_memory(model[0], num_tokens=64) is None
 
 
 def test_estimate_sequential_memory_quantization_modifier():
@@ -244,8 +254,8 @@ def test_estimate_sequential_memory_quantization_modifier():
     modifier.initialize(State(model=model))
 
     # observing the weight may need a full precision copy of it
-    assert modifier.estimate_sequential_memory(model[0]) == (0, 128 * 256 * 4)
-    assert modifier.estimate_sequential_memory(model[1]) == (0, 0)  # not quantized
+    assert modifier.estimate_sequential_memory(model[0], 64) == (0, 128 * 256 * 4)
+    assert modifier.estimate_sequential_memory(model[1], 64) == (0, 0)  # not quantized
 
 
 def test_estimate_sequential_memory_unknown_by_default():
@@ -258,10 +268,10 @@ def test_estimate_sequential_memory_unknown_by_default():
         def on_initialize(self, state, **kwargs):
             return True
 
-    assert CalibrationModifier().estimate_sequential_memory(linear) is None
+    assert CalibrationModifier().estimate_sequential_memory(linear, 64) is None
 
     class DataFreeModifier(Modifier):
         def on_initialize(self, state, **kwargs):
             return True
 
-    assert DataFreeModifier().estimate_sequential_memory(linear) == (0, 0)
+    assert DataFreeModifier().estimate_sequential_memory(linear, 64) == (0, 0)
