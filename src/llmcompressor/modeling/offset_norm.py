@@ -72,12 +72,6 @@ class CalibrationOffsetNorm(NormCalibrationModule):
     """
     Replaces offset-norm modules (``output * (1 + weight)``) with standard-norm
     equivalents (``output * weight``) during calibration.
-
-    On enter the temporary weight is ``(1 + original.weight)`` in the original
-    dtype. On restore, entries a modifier left untouched are copied back as
-    their original bytes. Entries that changed are ``weight - 1``. Adding one
-    in bfloat16 is not invertible, so the original offset is kept beside the
-    temporary weight.
     """
 
     is_permanent = False
