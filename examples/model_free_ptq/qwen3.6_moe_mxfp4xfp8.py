@@ -1,12 +1,12 @@
 from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
-from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, MXFP4_DSFP8
+from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, MXFP4xFP8
 
 from llmcompressor import model_free_ptq
 
 MODEL_ID = "Qwen/Qwen3.6-35B-A3B"
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4-DSFP8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-MXFP4xFP8"
 
-# Apply MXFP4_DSFP8 to MoE weights
+# Apply MXFP4xFP8 to MoE weights
 # Use FP8_BLOCK dense layers
 # Save results to SAVE_DIR
 
@@ -24,7 +24,7 @@ model_free_ptq(
                 ],
             ),
             "experts": QuantizationScheme(
-                **MXFP4_DSFP8,
+                **MXFP4xFP8,
                 targets=[
                     # Matches the per-expert names produced after the split
                     r"re:.*mlp\.experts\.\d+\.(gate|up|down)_proj$",
