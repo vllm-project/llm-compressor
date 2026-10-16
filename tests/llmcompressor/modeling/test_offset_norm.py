@@ -88,6 +88,29 @@ def test_offload_restore_keeps_bytes_and_smoothed_entry(offload_device, tmp_path
 
 
 @pytest.mark.unit
+def test_cpu_offload_accelerator_onload_persists_smooth():
+    if not torch.accelerator.is_available():
+        pytest.skip("no accelerator")
+    onload = torch.accelerator.current_accelerator().type
+    if onload == "cpu":
+        pytest.skip("onload device is cpu")
+
+    before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
+    model = _model(before)
+    offload_module(model.norm, onload_device=onload, offload_device="cpu")
+
+    with norm_calibration_context(model):
+        smoothed = model.norm.weight.detach().clone()
+        smoothed[6] = smoothed[6] * 2
+        update_offload_parameter(model.norm, "weight", smoothed)
+
+    after = model.norm.weight.detach().cpu()
+    assert after[6].item() == 1.25
+    assert torch.equal(_bits(after[:6]), _bits(before[:6]))
+    assert torch.equal(_bits(after[7:]), _bits(before[7:]))
+
+
+@pytest.mark.unit
 def test_exception_inside_context_restores_original_bytes():
     before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
     model = _model(before)
