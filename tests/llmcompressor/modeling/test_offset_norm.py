@@ -5,7 +5,10 @@ import torch
 from compressed_tensors.offload import offload_module, update_offload_parameter
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 
-from llmcompressor.modeling.offset_norm import norm_calibration_context
+from llmcompressor.modeling.offset_norm import (
+    CalibrationOffsetNorm,
+    norm_calibration_context,
+)
 
 OFFSETS = [0.001, 1e-9, -0.03, 0.024, 0.0, 1e-14, 0.125, -0.001]
 
@@ -110,6 +113,44 @@ def test_cpu_offload_accelerator_onload_persists_smooth():
     assert after[6].item() == 1.25
     assert torch.equal(_bits(after[:6]), _bits(before[:6]))
     assert torch.equal(_bits(after[7:]), _bits(before[7:]))
+
+
+@pytest.mark.unit
+def test_restore_failure_puts_every_norm_back(tmp_path, monkeypatch):
+    before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
+    model = torch.nn.Module()
+    model.config = SimpleNamespace()
+    model.a = Gemma2RMSNorm(before.numel()).to(dtype=torch.bfloat16)
+    model.b = Gemma2RMSNorm(before.numel()).to(dtype=torch.bfloat16)
+    model.a.weight.data.copy_(before)
+    model.b.weight.data.copy_(before)
+    for norm in (model.a, model.b):
+        offload_module(
+            norm,
+            onload_device="cpu",
+            offload_device="disk",
+            offload_dir=str(tmp_path),
+        )
+    files_before = set(tmp_path.iterdir())
+    calls = {"n": 0}
+    real_restore = CalibrationOffsetNorm.restore
+
+    def fail_first(self, original):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("restore failed")
+        return real_restore(self, original)
+
+    monkeypatch.setattr(CalibrationOffsetNorm, "restore", fail_first)
+    with pytest.raises(RuntimeError, match="restore failed"):
+        with norm_calibration_context(model):
+            pass
+
+    assert type(model.a) is Gemma2RMSNorm
+    assert type(model.b) is Gemma2RMSNorm
+    assert torch.equal(_bits(model.a.weight.detach()), _bits(before))
+    assert torch.equal(_bits(model.b.weight.detach()), _bits(before))
+    assert set(tmp_path.iterdir()) == files_before
 
 
 @pytest.mark.unit
