@@ -30,7 +30,7 @@ from tests.testing_utils import requires_cadence, requires_gpu
     [
         pytest.param(
             "nm-testing/GLM-4.5-Air-0.72B-MTP",
-            "317504c08f5d3628bdcfed44a5016cdd70c73b74",
+            "f6bc34dce3f6447db3a93a843d4bb659cd1f95e0",
             Glm4MoeForCausalLM,
             "model.layers.46.",
             id="trailing-layers",
@@ -59,9 +59,12 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
     )
     reset_session()
     del model
+    _run_mtp_vllm(tmp_path)
 
+
+def _run_mtp_vllm(model_path, **kwargs):
     llm_kwargs = {
-        "model": str(tmp_path),
+        "model": str(model_path),
         "dtype": "bfloat16",
         "gpu_memory_utilization": 0.25,
         "max_model_len": 256,
@@ -70,6 +73,7 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
         "enable_prefix_caching": False,
         "disable_log_stats": False,
         "speculative_config": {"method": "mtp", "num_speculative_tokens": 1},
+        **kwargs,
     }
     subprocess.run(
         [
@@ -87,12 +91,14 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
 
 @requires_gpu(1)
 @requires_cadence("nightly")
-def test_inkling_mtp_quantize_and_save(tmp_path):
-    # vLLM's Inkling MTP loader does not yet support quantized draft weights.
+def test_inkling_mtp_vllm(tmp_path):
+    pytest.importorskip("vllm")
+    model_id = "nm-testing/Inkling-Dense-54M-MTP"
+    revision = "1e837c74be11b84604a5ff7b5ce0c5a89d42ff9a"
     with load_context(InklingForConditionalGeneration, load_mtp=True):
         model = InklingForConditionalGeneration.from_pretrained(
-            "nm-testing/Inkling-Dense-54M-MTP",
-            revision="3dae4716b1b529bab25e6a8ca0697c21844e83a2",
+            model_id,
+            revision=revision,
             dtype=torch.bfloat16,
             device_map="cpu",
         )
@@ -106,6 +112,7 @@ def test_inkling_mtp_quantize_and_save(tmp_path):
         ),
         output_dir=str(tmp_path),
     )
+    AutoProcessor.from_pretrained(model_id, revision=revision).save_pretrained(tmp_path)
     weights = get_weight_mappings(tmp_path)
     mtp_scales = [
         name
@@ -121,3 +128,5 @@ def test_inkling_mtp_quantize_and_save(tmp_path):
         with safe_open(weights[scale], framework="pt") as checkpoint:
             assert torch.isfinite(checkpoint.get_tensor(scale)).all()
     reset_session()
+    del model
+    _run_mtp_vllm(tmp_path, limit_mm_per_prompt={"image": 0, "audio": 0, "video": 0})
