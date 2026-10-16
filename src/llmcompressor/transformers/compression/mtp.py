@@ -204,6 +204,10 @@ def load_with_mtp_model(
             if shared is not None and shared in backbone_modules:
                 model.mtp._modules.pop(name)
                 object.__setattr__(model.mtp, name, shared)
+        # MtpModel derives embeddings from the backbone, including copied ones.
+        model._keys_to_ignore_on_save = set(model._keys_to_ignore_on_save or ()) | {
+            "mtp.embed_tokens.weight"
+        }
         return model
 
     with patch_attr(model_cls, "from_pretrained", from_pretrained):

@@ -485,6 +485,11 @@ def test_copied_mtp_embedding_participates_in_offloading(tmp_path):
     assert isinstance(model.mtp.embed_tokens._parameters, OffloadCache)
     assert "mtp.embed_tokens.weight" in model.state_dict()
 
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+    assert "model.mtp.embed_tokens.weight" not in get_weight_mappings(destination)
+    assert isinstance(model.mtp.embed_tokens._parameters, OffloadCache)
+
 
 @pytest.mark.parametrize("model_cls", [InklingForCausalLM, Glm4MoeForCausalLM])
 def test_load_context_supports_normal_save_before_oneshot(tmp_path, model_cls):
