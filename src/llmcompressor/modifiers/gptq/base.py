@@ -242,16 +242,21 @@ class GPTQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(self, state.model)
         self.remove_hooks()  # remove gptq hooks
 
-    def estimate_sequential_memory(self, module: torch.nn.Module) -> tuple[int, int]:
+    def estimate_sequential_memory(
+        self, module: torch.nn.Module, num_tokens: int
+    ) -> tuple[int, int] | None:
         """
         Estimate the Hessian held for a module until its subgraph is compressed, and
         the temporary memory needed to compress it
 
         :param module: module belonging to the subgraph being calibrated
-        :return: tuple of (held, scratch) bytes
+        :param num_tokens: number of calibration tokens, unused
+        :return: tuple of (held, scratch) bytes, or None for weights which are not 2D
         """
         if not self._is_calibrated(module):
             return 0, 0
+        if module.weight.ndim != 2:
+            return None
 
         num_columns = module.weight.shape[1]
         held = num_columns * num_columns * GPTQ_PRECISION.itemsize

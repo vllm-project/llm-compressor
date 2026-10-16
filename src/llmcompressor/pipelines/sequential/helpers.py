@@ -20,13 +20,19 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.sequential.grouping import (
+    log_partitions,
+    plan_subgraph_memory,
+)
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
 from llmcompressor.utils.helpers import calibration_forward_context
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 
 if TYPE_CHECKING:
-    pass
+    from torch.utils.data import DataLoader
+
+    from llmcompressor.modifiers import Modifier
 
 __all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
 
@@ -309,8 +315,10 @@ def partition_subgraphs(
     model: Module,
     graph: GraphModule,
     targets: set[Module],
-    targets_per_subgraph: int = 1,
-    is_full: Callable[[list[Node], list[Node]], bool] | None = None,
+    targets_per_subgraph: int | str = 1,
+    dataloader: "DataLoader | None" = None,
+    modifiers: list["Modifier"] | None = None,
+    gpu_memory_utilization: float = 0.9,
 ) -> list[Subgraph]:
     """
     Partition a traced graph into subgraphs, where each sequential target belongs to
@@ -320,9 +328,12 @@ def partition_subgraphs(
     :param model: model which owns the produced Subgraphs
     :param graph: graph produced by `trace_graph`
     :param targets: sequential target modules produced by `trace_graph`
-    :param targets_per_subgraph: number of targets to include per subgraph
-    :param is_full: optional memory check used instead of `targets_per_subgraph`,
-        see `topological_partition`
+    :param targets_per_subgraph: number of targets to include per subgraph, or "auto"
+        to group as many consecutive targets as fit in device memory
+    :param dataloader: with "auto", the calibration data
+    :param modifiers: with "auto", the modifiers which will calibrate the subgraphs
+    :param gpu_memory_utilization: with "auto", the fraction of the device's total
+        memory that calibration may use
     :return: a list of Subgraphs in order of execution
     """
     num_target_nodes = len(find_target_nodes(graph, targets))
@@ -333,14 +344,55 @@ def partition_subgraphs(
             "which calls sequential targets"
         )
 
+    node_memory, max_memory = None, None
+    if targets_per_subgraph == "auto":
+        node_modules = {
+            node: get_node_modules(model, node) for node in graph.graph.nodes
+        }
+        plan = plan_subgraph_memory(
+            model, node_modules, dataloader, modifiers, gpu_memory_utilization
+        )
+        if plan is None:
+            targets_per_subgraph = 1
+        else:
+            node_memory, max_memory = plan
+
     # As currently implemented, `topological_partition` generates an extra subgraph at
     # the beginning which does not contain a target. This adds a little more runtime,
     # and could be folded into the first subgraph in the future
-    partitions = topological_partition(graph, targets, targets_per_subgraph, is_full)
+    partitions = topological_partition(
+        graph, targets, targets_per_subgraph, node_memory, max_memory
+    )
+    if node_memory is not None:
+        log_partitions(
+            partitions, find_target_nodes(graph, targets), node_memory, max_memory
+        )
+
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
 
     return subgraphs
+
+
+def get_node_modules(model: Module, node: Node) -> list[str]:
+    """
+    Get the modules a node onloads when its subgraph runs: the module it calls and
+    that module's submodules, plus modules recorded as run inside wrapped code
+
+    :param model: model which owns the graph
+    :param node: node of the traced graph
+    :return: module names
+    """
+    roots = list(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
+    if node.op == "call_module":
+        roots.insert(0, node.target)
+
+    names = []
+    for root in roots:
+        for relative_name, _ in model.get_submodule(root).named_modules():
+            names.append(f"{root}.{relative_name}" if relative_name else root)
+
+    return names
 
 
 class SequentialTracer(HFTracer):
@@ -465,8 +517,9 @@ def find_target_nodes(graph: GraphModule, targets: set[Module]) -> set[Node]:
 def topological_partition(
     graph: GraphModule,
     targets: set[Module],
-    targets_per_subgraph: int = 1,
-    is_full: Callable[[list[Node], list[Node]], bool] | None = None,
+    targets_per_subgraph: int | str = 1,
+    node_memory: dict[Node, int] | None = None,
+    max_memory: int | None = None,
 ) -> list[list[Node]]:
     """
     Partition the graph into partitions such that each `target` belongs to exactly one
@@ -475,57 +528,85 @@ def topological_partition(
 
     :param graph: graph being partitioned
     :param targets: target modules which will be assigned to disjoint partitions
-    :param targets_per_subgraph: number of targets to include per subgraph
-    :param is_full: optional memory check used instead of `targets_per_subgraph`. At
-        each target after the first one in a partition, it is called with the nodes
-        already in the partition and the nodes from this target up to the next one,
-        and returns True when they do not fit together, which starts a new partition
+    :param targets_per_subgraph: number of targets to include per subgraph, or "auto"
+        to fill each partition until its nodes' memory would exceed `max_memory`
+    :param node_memory: with "auto", the memory each node onloads and holds
+    :param max_memory: with "auto", the memory available to each partition
     :return: list of partitions, where each partition is a list of nodes belonging to
         that partition
     """
     assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
 
-    if targets_per_subgraph <= 0:
+    use_memory = targets_per_subgraph == "auto"
+    if use_memory and (node_memory is None or max_memory is None):
+        raise ValueError(
+            'targets_per_subgraph="auto" requires node_memory and max_memory'
+        )
+    if not use_memory and targets_per_subgraph <= 0:
         raise ValueError(
             "targets_per_subgraph is required to be greater than or equal to one"
         )
 
-    order = get_topological_order(graph)
-    chunks = _get_target_chunks(order, target_nodes) if is_full is not None else {}
-
     partitions: list[list[Node]] = [[]]
     node_to_partition: dict[Node, int] = {}
+    remaining_indegrees = {
+        node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
+        for node in graph.graph.nodes
+    }
     partition_index = 0  # global counter
     targets_seen = 0  # number of targets encountered so far
+    partition_memory = 0  # memory of the partition being filled, with "auto"
 
-    for node in order:
+    # start with graph input nodes,
+    # but delay the `get_attr` nodes as long as possible
+    queue = deque(
+        node
+        for node in graph.graph.nodes
+        if remaining_indegrees[node] == 0 and node.op != "get_attr"
+    )
+    while len(queue) > 0:
+        node = queue.popleft()
+
         is_target = node in target_nodes
-        if is_target:
-            # put all nodes prior to first target into separate subgraph
-            is_head = partition_index == 0 and len(partitions[partition_index]) > 0
+        cost = node_memory.get(node, 0) if use_memory else 0
 
-            # finish creating subgraph when number of targets has been seen, or when
-            # the next target and the nodes after it would not fit in memory
-            if is_full is None:
-                is_complete = targets_seen >= targets_per_subgraph
-            else:
-                is_complete = targets_seen > 0 and is_full(
-                    partitions[partition_index], chunks[node]
-                )
+        # put all nodes prior to first target into separate subgraph
+        is_head = is_target and partition_index == 0 and len(partitions[0]) > 0
 
-            if is_head or is_complete:
-                partition_index += 1
-                partitions.append([])
-                targets_seen = 0
+        if use_memory:
+            # finish creating subgraph when this node would not fit in memory. Nodes
+            # which onload nothing stay in the subgraph of the node before them
+            is_complete = (
+                cost > 0
+                and partition_memory > 0
+                and partition_memory + cost > max_memory
+            )
+        else:
+            # finish creating subgraph when number of targets has been seen
+            is_complete = is_target and targets_seen >= targets_per_subgraph
+
+        if is_head or is_complete:
+            partition_index += 1
+            partitions.append([])
+            targets_seen = 0
+            partition_memory = 0
 
         # assign to partition
         partitions[partition_index].append(node)
         node_to_partition[node] = partition_index
+        partition_memory += cost
 
         # increment after assignment so is_complete fires after the target is placed
         if is_target:
             targets_seen += 1
+
+        # recurse on last indegree only in order to guarantee that
+        # the node is assigned to maximal partition
+        for user in node.users:
+            remaining_indegrees[user] -= 1
+            if remaining_indegrees[user] == 0:
+                queue.append(user)
 
     # an ideal implementation would involve implicitly consolidating partition indices
     # so that each node is assigned to the maximum partition possible (in order to delay
@@ -544,65 +625,6 @@ def topological_partition(
             node_to_partition[node] = partition_index
 
     return partitions
-
-
-def get_topological_order(graph: GraphModule) -> list[Node]:
-    """
-    Order the graph's nodes so that every node comes after its inputs. A node is
-    visited once its last input has been visited, which places it in the latest
-    partition possible. `get_attr` nodes are left out: `topological_partition` places
-    them last, in the earliest partition that uses them
-
-    :param graph: graph being ordered
-    :return: nodes in the order `topological_partition` assigns them
-    """
-    remaining_indegrees = {
-        node: sum(1 for inp in node.all_input_nodes if inp.op != "get_attr")
-        for node in graph.graph.nodes
-    }
-
-    # start with graph input nodes,
-    # but delay the `get_attr` nodes as long as possible
-    queue = deque(
-        node
-        for node in graph.graph.nodes
-        if remaining_indegrees[node] == 0 and node.op != "get_attr"
-    )
-    order: list[Node] = []
-    while len(queue) > 0:
-        node = queue.popleft()
-        order.append(node)
-
-        # recurse on last indegree only in order to guarantee that
-        # the node is assigned to maximal partition
-        for user in node.users:
-            remaining_indegrees[user] -= 1
-            if remaining_indegrees[user] == 0:
-                queue.append(user)
-
-    return order
-
-
-def _get_target_chunks(
-    order: list[Node], target_nodes: set[Node]
-) -> dict[Node, list[Node]]:
-    """
-    Map each target node to the nodes from it up to the next target, which always land
-    in the same partition as it. The last target's chunk runs to the end of the graph
-
-    :param order: nodes in topological order
-    :param target_nodes: nodes which call sequential targets
-    :return: map of target node to the nodes of its chunk, in order
-    """
-    chunks: dict[Node, list[Node]] = {}
-    chunk: list[Node] | None = None
-    for node in order:
-        if node in target_nodes:
-            chunk = chunks[node] = []
-        if chunk is not None:
-            chunk.append(node)
-
-    return chunks
 
 
 def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgraph]:

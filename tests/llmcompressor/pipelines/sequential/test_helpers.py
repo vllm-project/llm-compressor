@@ -303,7 +303,7 @@ def test_topological_partition_invalid():
 
 
 @pytest.mark.parametrize("targets_per_subgraph", [1, 2, 3, 4, 6])
-def test_topological_partition_is_full_matches_targets_per_subgraph(
+def test_topological_partition_memory_matches_targets_per_subgraph(
     targets_per_subgraph,
 ):
     with skip_weights_initialize():
@@ -314,38 +314,39 @@ def test_topological_partition_is_full_matches_targets_per_subgraph(
     assert len(graph_module.graph.find_nodes(op="get_attr")) > 0
     target_nodes = find_target_nodes(graph_module, targets)
 
-    def is_full(partition, chunk):
-        return len(target_nodes.intersection(partition)) >= targets_per_subgraph
-
-    # a memory check which counts targets partitions exactly like the integer setting
+    # when only targets cost memory, room for N targets partitions exactly like the
+    # integer setting
+    node_memory = {node: 1 for node in target_nodes}
     assert topological_partition(
-        graph_module, targets, is_full=is_full
+        graph_module, targets, "auto", node_memory, targets_per_subgraph
     ) == topological_partition(graph_module, targets, targets_per_subgraph)
 
 
-def test_topological_partition_is_full_sees_next_chunk():
-    with skip_weights_initialize():
-        model = DummyModelMultipleSequentialLayers()
+def test_topological_partition_memory_cuts_before_non_targets():
+    model = DummyModelWithBranch()
 
-    targets = _multiple_layer_targets(model)
+    targets = {model.layer1, model.layer2, model.layer3}
     graph_module = torch.fx.symbolic_trace(model)
 
-    chunks = []
+    # every module costs memory, so the non-target `merge` gets a partition too
+    node_memory = {node: 1 for node in graph_module.graph.find_nodes(op="call_module")}
+    partitions = topological_partition(graph_module, targets, "auto", node_memory, 1)
+    assert [[node.name for node in partition] for partition in partitions] == [
+        ["x"],
+        ["layer1"],
+        ["layer2", "cat"],
+        ["merge"],
+        ["layer3", "output"],
+    ]
 
-    def is_full(partition, chunk):
-        chunks.append([node.name for node in chunk])
-        return False
-
-    partitions = topological_partition(graph_module, targets, is_full=is_full)
-
-    # asked at every target after the first, never full: preamble + one partition
-    assert len(partitions) == 2
-    assert chunks[0] == ["layer2"]
-    assert chunks[-1] == ["layer6", "output"]  # nodes after the last target too
-    _assert_partition_coverage(graph_module, partitions, targets)
+    subgraphs = partition_graph(model, partitions)
+    trace_consumed_names(subgraphs)
+    sample_input = torch.randn(2, 10)
+    namespace = run_subgraphs(model, subgraphs, {"x": sample_input})
+    assert torch.allclose(namespace["layer3"], model(sample_input))
 
 
-def test_partition_subgraphs_memory_check_groups_whole_targets(monkeypatch):
+def test_partition_subgraphs_auto_groups_whole_targets(monkeypatch):
     warning = MagicMock()
     monkeypatch.setattr(
         "llmcompressor.pipelines.sequential.helpers.logger.warning", warning
@@ -362,11 +363,13 @@ def test_partition_subgraphs_memory_check_groups_whole_targets(monkeypatch):
     num_layers = len(model.model.layers)
     target_nodes = find_target_nodes(graph, targets)
 
-    def is_full(partition, chunk):
-        return len(target_nodes.intersection(partition)) >= 7
-
+    # a plan with room for seven decoder layers per subgraph
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.plan_subgraph_memory",
+        lambda *args: ({node: 1 for node in target_nodes}, 7),
+    )
     single = partition_subgraphs(model, graph, targets, 1)
-    grouped = partition_subgraphs(model, graph, targets, is_full=is_full)
+    grouped = partition_subgraphs(model, graph, targets, "auto")
 
     # a group's modules are the union of its targets' modules, so per-target costs
     # add up to the cost of a group
@@ -377,6 +380,13 @@ def test_partition_subgraphs_memory_check_groups_whole_targets(monkeypatch):
             *(s.submodule_dict(model) for s in single[1 + 7 * index : 8 + 7 * index])
         )
         assert set(subgraph.submodule_dict(model)) == expected
+
+    # without a plan, "auto" falls back to one target per subgraph
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.plan_subgraph_memory",
+        lambda *args: None,
+    )
+    assert len(partition_subgraphs(model, graph, targets, "auto")) == len(single)
 
     # grouping more than one target per subgraph is not a target mismatch
     warning.assert_not_called()

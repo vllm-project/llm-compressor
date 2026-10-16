@@ -117,12 +117,15 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         QuantizationMixin.end_calibration(self, state.model)
 
-    def estimate_sequential_memory(self, module: torch.nn.Module) -> tuple[int, int]:
+    def estimate_sequential_memory(
+        self, module: torch.nn.Module, num_tokens: int
+    ) -> tuple[int, int]:
         """
         Observers keep only small per-module statistics, but observing a weight when
         its subgraph ends may need a full precision copy of it
 
         :param module: module belonging to the subgraph being calibrated
+        :param num_tokens: number of calibration tokens, unused
         :return: tuple of (held, scratch) bytes
         """
         weight = getattr(module, "weight", None)
