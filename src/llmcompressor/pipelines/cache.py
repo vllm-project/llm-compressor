@@ -5,6 +5,7 @@ import warnings
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
+from functools import lru_cache
 from typing import Any, Generator
 from weakref import WeakKeyDictionary
 
@@ -28,6 +29,17 @@ class IntermediateValue:
 
 
 IntermediateValues = dict[str, IntermediateValue]
+
+
+@lru_cache(maxsize=None)
+def _supports_record_stream(device: torch.device) -> bool:
+    # record_stream only exists on devices with stream-ordered allocators
+    # (CUDA and similar accelerators); on others such as MPS it raises
+    try:
+        torch.zeros(1, device=device).record_stream(torch.Stream(device=device))
+    except (RuntimeError, NotImplementedError):
+        return False
+    return True
 
 
 class IntermediatesCache:
@@ -326,7 +338,9 @@ class IntermediatesCache:
         """Keep prefetched tensors alive until their compute-stream work completes."""
         match value:
             case torch.Tensor():
-                if value.device == stream.device:
+                if value.device == stream.device and _supports_record_stream(
+                    stream.device
+                ):
                     value.record_stream(stream)
             case list() | tuple():
                 for item in value:

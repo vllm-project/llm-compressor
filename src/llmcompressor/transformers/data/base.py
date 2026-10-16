@@ -81,6 +81,9 @@ class TextGenerationDataset(RegistryMixin):
     # used to mask out the prompt so prompt tokens do not contribute to training loss
     PROMPT_KEY = "prompt"
 
+    # Overrides the tokenizer's default special token behavior if not None.
+    add_special_tokens: bool | None = None
+
     def __init__(
         self,
         dataset_args: DatasetArguments,
@@ -301,11 +304,16 @@ class TextGenerationDataset(RegistryMixin):
         prompt = data.pop(self.PROMPT_KEY, None)
 
         # tokenize
+        tokenizer_kwargs = {
+            "max_length": self.max_seq_length,
+            "truncation": True,
+        }
+        if self.add_special_tokens is not None:
+            tokenizer_kwargs["add_special_tokens"] = self.add_special_tokens
         data = self.processor(
             **data,
             padding=self.padding,
-            max_length=self.max_seq_length,
-            truncation=True,
+            **tokenizer_kwargs,
         )
 
         # strip the extra dim added by multimodal processors
@@ -318,8 +326,7 @@ class TextGenerationDataset(RegistryMixin):
         if prompt is not None:
             data[self.PROMPT_KEY] = self.processor(
                 text=prompt,
-                max_length=self.max_seq_length,
-                truncation=True,
+                **tokenizer_kwargs,
             )["input_ids"]
 
         return data
