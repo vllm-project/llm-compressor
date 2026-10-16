@@ -80,14 +80,9 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         super().__init__()
         self.eps = original.eps
         self._orig_dtype = original.weight.dtype
-        effective = (1.0 + original.weight.detach().float()).to(self._orig_dtype)
-        self.weight = torch.nn.Parameter(effective.clone())
-        self.register_buffer(
-            "_original_offset",
-            original.weight.detach().to(self._orig_dtype).clone(),
-            persistent=False,
-        )
-        self.register_buffer("_initial_effective", effective.clone(), persistent=False)
+        offset = original.weight.detach().to(self._orig_dtype).clone()
+        self._original_offset = offset
+        self.weight = torch.nn.Parameter((1.0 + offset.float()).to(self._orig_dtype))
 
     def _norm(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -99,14 +94,11 @@ class CalibrationOffsetNorm(NormCalibrationModule):
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         live = self.weight.detach()
-        initial = self._initial_effective.detach().to(device=live.device)
-        original_offset = self._original_offset.detach().to(
-            device=live.device, dtype=self._orig_dtype
-        )
-        unchanged = live == initial
+        offset = self._original_offset.to(device=live.device, dtype=self._orig_dtype)
+        initial = (1.0 + offset.float()).to(dtype=self._orig_dtype)
         restored = torch.where(
-            unchanged,
-            original_offset,
+            live == initial,
+            offset,
             (live.float() - 1.0).to(self._orig_dtype),
         )
         update_offload_parameter(original, "weight", restored)
@@ -172,8 +164,19 @@ def norm_calibration_context(model: PreTrainedModel):
         if replaced:
             logger.info(f"Restoring {len(replaced)} norm modules to offset convention")
         for name, (original, replacement) in replaced.items():
-            restored = replacement.restore(original)
-            model.set_submodule(name, restored)
+            try:
+                restored = replacement.restore(original)
+                model.set_submodule(name, restored)
+            finally:
+                _release_offload(replacement)
+
+
+def _release_offload(module: torch.nn.Module) -> None:
+    for cache in (module._parameters, module._buffers):
+        if not isinstance(cache, OffloadCache):
+            continue
+        for key in list(cache):
+            del cache[key]
 
 
 def _is_registered(name: str, subclass: RegistryMixin):

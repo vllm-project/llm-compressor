@@ -75,12 +75,17 @@ def test_offload_restore_keeps_bytes_and_smoothed_entry(offload_device, tmp_path
     if offload_device == "disk":
         kwargs["offload_dir"] = str(tmp_path)
     offload_module(model.norm, **kwargs)
+    files_before = set(tmp_path.iterdir()) if offload_device == "disk" else None
 
     with norm_calibration_context(model):
+        if files_before is not None:
+            assert set(tmp_path.iterdir()) > files_before
         smoothed = model.norm.weight.detach().clone()
         smoothed[6] = smoothed[6] * 2
         update_offload_parameter(model.norm, "weight", smoothed)
 
+    if files_before is not None:
+        assert set(tmp_path.iterdir()) == files_before
     after = model.norm.weight.detach()
     assert after[6].item() == 1.25
     assert torch.equal(_bits(after[:6]), _bits(before[:6]))
