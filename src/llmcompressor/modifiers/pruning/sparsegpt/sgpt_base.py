@@ -151,7 +151,7 @@ class SparsityModifierBase(Modifier):
                     layer_sparsity = self.sparsity
 
             for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
-                name = f"{layer_name}.{name}"
+                name = f"{layer_name}.{name}" if name else layer_name
 
                 if match_targets(name, module, self.ignore):
                     continue
