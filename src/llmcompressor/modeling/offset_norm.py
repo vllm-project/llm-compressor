@@ -174,8 +174,10 @@ def norm_calibration_context(model: PreTrainedModel):
                         model.set_submodule(name, original)
                 except Exception as unmount_exc:
                     failures.append(unmount_exc)
-            finally:
+            try:
                 _release_offload(replacement)
+            except Exception as release_exc:
+                failures.append(release_exc)
         if failures:
             raise failures[0]
 
