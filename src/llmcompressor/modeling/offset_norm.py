@@ -20,6 +20,12 @@ import contextlib
 from abc import ABC, abstractmethod
 
 import torch
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    offload_module,
+    update_offload_parameter,
+)
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from transformers import PreTrainedModel
@@ -67,8 +73,11 @@ class CalibrationOffsetNorm(NormCalibrationModule):
     Replaces offset-norm modules (``output * (1 + weight)``) with standard-norm
     equivalents (``output * weight``) during calibration.
 
-    On enter: ``self.weight = 1 + original.weight``
-    On restore: ``original.weight = self.weight - 1``
+    On enter the temporary weight is ``(1 + original.weight)`` in the original
+    dtype. On restore, entries a modifier left untouched are copied back as
+    their original bytes. Entries that changed are ``weight - 1``. Adding one
+    in bfloat16 is not invertible, so the original offset is kept beside the
+    temporary weight.
     """
 
     is_permanent = False
@@ -77,9 +86,14 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         super().__init__()
         self.eps = original.eps
         self._orig_dtype = original.weight.dtype
-        self.weight = torch.nn.Parameter(
-            (1.0 + original.weight.data.float()).to(original.weight.dtype)
+        effective = (1.0 + original.weight.detach().float()).to(self._orig_dtype)
+        self.weight = torch.nn.Parameter(effective.clone())
+        self.register_buffer(
+            "_original_offset",
+            original.weight.detach().to(self._orig_dtype).clone(),
+            persistent=False,
         )
+        self.register_buffer("_initial_effective", effective.clone(), persistent=False)
 
     def _norm(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -90,7 +104,18 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         return output.type_as(x)
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
-        original.weight.data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
+        live = self.weight.detach()
+        initial = self._initial_effective.detach().to(device=live.device)
+        original_offset = self._original_offset.detach().to(
+            device=live.device, dtype=self._orig_dtype
+        )
+        unchanged = live == initial
+        restored = torch.where(
+            unchanged,
+            original_offset,
+            (live.float() - 1.0).to(self._orig_dtype),
+        )
+        update_offload_parameter(original, "weight", restored)
         return original
 
 
@@ -131,12 +156,19 @@ def norm_calibration_context(model: PreTrainedModel):
     if modules_to_replace:
         logger.info(f"Found {len(modules_to_replace)} offset-norm modules to convert")
         for name, module, class_name in modules_to_replace:
+            offload_kwargs = (
+                get_cache_init_kwargs(module)
+                if isinstance(module._parameters, OffloadCache)
+                else None
+            )
             replacement = NormCalibrationModule.load_from_registry(
                 class_name,
                 original=module,
                 config=model.config,
             )
             model.set_submodule(name, replacement)
+            if offload_kwargs is not None:
+                offload_module(replacement, **offload_kwargs)
             replaced[name] = (module, replacement)
 
     try:
