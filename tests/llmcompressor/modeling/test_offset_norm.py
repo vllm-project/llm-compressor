@@ -186,6 +186,57 @@ def test_release_failure_still_restores_later_norms(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_offload_enter_failure_restores_mounted_norms(tmp_path, monkeypatch):
+    before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
+    model = _two_disk_norms(before, str(tmp_path))
+    files_before = set(tmp_path.iterdir())
+    calls = {"n": 0}
+    real_offload = offset_norm.offload_module
+
+    def fail_second(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("offload failed")
+        return real_offload(*args, **kwargs)
+
+    monkeypatch.setattr(offset_norm, "offload_module", fail_second)
+    with pytest.raises(RuntimeError, match="offload failed"):
+        with norm_calibration_context(model):
+            pass
+
+    assert type(model.a) is Gemma2RMSNorm
+    assert type(model.b) is Gemma2RMSNorm
+    assert torch.equal(_bits(model.a.weight.detach()), _bits(before))
+    assert torch.equal(_bits(model.b.weight.detach()), _bits(before))
+    assert set(tmp_path.iterdir()) == files_before
+
+
+@pytest.mark.unit
+def test_failed_unmount_leaves_stand_in_weight(tmp_path, monkeypatch):
+    before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
+    model = _two_disk_norms(before, str(tmp_path))
+    files_before = set(tmp_path.iterdir())
+    real_set = model.set_submodule
+
+    def fail_put_back(name, module):
+        if name == "a" and type(module) is Gemma2RMSNorm:
+            raise RuntimeError("unmount failed")
+        return real_set(name, module)
+
+    monkeypatch.setattr(model, "set_submodule", fail_put_back)
+    with pytest.raises(RuntimeError, match="unmount failed"):
+        with norm_calibration_context(model):
+            pass
+
+    scale = (1.0 + before.float()).to(dtype=before.dtype)
+    assert type(model.a) is CalibrationOffsetNorm
+    assert torch.equal(_bits(model.a.weight.detach()), _bits(scale))
+    assert type(model.b) is Gemma2RMSNorm
+    assert torch.equal(_bits(model.b.weight.detach()), _bits(before))
+    assert len(set(tmp_path.iterdir()) - files_before) == 1
+
+
+@pytest.mark.unit
 def test_exception_inside_context_restores_original_bytes():
     before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
     model = _model(before)
