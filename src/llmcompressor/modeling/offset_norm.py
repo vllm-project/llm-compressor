@@ -163,12 +163,21 @@ def norm_calibration_context(model: PreTrainedModel):
         # Step 3: Restore original modules with updated weights
         if replaced:
             logger.info(f"Restoring {len(replaced)} norm modules to offset convention")
+        failures = []
         for name, (original, replacement) in replaced.items():
             try:
-                restored = replacement.restore(original)
-                model.set_submodule(name, restored)
+                model.set_submodule(name, replacement.restore(original))
+            except Exception as exc:
+                failures.append(exc)
+                try:
+                    if model.get_submodule(name) is replacement:
+                        model.set_submodule(name, original)
+                except Exception as unmount_exc:
+                    failures.append(unmount_exc)
             finally:
                 _release_offload(replacement)
+        if failures:
+            raise failures[0]
 
 
 def _release_offload(module: torch.nn.Module) -> None:
