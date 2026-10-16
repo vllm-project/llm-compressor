@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import Any
 
 import torch
@@ -259,6 +260,32 @@ class QuantizationMixin(HooksMixin):
 
         # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
         fuse_weight_observers(model)
+
+    def adopt_modules(
+        self, roots: list[torch.nn.Module], *, start_observers: bool
+    ) -> None:
+        """Attach this scheme to modules created after ``initialize_quantization``.
+
+        Expert linears created inside a sequential onload window miss that pass.
+        ``kv_cache_scheme`` is cleared so an expert root is not matched as attention.
+        When calibration has already started, observers are attached here.
+        ``DisableQuantization`` does not see modules created after it was entered,
+        so those modules are disabled explicitly.
+        """
+        fragment = deepcopy(self.resolved_config)
+        fragment.kv_cache_scheme = None
+        for root in roots:
+            apply_quantization_config(root, fragment, show_progress=False)
+            if not start_observers:
+                continue
+            for _, module in match_named_modules(
+                root, self.resolved_targets, self.ignore
+            ):
+                self._initialize_observers(module)
+                self._calibration_hooks |= self._initialize_hooks(module)
+                apply_calibration_status(module)
+            disable_quantization(root)
+            fuse_weight_observers(root)
 
     def end_calibration(self, model: torch.nn.Module):
         """
@@ -536,6 +563,15 @@ class QuantizationMixin(HooksMixin):
             hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
+
+
+def adopt_new_modules(roots: list[torch.nn.Module], *, start_observers: bool) -> None:
+    """Run ``adopt_modules`` for every quantization modifier on the active recipe."""
+    if not roots:
+        return
+    for modifier in active_session().lifecycle.recipe.modifiers:
+        if isinstance(modifier, QuantizationMixin):
+            modifier.adopt_modules(roots, start_observers=start_observers)
 
 
 def _has_observer_statistics(module: torch.nn.Module) -> bool:

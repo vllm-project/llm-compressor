@@ -1,9 +1,5 @@
 import torch
-from compressed_tensors.offload import (
-    get_cache_init_kwargs,
-    get_execution_device,
-    offload_module,
-)
+from compressed_tensors.offload import get_execution_device
 from transformers.activations import ACT2FN
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
@@ -29,12 +25,7 @@ class Llama4LinearExperts(LinearExperts2D):
 
     @classmethod
     @torch.no_grad()
-    def from_experts_module(
-        cls,
-        experts: "Llama4TextExperts",
-        config: Llama4Config,
-        apply_offload: bool = True,
-    ):
+    def from_experts_module(cls, experts: "Llama4TextExperts", config: Llama4Config):
         # linearize.py may already pass Llama4TextConfig via get_text_config().
         if hasattr(config, "text_config"):
             config = config.text_config
@@ -60,12 +51,6 @@ class Llama4LinearExperts(LinearExperts2D):
             expert.copy_from_experts_module(experts, index)
 
         self._record_source_metadata(experts, config)
-
-        if apply_offload:
-            offload_kwargs = get_cache_init_kwargs(experts)
-            for module in self.modules():
-                offload_module(module, **offload_kwargs)
-
         return self
 
     def __init__(

@@ -2,18 +2,15 @@ import pytest
 
 from llmcompressor.modeling.moe.linearize import (
     assign_child_offload_kwargs,
-    defer_moe_linearize,
     get_non_linearized_moes,
-    linearize_moe_modules,
+    linearize_moe,
+    linearize_onload_experts,
 )
 
 
-def test_defer_moe_linearize_matches_pipeline():
-    assert defer_moe_linearize(None)
-    assert defer_moe_linearize("independent")
-    assert defer_moe_linearize("sequential")
-    assert not defer_moe_linearize("basic")
-    assert not defer_moe_linearize("datafree")
+class _NamedModules:
+    def submodule_dict(self, model):
+        return dict(model.named_modules())
 
 
 def test_assign_child_offload_kwargs_copies_parent_settings():
@@ -33,7 +30,7 @@ def test_assign_child_offload_kwargs_copies_parent_settings():
     assert "model.layers.0.self_attn.q_proj" not in offload_kwargs
 
 
-def test_linearize_moe_modules_replaces_only_the_named_experts():
+def test_linearize_onload_experts_replaces_only_the_named_experts():
     pytest.importorskip("transformers.models.qwen3_moe.modeling_qwen3_moe")
     from torch import nn
     from transformers.models.qwen3_moe.modeling_qwen3_moe import (
@@ -64,10 +61,9 @@ def test_linearize_moe_modules_replaces_only_the_named_experts():
             self.config = config
 
     model = _Holder()
-    replaced = linearize_moe_modules(
-        model, {"experts": model.experts}, apply_offload=False
-    )
-    assert len(replaced) == 1
+    modules = {"experts": model.experts}
+    roots = linearize_onload_experts(model, _NamedModules(), modules, {})
+    assert len(roots) == 1
     assert isinstance(model.experts, LinearExperts2D)
     assert model.experts[0].down_proj.weight.ndim == 2
     assert get_non_linearized_moes(model) == []
@@ -105,11 +101,13 @@ def test_offloaded_load_stays_fused_until_onload():
     from llmcompressor.modeling.moe import linearize as linearize_module
     from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
     from llmcompressor.modeling.moe.linearize import (
-        assign_child_offload_kwargs,
-        attach_quantization,
+        linearize_onload_experts,
         load_quantizable_moe,
     )
     from llmcompressor.modifiers.quantization import QuantizationModifier
+    from llmcompressor.modifiers.quantization.quantization.mixin import (
+        adopt_new_modules,
+    )
     from llmcompressor.utils.dev import skip_weights_initialize
 
     config = _qwen_config()
@@ -158,17 +156,12 @@ def test_offloaded_load_stays_fused_until_onload():
         modules = {"experts": offloaded.experts}
         offload_kwargs = subgraph_onload_modules(modules)
         assert offloaded.experts.down_proj.device.type == "cpu"
-        replaced = linearize_moe_modules(offloaded, modules, apply_offload=False)
-        names = [
-            name
-            for name, _ in offloaded.named_modules()
-            if name == "experts" or name.startswith("experts.")
-        ]
-        modules = {name: offloaded.get_submodule(name) for name in names}
-        assign_child_offload_kwargs(
-            [name for name, _ in replaced], names, offload_kwargs
+        adopt_new_modules(
+            linearize_onload_experts(
+                offloaded, _NamedModules(), modules, offload_kwargs
+            ),
+            start_observers=True,
         )
-        attach_quantization([module for _, module in replaced], start_observers=True)
         down = offloaded.experts[0].down_proj
         assert torch.equal(down.weight, torch.ones_like(down.weight))
         assert down.quantization_scheme.weights.num_bits == 8
@@ -211,11 +204,7 @@ def test_fused_trace_keeps_moe_block_callable():
             for node in owners[0].graph.find_nodes(op="call_module")
         )
         block = model.get_submodule("model.layers.0.mlp")
-        linearize_moe_modules(
-            model,
-            {"model.layers.0.mlp.experts": block.experts},
-            apply_offload=False,
-        )
+        linearize_moe(model)
         hidden = torch.ones(1, 4, config.hidden_size)
         output = block(hidden)
         assert tuple(output.shape) == (1, 4, config.hidden_size)

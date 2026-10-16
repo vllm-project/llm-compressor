@@ -263,10 +263,7 @@ class LinearExperts2D(torch.nn.ModuleList):
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls,
-        experts: FusedExpertsProtocol,
-        config: PreTrainedConfig,
-        apply_offload: bool = True,
+        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
         # Offloaded parameters are represented by meta tensors while onloading is
         # disabled. Construct on the module's execution device instead of using a
@@ -282,14 +279,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         # Needed by :meth:`to_experts_module` / ``repack_moe`` to restore the native
         # fused experts class and config (see issue #2699).
         self._record_source_metadata(experts, config)
-
-        # The sequential pipeline linearizes inside an onload window and
-        # offloads the replacement with the kwargs captured before that window.
-        if apply_offload:
-            offload_kwargs = get_cache_init_kwargs(experts)
-            for module in self.modules():
-                offload_module(module, **offload_kwargs)
-
         return self
 
     def _record_source_metadata(

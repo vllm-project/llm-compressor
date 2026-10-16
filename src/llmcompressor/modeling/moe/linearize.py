@@ -4,7 +4,11 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.offload import OffloadCache
+from compressed_tensors.offload import (
+    OffloadCache,
+    get_cache_init_kwargs,
+    offload_module,
+)
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -130,10 +134,10 @@ def linearize_moe(model: PreTrainedModel):
     )
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = _experts_config(module, model)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
-        model.set_submodule(name, linear_moe)
+        linear_moe, offload_kwargs = _install_linear_experts(model, name, module)
+        if offload_kwargs is not None:
+            for child in linear_moe.modules():
+                offload_module(child, **offload_kwargs)
 
     return model
 
@@ -145,43 +149,61 @@ def _is_offloaded(model: torch.nn.Module) -> bool:
     )
 
 
-def defer_moe_linearize(pipeline: str | None) -> bool:
-    """Sequential and the default independent pipeline linearize inside onload."""
-    name = (pipeline or "independent").lower()
-    return name in {"independent", "sequential"}
-
-
 def _is_fused_experts(module: torch.nn.Module) -> bool:
     return isinstance(module, FusedExpertsProtocol) or (
         LinearExperts2D.get_registration(module.__class__) is not None
     )
 
 
-def linearize_moe_modules(
-    model: PreTrainedModel,
-    modules: dict[str, torch.nn.Module],
-    *,
-    apply_offload: bool = True,
-) -> list[tuple[str, torch.nn.Module]]:
-    """
-    Replace fused experts modules named in ``modules`` with linearized experts.
+def _install_linear_experts(
+    model: torch.nn.Module,
+    name: str,
+    module: torch.nn.Module,
+) -> tuple[LinearExperts2D, dict | None]:
+    """Replace one fused module with resident 2D experts.
 
-    ``modules`` is the subgraph dict from after ``subgraph_onload_modules``, so the
-    fused weights are already resident. ``apply_offload=False`` leaves the new
-    linears resident. The caller copies the pre-onload offload kwargs onto them.
+    The returned kwargs are the fused module's offload settings, when it had
+    any. Callers that linearize inside an onload window ignore them and offload
+    later with the kwargs captured before that window.
     """
-    replaced: list[tuple[str, torch.nn.Module]] = []
-    for name, module in list(modules.items()):
+    offload_kwargs = (
+        get_cache_init_kwargs(module)
+        if isinstance(getattr(module, "_parameters", None), OffloadCache)
+        else None
+    )
+    config = _experts_config(module, model)
+    linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
+    linear_moe = linear_experts_cls.from_experts_module(module, config)
+    model.set_submodule(name, linear_moe)
+    return linear_moe, offload_kwargs
+
+
+def linearize_onload_experts(
+    model: torch.nn.Module,
+    subgraph,
+    subgraph_modules: dict[str, torch.nn.Module],
+    offload_kwargs: dict[str, dict],
+) -> list[torch.nn.Module]:
+    """Linearize fused experts that are already onloaded, and keep them resident.
+
+    Refreshes ``subgraph_modules`` and copies the pre-onload offload kwargs onto
+    the new child names. ``subgraph_offload_modules`` then returns those linears
+    to the fused module's original device.
+    """
+    replaced_names = []
+    roots = []
+    for name, module in list(subgraph_modules.items()):
         if not _is_fused_experts(module):
             continue
-        config = _experts_config(module, model)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(
-            module, config, apply_offload=apply_offload
-        )
-        model.set_submodule(name, linear_moe)
-        replaced.append((name, linear_moe))
-    return replaced
+        linear_moe, _ = _install_linear_experts(model, name, module)
+        replaced_names.append(name)
+        roots.append(linear_moe)
+    if not roots:
+        return []
+    subgraph_modules.clear()
+    subgraph_modules.update(subgraph.submodule_dict(model))
+    assign_child_offload_kwargs(replaced_names, list(subgraph_modules), offload_kwargs)
+    return roots
 
 
 def assign_child_offload_kwargs(
@@ -204,65 +226,17 @@ def assign_child_offload_kwargs(
             offload_kwargs[name] = offload_kwargs[parent]
 
 
-def attach_quantization(roots: list[torch.nn.Module], *, start_observers: bool) -> None:
-    """
-    Schemes are attached at ``session.initialize``, before a deferred linearize.
-
-    New expert linears miss that pass. Attach schemes here. When calibration has
-    already started, also attach observers. Otherwise ``calibration_start`` will.
-    """
-    # Imported here because modeling/__init__ imports this module, and the
-    # quantization package imports modeling while it is still loading.
-    from copy import deepcopy
-
-    from compressed_tensors.quantization import (
-        apply_quantization_config,
-        disable_quantization,
-    )
-    from compressed_tensors.utils import match_named_modules
-
-    from llmcompressor.core import active_session
-    from llmcompressor.modifiers.quantization.calibration import (
-        apply_calibration_status,
-    )
-    from llmcompressor.modifiers.quantization.quantization.mixin import (
-        QuantizationMixin,
-    )
-    from llmcompressor.observers import fuse_weight_observers
-
-    session = active_session()
-    modifiers = getattr(getattr(session, "lifecycle", None), "recipe", None)
-    modifiers = getattr(modifiers, "modifiers", None) or []
-    quant_modifiers = [m for m in modifiers if isinstance(m, QuantizationMixin)]
-    if not quant_modifiers:
-        return
-
-    for modifier in quant_modifiers:
-        fragment = deepcopy(modifier.resolved_config)
-        fragment.kv_cache_scheme = None
-        for root in roots:
-            apply_quantization_config(root, fragment, show_progress=False)
-            if not start_observers:
-                continue
-            for _, module in match_named_modules(
-                root, modifier.resolved_targets, modifier.ignore
-            ):
-                modifier._initialize_observers(module)
-                modifier._calibration_hooks |= modifier._initialize_hooks(module)
-                apply_calibration_status(module)
-            disable_quantization(root)
-            fuse_weight_observers(root)
-
-
-def linearize_remaining_moe(model: PreTrainedModel) -> None:
+def linearize_remaining_moe(model: PreTrainedModel) -> list[LinearExperts2D]:
     """Model-wide linearize for pipelines that have no per-subgraph onload window."""
     if len(get_non_linearized_moes(model)) <= 0:
-        return
-    linearize_moe(model)
-    attach_quantization(
-        [module for _, module in get_linearized_moes(model)],
-        start_observers=False,
+        return []
+    logger.warning(
+        "Detected an MoE model which has not been linearized. First load "
+        "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
+        " before passing to `oneshot`. Falling back to post-load linearization."
     )
+    linearize_moe(model)
+    return [module for _, module in get_linearized_moes(model)]
 
 
 def _experts_config(
@@ -344,6 +318,5 @@ def get_non_linearized_moes(
     return [
         (name, module)
         for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
-        or LinearExperts2D.get_registration(module.__class__) is not None
+        if _is_fused_experts(module)
     ]

@@ -9,6 +9,7 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import LifecycleCallbacks, active_session
 from llmcompressor.modeling.moe.linearize import linearize_remaining_moe
+from llmcompressor.modifiers.quantization.quantization.mixin import adopt_new_modules
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils import calibration_forward_context
@@ -55,7 +56,7 @@ class BasicPipeline(CalibrationPipeline):
         if use_loss_mask:
             session.state.loss_masks = []
 
-        linearize_remaining_moe(model)
+        adopt_new_modules(linearize_remaining_moe(model), start_observers=False)
         LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
