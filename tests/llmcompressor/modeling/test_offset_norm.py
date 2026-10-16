@@ -24,10 +24,7 @@ def _model(weight: torch.Tensor) -> torch.nn.Module:
 
 
 def _negative_zero(dtype: torch.dtype) -> torch.Tensor:
-    zeros = torch.zeros(2, dtype=dtype)
-    bits = _bits(zeros).clone()
-    bits[1] = bits[1] | (1 << (bits.element_size() * 8 - 1))
-    return bits.view(dtype)
+    return torch.tensor([0.0, -0.0], dtype=dtype)
 
 
 @pytest.mark.unit
