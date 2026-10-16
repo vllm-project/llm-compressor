@@ -17,6 +17,11 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.moe.linearize import (
+    assign_child_offload_kwargs,
+    attach_quantization,
+    linearize_moe_modules,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -259,6 +264,19 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                replaced = linearize_moe_modules(
+                    model, subgraph_modules, apply_offload=False
+                )
+                if replaced:
+                    subgraph_modules = subgraph.submodule_dict(model)
+                    assign_child_offload_kwargs(
+                        [name for name, _ in replaced],
+                        list(subgraph_modules),
+                        offload_kwargs,
+                    )
+                    attach_quantization(
+                        [module for _, module in replaced], start_observers=True
+                    )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
