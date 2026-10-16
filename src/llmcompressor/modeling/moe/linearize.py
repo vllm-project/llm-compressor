@@ -197,16 +197,14 @@ def assign_child_offload_kwargs(
         for candidate in replaced_names:
             if candidate not in offload_kwargs:
                 continue
-            if name == candidate or name.startswith(candidate + "."):
+            if name.startswith(candidate + "."):
                 if parent is None or len(candidate) > len(parent):
                     parent = candidate
         if parent is not None:
             offload_kwargs[name] = offload_kwargs[parent]
 
 
-def attach_quantization(
-    roots: list[torch.nn.Module], *, start_observers: bool
-) -> None:
+def attach_quantization(roots: list[torch.nn.Module], *, start_observers: bool) -> None:
     """
     Schemes are attached at ``session.initialize``, before a deferred linearize.
 

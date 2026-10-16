@@ -158,9 +158,7 @@ def test_offloaded_load_stays_fused_until_onload():
         modules = {"experts": offloaded.experts}
         offload_kwargs = subgraph_onload_modules(modules)
         assert offloaded.experts.down_proj.device.type == "cpu"
-        replaced = linearize_moe_modules(
-            offloaded, modules, apply_offload=False
-        )
+        replaced = linearize_moe_modules(offloaded, modules, apply_offload=False)
         names = [
             name
             for name, _ in offloaded.named_modules()
@@ -170,9 +168,7 @@ def test_offloaded_load_stays_fused_until_onload():
         assign_child_offload_kwargs(
             [name for name, _ in replaced], names, offload_kwargs
         )
-        attach_quantization(
-            [module for _, module in replaced], start_observers=True
-        )
+        attach_quantization([module for _, module in replaced], start_observers=True)
         down = offloaded.experts[0].down_proj
         assert torch.equal(down.weight, torch.ones_like(down.weight))
         assert down.quantization_scheme.weights.num_bits == 8
