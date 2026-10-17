@@ -4,6 +4,11 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.offload import (
+    OffloadCache,
+    get_cache_init_kwargs,
+    offload_module,
+)
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -42,8 +47,11 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
     1. Direct loading: If the model checkpoint contains 2D weights and conversion
         mappings areregistered for the model type, weights are loaded directly in
         linearized format.
-    2. Post-load conversion: If no conversion mappings exist, the model is loaded
-        normally and then linearized via `linearize_moe`.
+    2. Post-load conversion: If no conversion mappings exist, a resident model is
+        linearized via `linearize_moe`. An offloaded model stays fused. The
+        sequential pipeline linearizes each experts module after that subgraph is
+        onloaded, so the weights are not loaded once to linearize and again to
+        calibrate.
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
@@ -63,6 +71,8 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # fall back to post-load conversion
         if not has_linearize_load_mappings(model_type):
             model = original_from_pretrained(*args, **kwargs)
+            if _is_offloaded(model):
+                return model
             linearize_moe(model)
             return model
 
@@ -124,12 +134,109 @@ def linearize_moe(model: PreTrainedModel):
     )
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = _experts_config(module, model)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
-        model.set_submodule(name, linear_moe)
+        linear_moe, offload_kwargs = _install_linear_experts(model, name, module)
+        if offload_kwargs is not None:
+            for child in linear_moe.modules():
+                offload_module(child, **offload_kwargs)
 
     return model
+
+
+def _is_offloaded(model: torch.nn.Module) -> bool:
+    return any(
+        isinstance(getattr(module, "_parameters", None), OffloadCache)
+        for module in model.modules()
+    )
+
+
+def _is_fused_experts(module: torch.nn.Module) -> bool:
+    return isinstance(module, FusedExpertsProtocol) or (
+        LinearExperts2D.get_registration(module.__class__) is not None
+    )
+
+
+def _install_linear_experts(
+    model: torch.nn.Module,
+    name: str,
+    module: torch.nn.Module,
+) -> tuple[LinearExperts2D, dict | None]:
+    """Replace one fused module with resident 2D experts.
+
+    The returned kwargs are the fused module's offload settings, when it had
+    any. Callers that linearize inside an onload window ignore them and offload
+    later with the kwargs captured before that window.
+    """
+    offload_kwargs = (
+        get_cache_init_kwargs(module)
+        if isinstance(getattr(module, "_parameters", None), OffloadCache)
+        else None
+    )
+    config = _experts_config(module, model)
+    linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
+    linear_moe = linear_experts_cls.from_experts_module(module, config)
+    model.set_submodule(name, linear_moe)
+    return linear_moe, offload_kwargs
+
+
+def linearize_onload_experts(
+    model: torch.nn.Module,
+    subgraph,
+    subgraph_modules: dict[str, torch.nn.Module],
+    offload_kwargs: dict[str, dict],
+) -> list[torch.nn.Module]:
+    """Linearize fused experts that are already onloaded, and keep them resident.
+
+    Refreshes ``subgraph_modules`` and copies the pre-onload offload kwargs onto
+    the new child names. ``subgraph_offload_modules`` then returns those linears
+    to the fused module's original device.
+    """
+    replaced_names = []
+    roots = []
+    for name, module in list(subgraph_modules.items()):
+        if not _is_fused_experts(module):
+            continue
+        linear_moe, _ = _install_linear_experts(model, name, module)
+        replaced_names.append(name)
+        roots.append(linear_moe)
+    if not roots:
+        return []
+    subgraph_modules.clear()
+    subgraph_modules.update(subgraph.submodule_dict(model))
+    assign_child_offload_kwargs(replaced_names, list(subgraph_modules), offload_kwargs)
+    return roots
+
+
+def assign_child_offload_kwargs(
+    replaced_names: list[str],
+    module_names: list[str],
+    offload_kwargs: dict[str, dict],
+) -> None:
+    """Give new child modules the offload settings of the fused module they replaced."""
+    for name in module_names:
+        if name in offload_kwargs:
+            continue
+        parent = None
+        for candidate in replaced_names:
+            if candidate not in offload_kwargs:
+                continue
+            if name.startswith(candidate + "."):
+                if parent is None or len(candidate) > len(parent):
+                    parent = candidate
+        if parent is not None:
+            offload_kwargs[name] = offload_kwargs[parent]
+
+
+def linearize_remaining_moe(model: PreTrainedModel) -> list[LinearExperts2D]:
+    """Model-wide linearize for pipelines that have no per-subgraph onload window."""
+    if len(get_non_linearized_moes(model)) <= 0:
+        return []
+    logger.warning(
+        "Detected an MoE model which has not been linearized. First load "
+        "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
+        " before passing to `oneshot`. Falling back to post-load linearization."
+    )
+    linearize_moe(model)
+    return [module for _, module in get_linearized_moes(model)]
 
 
 def _experts_config(
@@ -211,6 +318,5 @@ def get_non_linearized_moes(
     return [
         (name, module)
         for name, module in model.named_modules()
-        if isinstance(module, FusedExpertsProtocol)
-        or LinearExperts2D.get_registration(module.__class__) is not None
+        if _is_fused_experts(module)
     ]
