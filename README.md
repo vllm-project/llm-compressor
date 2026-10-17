@@ -20,6 +20,10 @@
 
 </div>
 
+<p align="center">
+  <b>English</b> · <a href="README.zh.md">简体中文</a>
+</p>
+
 `llmcompressor` is the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
 * Comprehensive set of quantization algorithms and transforms for weight, activation, KV cache, and attention quantization
