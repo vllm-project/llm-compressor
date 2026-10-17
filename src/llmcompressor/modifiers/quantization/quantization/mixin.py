@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import torch
@@ -43,6 +43,12 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
+)
+from llmcompressor.modifiers.quantization.quantization.mixin_helpers import (
+    CALIBRATION_OBSERVER_BASE_NAMES,
+)
+from llmcompressor.modifiers.quantization.quantization.mixin_helpers import (
+    validate_module_calibration as _validate_module_calibration,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -299,6 +305,21 @@ class QuantizationMixin(HooksMixin):
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
+
+    def validate_module_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: torch.nn.Module | Iterable[torch.nn.Module],
+        base_names: str | Iterable[str] = CALIBRATION_OBSERVER_BASE_NAMES,
+    ):
+        """
+        Validate that calibration observers on a sequential chunk were called.
+
+        :param model: full model, used for module names in error messages
+        :param modules: modules from the current sequential chunk
+        :param base_names: observer base names to validate
+        """
+        _validate_module_calibration(model, modules, base_names)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
