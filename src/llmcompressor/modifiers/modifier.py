@@ -310,8 +310,9 @@ class Modifier(ModifierInterface, HooksMixin):
     ) -> tuple[int, int] | None:
         """
         Estimate the device memory this modifier needs for a module, for
-        `sequential_targets_per_subgraph="auto"`. Modifiers which need calibration
-        data report None (unknown) unless they override this
+        `sequential_targets_per_subgraph="auto"`. Called under `disable_onloading()`.
+        Modifiers which need calibration data report None (unknown) unless they
+        override this
 
         :param module: module belonging to the subgraph being calibrated
         :param num_tokens: number of calibration tokens, including padding

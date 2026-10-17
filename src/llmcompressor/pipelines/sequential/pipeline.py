@@ -154,7 +154,7 @@ class SequentialPipeline(CalibrationPipeline):
             dataset_args.sequential_targets_per_subgraph,
             dataloader,
             modifiers,
-            dataset_args.gpu_memory_utilization,
+            dataset_args,
         )
         num_subgraphs = len(subgraphs)
 

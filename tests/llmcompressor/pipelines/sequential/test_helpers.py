@@ -328,15 +328,15 @@ def test_topological_partition_memory_cuts_before_non_targets():
     targets = {model.layer1, model.layer2, model.layer3}
     graph_module = torch.fx.symbolic_trace(model)
 
-    # every module costs memory, so the non-target `merge` gets a partition too
+    # every module costs memory, so a cut lands before the non-target `merge`, which
+    # then shares its partition with the next target
     node_memory = {node: 1 for node in graph_module.graph.find_nodes(op="call_module")}
     partitions = topological_partition(graph_module, targets, "auto", node_memory, 1)
     assert [[node.name for node in partition] for partition in partitions] == [
         ["x"],
         ["layer1"],
         ["layer2", "cat"],
-        ["merge"],
-        ["layer3", "output"],
+        ["merge", "layer3", "output"],
     ]
 
     subgraphs = partition_graph(model, partitions)
@@ -368,8 +368,9 @@ def test_partition_subgraphs_auto_groups_whole_targets(monkeypatch):
         "llmcompressor.pipelines.sequential.helpers.plan_subgraph_memory",
         lambda *args: ({node: 1 for node in target_nodes}, 7),
     )
+    auto_args = ([], [], DatasetArguments())  # dataloader, modifiers, dataset_args
     single = partition_subgraphs(model, graph, targets, 1)
-    grouped = partition_subgraphs(model, graph, targets, "auto")
+    grouped = partition_subgraphs(model, graph, targets, "auto", *auto_args)
 
     # a group's modules are the union of its targets' modules, so per-target costs
     # add up to the cost of a group
@@ -386,7 +387,13 @@ def test_partition_subgraphs_auto_groups_whole_targets(monkeypatch):
         "llmcompressor.pipelines.sequential.helpers.plan_subgraph_memory",
         lambda *args: None,
     )
-    assert len(partition_subgraphs(model, graph, targets, "auto")) == len(single)
+    assert len(partition_subgraphs(model, graph, targets, "auto", *auto_args)) == len(
+        single
+    )
+
+    # "auto" cannot estimate memory without the calibration data and modifiers
+    with pytest.raises(ValueError, match="dataloader"):
+        partition_subgraphs(model, graph, targets, "auto")
 
     # grouping more than one target per subgraph is not a target mismatch
     warning.assert_not_called()
@@ -495,6 +502,22 @@ def test_handle_sequential_oom_mentions_calibration_levers():
     assert "Sequential pipeline ran out of memory" in message
     assert "`max_seq_length`" in message
     assert "`num_calibration_samples`" in message
+    assert "sequential_targets_per_subgraph='auto' chooses" in message
+
+
+def test_handle_sequential_oom_with_auto_suggests_more_headroom():
+    @handle_sequential_oom
+    def pipeline(model, dataloader, dataset_args):
+        raise torch.OutOfMemoryError("CUDA out of memory")
+
+    dataset_args = DatasetArguments(sequential_targets_per_subgraph="auto")
+    with pytest.raises(torch.OutOfMemoryError) as excinfo:
+        pipeline(None, None, dataset_args)
+
+    # a run which already uses "auto" is told how to leave more headroom instead
+    message = str(excinfo.value)
+    assert "`gpu_memory_utilization`" in message
+    assert "'auto' chooses" not in message
 
 
 # --- modules invoked inside wrapped functions (#3261) ---
