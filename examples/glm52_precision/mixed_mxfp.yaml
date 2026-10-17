@@ -1,0 +1,19 @@
+# Experimental linear-only GLM-5.2 recipe. No KV-cache or FA3/indexer-score quantization.
+# Run only after the local gates and real-layer L4 verification pass.
+default_stage:
+  default_modifiers:
+    QuaRotModifier:
+      block_size: 32
+      seed: 1234
+    FlexSmoothModifier:
+      subgraphs: [norm-linear, ov]
+      max_tokens: 128
+    QuantizationModifier:
+      scheme:
+        MXFP8:
+          - 're:.*self_attn\.(q_a_proj|q_b_proj|kv_a_proj_with_mqa|o_proj)$'
+          - 're:.*self_attn\.indexer\.wq_b$'
+          - 're:.*mlp\.(gate_proj|up_proj|down_proj)$'
+          - 're:.*mlp\.shared_experts\.(gate_proj|up_proj|down_proj)$'
+        MXFP4:
+          - 're:.*mlp\.experts\.\d+\.(gate_proj|up_proj|down_proj)$'

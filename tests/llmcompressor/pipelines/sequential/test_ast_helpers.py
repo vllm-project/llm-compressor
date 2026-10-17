@@ -52,6 +52,28 @@ class _PlainForwardModule(torch.nn.Module):
         return self.linear(x)
 
 
+class _NestedStarredMethodModule(_PlainForwardModule):
+    def forward(self, x, _autowrap_receiver_0):
+        # Name collision with the wrapper's generated receiver must be harmless.
+        return self.linear(x).view(*_autowrap_receiver_0)
+
+
+def test_starred_method_preserves_nested_module_call(monkeypatch):
+    model = _NestedStarredMethodModule()
+    original = model.forward
+    x = torch.randn(2, 4)
+    shape = (1, 2, 4)
+    expected = model(x, shape)
+    with autowrap_forward(model, ignore=[]):
+        # FX traces the class forward, not the patched instance method.
+        with monkeypatch.context() as scoped:
+            scoped.setattr(type(model), "forward", model.forward.__func__)
+            graph = torch.fx.symbolic_trace(model)
+    assert [n.target for n in graph.graph.nodes if n.op == "call_module"] == ["linear"]
+    torch.testing.assert_close(graph(x, shape), expected, atol=0, rtol=0)
+    assert model.forward == original
+
+
 @pytest.mark.regression
 def test_autowrap_forward_handles_unwrapped_decorator():
     """autowrap_forward must not raise KeyError when ``forward`` is wrapped by a

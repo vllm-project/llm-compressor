@@ -1,3 +1,6 @@
+from contextlib import nullcontext
+
+import pytest
 import torch
 from transformers import initialization as init
 from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
@@ -5,7 +8,53 @@ from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.helpers import MoEConfig
-from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
+from llmcompressor.pipelines.sequential.helpers import (
+    partition_graph,
+    topological_partition,
+)
+
+
+@pytest.mark.parametrize("all_experts", [False, True])
+@torch.no_grad()
+def test_expert_partitions_preserve_accumulation(all_experts):
+    config = Qwen3MoeConfig(hidden_size=16, moe_intermediate_size=32, num_experts=4)
+    with torch.random.fork_rng():
+        torch.manual_seed(7)
+        experts = LinearExperts2D.get_linear_experts_cls(Qwen3MoeExperts)(config)
+        for parameter in experts.parameters():
+            parameter.normal_(0, 0.1)
+        hidden = torch.randn(5, 16)
+    indices = torch.tensor([[0, 1], [1, 2], [2, 0], [0, 2], [1, 0]])
+    weights = torch.tensor([[0.7, 0.3]]).expand(5, -1)
+
+    class Tracer(torch.fx.Tracer):
+        def is_leaf_module(self, module, name):
+            return isinstance(module, ExpertMLP) or super().is_leaf_module(module, name)
+
+    with moe_calibration_context() if all_experts else nullcontext():
+        expected = experts(hidden, indices, weights)
+        graph = torch.fx.GraphModule(experts, Tracer().trace(experts))
+        partitions = partition_graph(
+            experts,
+            topological_partition(graph, {experts[i] for i in range(4)}),
+        )
+        assert len(partitions) == 5  # head plus four individual experts
+        namespace = dict(
+            hidden_states=hidden, top_k_index=indices, top_k_weights=weights
+        )
+        for partition in partitions:
+            # Copy to model cache -> accelerator movement; no alias back to cache.
+            inputs = {
+                key: namespace[key].clone()
+                if isinstance(namespace[key], torch.Tensor)
+                else namespace[key]
+                for key in partition.input_names
+            }
+            output = partition.forward(experts, **inputs)
+            if isinstance(output, dict):
+                namespace.update(output)
+        torch.testing.assert_close(output, expected, atol=0, rtol=0)
 
 
 @torch.no_grad()
