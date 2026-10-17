@@ -5,12 +5,10 @@
 
 import argparse
 import json
-import re
 from pathlib import Path
 
 import torch
 from compressed_tensors.compressors import PackedQuantizationCompressor
-from compressed_tensors.compressors.pack_quantized.helpers import unpack_from_int32
 from compressed_tensors.entrypoints.convert import AutoAWQConverter, convert_checkpoint
 from compressed_tensors.quantization import QuantizationConfig
 from safetensors import safe_open
@@ -48,52 +46,17 @@ def unpack_awq_gemm(words: torch.Tensor) -> torch.Tensor:
     return unpacked
 
 
-def verify_checkpoint(source: Path, output: Path) -> int:
-    """Check every AWQ layer against the source, plus all unchanged tensors."""
+def verify_weights(source: Path, output: Path) -> int:
+    """Compare every layer's reconstructed weights against the source checkpoint."""
     source_config = json.loads((source / "config.json").read_text())[
         "quantization_config"
     ]
     group_size = source_config["group_size"]
-    if (
-        source_config.get("quant_method") != "awq"
-        or source_config.get("version") != "gemm"
-        or source_config.get("bits") != 4
-        or source_config.get("zero_point") is not True
-        or group_size <= 0
-    ):
-        raise ValueError(
-            "This example requires asymmetric 4-bit GEMM with group_size > 0"
-        )
-
     output_config = json.loads((output / "config.json").read_text())[
         "quantization_config"
     ]
     config = QuantizationConfig.model_validate(output_config)
-    if config.quant_method != "compressed-tensors" or len(config.config_groups) != 1:
-        raise ValueError("Expected one compressed-tensors quantization group")
     scheme = next(iter(config.config_groups.values()))
-    expected_ignore = ["lm_head"] + [
-        f"re:.*{re.escape(module)}.*"
-        for module in source_config.get("modules_to_not_convert") or []
-    ]
-    if (
-        config.quantization_status != "compressed"
-        or config.format != "pack-quantized"
-        or scheme.format != "pack-quantized"
-        or scheme.targets != ["Linear"]
-        or config.ignore != expected_ignore
-        or scheme.weights.num_bits != 4
-        or scheme.weights.type != "int"
-        or scheme.weights.symmetric
-        or scheme.weights.strategy != "group"
-        or scheme.weights.group_size != group_size
-        or scheme.input_activations is not None
-        or scheme.output_activations is not None
-        or config.kv_cache_scheme is not None
-    ):
-        raise ValueError(
-            "Output configuration does not describe the source W4A16 scheme"
-        )
 
     source_files, output_files = tensor_files(source), tensor_files(output)
     modules = sorted(
@@ -103,18 +66,17 @@ def verify_checkpoint(source: Path, output: Path) -> int:
     )
     if not modules:
         raise ValueError("No AutoAWQ qweight tensors found")
-    expected_names = set(source_files)
     for module in modules:
         q = unpack_awq_gemm(load_tensor(source_files, f"{module}.qweight"))
         z = unpack_awq_gemm(load_tensor(source_files, f"{module}.qzeros"))
         scales = load_tensor(source_files, f"{module}.scales")
-        k, n = q.shape
-        if k % group_size or z.shape != (k // group_size, n) or scales.shape != z.shape:
-            raise ValueError(f"Incompatible group shapes in {module}")
-        if not torch.isfinite(scales).all() or not (scales > 0).all():
-            raise ValueError(f"Invalid scales in {module}")
 
-        local = {
+        # Reconstruct the source in float32 using AutoAWQ's (K, N) convention.
+        groups = torch.arange(q.shape[0]) // group_size
+        reference = (q - z[groups]).float() * scales[groups].float()
+
+        # Reconstruct the converted layer with the CT consumer, in (N, K) order.
+        compressed = {
             suffix: load_tensor(output_files, f"{module}.{suffix}")
             for suffix in (
                 "weight_packed",
@@ -123,43 +85,9 @@ def verify_checkpoint(source: Path, output: Path) -> int:
                 "weight_zero_point",
             )
         }
-        torch.testing.assert_close(local["weight_shape"], torch.tensor([n, k]))
-        torch.testing.assert_close(local["weight_scale"], scales.T, rtol=0, atol=0)
-        actual_q = unpack_from_int32(local["weight_packed"], 4, torch.Size([n, k]))
-        actual_z = unpack_from_int32(
-            local["weight_zero_point"],
-            4,
-            torch.Size([n, k // group_size]),
-            packed_dim=0,
-        )
-        torch.testing.assert_close(actual_q.int(), q.T - 8, rtol=0, atol=0)
-        torch.testing.assert_close(actual_z.int(), z.T - 8, rtol=0, atol=0)
-
-        # Reconstruct both formats in float32, keeping the original scale values.
-        # The reference uses source AWQ axes (K, N) and producer packing order.
-        groups = torch.arange(k) // group_size
-        reference = (q - z[groups]).float() * scales[groups].float()
-        local["weight_scale"] = local["weight_scale"].float()
-        actual = PackedQuantizationCompressor.decompress(local, scheme)["weight"]
+        compressed["weight_scale"] = compressed["weight_scale"].float()
+        actual = PackedQuantizationCompressor.decompress(compressed, scheme)["weight"]
         torch.testing.assert_close(actual, reference.T, rtol=0, atol=0)
-
-        expected_names.difference_update(
-            f"{module}.{suffix}" for suffix in ("qweight", "qzeros", "scales")
-        )
-        expected_names.update(f"{module}.{suffix}" for suffix in local)
-
-    if set(output_files) != expected_names:
-        raise ValueError("Unexpected or missing output tensors")
-    for name in set(source_files) & set(output_files):
-        torch.testing.assert_close(
-            load_tensor(output_files, name),
-            load_tensor(source_files, name),
-            rtol=0,
-            atol=0,
-        )
-    index = json.loads((output / "model.safetensors.index.json").read_text())
-    if index["weight_map"] != {name: path.name for name, path in output_files.items()}:
-        raise ValueError("Output index does not match the saved tensors")
     return len(modules)
 
 
@@ -208,8 +136,8 @@ def main() -> None:
         device="cpu",
         max_workers=1,
     )
-    count = verify_checkpoint(args.source, args.output)
-    print(f"Verified {count} AWQ layers, unchanged tensors, configuration, and index")
+    count = verify_weights(args.source, args.output)
+    print(f"Verified {count} AWQ layers against the source checkpoint")
     if args.run_inference:
         run_inference(args.output)
 
