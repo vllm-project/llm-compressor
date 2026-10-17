@@ -1,5 +1,6 @@
 import math
 import sys
+from unittest.mock import MagicMock
 
 import pytest
 import torch
@@ -18,8 +19,10 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_sequential_ancestors,
     handle_sequential_oom,
     partition_graph,
+    partition_subgraphs,
     topological_partition,
     trace_consumed_names,
+    trace_graph,
     trace_subgraphs,
 )
 from llmcompressor.utils.dev import skip_weights_download, skip_weights_initialize
@@ -101,6 +104,22 @@ class DummyModelWithBranch(torch.nn.Module):
         merged = torch.cat([left, right], dim=-1)
         merged = self.merge(merged)
         return self.layer3(merged)
+
+
+class DummyModelWithParameters(torch.nn.Module):
+    """Reads parameters directly in forward, which produces `get_attr` nodes"""
+
+    def __init__(self):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(torch.nn.Linear(10, 10) for _ in range(6))
+        self.scales = torch.nn.ParameterList(
+            torch.nn.Parameter(torch.ones(10)) for _ in range(6)
+        )
+
+    def forward(self, x):
+        for layer, scale in zip(self.layers, self.scales):
+            x = layer(x * scale)
+        return x
 
 
 def _multiple_layer_targets(model: DummyModelMultipleSequentialLayers):
@@ -283,6 +302,121 @@ def test_topological_partition_invalid():
         topological_partition(gm, targets, 0)
 
 
+@pytest.mark.parametrize("targets_per_subgraph", [1, 2, 3, 4, 6])
+def test_topological_partition_memory_matches_targets_per_subgraph(
+    targets_per_subgraph,
+):
+    with skip_weights_initialize():
+        model = DummyModelWithParameters()
+
+    targets = set(model.layers)
+    graph_module = torch.fx.symbolic_trace(model)
+    assert len(graph_module.graph.find_nodes(op="get_attr")) > 0
+    target_nodes = find_target_nodes(graph_module, targets)
+
+    # when only targets cost memory, room for N targets partitions exactly like the
+    # integer setting
+    node_memory = {node: 1 for node in target_nodes}
+    assert topological_partition(
+        graph_module, targets, "auto", node_memory, targets_per_subgraph
+    ) == topological_partition(graph_module, targets, targets_per_subgraph)
+
+
+def test_topological_partition_memory_cuts_before_non_targets():
+    model = DummyModelWithBranch()
+
+    targets = {model.layer1, model.layer2, model.layer3}
+    graph_module = torch.fx.symbolic_trace(model)
+
+    # every module costs memory, so a cut lands before the non-target `merge`, which
+    # then shares its partition with the next target
+    node_memory = {node: 1 for node in graph_module.graph.find_nodes(op="call_module")}
+    partitions = topological_partition(graph_module, targets, "auto", node_memory, 1)
+    assert [[node.name for node in partition] for partition in partitions] == [
+        ["x"],
+        ["layer1"],
+        ["layer2", "cat"],
+        ["merge", "layer3", "output"],
+    ]
+
+    subgraphs = partition_graph(model, partitions)
+    trace_consumed_names(subgraphs)
+    sample_input = torch.randn(2, 10)
+    namespace = run_subgraphs(model, subgraphs, {"x": sample_input})
+    assert torch.allclose(namespace["layer3"], model(sample_input))
+
+
+def test_partition_subgraphs_auto_groups_whole_targets(monkeypatch):
+    warning = MagicMock()
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.logger.warning", warning
+    )
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen3-0.6B")
+
+    graph, targets = trace_graph(
+        model,
+        model.dummy_inputs,
+        sequential_targets=["Qwen3DecoderLayer"],
+        ignore=DatasetArguments().tracing_ignore,
+    )
+    num_layers = len(model.model.layers)
+    target_nodes = find_target_nodes(graph, targets)
+
+    # a plan with room for seven decoder layers per subgraph
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.plan_subgraph_memory",
+        lambda *args: ({node: 1 for node in target_nodes}, 7),
+    )
+    auto_args = ([], [], DatasetArguments())  # dataloader, modifiers, dataset_args
+    single = partition_subgraphs(model, graph, targets, 1)
+    grouped = partition_subgraphs(model, graph, targets, "auto", *auto_args)
+
+    # a group's modules are the union of its targets' modules, so per-target costs
+    # add up to the cost of a group
+    assert len(single) == num_layers + 1
+    assert len(grouped) == num_layers // 7 + 1
+    for index, subgraph in enumerate(grouped[1:]):
+        expected = set().union(
+            *(s.submodule_dict(model) for s in single[1 + 7 * index : 8 + 7 * index])
+        )
+        assert set(subgraph.submodule_dict(model)) == expected
+
+    # without a plan, "auto" falls back to one target per subgraph
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.plan_subgraph_memory",
+        lambda *args: None,
+    )
+    assert len(partition_subgraphs(model, graph, targets, "auto", *auto_args)) == len(
+        single
+    )
+
+    # "auto" cannot estimate memory without the calibration data and modifiers
+    with pytest.raises(ValueError, match="dataloader"):
+        partition_subgraphs(model, graph, targets, "auto")
+
+    # grouping more than one target per subgraph is not a target mismatch
+    warning.assert_not_called()
+
+
+def test_partition_subgraphs_warns_on_target_mismatch(monkeypatch):
+    warning = MagicMock()
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.helpers.logger.warning", warning
+    )
+    with skip_weights_initialize():
+        model = DummyModelMultipleSequentialLayers()
+
+    graph_module = torch.fx.symbolic_trace(model)
+    targets = _multiple_layer_targets(model)
+    partition_subgraphs(model, graph_module, targets, 4)
+    warning.assert_not_called()
+
+    uncalled = torch.nn.Linear(10, 10)
+    partition_subgraphs(model, graph_module, targets | {uncalled}, 4)
+    warning.assert_called_once()
+
+
 @pytest.mark.parametrize("targets_per_subgraph", [1, 2, 3, 4, 5])
 def test_trace_subgraphs(targets_per_subgraph):
     target = "Qwen3DecoderLayer"
@@ -368,6 +502,22 @@ def test_handle_sequential_oom_mentions_calibration_levers():
     assert "Sequential pipeline ran out of memory" in message
     assert "`max_seq_length`" in message
     assert "`num_calibration_samples`" in message
+    assert "sequential_targets_per_subgraph='auto' chooses" in message
+
+
+def test_handle_sequential_oom_with_auto_suggests_more_headroom():
+    @handle_sequential_oom
+    def pipeline(model, dataloader, dataset_args):
+        raise torch.OutOfMemoryError("CUDA out of memory")
+
+    dataset_args = DatasetArguments(sequential_targets_per_subgraph="auto")
+    with pytest.raises(torch.OutOfMemoryError) as excinfo:
+        pipeline(None, None, dataset_args)
+
+    # a run which already uses "auto" is told how to leave more headroom instead
+    message = str(excinfo.value)
+    assert "`gpu_memory_utilization`" in message
+    assert "'auto' chooses" not in message
 
 
 # --- modules invoked inside wrapped functions (#3261) ---

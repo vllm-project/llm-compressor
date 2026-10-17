@@ -25,9 +25,10 @@ from llmcompressor.pipelines.sequential.error_logging import (
     process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
-    find_modules_outside_subgraphs,
+    find_modules_outside_graph,
     handle_sequential_oom,
-    trace_subgraphs,
+    partition_subgraphs,
+    trace_graph,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -137,19 +138,25 @@ class SequentialPipeline(CalibrationPipeline):
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(
-            model,
-            sample_input,
-            sequential_targets,
-            ignore,
-            dataset_args.sequential_targets_per_subgraph,
-        )
-        num_subgraphs = len(subgraphs)
-        persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        graph, targets = trace_graph(model, sample_input, sequential_targets, ignore)
+        persistent_modules = find_modules_outside_graph(model, graph)
         if persistent_modules:
             subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
+
+        # partitioned once modifiers have started, so that "auto" can estimate the
+        # memory they need
+        subgraphs = partition_subgraphs(
+            model,
+            graph,
+            targets,
+            dataset_args.sequential_targets_per_subgraph,
+            dataloader,
+            modifiers,
+            dataset_args,
+        )
+        num_subgraphs = len(subgraphs)
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
