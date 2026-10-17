@@ -7,6 +7,8 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
+from collections.abc import Iterable
+
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import (
@@ -158,7 +160,10 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-def fuse_weight_observers(model: Module):
+def fuse_weight_observers(
+    model: Module,
+    modules: Iterable[Module] | None = None,
+):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -169,10 +174,13 @@ def fuse_weight_observers(model: Module):
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
+    :param modules: optional modules to inspect instead of the complete model. This is
+        useful when a transformation has added a small subgraph and only that subgraph
+        needs fusion bookkeeping.
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    for submodule in model.modules():
+    for submodule in model.modules() if modules is None else modules:
         for fused_layers in get_fused_layers(submodule):
             fusion_name_group = tuple(fused_layers.keys())
             layers_to_fuse = list(fused_layers.values())
