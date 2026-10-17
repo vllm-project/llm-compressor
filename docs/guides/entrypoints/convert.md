@@ -200,12 +200,9 @@ convert_checkpoint(
 )
 ```
 
-The example reads tensor headers to locate weights across shards and checks every source `qweight` layer. Its source decoder follows AutoAWQ's producer packing order independently of the CT converter. It verifies:
+The example reads tensor headers to locate weights across shards and compares every source `qweight` layer with the converted checkpoint. Its source decoder follows AutoAWQ's producer packing order independently of the CT converter; the converted weights are reconstructed with the CT decompressor. The float32 weights must agree exactly. This comparison is against the source **quantized** weights, not the original pre-quantization model.
 
-- Exact agreement of unpacked signed integer weights, zero-points, and transposed scales.
-- Exact agreement of reconstructed weights in float32, using the original scale values on both sides. This comparison is against the source **quantized** weights, not the original pre-quantization model.
-- Preservation of unchanged tensors, such as biases, embeddings, and normalization weights.
-- A matching safetensors weight index and a CT configuration describing compressed, group-wise, asymmetric W4A16 with the source group size.
+Additional checks live in `tests/unit/test_autoawq_conversion.py`: the unpacked signed integer weights, zero-points, and transposed scales; preservation of unchanged tensors; the quantization configuration; and the safetensors index. These tests also cover conversion across shards and rejection of numerically corrupted weights.
 
 `convert_checkpoint` writes the output `quantization_config` automatically, including `quant_method="compressed-tensors"`, `format="pack-quantized"`, and `quantization_status="compressed"`. Keep that configuration with the converted tensors and tokenizer files when moving the checkpoint.
 
