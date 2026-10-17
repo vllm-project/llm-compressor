@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import torch
 import torch.nn as nn
@@ -699,16 +701,21 @@ def test_reap_is_registered():
 @pytest.mark.unit
 def test_reap_validation():
     with pytest.raises(ValueError, match="sparsity"):
-        REAPPruningModifier()
-
-    with pytest.raises(ValueError, match="sparsity"):
-        REAPPruningModifier(sparsity=0.0)
-
-    with pytest.raises(ValueError, match="sparsity"):
         REAPPruningModifier(sparsity=1.0)
 
     with pytest.raises(ValueError, match="sparsity"):
         REAPPruningModifier(sparsity=-0.1)
+
+    # report_path must end with .json
+    with pytest.raises(ValueError, match=r"\.json"):
+        REAPPruningModifier(sparsity=0.5, report_path="report.pkl")
+
+    # sparsity=0.0 (report-only) requires a report_path
+    with pytest.raises(ValueError, match="report_path"):
+        REAPPruningModifier(sparsity=0.0)
+
+    # sparsity=0.0 with a report_path is valid
+    REAPPruningModifier(sparsity=0.0, report_path="report.json")
 
 
 def _make_state(model):
@@ -831,6 +838,63 @@ def test_reap_full_lifecycle():
         out = model(x)
         assert out.shape == (2, 4, config.hidden_size)
         assert not torch.isnan(out).any()
+
+
+@pytest.mark.unit
+def test_reap_report_only_does_not_modify_model(tmp_path):
+    """With sparsity=0.0, saliency is reported but weights/config are untouched."""
+    torch.manual_seed(42)
+
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    report_path = str(tmp_path / "report.json")
+    modifier = REAPPruningModifier(sparsity=0.0, report_path=report_path)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with torch.no_grad():
+        for _ in range(5):
+            x = torch.randn(2, 8, config.hidden_size)
+            model(x)
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    # Model config and weights are unchanged
+    assert model.config.num_experts == 8
+    for layer in model.layers:
+        assert layer.num_experts == 8
+        expert_count = sum(
+            1 for m in layer.experts.children() if isinstance(m, ExpertMLP)
+        )
+        assert expert_count == 8
+        assert layer.gate.weight.shape[0] == 8
+
+    # Report holds per-expert statistics for each MoE layer, ordered by layer
+    with open(report_path) as f:
+        report = json.load(f)
+
+    assert sorted(report) == ["count", "saliency", "topk_weights"]
+    for values in report.values():
+        assert len(values) == 2
+
+    for layer_counts, layer_saliency in zip(report["count"], report["saliency"]):
+        assert len(layer_counts) == 8
+        assert len(layer_saliency) == 8
+        assert all(isinstance(value, float) for value in layer_saliency)
+        # every expert was routed to at least once across the 5 batches
+        assert all(count > 0 for count in layer_counts)
+
+    # topk_weights holds the last batch's router weights, [num_tokens, top_k]
+    assert len(report["topk_weights"][0]) == 2 * 8
+    assert all(len(weights) == 2 for weights in report["topk_weights"][0])
 
 
 @pytest.mark.unit
