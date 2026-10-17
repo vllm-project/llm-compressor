@@ -56,6 +56,12 @@ to make input activations easier to quantize by smoothing away outliers in the i
 smoothing operation to the following weights. This makes weights slightly harder to quantize, but the inputs much
 easier to quantize. The implementation is based on [SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models](https://arxiv.org/pdf/2211.10438) and requires calibration data. 
 
+### [IterSmooth](./transform/itersmooth/README.md)
+Calibration-based outlier suppression with norm-linear, linear-linear, gated
+up-down, and attention value-output mappings, including GQA/MQA. Use
+`IterSmoothModifier` before quantization with `pipeline="independent"` so the
+quantizer observes the smoothed activations.
+
 ### [Logarithmic Equalization](./logarithmic_equalization/base.py)
 Very similar to `SmoothQuantModifier`, but applies smoothing on an inverse log scale 
 rather than the linear smoothing done by SmoothQuant. The implementation is based on 
