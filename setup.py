@@ -4,6 +4,25 @@ import sys
 from setuptools import find_packages, setup
 from setuptools_scm import ScmVersion
 
+# Opt in to compiling against the installed PyTorch. Normal installations stay
+# pure Python; use --no-build-isolation when building this experimental backend.
+native_build = {}
+if os.environ.get("LLMCOMPRESSOR_BUILD_NATIVE_STAGING") == "1":
+    if not sys.platform.startswith("linux"):
+        raise RuntimeError("Native disk staging currently requires Linux")
+    from torch.utils.cpp_extension import BuildExtension, CppExtension
+
+    native_build = {
+        "ext_modules": [
+            CppExtension(
+                "llmcompressor._staging_native",
+                ["csrc/staging.cpp"],
+                extra_compile_args=["-O3", "-g0", "-std=c++17"],
+            )
+        ],
+        "cmdclass": {"build_ext": BuildExtension.with_options(use_ninja=False)},
+    }
+
 # Set the build type using an environment variable to give us
 # different package names based on the reason for the build.
 VALID_BUILD_TYPES = {"release", "nightly", "dev"}
@@ -80,6 +99,7 @@ def localversion_func(version: ScmVersion) -> str:
 
 
 setup(
+    **native_build,
     name="llmcompressor",
     use_scm_version={
         "version_scheme": version_func,
