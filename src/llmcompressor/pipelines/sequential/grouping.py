@@ -20,6 +20,7 @@ from llmcompressor.utils.dev import get_main_device
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
+    from llmcompressor.args.dataset_arguments import DatasetArguments
     from llmcompressor.modifiers import Modifier
 
 __all__ = ["plan_subgraph_memory", "log_partitions"]
@@ -43,13 +44,14 @@ def plan_subgraph_memory(
     node_modules: dict[Node, list[str]],
     dataloader: "DataLoader",
     modifiers: list["Modifier"],
-    gpu_memory_utilization: float,
+    dataset_args: "DatasetArguments",
 ) -> tuple[dict[Node, int], int] | None:
     """
     Estimate the memory each node onloads and holds until its subgraph is compressed,
     and how much of it fits in a subgraph. Activations are freed before modules are
     compressed, so the larger of the activation estimate and the largest modifier
-    scratch is reserved from the budget of every subgraph
+    scratch is reserved from the budget of every subgraph, along with calibration
+    activations cached on the device
 
     Called once persistent modules are onloaded, so the memory they use is already
     taken out of the budget
@@ -58,11 +60,12 @@ def plan_subgraph_memory(
     :param node_modules: map of each node to the names of the modules it onloads
     :param dataloader: calibration data
     :param modifiers: modifiers which will calibrate the subgraphs
-    :param gpu_memory_utilization: fraction of the device's total memory that
-        calibration may use
+    :param dataset_args: arguments which set the budget and where activations are
+        cached
     :return: map of node to bytes, and the bytes available to the nodes of a subgraph,
         or None to fall back to one target per subgraph
     """
+    gpu_memory_utilization = dataset_args.gpu_memory_utilization
     device = get_main_device()
     if device.type == "cpu":
         logger.warning(
@@ -108,7 +111,8 @@ def plan_subgraph_memory(
         return None
 
     largest_scratch = max((scratch for _, scratch in module_costs.values()), default=0)
-    reserved = max(activation_memory, largest_scratch)
+    cached = estimate_cached_activations(model, shapes, dataset_args, device)
+    reserved = max(activation_memory, largest_scratch) + cached
     if budget - reserved <= 0:
         logger.warning(
             f"No memory is left on {device} for subgraphs within "
@@ -266,15 +270,52 @@ def estimate_activation_memory(model: Module, shapes: InputShapes | None) -> int
     :return: bytes, or None if there are no input shapes or the model config has no
         `hidden_size`
     """
-    config = getattr(model, "config", None)
-    if hasattr(config, "get_text_config"):
-        config = config.get_text_config()
-    hidden_size = getattr(config, "hidden_size", None)
-    if shapes is None or not isinstance(hidden_size, int):
+    hidden_size = get_hidden_size(model)
+    if shapes is None or hidden_size is None:
         return None
 
     max_batch_size, max_seq_len, _ = shapes
     return max_batch_size * max_seq_len * hidden_size * ACTIVATION_BYTES
+
+
+def estimate_cached_activations(
+    model: Module,
+    shapes: InputShapes,
+    dataset_args: "DatasetArguments",
+    device: torch.device,
+) -> int:
+    """
+    Estimate the calibration activations which the pipeline caches on `device` between
+    subgraphs: the hidden states of every token, kept twice when the sequential error
+    is logged. Smaller cached values such as position embeddings are not counted
+
+    :param model: model being calibrated
+    :param shapes: input shapes of the calibration data
+    :param dataset_args: arguments which set where activations are cached
+    :param device: device which subgraphs are onloaded to
+    :return: bytes, or 0 if activations are cached on another device
+    """
+    offload_device = torch.device(dataset_args.sequential_offload_device)
+    if not _is_same_accelerator(offload_device, device):
+        return 0
+
+    with disable_onloading():
+        parameter = next(model.parameters(), None)
+    value_bytes = 2 if parameter is None else parameter.element_size()
+    copies = 2 if dataset_args.log_sequential_error else 1
+    return copies * shapes[2] * get_hidden_size(model) * value_bytes
+
+
+def get_hidden_size(model: Module) -> int | None:
+    """
+    :param model: model being calibrated
+    :return: the hidden size of the (text) model, or None if the config has none
+    """
+    config = getattr(model, "config", None)
+    if hasattr(config, "get_text_config"):
+        config = config.get_text_config()
+    hidden_size = getattr(config, "hidden_size", None)
+    return hidden_size if isinstance(hidden_size, int) else None
 
 
 def get_input_shapes(dataloader: "DataLoader") -> InputShapes | None:
@@ -330,3 +371,11 @@ def _is_same_device(device: Any, other: Any) -> bool:
         return torch.device(device) == torch.device(other)
     except (RuntimeError, TypeError):
         return False
+
+
+def _is_same_accelerator(device: torch.device, other: torch.device) -> bool:
+    """Whether two devices are the same, where a device without an index (e.g.
+    "cuda") is the current device of its type"""
+    return device.type == other.type and (
+        device.index is None or other.index is None or device.index == other.index
+    )

@@ -7,8 +7,9 @@ import torch.fx
 from compressed_tensors.offload import offload_module
 from datasets import Dataset
 from loguru import logger
+from tokenizers import Tokenizer, models
 from torch.utils.data import DataLoader, RandomSampler
-from transformers import AutoModelForCausalLM, AutoTokenizer, LlamaConfig
+from transformers import AutoModelForCausalLM, LlamaConfig, PreTrainedTokenizerFast
 
 from llmcompressor import oneshot
 from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -17,7 +18,7 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
-from llmcompressor.pipelines.sequential import grouping
+from llmcompressor.pipelines.sequential import grouping, helpers
 from llmcompressor.pipelines.sequential.grouping import (
     ACTIVATION_BYTES,
     estimate_activation_memory,
@@ -104,6 +105,39 @@ def test_partition_by_memory_requires_node_memory():
     model = FourLayers()
     with pytest.raises(ValueError, match="node_memory"):
         topological_partition(torch.fx.symbolic_trace(model), set(model.layers), "auto")
+
+
+class NormsBetweenLayers(torch.nn.Module):
+    """A norm which onloads weights before every target layer"""
+
+    def __init__(self):
+        super().__init__()
+        self.norms = torch.nn.ModuleList(torch.nn.LayerNorm(4) for _ in range(4))
+        self.layers = torch.nn.ModuleList(torch.nn.Linear(4, 4) for _ in range(4))
+
+    def forward(self, x):
+        for norm, layer in zip(self.norms, self.layers):
+            x = layer(norm(x))
+        return x
+
+
+def test_partition_by_memory_never_splits_more_than_one_target_each():
+    model = NormsBetweenLayers()
+    targets = set(model.layers)
+    graph_module = torch.fx.symbolic_trace(model)
+    target_nodes = find_target_nodes(graph_module, targets)
+    node_memory = {
+        node: 10 if node in target_nodes else 1
+        for node in graph_module.graph.find_nodes(op="call_module")
+    }
+
+    # each target fills the budget, so every norm would otherwise get its own
+    # partition. Instead, each norm joins the partition of the target after it
+    partitions = topological_partition(
+        graph_module, targets, "auto", node_memory, max_memory=10
+    )
+    assert len(partitions) == len(topological_partition(graph_module, targets, 1))
+    assert all(len(target_nodes.intersection(p)) == 1 for p in partitions[1:])
 
 
 def test_get_node_modules():
@@ -242,9 +276,9 @@ def test_dataset_arguments_accept_grouping():
     DatasetArguments(sequential_targets_per_subgraph=4)
 
 
-def _plan(monkeypatch, budget, modifiers=(), batches=None):
+def _plan(monkeypatch, budget, modifiers=(), batches=None, dataset_args=None):
     """Plan FourLayers on a simulated accelerator with the given budget"""
-    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cuda"))
+    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cuda:0"))
     monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: budget)
 
     model = FourLayers()
@@ -258,7 +292,7 @@ def _plan(monkeypatch, budget, modifiers=(), batches=None):
         node_modules=node_modules,
         dataloader=_batches((1, 8)) if batches is None else batches,
         modifiers=list(modifiers),
-        gpu_memory_utilization=0.9,
+        dataset_args=DatasetArguments() if dataset_args is None else dataset_args,
     )
     return plan, {node.target: node for node in graph_module.graph.nodes}
 
@@ -277,7 +311,26 @@ def test_plan_subgraph_memory(monkeypatch):
 
 def test_plan_subgraph_memory_without_accelerator(monkeypatch):
     monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cpu"))
-    assert plan_subgraph_memory(FourLayers(), {}, [], [], 0.9) is None
+    assert plan_subgraph_memory(FourLayers(), {}, [], [], DatasetArguments()) is None
+
+
+@pytest.mark.parametrize(
+    "offload_device,log_sequential_error,copies",
+    [("cpu", False, 0), ("cuda", False, 1), ("cuda:0", True, 2), ("cuda:1", False, 0)],
+)
+def test_plan_subgraph_memory_reserves_activations_cached_on_device(
+    monkeypatch, offload_device, log_sequential_error, copies
+):
+    dataset_args = DatasetArguments(
+        sequential_offload_device=offload_device,
+        log_sequential_error=log_sequential_error,
+    )
+    plan, _ = _plan(monkeypatch, budget=10_000, dataset_args=dataset_args)
+    _, max_memory = plan
+
+    # hidden states of every token (1 * 8) at 4 float32 hidden units, per copy
+    activation_memory = 1 * 8 * 4 * ACTIVATION_BYTES
+    assert max_memory == 10_000 - activation_memory - copies * 8 * 4 * 4
 
 
 @pytest.mark.parametrize("budget", [None, 0, 1 * 8 * 4 * ACTIVATION_BYTES])
@@ -367,21 +420,22 @@ def test_pipeline_traces_then_partitions(
     mock_partition.return_value = [_FakeSubgraph()]
     model, dataloader = fake_pipeline_inputs
 
-    SequentialPipeline()(
-        model,
-        dataloader,
-        DatasetArguments(sequential_targets_per_subgraph="auto"),
-    )
+    dataset_args = DatasetArguments(sequential_targets_per_subgraph="auto")
+    SequentialPipeline()(model, dataloader, dataset_args)
 
     # the graph is traced once and partitioned once, with what "auto" needs
     mock_trace.assert_called_once()
     mock_partition.assert_called_once_with(
-        model, graph, targets, "auto", dataloader, ANY, 0.9
+        model, graph, targets, "auto", dataloader, ANY, dataset_args
     )
 
 
-def _run_oneshot_auto(tmp_path, recipe) -> list[str]:
-    """Run oneshot with "auto" on a tiny model and return the logged messages"""
+def _run_oneshot(tmp_path, recipe, targets_per_subgraph="auto"):
+    """
+    Run oneshot on a tiny seeded model without network access, and return the logged
+    messages and the calibrated weights
+    """
+    torch.manual_seed(0)
     config = LlamaConfig(
         vocab_size=128,
         hidden_size=128,  # multiples of the W4A16 group size
@@ -399,23 +453,28 @@ def _run_oneshot_auto(tmp_path, recipe) -> list[str]:
             "attention_mask": [[1] * seq_len] * num_samples,
         }
     )
+    # only needed to satisfy oneshot, the dataset is already tokenized
+    tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=Tokenizer(models.WordLevel({"<unk>": 0}, unk_token="<unk>")),
+        unk_token="<unk>",
+    )
 
     messages = []
     sink = logger.add(messages.append, level="INFO", format="{message}")
     try:
         oneshot(
             model=model,
-            # only needed to satisfy oneshot, the dataset is already tokenized
-            processor=AutoTokenizer.from_pretrained("Qwen/Qwen3-0.6B"),
+            processor=tokenizer,
             dataset=dataset,
             recipe=recipe,
             num_calibration_samples=num_samples,
-            sequential_targets_per_subgraph="auto",
+            sequential_targets_per_subgraph=targets_per_subgraph,
         )
     finally:
         logger.remove(sink)
 
-    return messages
+    weights = {name: value.clone() for name, value in model.state_dict().items()}
+    return messages, weights
 
 
 parametrize_auto_recipes = pytest.mark.parametrize(
@@ -436,20 +495,39 @@ parametrize_auto_recipes = pytest.mark.parametrize(
 @requires_gpu
 @parametrize_auto_recipes
 def test_oneshot_auto_group_sizes(tmp_path, recipe):
-    messages = _run_oneshot_auto(tmp_path, recipe())
+    messages, _ = _run_oneshot(tmp_path, recipe())
 
     # a tiny model fits in a single subgraph
     assert any("subgraphs of sizes [4]" in message for message in messages)
 
 
 @parametrize_auto_recipes
-def test_oneshot_auto_simulated_budget(tmp_path, monkeypatch, recipe):
-    """Runs "auto" end to end on any device, with a simulated 1 GiB budget"""
+def test_oneshot_auto_matches_fixed_grouping(tmp_path, monkeypatch, recipe):
+    """
+    "auto" end to end on any device: with the real memory estimates and room for two
+    decoder layers per subgraph, it calibrates exactly like two targets per subgraph
+    """
     monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cuda"))
     monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: 1024**3)
-    messages = _run_oneshot_auto(tmp_path, recipe())
+    plan = helpers.plan_subgraph_memory
 
-    assert any("subgraphs of sizes [4]" in message for message in messages)
+    def room_for_two_layers(*args):
+        node_memory, _ = plan(*args)
+        layer = max(
+            memory
+            for node, memory in node_memory.items()
+            if node.op == "call_module" and node.target.startswith("model.layers.")
+        )
+        return node_memory, 2 * layer + layer // 2
+
+    monkeypatch.setattr(helpers, "plan_subgraph_memory", room_for_two_layers)
+    messages, auto_weights = _run_oneshot(tmp_path / "auto", recipe())
+    _, fixed_weights = _run_oneshot(tmp_path / "fixed", recipe(), 2)
+
+    assert any("subgraphs of sizes [2, 2]" in message for message in messages)
+    assert auto_weights.keys() == fixed_weights.keys()
+    for name, weight in auto_weights.items():
+        assert torch.equal(weight, fixed_weights[name]), name
 
 
 @requires_gpu
@@ -458,7 +536,7 @@ def test_oneshot_auto_falls_back_for_unknown_memory(tmp_path):
         SmoothQuantModifier(smoothing_strength=0.8),
         QuantizationModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
     ]
-    messages = _run_oneshot_auto(tmp_path, recipe)
+    messages, _ = _run_oneshot(tmp_path, recipe)
 
     # SmoothQuant does not estimate its memory, which may grow with the number of
     # targets per subgraph

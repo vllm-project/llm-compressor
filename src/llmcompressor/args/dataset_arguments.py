@@ -281,7 +281,9 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "Only used when sequential_targets_per_subgraph='auto'. Fraction "
             "of the GPU's total memory that sequential calibration may use. Memory "
             "already in use, by other processes or by modules kept onloaded for the "
-            "whole calibration, counts against it. Default is 0.9."
+            "whole calibration, counts against it. Lower it if calibration runs out "
+            "of memory, which leaves more headroom for what the memory estimate "
+            "misses. Default is 0.9."
         },
     )
     quantization_aware_calibration: bool = field(

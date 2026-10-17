@@ -36,6 +36,7 @@ from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
+    from llmcompressor.args.dataset_arguments import DatasetArguments
     from llmcompressor.modifiers import Modifier
 
 __all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
@@ -73,12 +74,7 @@ class Subgraph:
         ordered_names: list[str] = []
         seen_modules: set[Module] = set()
 
-        targets: list[str] = []
-        for node in self.graph.nodes:
-            if node.op == "call_module":
-                targets.append(node.target)
-            targets.extend(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
-
+        targets = [root for node in self.graph.nodes for root in get_node_roots(node)]
         for target in targets:
             module = model.get_submodule(target)
             named_modules = module.named_modules() if recurse else [("", module)]
@@ -366,7 +362,7 @@ def partition_subgraphs(
     targets_per_subgraph: int | str = 1,
     dataloader: "DataLoader | None" = None,
     modifiers: list["Modifier"] | None = None,
-    gpu_memory_utilization: float = 0.9,
+    dataset_args: "DatasetArguments | None" = None,
 ) -> list[Subgraph]:
     """
     Partition a traced graph into subgraphs, where each sequential target belongs to
@@ -380,11 +376,11 @@ def partition_subgraphs(
         to group as many consecutive targets as fit in device memory
     :param dataloader: with "auto", the calibration data
     :param modifiers: with "auto", the modifiers which will calibrate the subgraphs
-    :param gpu_memory_utilization: with "auto", the fraction of the device's total
-        memory that calibration may use
+    :param dataset_args: with "auto", the arguments which set the memory budget
     :return: a list of Subgraphs in order of execution
     """
-    num_target_nodes = len(find_target_nodes(graph, targets))
+    target_nodes = find_target_nodes(graph, targets)
+    num_target_nodes = len(target_nodes)
     if num_target_nodes != len(targets):
         logger.warning(
             f"Expected {len(targets)} sequential targets in the traced graph, but "
@@ -394,11 +390,17 @@ def partition_subgraphs(
 
     node_memory, max_memory = None, None
     if targets_per_subgraph == "auto":
+        if dataloader is None or modifiers is None or dataset_args is None:
+            raise ValueError(
+                'sequential_targets_per_subgraph="auto" requires the dataloader, '
+                "modifiers and dataset arguments to estimate memory"
+            )
+
         node_modules = {
             node: get_node_modules(model, node) for node in graph.graph.nodes
         }
         plan = plan_subgraph_memory(
-            model, node_modules, dataloader, modifiers, gpu_memory_utilization
+            model, node_modules, dataloader, modifiers, dataset_args
         )
         if plan is None:
             targets_per_subgraph = 1
@@ -412,9 +414,7 @@ def partition_subgraphs(
         graph, targets, targets_per_subgraph, node_memory, max_memory
     )
     if node_memory is not None:
-        log_partitions(
-            partitions, find_target_nodes(graph, targets), node_memory, max_memory
-        )
+        log_partitions(partitions, target_nodes, node_memory, max_memory)
 
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
@@ -422,21 +422,27 @@ def partition_subgraphs(
     return subgraphs
 
 
+def get_node_roots(node: Node) -> list[str]:
+    """
+    :param node: node of a traced graph
+    :return: names of the module a node calls and of the modules recorded as run
+        inside it (see `INVOKED_SUBMODULES_META_KEY`), not including their descendants
+    """
+    roots = [node.target] if node.op == "call_module" else []
+    return roots + list(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
+
+
 def get_node_modules(model: Module, node: Node) -> list[str]:
     """
-    Get the modules a node onloads when its subgraph runs: the module it calls and
-    that module's submodules, plus modules recorded as run inside wrapped code
+    Get the modules a node onloads when its subgraph runs: its roots (see
+    `get_node_roots`) and their submodules
 
     :param model: model which owns the graph
     :param node: node of the traced graph
     :return: module names
     """
-    roots = list(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
-    if node.op == "call_module":
-        roots.insert(0, node.target)
-
     names = []
-    for root in roots:
+    for root in get_node_roots(node):
         for relative_name, _ in model.get_submodule(root).named_modules():
             names.append(f"{root}.{relative_name}" if relative_name else root)
 
@@ -577,7 +583,9 @@ def topological_partition(
     :param graph: graph being partitioned
     :param targets: target modules which will be assigned to disjoint partitions
     :param targets_per_subgraph: number of targets to include per subgraph, or "auto"
-        to fill each partition until its nodes' memory would exceed `max_memory`
+        to fill each partition until its nodes' memory would exceed `max_memory`. A
+        partition is only cut once it holds a target, so only the nodes after the
+        last target can end up in a partition without one
     :param node_memory: with "auto", the memory each node onloads and holds
     :param max_memory: with "auto", the memory available to each partition
     :return: list of partitions, where each partition is a list of nodes belonging to
@@ -623,12 +631,11 @@ def topological_partition(
         is_head = is_target and partition_index == 0 and len(partitions[0]) > 0
 
         if use_memory:
-            # finish creating subgraph when this node would not fit in memory. Nodes
-            # which onload nothing stay in the subgraph of the node before them
+            # finish creating subgraph when this node would not fit in memory, once
+            # the subgraph holds a target. Nodes which onload nothing stay in the
+            # subgraph of the node before them
             is_complete = (
-                cost > 0
-                and partition_memory > 0
-                and partition_memory + cost > max_memory
+                cost > 0 and targets_seen > 0 and partition_memory + cost > max_memory
             )
         else:
             # finish creating subgraph when number of targets has been seen
@@ -823,6 +830,21 @@ def handle_sequential_oom(func):
         try:
             return func(*args, **kwargs)
         except torch.OutOfMemoryError as e:
+            dataset_args = kwargs.get(
+                "dataset_args", args[2] if len(args) > 2 else None
+            )
+            if getattr(dataset_args, "sequential_targets_per_subgraph", None) == "auto":
+                grouping_hint = (
+                    "sequential_targets_per_subgraph='auto' estimates how many targets "
+                    "fit in free memory; lowering `gpu_memory_utilization` leaves more "
+                    "headroom for what the estimate misses. "
+                )
+            else:
+                grouping_hint = (
+                    "sequential_targets_per_subgraph='auto' chooses as many targets "
+                    "per subgraph as fit in free memory. "
+                )
+
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module for `sequential_targets`, "
@@ -832,8 +854,7 @@ def handle_sequential_oom(func):
                 "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
                 "sequential_targets_per_subgraph set to batch multiple experts per "
                 "subgraph and reduce memory overhead. "
-                "sequential_targets_per_subgraph='auto' chooses as many targets per "
-                "subgraph as fit in free memory. Choosing a smaller "
+                f"{grouping_hint}Choosing a smaller "
                 "calibration dataset can also help: reduce `max_seq_length` "
                 "(when unset, calibration samples are not truncated, so a few "
                 "long samples can dominate memory) or `num_calibration_samples` "
