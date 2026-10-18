@@ -31,9 +31,6 @@ from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
-from llmcompressor.transformers.utils.helpers import (
-    is_model_ct_quantized_from_path,
-)
 from llmcompressor.typing import Processor
 from llmcompressor.utils import untie_word_embeddings
 
@@ -162,11 +159,11 @@ def initialize_model_from_path(
     }
 
     # optimized models must be decompressed to carry out oneshot/train/etc
-    if is_model_ct_quantized_from_path(
-        model_path,
-        revision=model_args.model_revision,
-        trust_remote_code=model_args.trust_remote_code_model,
-    ):
+    q_config = getattr(config, "quantization_config", None)
+    if (
+        isinstance(q_config, dict)
+        and q_config.get("quant_method") == "compressed-tensors"
+    ) or getattr(q_config, "quant_method", None) == "compressed-tensors":
         logger.info("Found a compressed-tensors model, decompressing...")
         model_kwargs["quantization_config"] = CompressedTensorsConfig(dequantize=True)
 
