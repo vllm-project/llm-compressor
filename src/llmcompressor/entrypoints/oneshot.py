@@ -26,6 +26,7 @@ from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
+    PretrainedConfig,
     PreTrainedModel,
     PreTrainedTokenizerBase,
     ProcessorMixin,
@@ -292,39 +293,77 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
-        # Check on-disk config first because decompressed models
-        # no longer retain quantization_config in memory
-        config = AutoConfig.from_pretrained(
-            model.config.name_or_path,
-            trust_remote_code=self.model_args.trust_remote_code_model,
-        )
-        qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
-        quant_method = (
-            qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None
-        )
+        # Check the on-disk config because decompressed models no longer retain
+        # quantization_config in memory, and the in-memory config for models with
+        # quantization_config set programmatically (e.g. quantized when loaded)
+        quant_methods = {
+            method
+            for method in (
+                _get_quant_method(self._load_source_config(model)),
+                _get_quant_method(model.config),
+            )
+            if method is not None
+        }
+        non_ct_methods = sorted(quant_methods - {QUANTIZATION_METHOD})
 
-        # Fall back to in-memory config for models with
-        # quantization_config set programmatically
         resolution = (
             "To resolve, load a full-precision checkpoint instead, or dequantize the "
             "checkpoint first with the compressed-tensors convert_checkpoint entrypoint"
             " -- https://github.com/vllm-project/compressed-tensors/blob/"
             "main/examples/convert_checkpoint/kimi_k26_example.py"
         )
-        if quant_method is None:
-            return
+        if len(non_ct_methods) > 0:
+            raise ValueError(
+                "oneshot does not currently support models that are already quantized "
+                f"in a different format ({', '.join(non_ct_methods)}). {resolution}"
+            )
 
-        elif quant_method == QUANTIZATION_METHOD:
+        elif QUANTIZATION_METHOD in quant_methods:
             logger.warning(
                 "oneshot has limited support for models already quantized in the "
                 "`compressed-tensors` format. If the recipe targets layers that have "
                 f"already been quantized, oneshot will likely fail. {resolution}"
             )
-        else:
-            raise ValueError(
-                "oneshot does not currently support models that are already quantized "
-                f"in a different format ({quant_method}). {resolution}"
+
+    def _load_source_config(self, model: PreTrainedModel) -> PretrainedConfig | None:
+        """
+        Load the config the model was loaded from, if it has a source on disk or on
+        the hub. Models created in memory (e.g. with `from_config`) have no source.
+        """
+        if not model.config.name_or_path:
+            return None
+
+        try:
+            return AutoConfig.from_pretrained(
+                model.config.name_or_path,
+                revision=self.model_args.model_revision,
+                trust_remote_code=self.model_args.trust_remote_code_model,
             )
+        except OSError:
+            logger.debug(
+                f"Could not load the source config of {model.config.name_or_path}, "
+                "only checking the in-memory config for quantization"
+            )
+            return None
+
+
+def _get_quant_method(config: PretrainedConfig | None) -> str | None:
+    """
+    Get the quantization method of a model config, if it has one. The quantization
+    config can either be a dict (when loaded from disk) or a transformers
+    quantization config object (when passed to `from_pretrained`)
+    """
+    qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
+    if qconfig is None:
+        return None
+
+    if isinstance(qconfig, dict):
+        quant_method = qconfig.get(QUANTIZATION_METHOD_NAME, None)
+    else:
+        quant_method = getattr(qconfig, QUANTIZATION_METHOD_NAME, None)
+
+    # transformers stores the method as a `QuantizationMethod` str enum
+    return getattr(quant_method, "value", quant_method)
 
 
 def oneshot(
