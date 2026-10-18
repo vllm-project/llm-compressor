@@ -125,6 +125,28 @@ def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
     assert torch.equal(eager[1], triton[1])
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_mse_observer_half_precision_large_group(dtype):
+    """Half precision error sums over large groups do not overflow to inf."""
+    args = QuantizationArgs(
+        num_bits=8, type="int", strategy="tensor", symmetric=True, observer="mse"
+    )
+    torch.manual_seed(0)
+    observed = torch.randn(1, 2048, 4096) * 3
+    observed[0, 0, 0] = 400.0
+
+    observers = {}
+    for observed_dtype in (torch.float32, dtype):
+        observer = MemorylessMSEObserver(base_name="input", args=args)
+        observer(observed.to(observed_dtype))
+        observers[observed_dtype] = observer
+
+    # the outlier is clipped, as it is when calibrating in float32
+    expected_max = observers[torch.float32].max_vals
+    assert observers[dtype].max_vals.float() < observed.max()
+    assert torch.allclose(observers[dtype].max_vals.float(), expected_max, rtol=1e-2)
+
+
 @triton.jit
 def _qdq_kernel(
     values_ptr,
