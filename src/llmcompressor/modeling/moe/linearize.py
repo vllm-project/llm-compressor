@@ -13,6 +13,7 @@ from transformers import (
     PreTrainedModel,
 )
 from transformers.conversion_mapping import (
+    get_checkpoint_conversion_mapping,
     register_checkpoint_conversion_mapping,
 )
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
@@ -69,11 +70,20 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
         # prepare to load linearized weights
         experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
         linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
+        original_map = get_checkpoint_conversion_mapping(model_type) or []
         register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
         register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
 
-        # load model
-        model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
+        # load model, restoring the global mappings if loading fails so that later
+        # loads of this model type are not linearized
+        try:
+            model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
+        except BaseException:
+            clear_patch_mapping()
+            register_checkpoint_conversion_mapping(
+                model_type, original_map, overwrite=True
+            )
+            raise
 
         # prepare for saving to be called later
         clear_patch_mapping()

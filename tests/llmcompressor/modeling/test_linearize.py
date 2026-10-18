@@ -302,3 +302,37 @@ def test_linearize_moe_llama4():
     assert torch.any(true_outputs != 0), "Bad test setup, output is all zeros"
     assert torch.nn.functional.mse_loss(outputs, true_outputs) < MODULE_MSE
     assert torch.nn.functional.mse_loss(calib_outputs, true_outputs) < MODULE_MSE
+
+
+def test_load_quantizable_moe_restores_mappings_on_failure(tmp_path):
+    from transformers import Qwen3MoeConfig
+
+    config = Qwen3MoeConfig(
+        vocab_size=128,
+        hidden_size=32,
+        intermediate_size=64,
+        moe_intermediate_size=16,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=8,
+        num_experts=4,
+        num_experts_per_tok=2,
+    )
+    AutoModelForCausalLM.from_config(config).save_pretrained(tmp_path)
+
+    def experts_cls_name(model):
+        return type(model.model.layers[0].mlp.experts).__name__
+
+    with pytest.raises(ValueError):
+        with load_quantizable_moe():
+            AutoModelForCausalLM.from_pretrained(tmp_path, device_map="not-a-device")
+
+    # loads outside of the context are not linearized
+    model = AutoModelForCausalLM.from_pretrained(tmp_path)
+    assert experts_cls_name(model) == "Qwen3MoeExperts"
+
+    # loads inside of the context are still linearized
+    with load_quantizable_moe():
+        model = AutoModelForCausalLM.from_pretrained(tmp_path)
+    assert experts_cls_name(model) == "LinearExperts2D"
