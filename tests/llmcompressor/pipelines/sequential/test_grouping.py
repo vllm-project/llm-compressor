@@ -276,9 +276,11 @@ def test_dataset_arguments_accept_grouping():
     DatasetArguments(sequential_targets_per_subgraph=4)
 
 
-def _plan(monkeypatch, budget, modifiers=(), batches=None, dataset_args=None):
+def _plan(
+    monkeypatch, budget, modifiers=(), batches=None, dataset_args=None, device="cuda:0"
+):
     """Plan FourLayers on a simulated accelerator with the given budget"""
-    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device("cuda:0"))
+    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device(device))
     monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: budget)
 
     model = FourLayers()
@@ -345,6 +347,39 @@ def test_plan_subgraph_memory_falls_back_for_unknown_memory(monkeypatch):
 
     plan, _ = _plan(monkeypatch, budget=10_000, batches=[{"inputs_embeds": None}])
     assert plan is None
+
+
+def test_ranks_agree_when_activations_are_cached_on_one_rank(monkeypatch):
+    """Activations cached on one rank's GPU must not make the ranks plan differently"""
+    dataset_args = DatasetArguments(sequential_offload_device="cuda:1")
+    monkeypatch.setattr(grouping, "is_distributed", lambda: True)
+    devices = ("cuda:0", "cuda:1")
+
+    # the cache leaves only the budget of the rank whose GPU holds it, before ranks
+    # agree on the smallest budget
+    budgets = []
+
+    def contribute(budget, shapes, device):
+        budgets.append(budget)
+        return budget, shapes
+
+    monkeypatch.setattr(grouping, "reduce_across_ranks", contribute)
+    for device in devices:
+        _plan(monkeypatch, 10_000, dataset_args=dataset_args, device=device)
+    assert budgets == [10_000, 10_000 - 8 * 4 * 4]
+
+    # so every rank plans with the same budget, and chooses the same groups
+    def agree(budget, shapes, device):
+        return min(budgets), shapes
+
+    monkeypatch.setattr(grouping, "reduce_across_ranks", agree)
+    plans = []
+    for device in devices:
+        (node_memory, max_memory), _ = _plan(
+            monkeypatch, 10_000, dataset_args=dataset_args, device=device
+        )
+        plans.append(({n.name: m for n, m in node_memory.items()}, max_memory))
+    assert plans[0] == plans[1]
 
 
 def _reduce(monkeypatch, local, other):

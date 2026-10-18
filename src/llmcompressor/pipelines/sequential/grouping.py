@@ -48,10 +48,10 @@ def plan_subgraph_memory(
 ) -> tuple[dict[Node, int], int] | None:
     """
     Estimate the memory each node onloads and holds until its subgraph is compressed,
-    and how much of it fits in a subgraph. Activations are freed before modules are
+    and how much of it fits in a subgraph. Calibration activations cached on the
+    device are taken out of the budget. Activations are freed before modules are
     compressed, so the larger of the activation estimate and the largest modifier
-    scratch is reserved from the budget of every subgraph, along with calibration
-    activations cached on the device
+    scratch is reserved from the budget of every subgraph
 
     Called once persistent modules are onloaded, so the memory they use is already
     taken out of the budget
@@ -75,9 +75,13 @@ def plan_subgraph_memory(
         return None
 
     # every rank must choose the same groups, since modifiers communicate when each
-    # subgraph is compressed, so ranks agree on the inputs before estimating anything
+    # subgraph is compressed, so ranks agree on the inputs before estimating anything.
+    # Whether activations are cached on a rank's device differs between ranks, so the
+    # cache leaves each rank's budget before they agree on the smallest one
     budget = get_memory_budget(device, gpu_memory_utilization)
     shapes = get_input_shapes(dataloader)
+    if budget is not None and shapes is not None:
+        budget -= estimate_cached_activations(model, shapes, dataset_args, device)
     if is_distributed():
         budget, shapes = reduce_across_ranks(budget, shapes, device)
 
@@ -111,8 +115,7 @@ def plan_subgraph_memory(
         return None
 
     largest_scratch = max((scratch for _, scratch in module_costs.values()), default=0)
-    cached = estimate_cached_activations(model, shapes, dataset_args, device)
-    reserved = max(activation_memory, largest_scratch) + cached
+    reserved = max(activation_memory, largest_scratch)
     if budget - reserved <= 0:
         logger.warning(
             f"No memory is left on {device} for subgraphs within "
@@ -287,23 +290,27 @@ def estimate_cached_activations(
     """
     Estimate the calibration activations which the pipeline caches on `device` between
     subgraphs: the hidden states of every token, kept twice when the sequential error
-    is logged. Smaller cached values such as position embeddings are not counted
+    is logged. Other cached values are not counted, such as position embeddings,
+    attention masks, or intermediates wider than the hidden states when targets are
+    smaller than decoder layers
 
     :param model: model being calibrated
     :param shapes: input shapes of the calibration data
     :param dataset_args: arguments which set where activations are cached
     :param device: device which subgraphs are onloaded to
-    :return: bytes, or 0 if activations are cached on another device
+    :return: bytes, or 0 if activations are cached on another device or the model
+        config has no `hidden_size`
     """
     offload_device = torch.device(dataset_args.sequential_offload_device)
-    if not _is_same_accelerator(offload_device, device):
+    hidden_size = get_hidden_size(model)
+    if not _is_same_accelerator(offload_device, device) or hidden_size is None:
         return 0
 
     with disable_onloading():
         parameter = next(model.parameters(), None)
     value_bytes = 2 if parameter is None else parameter.element_size()
     copies = 2 if dataset_args.log_sequential_error else 1
-    return copies * shapes[2] * get_hidden_size(model) * value_bytes
+    return copies * shapes[2] * hidden_size * value_bytes
 
 
 def get_hidden_size(model: Module) -> int | None:

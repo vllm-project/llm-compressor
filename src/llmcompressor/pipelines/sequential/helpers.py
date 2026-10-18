@@ -584,8 +584,8 @@ def topological_partition(
     :param targets: target modules which will be assigned to disjoint partitions
     :param targets_per_subgraph: number of targets to include per subgraph, or "auto"
         to fill each partition until its nodes' memory would exceed `max_memory`. A
-        partition is only cut once it holds a target, so only the nodes after the
-        last target can end up in a partition without one
+        partition is only cut once it holds a target, so only the nodes before the
+        first target or after the last one can end up in a partition without one
     :param node_memory: with "auto", the memory each node onloads and holds
     :param max_memory: with "auto", the memory available to each partition
     :return: list of partitions, where each partition is a list of nodes belonging to

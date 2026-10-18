@@ -106,7 +106,11 @@ class CustomDatasetArguments(DVCDatasetArguments):
         self.validate()
 
     def validate(self):
-        """Raise a ValueError if any argument has an invalid value"""
+        """
+        Raise a ValueError if any argument has an invalid value. Subclasses extend this
+        rather than `__post_init__`, so that the deprecation warning above keeps
+        pointing at the caller
+        """
 
 
 @dataclass
