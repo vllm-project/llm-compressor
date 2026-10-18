@@ -28,20 +28,28 @@ __all__ = [
 RECIPE_FILE_NAME = "recipe.yaml"
 
 
-def is_model_ct_quantized_from_path(path: str) -> bool:
+def is_model_ct_quantized_from_path(
+    path: str,
+    revision: str | None = None,
+    trust_remote_code: bool = False,
+) -> bool:
     """
     Determine if model from path is quantized based
     on the config
 
     :param path: path to the model or HF stub
+    :param revision: model revision (branch name, tag, or commit id) to check
+    :param trust_remote_code: whether to allow custom configuration code to run
     :return: True if config contains quantization_config from the given path
 
     """
-    config = AutoConfig.from_pretrained(path)
+    config = AutoConfig.from_pretrained(
+        path, revision=revision, trust_remote_code=trust_remote_code
+    )
     if config is not None:
         if (
             hasattr(config, "quantization_config")
-            and config.quantization_config["quant_method"] == "compressed-tensors"
+            and config.quantization_config.get("quant_method") == "compressed-tensors"
         ):
             return True
     return False
