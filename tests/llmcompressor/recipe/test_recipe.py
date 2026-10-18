@@ -15,6 +15,7 @@ from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
 from llmcompressor.recipe import Recipe
+from llmcompressor.recipe.utils import append_recipe_dict
 from tests.llmcompressor.helpers import valid_recipe_strings
 
 
@@ -68,6 +69,22 @@ def test_recipe_creates_correct_modifier():
     assert isinstance(modifier := modifiers[0], ConstantPruningModifier)
     assert modifier.start == start
     assert modifier.end == end
+
+
+def test_recipe_from_dict_loads_numbered_stages():
+    first = Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC")
+    )
+    second = Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="W8A8")
+    )
+    merged = append_recipe_dict(first.to_dict(), second.to_dict())
+    assert list(merged) == ["default_stage_0", "default_stage_1"]
+
+    recipe = Recipe.from_dict(merged)
+
+    assert [m.scheme for m in recipe.modifiers] == ["FP8_DYNAMIC", "W8A8"]
+    assert recipe.stage == "default"
 
 
 def test_recipe_can_be_created_from_modifier_instances():
