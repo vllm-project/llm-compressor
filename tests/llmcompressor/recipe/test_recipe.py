@@ -190,3 +190,56 @@ def test_recipe_validate_after(modifiers, is_valid):
     else:
         with pytest.raises(ValueError):
             Recipe.create_instance(modifiers)
+
+
+def test_recipe_from_dict_loads_numbered_stages():
+    from llmcompressor.recipe.utils import append_recipe_dict
+
+    first = Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC")
+    )
+    second = Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="W8A8")
+    )
+
+    # recipes merged by stacked oneshot runs use numbered stage keys
+    merged = append_recipe_dict(first.to_dict(), second.to_dict())
+    assert list(merged.keys()) == ["default_stage_0", "default_stage_1"]
+
+    recipe = Recipe.from_dict(merged)
+    assert recipe.stage == "default"
+    assert [modifier.scheme for modifier in recipe.modifiers] == [
+        "FP8_DYNAMIC",
+        "W8A8",
+    ]
+
+
+def test_recipe_yaml_with_existing_recipe_round_trips(tmp_path):
+    existing_path = tmp_path / "existing.yaml"
+    Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC")
+    ).yaml(file_path=str(existing_path))
+
+    merged_path = tmp_path / "merged.yaml"
+    Recipe.from_modifiers(QuantizationModifier(targets="Linear", scheme="W8A8")).yaml(
+        file_path=str(merged_path), existing_recipe_path=str(existing_path)
+    )
+
+    recipe = Recipe.create_instance(str(merged_path))
+    assert [modifier.scheme for modifier in recipe.modifiers] == [
+        "FP8_DYNAMIC",
+        "W8A8",
+    ]
+
+
+@pytest.mark.parametrize("stage_key", ["test_stage_name", "test_stage_"])
+def test_recipe_from_dict_ignores_non_stage_keys(stage_key):
+    recipe_dict = {
+        stage_key: {
+            "quant_modifiers": {
+                "QuantizationModifier": {"targets": "Linear", "scheme": "W8A8"}
+            }
+        }
+    }
+
+    assert Recipe.from_dict(recipe_dict).modifiers == []
