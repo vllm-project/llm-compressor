@@ -71,20 +71,23 @@ def test_recipe_creates_correct_modifier():
     assert modifier.end == end
 
 
-def test_recipe_from_dict_loads_numbered_stages():
+@pytest.mark.parametrize("stage_name", ["default", "custom", "custom_stage"])
+def test_recipe_from_dict_loads_numbered_stages(stage_name):
     first = Recipe.from_modifiers(
-        QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC")
+        QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC"),
+        modifier_group_name=stage_name,
     )
     second = Recipe.from_modifiers(
-        QuantizationModifier(targets="Linear", scheme="W8A8")
+        QuantizationModifier(targets="Linear", scheme="W8A8"),
+        modifier_group_name=stage_name,
     )
     merged = append_recipe_dict(first.to_dict(), second.to_dict())
-    assert list(merged) == ["default_stage_0", "default_stage_1"]
+    assert list(merged) == [f"{stage_name}_stage_0", f"{stage_name}_stage_1"]
 
     recipe = Recipe.from_dict(merged)
 
     assert [m.scheme for m in recipe.modifiers] == ["FP8_DYNAMIC", "W8A8"]
-    assert recipe.stage == "default"
+    assert recipe.stage == stage_name
 
 
 def test_recipe_can_be_created_from_modifier_instances():
