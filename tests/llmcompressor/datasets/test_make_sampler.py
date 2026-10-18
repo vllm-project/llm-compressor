@@ -63,3 +63,19 @@ def test_distributed_partition_does_not_warn_for_valid_request():
         _make_rank_sampler(args, dataset, rank=0, world_size=2)
 
     mock_logger.warning.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("shuffle", [True, False])
+@pytest.mark.parametrize("num_rows, num_calibration_samples", [(100, 1), (1, 512)])
+def test_distributed_fewer_samples_than_ranks(
+    shuffle, num_rows, num_calibration_samples
+):
+    dataset = _create_dataset(num_rows)
+    args = DatasetArguments(
+        num_calibration_samples=num_calibration_samples,
+        shuffle_calibration_samples=shuffle,
+    )
+
+    with pytest.raises(ValueError, match="at least as many calibration samples"):
+        _make_rank_sampler(args, dataset, rank=0, world_size=2)

@@ -275,6 +275,12 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
             "partitioning dataset across ranks."
         )
         num_samples = num_samples or len(dataset)
+        if num_samples < dist.get_world_size():
+            raise ValueError(
+                f"Cannot partition {num_samples} calibration samples across "
+                f"{dist.get_world_size()} ranks, as each rank needs at least one "
+                "sample. Please provide at least as many calibration samples as ranks"
+            )
         start, end = _get_partition_start_end(
             num_samples, dist.get_rank(), dist.get_world_size()
         )
