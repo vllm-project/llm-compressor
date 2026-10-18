@@ -58,16 +58,17 @@ class HooksMixin(BaseModel):
 
         :param keep: optional set of handles to keep enabled
         """
-        # restore the state of any enclosing context on exit
-        restore_disabled = cls._HOOKS_DISABLED
-        added_keep = set(keep) - cls._HOOKS_KEEP_ENABLED
+        # state is global and read from HooksMixin, even when called on a subclass.
+        # Restore the state of any enclosing context on exit
+        restore_disabled = HooksMixin._HOOKS_DISABLED
+        added_keep = set(keep) - HooksMixin._HOOKS_KEEP_ENABLED
         try:
-            cls._HOOKS_DISABLED = True
-            cls._HOOKS_KEEP_ENABLED |= added_keep
+            HooksMixin._HOOKS_DISABLED = True
+            HooksMixin._HOOKS_KEEP_ENABLED |= added_keep
             yield
         finally:
-            cls._HOOKS_DISABLED = restore_disabled
-            cls._HOOKS_KEEP_ENABLED -= added_keep
+            HooksMixin._HOOKS_DISABLED = restore_disabled
+            HooksMixin._HOOKS_KEEP_ENABLED -= added_keep
 
     def register_hook(
         self,

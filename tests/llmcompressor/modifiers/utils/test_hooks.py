@@ -210,3 +210,18 @@ def test_disable_hooks_nested():
     mod_b.hook_called = False
     model(model.dummy_inputs)
     assert mod_a.hook_called and mod_b.hook_called
+
+
+def test_disable_hooks_on_subclass():
+    model = DummyModel()
+
+    mod_a = ModA()
+    mod_a.register_hook(model.linear1, mod_a.hook, "forward")
+
+    with ModA.disable_hooks():
+        model(model.dummy_inputs)
+    assert not mod_a.hook_called
+    assert "_HOOKS_DISABLED" not in vars(ModA)
+
+    model(model.dummy_inputs)
+    assert mod_a.hook_called
