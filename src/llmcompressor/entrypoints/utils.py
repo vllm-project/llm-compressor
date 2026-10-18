@@ -162,7 +162,11 @@ def initialize_model_from_path(
     }
 
     # optimized models must be decompressed to carry out oneshot/train/etc
-    if is_model_ct_quantized_from_path(model_path):
+    if is_model_ct_quantized_from_path(
+        model_path,
+        revision=model_args.model_revision,
+        trust_remote_code=model_args.trust_remote_code_model,
+    ):
         logger.info("Found a compressed-tensors model, decompressing...")
         model_kwargs["quantization_config"] = CompressedTensorsConfig(dequantize=True)
 
