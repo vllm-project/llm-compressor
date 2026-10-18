@@ -12,6 +12,7 @@ from compressed_tensors.utils.safetensors_load import (
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.validate import validate_config
 
 
 def _get_block_config() -> QuantizationConfig:
@@ -72,3 +73,16 @@ def test_validate_does_not_calibrate_expanded_mse_observer():
         "model.layers.0.self_attn.q_proj.weight_scale",
         "model.layers.0.self_attn.q_proj.weight_global_scale",
     }
+
+
+@pytest.mark.parametrize("observer", ["minmax", "mse"])
+def test_process_with_weight_observer(observer):
+    scheme = preset_name_to_scheme("W4A16", targets=["Linear"])
+    scheme.weights.observer = observer
+    config = validate_config(config=None, scheme=scheme, ignore=[])
+    converter = ModelFreePtqConverter(config=config)
+
+    tensors = {"model.layers.0.mlp.down_proj.weight": torch.randn(64, 128)}
+    output = converter.process(tensors)
+
+    assert "model.layers.0.mlp.down_proj.weight_scale" in output
