@@ -81,6 +81,7 @@ def test_is_model_ct_quantized_from_path_trust_remote_code(custom_code_model):
         ({"quant_method": "compressed-tensors"}, True),
         ({"quant_method": "fp8"}, False),
         ({}, False),
+        (None, False),
     ],
 )
 def test_is_model_ct_quantized_from_path(tmp_path, quantization_config, expected):

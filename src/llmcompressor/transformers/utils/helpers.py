@@ -46,13 +46,14 @@ def is_model_ct_quantized_from_path(
     config = AutoConfig.from_pretrained(
         path, revision=revision, trust_remote_code=trust_remote_code
     )
-    if config is not None:
-        if (
-            hasattr(config, "quantization_config")
-            and config.quantization_config.get("quant_method") == "compressed-tensors"
-        ):
-            return True
-    return False
+    # quantization_config can be missing, None, a dict, or a config object
+    quantization_config = getattr(config, "quantization_config", None)
+    if isinstance(quantization_config, dict):
+        quant_method = quantization_config.get("quant_method")
+    else:
+        quant_method = getattr(quantization_config, "quant_method", None)
+
+    return quant_method == "compressed-tensors"
 
 
 def infer_recipe_from_model_path(model_path: str | Path) -> str | None:
