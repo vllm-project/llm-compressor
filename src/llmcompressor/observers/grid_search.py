@@ -150,7 +150,10 @@ def _calculate_mse_error(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
-    return (quantized - observed).abs().pow(norm).sum(dim=(0, -1), dtype=error_dtype)
+    # like Triton, compute the difference in the observed dtype and the powered error
+    # in error_dtype, so that large errors do not overflow half precision
+    error = (quantized - observed).abs().to(error_dtype).pow(norm)
+    return error.sum(dim=(0, -1))
 
 
 def _fake_quantize_with_observer_qparams(
