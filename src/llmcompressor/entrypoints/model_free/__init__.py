@@ -1,5 +1,5 @@
 import os
-from typing import Iterable, Optional
+from typing import Iterable, Literal, Optional
 
 import torch
 from compressed_tensors.entrypoints.convert import Converter
@@ -11,12 +11,16 @@ from compressed_tensors.utils.safetensors_load import (
 )
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.spinquant import (
+    SpinQuantConverter,
+    SpinQuantConverterMapping,
+)
 from llmcompressor.entrypoints.model_free.validate import (
     validate_config,
     validate_safetensors_index,
 )
 
-__all__ = ["model_free_ptq"]
+__all__ = ["model_free_ptq", "SpinQuantConverter", "SpinQuantConverterMapping"]
 
 
 def model_free_ptq(
@@ -25,9 +29,9 @@ def model_free_ptq(
     scheme: QuantizationScheme | str | None = None,
     config: QuantizationConfig | None = None,
     ignore: Iterable[str] = tuple(),
-    max_workers: int = 1,
+    max_workers: int | Literal["auto"] = "auto",
     device: Optional[str | torch.device | list[str | torch.device]] = None,
-    converter: Converter | None = None,
+    converter: Converter | list[Converter] | tuple[Converter, ...] | None = None,
 ):
     """
     Quantize a model without the need for a model definition. This function
@@ -49,12 +53,20 @@ def model_free_ptq(
     :param ignore: modules to ignore. Modules ending with "norm" are
         automatically ignored
     :param max_workers: maximum number of concurrent worker threads.
-        Effective concurrency may be lower when GPU memory is tight.
+        Effective concurrency may be lower when GPU memory is tight. If "auto"
+        (default), the number of workers is chosen from the number of
+        safetensors files, the estimated memory of each job, the free memory of
+        each device, and the number of CPUs available. Host memory is not taken
+        into account, so pass a smaller number of workers if quantization runs
+        out of host memory.
     :param device: device(s) for quantization. Accepts a single device
         string/object or a list. When multiple devices are given, shards
         are dynamically assigned based on real-time GPU memory.
     :param converter: optional converter to apply to the checkpoint before
-        running model-free PTQ, e.g. an AWQ or fp8 dequantizer
+        running model-free PTQ. Accepts a single converter, a list, or a tuple;
+        they run in the given order and model-free PTQ is applied last. A
+        single converter behaves as before. For example, pass an fp8
+        dequantizer followed by a SpinQuantConverter
     """
     model_files = get_checkpoint_files(model_stub)
     config = validate_config(config, scheme, ignore)
@@ -62,7 +74,13 @@ def model_free_ptq(
 
     weight_map = get_weight_map(model_files)
     mfptq = ModelFreePtqConverter(config, weight_names=weight_map.keys())
-    converters = ([converter] if converter is not None else []) + [mfptq]
+    if converter is None:
+        converters = []
+    elif isinstance(converter, (list, tuple)):
+        converters = list(converter)
+    else:
+        converters = [converter]
+    converters.append(mfptq)
 
     convert_checkpoint(
         model_stub=model_stub,

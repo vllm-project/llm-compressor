@@ -39,6 +39,7 @@ from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -181,6 +182,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
+        self.use_eager_attention = kwargs.pop("use_eager_attention", False)
         model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
@@ -257,6 +259,8 @@ class Oneshot:
             stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
+            if self.use_eager_attention:
+                stack.enter_context(use_eager_attention(self.model))
 
             session.initialize(
                 model=self.model,
@@ -266,6 +270,7 @@ class Oneshot:
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
+                pipeline=self.dataset_args.pipeline,
             )
 
             user_pipeline = self.dataset_args.pipeline
@@ -358,6 +363,7 @@ def oneshot(
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
     pipeline: str | None = "independent",
+    use_eager_attention: bool = False,
     tracing_ignore: list[str] = [
         "_update_causal_mask",
         "create_causal_mask",
@@ -376,7 +382,6 @@ def oneshot(
     sequential_targets: list[str] | None = None,
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
-    sequential_prefetch: bool = False,
     stage_weights_in_pinned_memory: bool = False,
     log_sequential_error: bool = False,
     # Miscellaneous arguments
@@ -457,6 +462,9 @@ def oneshot(
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
         ['basic', 'datafree', 'sequential', 'independent']
+    :param use_eager_attention: Whether to force eager attention during tracing and
+        calibration. By default, the model's configured attention implementation is
+        used for both.
     :param tracing_ignore: List of functions to ignore during tracing, either
         {module}.{method_name} or {function_name}
     :param sequential_targets: List of layer targets for the sequential pipeline.
@@ -468,9 +476,6 @@ def oneshot(
         than one gpu. Default is cpu.
     :param quantization_aware_calibration: Deprecated. This argument has no effect
         and will be removed in a future release.
-    :param sequential_prefetch: When using the sequential pipeline, prefetch the
-        next batch in a background thread to overlap onload with forward. Default
-        False; set True for faster calibration when GPU memory allows.
     :param stage_weights_in_pinned_memory: When using the sequential pipeline, stage
         offloaded module tensors in pinned CPU memory before onloading them to the
         execution device. Default False.

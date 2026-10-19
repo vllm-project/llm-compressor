@@ -36,7 +36,6 @@ convert_checkpoint(
         MODEL_ID,
         ignore=ignore,
     ),
-    max_workers=4,
 )
 
 # Quantize bfloat16 checkpoint to NVFP4, limiting CPU RAM usage to 500GB

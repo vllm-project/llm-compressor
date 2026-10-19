@@ -313,9 +313,8 @@ class DatasetArguments(CustomDatasetArguments):
     sequential_prefetch: bool = field(
         default=False,
         metadata={
-            "help": "When using the sequential pipeline, prefetch the next batch in a "
-            "background thread to overlap onload with forward. Default False; set True "
-            "for faster calibration when GPU memory allows (two batches on device)."
+            "help": "Deprecated. Activation prefetching is now always enabled in the "
+            "sequential pipeline."
         },
     )
     stage_weights_in_pinned_memory: bool = field(

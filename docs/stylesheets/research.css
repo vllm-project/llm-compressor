@@ -1,0 +1,31 @@
+.entry-byline {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 1rem;
+  border-radius: 0.3rem;
+  background-color: var(--md-code-bg-color);
+  font-size: 0.75rem;
+}
+
+.entry-byline p {
+  margin: 0;
+}
+
+.entry-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 0.4rem;
+  box-shadow: 0 0 0 2px var(--md-code-bg-color);
+}
+
+/* Overlap consecutive avatars into a stack so the byline stays compact
+   regardless of author count. Scoped with :has() so that it only applies to
+   avatar links, never to the author name links that follow them. Browsers
+   without :has() fall back to avatars sitting side by side. */
+.entry-byline a:has(.entry-avatar) + a:has(.entry-avatar) .entry-avatar {
+  margin-left: -1.1rem;
+}

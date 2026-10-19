@@ -33,7 +33,6 @@ model_free_ptq(
         "re:.*gate$",  # gate layers
         "output",  # lm head
     ],
-    max_workers=10,
     device="cuda:0",
 )
 ```

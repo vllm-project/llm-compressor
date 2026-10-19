@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 import contextlib
+import warnings
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -35,24 +39,35 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
+def _submit_subgraph_staging(
+    executor: ThreadPoolExecutor,
+    modules: dict[str, torch.nn.Module],
+    current_modules: dict[str, torch.nn.Module],
+    pin_memory: bool,
+) -> tuple[dict[str, torch.nn.Module], Future] | None:
+    """Stage disjoint next-subgraph modules in the background."""
+    if set(modules.values()) & set(current_modules.values()):
+        return None
+
+    future = executor.submit(
+        subgraph_stage_modules,
+        modules,
+        pin_memory=pin_memory,
+    )
+    return modules, future
+
+
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
     input_names: list[str],
     desc: str,
-    sequential_prefetch: bool = False,
 ) -> Iterator[tuple[int, dict]]:
     """
-    Yield (batch_idx, inputs) with the next batch optionally prefetched in a
-    background thread to overlap fetch (onload from offload device) with the
-    main-thread forward pass. Delegates to
-    :meth:`IntermediatesCache.iter_prefetch` when prefetching is enabled.
+    Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
+    overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = (
-        activations.iter_prefetch(input_names)
-        if sequential_prefetch
-        else activations.iter(input_names)
-    )
+    batch_source = activations.iter_prefetch(input_names)
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -91,6 +106,14 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
+
+        if getattr(dataset_args, "sequential_prefetch", False):
+            warnings.warn(
+                "sequential_prefetch is deprecated and has no effect because "
+                "activation prefetching is always enabled.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         session = active_session()
 
@@ -132,9 +155,20 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
-            activations = IntermediatesCache.from_dataloader(
+            session.state.sequential_activations = IntermediatesCache.from_dataloader(
                 dataloader, onload_device, offload_device
             )
+            activations = session.state.sequential_activations
+            # When propagate_error=True or log_sequential_error=True, the
+            # activations cache does NOT hold the current subgraph's outputs at
+            # sequential_epoch_end time (pass 1 defers or skips the update), so
+            # AutoRound must fall back to collect_reference in both cases.
+            session.state.sequential_propagate_error = (
+                dataset_args.propagate_error
+                or getattr(dataset_args, "log_sequential_error", False)
+            )
+            stack.callback(setattr, session.state, "sequential_activations", None)
+            stack.callback(setattr, session.state, "sequential_propagate_error", True)
 
             # prepare error-logging cache (separate from activations so that
             # log_sequential_error does not force propagate_error=True)
@@ -164,14 +198,40 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
-            sequential_prefetch = getattr(dataset_args, "sequential_prefetch", False)
-            session.state.sequential_prefetch = sequential_prefetch
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
+            # A single worker preserves staging order and bounds staged memory.
+            stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
+
+            # Prefetch first subgraph modules
+            next_subgraph_modules = subgraphs[0].submodule_dict(model)
+            prefetched_staging = _submit_subgraph_staging(
+                stage_executor,
+                next_subgraph_modules,
+                {},
+                stage_weights_in_pinned_memory,
+            )
+
             for subgraph_index, subgraph in enumerate(subgraphs):
-                subgraph_modules = subgraph.submodule_dict(model)
+                if prefetched_staging is None:
+                    subgraph_modules = subgraph.submodule_dict(model)
+                    subgraph_stage_modules(
+                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                    )
+                    warnings.warn(
+                        "Subgraph prefetching failed for subgraphs "
+                        f"{subgraph_index - 1} to {subgraph_index}. "
+                        "This may be due to overlapping modules between subgraphs. ",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                else:
+                    subgraph_modules, stage_future = prefetched_staging
+                    stage_future.result()
+                prefetched_staging = None
+
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -182,12 +242,22 @@ class SequentialPipeline(CalibrationPipeline):
                 # reduce memory movement by keeping modules onloaded
                 num_batches = len(dataloader)
 
+                # Submit the next subgraph's staging before onloading the
+                # current subgraph so staging can overlap with onload work.
+                if subgraph_index + 1 < num_subgraphs:
+                    next_subgraph_modules = subgraphs[
+                        subgraph_index + 1
+                    ].submodule_dict(model)
+                    prefetched_staging = _submit_subgraph_staging(
+                        stage_executor,
+                        next_subgraph_modules,
+                        subgraph_modules,
+                        stage_weights_in_pinned_memory,
+                    )
+
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                subgraph_stage_modules(
-                    subgraph_modules, pin_memory=stage_weights_in_pinned_memory
-                )
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
                 # do a preliminary pass to trigger modifier hooks
@@ -196,7 +266,6 @@ class SequentialPipeline(CalibrationPipeline):
                     num_batches,
                     subgraph.input_names,
                     calib_desc,
-                    sequential_prefetch,
                 ):
                     session.state.current_batch_idx = batch_idx
                     outputs = subgraph.forward(model, **inputs)
@@ -211,6 +280,13 @@ class SequentialPipeline(CalibrationPipeline):
                     if seq_error_cache is not None and has_next_subgraph:
                         seq_error_cache.update(batch_idx, outputs)
 
+                # For the last subgraph its outputs are not cached (no next
+                # layer to feed), so the cache holds stale inputs rather than
+                # outputs. Clear state so AutoRound falls back to
+                # collect_reference instead of using wrong tensors as fp_ref.
+                if not has_next_subgraph:
+                    session.state.sequential_activations = None
+
                 LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
@@ -221,11 +297,7 @@ class SequentialPipeline(CalibrationPipeline):
                     batch_powers: list[tuple[float, float]] = []
                     with HooksMixin.disable_hooks():
                         for batch_idx, inputs in _get_batches(
-                            activations,
-                            num_batches,
-                            subgraph.input_names,
-                            prop_desc,
-                            sequential_prefetch,
+                            activations, num_batches, subgraph.input_names, prop_desc
                         ):
                             output = subgraph.forward(model, **inputs)
                             if dataset_args.propagate_error and has_next_subgraph:

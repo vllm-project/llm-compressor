@@ -28,5 +28,4 @@ model_free_ptq(
             r"re:model.layers.\d+.block_sparse_moe.experts.\d+.w[1-3]$",
         ]
     ),
-    max_workers=8,
 )
