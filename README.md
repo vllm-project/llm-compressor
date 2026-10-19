@@ -16,9 +16,13 @@
   >
 </picture>
 
-[![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/)
+[![docs](https://img.shields.io/badge/docs-LLM--Compressor-blue)](https://docs.vllm.ai/projects/llm-compressor/en/latest/) [![PyPI](https://img.shields.io/pypi/v/llmcompressor.svg)](https://pypi.org/project/llmcompressor/) [![slack](https://img.shields.io/badge/slack-llm--compressor-green)](https://inviter.co/vllm-slack) [![huggingface](https://img.shields.io/badge/huggingface-RedHatAI-red)](https://huggingface.co/RedHatAI)
 
 </div>
+
+<p align="center">
+  <b>English</b> · <a href="README.zh.md">简体中文</a>
+</p>
 
 `llmcompressor` is the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
@@ -50,15 +54,18 @@ Big updates have landed in LLM Compressor! To get a more in-depth look, check ou
 Since the v0.13.0 release, a number of meaningful improvements have landed:
 
 * **Batched GPTQ quantization with a new Triton GPTQ kernel**: GPTQ now ships a Triton-based quantization kernel (~15x faster than the previous eager path) together with the ability to batch layers that share the same shape (up to ~1.67x per batch, roughly ~30x end-to-end on MoE workloads). Activation-order (act-order) calibration is supported, hessian offloading has been removed, and the remaining eager path was also sped up by 1.5-2x on its own.
-* **Expanded MSE and iMatrix observers for FP4, with a new `fouroversix` default**: The MSE observer and the iMatrix observer gained a grid-search expansion factor that makes the search a strict superset of *fouroversix* (which chooses between the full `absmax` and `absmax * 1.5` scales for FP4 blocks). A new `fouroversix` observer built on this expanded search is now the **default observer for NVFP4 quantization**, and it outperforms GPTQ for NVFP4 on average across our internal perplexity benchmarks.
+* **Expanded MSE and iMatrix observers for FP4**: The MSE observer and the iMatrix observer gained a grid-search expansion factor that makes the search a strict superset of *fouroversix* (which chooses between the full `absmax` and `absmax * 1.5` scales for FP4 blocks). These observers outperform GPTQ for NVFP4 on average across our internal perplexity benchmarks.
 * **Triton grid-search kernel for the MSE observer**: A Triton kernel now performs the MSE observer's scale grid search using buffered per-qparam patience and adaptive 512-value tiling. It reaches bitwise parity with the eager path when configured for full evaluation, supports INT, FP4, FP8, and FP16/BF16 (with E8M0 scales), and defaults `triton_error_buffer` to 100% for FP4 and 30% otherwise.
 
 ### Model highlights
 
 The Red Hat AI team has been using LLM Compressor to produce a fresh batch of production-ready quantized checkpoints:
 
-* **GLM-5.3 MXFP4**: An MXFP4 quantized checkpoint for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to MXFP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
+* **Nemotron 3.5 Super VL FP8 Checkpoint**: An FP8 quantized checkpoint for [Nemotron 3.5 Super VL](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16). Weights, activations and MTP layers are all quantized to FP8. See the model card for full agentic metrics and performance benchmarks:
+  - [RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8)
+* **GLM-5.3 FP4 Checkpoints**: NVFP4 and MXFP4 quantized checkpoints for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to FP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
   - [RedHatAI/GLM-5.3-MXFP4](https://huggingface.co/RedHatAI/GLM-5.3-MXFP4)
+  - [RedHatAI/GLM-5.3-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-NVFP4)
   - [GLM-5.3 MXFP4 Example](examples/model_free_ptq/glm_5_3_mxfp4.py)
 * **GLM-5.3-Flash NVFP4**: An NVFP4 quantized checkpoint for [GLM-5.3-Flash](https://huggingface.co/zai-org/GLM-5.3-Flash). The expert layers are quantized to NVFP4, while the MTP (multi-token prediction) layers are quantized to per-block FP8.
   - [RedHatAI/GLM-5.3-Flash-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)
@@ -94,10 +101,6 @@ The Red Hat AI team has been using LLM Compressor to produce a fresh batch of pr
 * **Hy3 NVFP4+FP8**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) combining NVFP4 quantization of the MoE layers with FP8 quantization of the attention layers, significantly reducing VRAM requirements while maintaining accuracy recovery.
   - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
   - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
-* **GLM-5.2 NVFP4+FP8**: Mixed-precision quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2), created with DDP + disk offloading in under 2 hours. NVFP4 quantization of the MoE layers and FP8 quantization of the attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
-  - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
-  - [RedHatAI/GLM-5.2-NVFP4](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4)
-  - [GLM-5.2 Example Script](examples/quantizing_moe/glm5_example.py)
 
 
 ### Supported Precisions and Types
