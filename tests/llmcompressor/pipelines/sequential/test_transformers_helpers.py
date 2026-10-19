@@ -199,3 +199,20 @@ def test_hf_tracer_clears_attribute_maps_after_failure(monkeypatch):
     assert recovery_model.named_buffers_calls == 1
     assert tracer._parameter_to_name is None
     assert tracer._buffer_to_name is None
+
+
+def test_hf_tracer_preserves_users_of_concrete_kwargs():
+    class Model(torch.nn.Module):
+        def forward(self, hidden_states, **kwargs):
+            return hidden_states + kwargs["scale"]
+
+    model = Model()
+    graph = HFTracer().trace(
+        model,
+        concrete_args={"kwargs": {"scale": 1}},
+        dummy_inputs={"hidden_states": torch.zeros(1)},
+        complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
+    )
+
+    traced = torch.fx.GraphModule(model, graph)
+    assert torch.equal(traced(torch.zeros(1)), torch.ones(1))

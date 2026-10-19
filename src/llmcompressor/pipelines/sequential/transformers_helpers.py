@@ -1550,22 +1550,21 @@ class HFTracer(Tracer):
         # https://github.com/pytorch/pytorch/pull/55888.
         for node in self.graph.nodes:
             if node.op == "placeholder":
-                is_var_keyword = node.target.startswith("**")
-                input_name = node.target[2:] if is_var_keyword else node.target
-
                 # Removing default values for inputs as the forward pass will fail with them.
-                if input_name in input_names:
+                if node.target in input_names:
                     node.args = ()
                     # Without this, torch.jit.script fails because the inputs type is Optional[torch.Tensor].
                     # It cannot infer on the attributes and methods the input should have, and fails.
                     node.type = torch.Tensor
-                elif is_var_keyword and input_name in concrete_args:
-                    # Preserve users of a concrete VAR_KEYWORD placeholder by binding
-                    # it to the mapping from concrete_args instead of pruning its users.
-                    concrete_mapping = concrete_args[input_name]
+                elif node.target.startswith("**") and node.target[2:] in concrete_args:
+                    # PyTorch names a VAR_KEYWORD placeholder "**kwargs", while
+                    # concrete_args uses the parameter name "kwargs". Replacing the
+                    # placeholder with its concrete mapping preserves nodes that use
+                    # it; recursively deleting its users can erase the model body.
+                    kwargs_value = concrete_args[node.target[2:]]
                     with self.graph.inserting_before(node):
-                        mapping_node = self.graph.call_function(dict, (concrete_mapping,))
-                    node.replace_all_uses_with(mapping_node)
+                        kwargs_node = self.graph.call_function(dict, (kwargs_value,))
+                    node.replace_all_uses_with(kwargs_node)
                     self.graph.erase_node(node)
                 # It is a concrete arg so it is not used and should be removed.
                 else:
