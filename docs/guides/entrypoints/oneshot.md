@@ -202,10 +202,9 @@ oneshot(
 
 Use `REAPPruningModifier` to structurally remove low-saliency experts from
 Mixture-of-Experts layers. `sparsity` is the fraction of experts to remove per
-layer, and `report_path` optionally writes per-expert statistics (router
-`topk_weights`, routed-token `count`, and `saliency`, one inner list per MoE
-layer) to a `.json` report. Set `sparsity=0.0` to only collect the report
-without modifying the model.
+layer, and `report_path` optionally writes per-expert statistics (routed-token
+`count` and `saliency`, one inner list per MoE layer) to a `.json` report. Set
+`sparsity=0.0` to only collect the report without modifying the model.
 REAP only needs routed experts for its saliency calculation, so pruning-only
 runs can set `moe_calibrate_all_experts=False`. When REAP is combined with a
 quantization modifier, choose this setting based on whether the quantizer also

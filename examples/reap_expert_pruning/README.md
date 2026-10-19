@@ -27,9 +27,9 @@ However, excess pruning can lead to a degradation in model quality, as shown in 
 ## Saliency reports and checkpoint-space pruning
 
 `REAPPruningModifier` can run in report-only mode with `sparsity=0.0`, writing
-per-expert statistics (router `topk_weights`, routed-token `count`, and
-`saliency`, one inner list per MoE layer, ordered by layer) to a `.json` report
-without modifying the model (see `qwen3_example.py`):
+per-expert statistics (routed-token `count` and `saliency`, one inner list per
+MoE layer, ordered by layer) to a `.json` report without modifying the model
+(see `qwen3_example.py`):
 
 ```python
 recipe = REAPPruningModifier(sparsity=0.0, report_path="qwen3_report.json")
@@ -60,6 +60,9 @@ layer's experts into groups and only route tokens to experts of the top
 `topk_group` groups, so the groups must stay balanced: `ExpertPruner` prunes
 such models uniformly, dropping the same number of experts from every group,
 and rejects `uniform=False`.
+
+DeepSeek-V3 also uses a `e_score_correction_bias` which must be specified using
+`aux_re=re.compile(r"model.layers\.(\d+)\.mlp\.gate\.e_score_correction_bias")`.
 
 ## Results
 

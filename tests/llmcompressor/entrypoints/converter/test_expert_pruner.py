@@ -108,9 +108,7 @@ def _write_checkpoint(
 
 def _write_report(path, saliency, count=None):
     count = saliency if count is None else count
-    path.write_text(
-        json.dumps({"saliency": saliency, "count": count, "topk_weights": saliency})
-    )
+    path.write_text(json.dumps({"saliency": saliency, "count": count}))
 
 
 def _descending_report(path, n_layers, n_experts):

@@ -881,7 +881,7 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
     with open(report_path) as f:
         report = json.load(f)
 
-    assert sorted(report) == ["count", "saliency", "topk_weights"]
+    assert sorted(report) == ["count", "saliency"]
     for values in report.values():
         assert len(values) == 2
 
@@ -891,10 +891,6 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
         assert all(isinstance(value, float) for value in layer_saliency)
         # every expert was routed to at least once across the 5 batches
         assert all(count > 0 for count in layer_counts)
-
-    # topk_weights holds the last batch's router weights, [num_tokens, top_k]
-    assert len(report["topk_weights"][0]) == 2 * 8
-    assert all(len(weights) == 2 for weights in report["topk_weights"][0])
 
 
 @pytest.mark.unit
