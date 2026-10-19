@@ -1570,8 +1570,8 @@ class HFTracer(Tracer):
                         kwargs_node = self.graph.call_function(dict, (kwargs_value,))
                     node.replace_all_uses_with(kwargs_node)
                     self.graph.erase_node(node)
-                # FX specializes concrete args; remove their remaining placeholders
-                # and dependent specialization checks from the traced module.
+                # FX has already specialized this concrete arg. Any remaining users
+                # are generated specialization checks, so remove them with the node.
                 else:
                     to_visit = [node]
                     to_delete = collections.OrderedDict()
