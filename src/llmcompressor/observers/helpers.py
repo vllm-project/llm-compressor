@@ -15,10 +15,11 @@ from compressed_tensors.quantization.utils import (
 )
 from torch.nn import Module
 
+from llmcompressor.observers.fused_mappings import get_fused_layers
+
 __all__ = [
     "flatten_for_calibration",
     "fuse_weight_observers",
-    "FUSED_LAYER_NAMES",
     "ACTIVATION_OBS",
 ]
 
@@ -157,46 +158,6 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-# Defines which layer names should have their global_scale fused together.
-# These sets are used for TENSOR_GROUP quantization (e.g., NVFP4).
-FUSED_LAYER_NAMES = [
-    # MLP / expert layers have fused gate_up_proj
-    ("gate_proj", "up_proj"),
-    # Attention layers have fused qkv_proj
-    ("q_proj", "k_proj", "v_proj"),
-    # DeepSeek multi-latent attention has fused_qkv_a_proj
-    ("q_a_proj", "kv_a_proj_with_mqa"),
-    # MoE expert layers may use w1/w3 naming
-    ("w1", "w3"),
-]
-
-
-def _has_fused_layer_group(module: Module) -> bool:
-    return any(
-        all(hasattr(module, name) for name in fusion_name_group)
-        for fusion_name_group in FUSED_LAYER_NAMES
-    )
-
-
-def _fusion_search_modules(model: Module, modules: list[Module] | None):
-    if modules is None:
-        return model.modules()
-
-    search_modules = []
-    seen = set()  # isn't completely necessary, but
-    # in case we pass something like
-    # [parent_module, parent_module.q_proj, parent_module.k_proj]
-    for module in modules:
-        if module in seen or not _has_fused_layer_group(module):
-            continue
-        search_modules.append(module)
-        seen.add(module)
-
-    # When sequential targets are child modules such as `Linear`, the subgraph
-    # module list may not contain the parent module that owns q/k/v or gate/up.
-    return search_modules or model.modules()
-
-
 def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
@@ -205,24 +166,31 @@ def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     layers (Q/K/V attention, gate/up MLP) share the same global_scale.
     This function links their observers so that get_qparams() computes
     global_scale from the combined statistics of all observers in the group.
+    Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
     :param modules: optional subset of modules to search for fused layer groups
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    for submodule in _fusion_search_modules(model, modules):
-        for fusion_name_group in FUSED_LAYER_NAMES:
-            if not all(hasattr(submodule, name) for name in fusion_name_group):
+    allowed_modules = set(modules) if modules is not None else None
+    for submodule in model.modules():
+        for fused_layers in get_fused_layers(submodule):
+            layers_to_fuse = list(fused_layers.values())
+            # During layerwise calibration only fuse groups that are wholly
+            # owned by the active subgraph. In particular, do not use observers
+            # from modules that have not been decompressed and initialized yet.
+            if (
+                allowed_modules is not None
+                and not set(layers_to_fuse).issubset(allowed_modules)
+            ):
                 continue
-            layers_to_fuse = [getattr(submodule, name) for name in fusion_name_group]
+            fusion_name_group = tuple(fused_layers.keys())
 
             only_obs = True
             only_tensor_group = True
             observers_and_modules = []
             for layer in layers_to_fuse:
-                if layer is None:
-                    continue
                 obs = getattr(layer, "weight_observer", None)
                 if obs is None:
                     only_obs = False

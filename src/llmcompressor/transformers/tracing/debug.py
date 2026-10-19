@@ -5,7 +5,7 @@ from contextlib import nullcontext
 
 import torch
 import transformers
-from transformers import AutoProcessor, PreTrainedModel
+from transformers import AutoProcessor, PreTrainedModel, AutoTokenizer
 
 from llmcompressor.utils.pytorch.module import get_no_split_params
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs, Subgraph
@@ -37,7 +37,7 @@ def trace(
     sequential_targets: list[str] | str | None = None,
     ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
-    trust_remote_code: bool = True,
+    trust_remote_code: bool = False,
     skip_weights: bool = True,
     device_map: str | dict = "cpu",
     targets_per_subgraph: int = 1
@@ -70,9 +70,14 @@ def trace(
             device_map=device_map,
             trust_remote_code=trust_remote_code,
         )
-    processor = AutoProcessor.from_pretrained(
-        model_id, trust_remote_code=trust_remote_code
-    )
+    if modality == "text":
+        processor = AutoTokenizer.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
+    else:
+        processor = AutoProcessor.from_pretrained(
+            model_id, trust_remote_code=trust_remote_code
+        )
     print("Loaded model")
 
     # Prepare sample data
@@ -84,7 +89,7 @@ def trace(
         processor=processor,
     )(add_labels=False)
     sample = next(iter(dataset))
-    sample = collate_sample(sample, device=model.device)
+    sample = collate_sample(sample, device=model.device, dtype=model.dtype)
     print("Loaded sample data")
 
     # infer sequential targets
@@ -145,13 +150,27 @@ def get_dataset_kwargs(modality: str, ignore: list[str]) -> dict[str, str]:
     return dataset_kwargs[modality] | common_kwargs
 
 
-def collate_sample(sample: dict[str, Any], device: str) -> dict[str, torch.Tensor]:
+def collate_sample(
+    sample: dict[str, Any], device: str, dtype: torch.dtype | None = None
+) -> dict[str, torch.Tensor]:
+    """
+    Convert a dataset sample into batched tensors for tracing
+
+    :param sample: single sample produced by the dataset processor
+    :param device: device to place tensors on
+    :param dtype: dtype for floating point tensors, typically the model dtype
+    :return: sample with a batch dimension, ready to pass to the model
+    """
     for name, value in sample.items():
         if name in ("input_ids", "attention_mask") and torch.tensor(value).ndim == 1:
             sample[name] = torch.tensor([value], device=device)
 
         else:
             sample[name] = torch.tensor(value, device=device)
+
+        # processors emit float32 features; match the model dtype like calibration does
+        if dtype is not None and sample[name].is_floating_point():
+            sample[name] = sample[name].to(dtype)
 
     return sample
 

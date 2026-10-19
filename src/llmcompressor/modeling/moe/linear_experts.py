@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    get_execution_device,
+    offload_module,
+)
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -14,6 +18,18 @@ from .helpers import (
     FusedExpertsProtocol,
     MoEConfig,
     get_use_experts_implementation_args,
+)
+from .pack_helpers import (
+    CompressedFusedLinear,
+    ExpertPackMode,
+    combine_gate_up,
+    extra_param_names,
+    fused_qparam_suffix,
+    has_dense_weight,
+    linear_direct_state,
+    require_identical_keys,
+    set_fused_param,
+    stack_expert_states,
 )
 
 
@@ -76,6 +92,40 @@ class ExpertMLPWithGate(ExpertMLP):
             self.up_proj.bias.copy_(up_bias)
             self.down_proj.bias.copy_(down_bias)
 
+    def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        """Inverse of :meth:`copy_from_experts_module` for weight (and bias) tensors."""
+        if not experts.is_transposed:
+            experts.gate_up_proj[index, : self.intermediate_size].copy_(
+                self.gate_proj.weight
+            )
+            experts.gate_up_proj[index, self.intermediate_size :].copy_(
+                self.up_proj.weight
+            )
+            experts.down_proj[index].copy_(self.down_proj.weight)
+        else:
+            experts.gate_up_proj[index, :, : self.intermediate_size].copy_(
+                self.gate_proj.weight.T
+            )
+            experts.gate_up_proj[index, :, self.intermediate_size :].copy_(
+                self.up_proj.weight.T
+            )
+            experts.down_proj[index].copy_(self.down_proj.weight.T)
+
+        self.copy_bias_to_experts_module(experts, index)
+
+    def copy_bias_to_experts_module(
+        self, experts: FusedExpertsProtocol, index: int
+    ) -> None:
+        if not experts.has_bias:
+            return
+        experts.gate_up_proj_bias[index, : self.intermediate_size].copy_(
+            self.gate_proj.bias
+        )
+        experts.gate_up_proj_bias[index, self.intermediate_size :].copy_(
+            self.up_proj.bias
+        )
+        experts.down_proj_bias[index].copy_(self.down_proj.bias)
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
             self._apply_gate(
@@ -129,6 +179,25 @@ class ExpertMLPWithoutGate(ExpertMLP):
 
             self.up_proj.bias.copy_(up_bias)
             self.down_proj.bias.copy_(down_bias)
+
+    def copy_to_experts_module(self, experts: FusedExpertsProtocol, index: int):
+        """Inverse of :meth:`copy_from_experts_module` for weight (and bias) tensors."""
+        if not experts.is_transposed:
+            experts.up_proj[index].copy_(self.up_proj.weight)
+            experts.down_proj[index].copy_(self.down_proj.weight)
+        else:
+            experts.up_proj[index].copy_(self.up_proj.weight.T)
+            experts.down_proj[index].copy_(self.down_proj.weight.T)
+
+        self.copy_bias_to_experts_module(experts, index)
+
+    def copy_bias_to_experts_module(
+        self, experts: FusedExpertsProtocol, index: int
+    ) -> None:
+        if not experts.has_bias:
+            return
+        experts.up_proj_bias[index].copy_(self.up_proj.bias)
+        experts.down_proj_bias[index].copy_(self.down_proj.bias)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
@@ -196,12 +265,20 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
-        with skip_weights_initialize():
+        # Offloaded parameters are represented by meta tensors while onloading is
+        # disabled. Construct on the module's execution device instead of using a
+        # parameter's storage device so copying from the source works reliably.
+        construction_device = get_execution_device(experts)
+        with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
         for index in range(self.num_experts):
             expert: ExpertMLP = self[index]
             expert.copy_from_experts_module(experts, index)
+
+        # Needed by :meth:`to_experts_module` / ``repack_moe`` to restore the native
+        # fused experts class and config (see issue #2699).
+        self._record_source_metadata(experts, config)
 
         # copy offloading from original
         offload_kwargs = get_cache_init_kwargs(experts)
@@ -209,6 +286,184 @@ class LinearExperts2D(torch.nn.ModuleList):
             offload_module(module, **offload_kwargs)
 
         return self
+
+    def _record_source_metadata(
+        self, experts: FusedExpertsProtocol, config: PreTrainedConfig
+    ) -> None:
+        self._source_experts_cls = experts.__class__
+        self._source_config = config
+
+    @torch.no_grad()
+    def to_experts_module(self) -> FusedExpertsProtocol:
+        """
+        Pack this linearized experts module back into the native fused 3D experts
+        module it was created from.
+
+        Dense experts (still have ``weight``) restore native fused Parameters
+        and fuse any extra qparams alongside. Compressed experts (no
+        ``weight``, packed tensors present) replace those Parameters with
+        serialization-only nested modules.
+        """
+        experts_cls, config = self._require_source_metadata()
+        pack_mode = self._expert_pack_mode()
+
+        # ``self.parameters()`` may yield meta tensors for a disk-offloaded module.
+        # Use the configured onload device when constructing the replacement.
+        construction_device = get_execution_device(self)
+        with torch.device(construction_device), skip_weights_initialize():
+            fused: FusedExpertsProtocol = experts_cls(config)
+
+        float_param = next(
+            (
+                param
+                for param in self.parameters()
+                if param.is_floating_point() or param.is_complex()
+            ),
+            None,
+        )
+        if float_param is not None:
+            fused.to(dtype=float_param.dtype)
+
+        if pack_mode is ExpertPackMode.DENSE:
+            for index in range(self.num_experts):
+                expert: ExpertMLP = self[index]
+                expert.copy_to_experts_module(fused, index)
+            self._pack_weight_qparams(fused)
+        else:
+            self._pack_compressed_projections(fused)
+            if self.has_bias:
+                for index in range(self.num_experts):
+                    self[index].copy_bias_to_experts_module(fused, index)
+
+        offload_kwargs = get_cache_init_kwargs(self)
+        offload_module(fused, **offload_kwargs)
+        for child in fused.children():
+            if isinstance(child, CompressedFusedLinear):
+                offload_module(child, **offload_kwargs)
+        return fused
+
+    def _require_source_metadata(self) -> tuple[type, PreTrainedConfig]:
+        experts_cls = getattr(self, "_source_experts_cls", None)
+        config = getattr(self, "_source_config", None)
+        if experts_cls is None or config is None:
+            raise RuntimeError(
+                f"{type(self).__name__} is missing source experts metadata for "
+                "repack. It must be created via from_experts_module() or "
+                "load_quantizable_moe()."
+            )
+        return experts_cls, config
+
+    def _expert_linears(self) -> list[torch.nn.Linear]:
+        return [
+            linear
+            for expert_index in range(self.num_experts)
+            for linear in self[expert_index].modules()
+            if isinstance(linear, torch.nn.Linear)
+        ]
+
+    def _expert_pack_mode(self) -> ExpertPackMode:
+        """Select dense vs compressed packing from tensors on the Linears.
+
+        Presence of a dense ``weight`` (including REAP-only or frozen
+        quantized experts) uses fused Parameters. Extra qparams on those
+        Linears are fused alongside. Packed tensors with no ``weight`` use
+        nested compressed modules. Quantization status is not consulted.
+        """
+        linears = self._expert_linears()
+        if not linears:
+            return ExpertPackMode.DENSE
+        dense = [has_dense_weight(linear) for linear in linears]
+        if all(dense):
+            return ExpertPackMode.DENSE
+        if not any(dense):
+            return ExpertPackMode.COMPRESSED
+        raise RuntimeError(
+            "Cannot repack a mix of compressed and uncompressed expert "
+            "Linears. All targeted experts must either keep a dense "
+            "`weight` or already be packed."
+        )
+
+    def _pack_weight_qparams(self, fused: FusedExpertsProtocol) -> None:
+        """Fuse extra Linear parameters alongside dense ``weight``.
+
+        ``weight_*`` names become ``{gate_up,up,down}_proj_{suffix}`` to match
+        the native HF / compressed-tensors layout.
+        """
+        qparams = sorted(
+            {
+                name
+                for linear in self._expert_linears()
+                for name in extra_param_names(linear)
+            }
+        )
+        for qparam in qparams:
+            suffix = fused_qparam_suffix(qparam)
+            if self.has_gate:
+                gate = self._stack_proj_attr("gate_proj", qparam)
+                up = self._stack_proj_attr("up_proj", qparam)
+                if gate is not None and up is not None:
+                    packed = combine_gate_up(gate, up)
+                    set_fused_param(fused, f"gate_up_proj_{suffix}", packed)
+            else:
+                up = self._stack_proj_attr("up_proj", qparam)
+                if up is not None:
+                    set_fused_param(fused, f"up_proj_{suffix}", up)
+
+            down = self._stack_proj_attr("down_proj", qparam)
+            if down is not None:
+                set_fused_param(fused, f"down_proj_{suffix}", down)
+
+    def _stack_proj_attr(self, proj_name: str, qparam: str) -> torch.Tensor | None:
+        # Index by num_experts: ModuleList also stores act_fn after the experts.
+        vals = [
+            getattr(getattr(self[i], proj_name), qparam, None)
+            for i in range(self.num_experts)
+        ]
+        if any(val is None for val in vals):
+            return None
+        return torch.stack(vals)
+
+    def _pack_compressed_projections(self, fused: FusedExpertsProtocol) -> None:
+        packed: dict[str, dict[str, torch.Tensor]] = {}
+        if self.has_gate:
+            packed["gate_up_proj"] = self._pack_gated_compressed_state()
+        else:
+            packed["up_proj"] = self._stack_compressed_proj("up_proj")
+        packed["down_proj"] = self._stack_compressed_proj("down_proj")
+
+        for name, state in packed.items():
+            if name in fused._parameters:
+                del fused._parameters[name]
+            fused.add_module(name, CompressedFusedLinear(state))
+
+    def _stack_compressed_proj(self, proj_name: str) -> dict[str, torch.Tensor]:
+        states = [
+            linear_direct_state(getattr(self[i], proj_name))
+            for i in range(self.num_experts)
+        ]
+        return stack_expert_states(states, proj_name)
+
+    def _pack_gated_compressed_state(self) -> dict[str, torch.Tensor]:
+        gate_states = [
+            linear_direct_state(self[i].gate_proj) for i in range(self.num_experts)
+        ]
+        up_states = [
+            linear_direct_state(self[i].up_proj) for i in range(self.num_experts)
+        ]
+        gate_keys = require_identical_keys(gate_states, "gate_proj")
+        up_keys = require_identical_keys(up_states, "up_proj")
+        if gate_keys != up_keys:
+            raise RuntimeError(
+                "Cannot pack gated compressed experts: gate_proj and up_proj "
+                f"have different compressed keys {gate_keys} vs {up_keys}."
+            )
+        packed: dict[str, torch.Tensor] = {}
+        for key in gate_keys:
+            packed[key] = combine_gate_up(
+                torch.stack([state[key] for state in gate_states]),
+                torch.stack([state[key] for state in up_states]),
+            )
+        return packed
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
         moe_config = MoEConfig.from_config(config)
@@ -238,6 +493,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.act_fn = act_fn
         self.alpha = moe_config.alpha
         self.limit = moe_config.limit
+        self.swiglu_limit = moe_config.limit
 
     def forward(
         self,

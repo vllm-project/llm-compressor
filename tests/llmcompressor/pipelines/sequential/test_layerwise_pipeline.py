@@ -8,7 +8,7 @@ from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 
 
 class _FakeActivations:
-    def iter(self, input_names):
+    def iter_prefetch(self, input_names):
         yield {}
 
     def update(self, batch_idx, outputs):
@@ -28,6 +28,9 @@ class _FakeSubgraph:
 
     def submodules(self, model):
         return [self.module]
+
+    def submodule_dict(self, model):
+        return {"0": self.module}
 
     def forward(self, model, **inputs):
         self.events.append("forward")
@@ -58,6 +61,7 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         layerwise_decompression=True,
         layerwise_compression=True,
         propagate_error=False,
+        log_sequential_error=False,
         sequential_offload_device="cpu",
         sequential_targets=None,
         sequential_targets_per_subgraph=1,
@@ -68,7 +72,6 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     monkeypatch.setattr(pipeline_module, "active_session", lambda: session)
     monkeypatch.setattr(pipeline_module, "get_main_device", lambda: torch.device("cpu"))
     monkeypatch.setattr(pipeline_module, "set_onload_device", lambda *args: None)
-    monkeypatch.setattr(pipeline_module, "disable_offloading", contextlib.nullcontext)
     monkeypatch.setattr(
         pipeline_module,
         "calibration_forward_context",
@@ -82,6 +85,24 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         pipeline_module,
         "trace_subgraphs",
         lambda *args: [_FakeSubgraph(module, events)],
+    )
+    monkeypatch.setattr(
+        pipeline_module, "find_modules_outside_subgraphs", lambda *args: {}
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "subgraph_stage_modules",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "subgraph_onload_modules",
+        lambda modules: events.append("onload") or {},
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "subgraph_offload_modules",
+        lambda modules, offload_kwargs: events.append("offload"),
     )
     monkeypatch.setattr(
         pipeline_module.IntermediatesCache,
@@ -125,10 +146,12 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
 
     assert events == [
         "calibration_start",
+        "onload",
         ("decompress_module", module, False),
         ("start_layerwise_calibration", [module]),
         "forward",
         ("sequential_epoch_end", [module]),
         ("compress_module", module),
+        "offload",
         "calibration_end",
     ]

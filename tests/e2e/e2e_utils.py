@@ -14,7 +14,6 @@ from compressed_tensors.entrypoints.convert.converters import (
     FP8BlockDequantizer,
     ModelOptNvfp4Converter,
 )
-from compressed_tensors.offload import load_offloaded_model
 from compressed_tensors.quantization import QuantizationArgs, QuantizationType
 from datasets import load_dataset
 from loguru import logger
@@ -23,6 +22,7 @@ from transformers import AutoProcessor, DefaultDataCollator
 from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
@@ -56,7 +56,7 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
     if max_memory is None:
         max_memory = {"cpu": "1000GB"}
 
-    with load_offloaded_model(pretrained_model_class):
+    with load_context(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
             model,
             device_map=device_map,

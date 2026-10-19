@@ -380,7 +380,7 @@ def requires_gpu_mem(required_amount: Union[int, float]) -> pytest.MarkDecorator
 
 def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecorator:
     """
-    Pytest decorator to skip based on GPU compute capability.
+    Pytest decorator to skip based on CUDA GPU compute capability.
 
     Usage:
     @requires_compute_capability(9, 0)  # Requires H100 or higher
@@ -392,6 +392,12 @@ def requires_compute_capability(major: int, minor: int = 0) -> pytest.MarkDecora
     """
     if not torch.accelerator.is_available():
         return pytest.mark.skip(reason="No accelerator available")
+
+    accelerator_type = torch.accelerator.current_accelerator().type
+    if accelerator_type != "cuda":
+        return pytest.mark.skip(
+            reason=f"CUDA compute capability required, found {accelerator_type}"
+        )
 
     device_module = torch.get_device_module()
     if not hasattr(device_module, "get_device_capability"):

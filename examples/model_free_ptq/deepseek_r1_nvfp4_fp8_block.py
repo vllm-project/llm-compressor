@@ -33,7 +33,6 @@ model_free_ptq(
             "re:.*self_attn.(o_proj|q_b_proj).*",
         ],
     ),
-    max_workers=8,
     device="cuda:0",
     converter=ModelOptNvfp4Converter(
         targets=[

@@ -1,36 +1,26 @@
 import os
-import shutil
-from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Literal, Optional
 
 import torch
-from compressed_tensors.entrypoints.convert import (
-    Converter,
-    build_inverse_weight_maps,
-    exec_jobs,
-    exec_jobs_dynamic,
-)
+from compressed_tensors.entrypoints.convert import Converter
+from compressed_tensors.entrypoints.convert.convert_checkpoint import convert_checkpoint
 from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.utils.safetensors_load import (
-    InverseWeightMap,
     get_checkpoint_files,
     get_weight_map,
-    is_weights_file,
-    load_tensors_from_inverse_weight_map,
-    update_safetensors_index,
 )
-from loguru import logger
-from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
-from llmcompressor.entrypoints.model_free.memory import TensorProfiler
-from llmcompressor.entrypoints.model_free.save_utils import update_config
+from llmcompressor.entrypoints.model_free.spinquant import (
+    SpinQuantConverter,
+    SpinQuantConverterMapping,
+)
 from llmcompressor.entrypoints.model_free.validate import (
     validate_config,
     validate_safetensors_index,
 )
 
-__all__ = ["model_free_ptq"]
+__all__ = ["model_free_ptq", "SpinQuantConverter", "SpinQuantConverterMapping"]
 
 
 def model_free_ptq(
@@ -39,9 +29,9 @@ def model_free_ptq(
     scheme: QuantizationScheme | str | None = None,
     config: QuantizationConfig | None = None,
     ignore: Iterable[str] = tuple(),
-    max_workers: int = 1,
+    max_workers: int | Literal["auto"] = "auto",
     device: Optional[str | torch.device | list[str | torch.device]] = None,
-    converter: Converter | None = None,
+    converter: Converter | list[Converter] | tuple[Converter, ...] | None = None,
 ):
     """
     Quantize a model without the need for a model definition. This function
@@ -63,172 +53,39 @@ def model_free_ptq(
     :param ignore: modules to ignore. Modules ending with "norm" are
         automatically ignored
     :param max_workers: maximum number of concurrent worker threads.
-        Effective concurrency may be lower when GPU memory is tight.
+        Effective concurrency may be lower when GPU memory is tight. If "auto"
+        (default), the number of workers is chosen from the number of
+        safetensors files, the estimated memory of each job, the free memory of
+        each device, and the number of CPUs available. Host memory is not taken
+        into account, so pass a smaller number of workers if quantization runs
+        out of host memory.
     :param device: device(s) for quantization. Accepts a single device
         string/object or a list. When multiple devices are given, shards
         are dynamically assigned based on real-time GPU memory.
     :param converter: optional converter to apply to the checkpoint before
-        running model-free PTQ, e.g. an AWQ or fp8 dequantizer
+        running model-free PTQ. Accepts a single converter, a list, or a tuple;
+        they run in the given order and model-free PTQ is applied last. A
+        single converter behaves as before. For example, pass an fp8
+        dequantizer followed by a SpinQuantConverter
     """
     model_files = get_checkpoint_files(model_stub)
-
     config = validate_config(config, scheme, ignore)
-    resolved_devices = _resolve_devices(device)
     validate_safetensors_index(model_files, config)
-    os.makedirs(save_directory, exist_ok=True)
 
-    # copy non-safetensors files (configs, tokenizers, etc.)
-    for file_path, resolved_path in model_files.items():
-        if not file_path.endswith("safetensors"):
-            save_path = Path(save_directory) / file_path
-            if is_weights_file(file_path):
-                logger.warning(f"Skip processing for weights file {file_path}")
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Copying {file_path} -> {save_path}")
-            shutil.copyfile(resolved_path, save_path)
-
-    # build jobs without baking in a device, the scheduler assigns devices
-    # dynamically based on free VRAM at submit time
-    jobs = _build_jobs(model_files, save_directory, config, converter)
-
-    # process on meta device for validation and memory estimates
-    validate_jobs = [(_validate_shard, iwm, _sp, convs) for _, iwm, _sp, convs in jobs]
-    memory_estimates = exec_jobs(validate_jobs, max_workers, desc="Validating")
-    logger.info(
-        f"Distributing {len(jobs)} shard(s), estimated memory: "
-        f"{min(memory_estimates) / 1e9:.2f}-"
-        f"{max(memory_estimates) / 1e9:.2f} GB per shard, "
-        f"{sum(memory_estimates) / 1e9:.2f} GB total"
-    )
-
-    # quantize with dynamic GPU scheduling
-    total_size = 0
-    weight_map = dict()
-    callable_jobs = [
-        (lambda dev, fn=fn, iwm=iwm, sp=sp, convs=convs: fn(iwm, sp, convs, dev))
-        for fn, iwm, sp, convs in jobs
-    ]
-    quantize_results = exec_jobs_dynamic(
-        jobs=callable_jobs,
-        devices=resolved_devices,
-        max_workers=max_workers,
-        memory_estimates=memory_estimates,
-        desc="Quantizing",
-    )
-    for _total_size, _weight_map in quantize_results:
-        total_size += _total_size
-        weight_map.update(_weight_map)
-
-    update_config(save_directory, config, converter)
-    update_safetensors_index(save_directory, total_size, weight_map)
-
-
-def _resolve_devices(
-    device: Optional[str | torch.device | list[str | torch.device]],
-) -> list[torch.device]:
-    if device is None:
-        count = torch.accelerator.device_count()
-        if count > 0:
-            devices = [torch.device(f"cuda:{i}") for i in range(count)]
-            logger.info(
-                f"Auto-detected {count} CUDA device(s): "
-                f"{', '.join(str(d) for d in devices)}"
-            )
-            return devices
-
-        logger.warning("No accelerator available! Compressing model on CPU instead")
-        return [torch.device("cpu")]
-
-    if isinstance(device, list):
-        if not device:
-            raise ValueError("The device list cannot be empty.")
-        return [torch.device(d) for d in device]
-
-    return [torch.device(device)]
-
-
-def _build_jobs(
-    model_files: dict[str, str],
-    save_directory: str | os.PathLike,
-    config: QuantizationConfig,
-    converter: Converter | None,
-) -> list[tuple]:
-    """Build per-shard quantization jobs without baking in a device.
-
-    Uses CT's build_inverse_weight_maps with the full converter chain so that
-    ModelFreePtqConverter.get_dependencies() drives microscale partner resolution
-    with no separate build_microscale_inverse_weight_maps needed.
-
-    :returns: (jobs, memory_estimates) where each job is
-        (_process_shard, inverse_weight_map, save_path, converters)
-        and each memory estimate is in bytes.
-    """
     weight_map = get_weight_map(model_files)
+    mfptq = ModelFreePtqConverter(config, weight_names=weight_map.keys())
+    if converter is None:
+        converters = []
+    elif isinstance(converter, (list, tuple)):
+        converters = list(converter)
+    else:
+        converters = [converter]
+    converters.append(mfptq)
 
-    mfptq = ModelFreePtqConverter(config)
-    all_converters = ([converter] if converter is not None else []) + [mfptq]
-    inverse_weight_maps = build_inverse_weight_maps(
-        weight_map=weight_map,
-        model_files=model_files,
-        converters=all_converters,
+    convert_checkpoint(
+        model_stub=model_stub,
+        save_directory=save_directory,
+        converter=converters,
+        max_workers=max_workers,
+        device=device,
     )
-
-    shard_names = [name for name in model_files if name.endswith("safetensors")]
-
-    jobs = []
-    for shard_name in shard_names:
-        save_path = Path(save_directory) / shard_name
-
-        if shard_name not in inverse_weight_maps:
-            raise ValueError(
-                f"Could not find inverse_weight_map for shard {shard_name}"
-            )
-
-        iwm = inverse_weight_maps[shard_name]
-        jobs.append((_process_shard, iwm, save_path, all_converters))
-
-    return jobs
-
-
-def _process_shard(
-    inverse_weight_map: InverseWeightMap,
-    save_path: str | os.PathLike,
-    converters: list[Converter],
-    device: torch.device,
-) -> tuple[int, dict[str, str]]:
-    tensors = load_tensors_from_inverse_weight_map(inverse_weight_map, device)
-    for conv in converters:
-        tensors = conv.process(tensors)
-    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
-    save_file(tensors, save_path)
-    total_size = sum(t.nbytes for t in tensors.values())
-    weight_map = {key: os.path.basename(save_path) for key in tensors.keys()}
-    return total_size, weight_map
-
-
-def _validate_shard(
-    inverse_weight_map: InverseWeightMap,
-    save_path: str | os.PathLike,
-    converters: list[Converter],
-) -> int:
-    with TensorProfiler() as prof:
-        tensors = load_tensors_from_inverse_weight_map(
-            inverse_weight_map, torch.device("meta")
-        )
-        for conv in converters:
-            tensors = conv.validate(tensors)
-
-    if prof.exception is not None or torch.device("meta") not in prof.memory_peak:
-        fallback_estimate = sum(
-            tensor.nbytes
-            for tensor in tensors.values()
-            if isinstance(tensor, torch.Tensor)
-        )
-        fallback_estimate = int(fallback_estimate * 2.5)
-        logger.warning(
-            f"Failed to estimate memory usage for {save_path}. Falling back to "
-            f"2.5x size of tensor inputs ({fallback_estimate / 1e9:.2f} GB)."
-        )
-        return fallback_estimate
-
-    return prof.memory_peak[torch.device("meta")]

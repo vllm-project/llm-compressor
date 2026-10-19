@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import torch
 from compressed_tensors.offload import disable_onloading
+from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -29,6 +30,12 @@ if TYPE_CHECKING:
 
 __all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
 
+# Node.meta key listing modules which ran while HFTracer executed a node on meta
+# tensors. Modules called inside wrapped functions (e.g. `embed_tokens` inside an
+# autowrapped `forward`) never appear as `call_module` nodes, so this is the only
+# record of which subgraph owns them (#3261)
+INVOKED_SUBMODULES_META_KEY = "llmcompressor.invoked_submodules"
+
 
 @dataclass
 class Subgraph:
@@ -45,6 +52,38 @@ class Subgraph:
     input_names: set[str]
     consumed_names: set[str]
     _code: PythonCode | None = None
+
+    def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
+        """
+        Qualified names of the modules owned by this subgraph, in graph order. Owned
+        modules are `call_module` targets plus modules recorded by the tracer as having
+        run inside a node (see `INVOKED_SUBMODULES_META_KEY`), optionally including
+        their descendants. Names which do not exist in `model` raise
+        """
+        ordered_names: list[str] = []
+        seen_modules: set[Module] = set()
+
+        targets: list[str] = []
+        for node in self.graph.nodes:
+            if node.op == "call_module":
+                targets.append(node.target)
+            targets.extend(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
+
+        for target in targets:
+            module = model.get_submodule(target)
+            named_modules = module.named_modules() if recurse else [("", module)]
+
+            for relative_name, submodule in named_modules:
+                if submodule in seen_modules:
+                    continue
+
+                qualified_name = target
+                if relative_name:
+                    qualified_name = f"{target}.{relative_name}"
+                ordered_names.append(qualified_name)
+                seen_modules.add(submodule)
+
+        return ordered_names
 
     def forward(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -64,21 +103,78 @@ class Subgraph:
             return forward_fn(*args, **kwargs)
 
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
-        nodes = self.graph.find_nodes(op="call_module")
-        modules = [model.get_submodule(node.target) for node in nodes]
+        return [
+            model.get_submodule(name)
+            for name in self._subgraph_module_names(model, recurse=recurse)
+        ]
 
-        # collect all modules while preserving order
-        # deterministic module order is required for downstream ddp
-        if recurse:
-            direct_modules, modules = modules, []
-            seen = set()
-            for direct_module in direct_modules:
-                for submodule in direct_module.modules():
-                    if submodule not in seen:
-                        modules.append(submodule)
-                        seen.add(submodule)
+    def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
+        """Return subgraph modules keyed by their fully qualified model names."""
+        return {
+            name: model.get_submodule(name)
+            for name in self._subgraph_module_names(model, recurse=recurse)
+        }
 
-        return modules
+
+def collect_subgraph_modules(
+    model: Module, subgraphs: list[Subgraph], recurse: bool = True
+) -> dict[str, Module]:
+    """Return the union of all modules owned by the traced subgraphs."""
+    modules: dict[str, Module] = {}
+    for subgraph in subgraphs:
+        modules.update(subgraph.submodule_dict(model, recurse=recurse))
+    return modules
+
+
+def find_modules_outside_subgraphs(
+    model: Module, subgraphs: list[Subgraph], recurse: bool = True
+) -> dict[str, Module]:
+    """Return modules that were traced but do not belong to any subgraph."""
+    subgraph_modules = collect_subgraph_modules(model, subgraphs, recurse=recurse)
+    return {
+        name: module
+        for name, module in model.named_modules()
+        if name and name not in subgraph_modules
+    }
+
+
+def _resolve_sequential_targets(
+    model: PreTrainedModel, sequential_targets: list[str]
+) -> set[Module]:
+    """Combine requested targets with attention boundaries and remove nested ones."""
+    orig_targets = {m for _, m in list(match_named_modules(model, sequential_targets))}
+
+    # Add attention modules as targets (we don't want to trace inside attention)
+    attention_targets = {
+        module for _, module in model.named_modules() if _is_attention_module(module)
+    }
+    targets = orig_targets | attention_targets
+
+    target_names = {name: mod for name, mod in model.named_modules() if mod in targets}
+
+    # Keep only the outermost target. The tracer treats it as a leaf, so nested
+    # targets cannot appear as independent call_module nodes in the graph.
+    outer_targets = {
+        target
+        for name, target in target_names.items()
+        if not any(
+            name.startswith(f"{other_name}.")  # if not a child of another
+            for other_name in target_names.keys()
+        )
+    }
+
+    if any(
+        isinstance(module, torch.nn.Linear) for module in orig_targets - outer_targets
+    ):  # detect linear being ignored in favor of another target
+        logger.warning(
+            "Some requested Linear targets are nested inside an outer sequential "
+            "target and will not form separate subgraphs. This commonly happens due to"
+            "attention blocks being added as targets to avoid tracing into them.  "
+            "such Nested Linear modules are still calibrated and quantized as normal.",
+            log_once=True,
+        )
+
+    return outer_targets
 
 
 def trace_subgraphs(
@@ -87,6 +183,7 @@ def trace_subgraphs(
     sequential_targets: list[str],
     ignore: list[str],
     targets_per_subgraph: int = 1,
+    eager_attention: bool = False,
 ) -> list[Subgraph]:
     """
     Trace a model to produce subgraphs, where each sequential target belongs to exactly
@@ -96,15 +193,15 @@ def trace_subgraphs(
     :param model: model being traced
     :param sample_input: inputs whose values will change during execution but whose
         __len__, __bool__, and __contains__ values are assumed constant across batches
-    :param sequential_targets: list of patterns matching sequential targets
+    :param sequential_targets: list of patterns matching sequential targets. Detected
+        attention modules are also used as targets when not contained by a requested
+        target.
     :param ignore: function and method names to skip during tracing
     :param targets_per_subgraph: number of targets to include per subgraph
+    :param eager_attention: whether to force eager attention while tracing
     :return: a list of Subgraphs in order of execution
     """
-    # find modules
-    targets = set(
-        module for _, module in match_named_modules(model, sequential_targets)
-    )
+    targets = _resolve_sequential_targets(model, sequential_targets)
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
@@ -113,11 +210,12 @@ def trace_subgraphs(
 
     with contextlib.ExitStack() as stack:
         # calibration context
-        stack.enter_context(calibration_forward_context(model))
+        stack.enter_context(calibration_forward_context(model, eager_attention))
         stack.enter_context(HooksMixin.disable_hooks())
 
         # flags useful for tracing
-        stack.enter_context(patch_attr(model.config, "_attn_implementation", "eager"))
+        # Attention uses the model's configured implementation unless
+        # `eager_attention` is enabled.
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
 
         # autowrap forwards
@@ -165,6 +263,20 @@ def trace_subgraphs(
             "This is likely due to having wrapped code which calls sequential targets"
         )
 
+    # Modules with parameters which are neither ancestors nor owned by a subgraph were
+    # not seen during tracing (e.g. a wrapped function failed to execute on meta)
+    unowned = [
+        name
+        for name, module in find_modules_outside_subgraphs(model, subgraphs).items()
+        if module not in ancestors and module._parameters
+    ]
+    if unowned:
+        logger.warning(
+            f"Modules {unowned} do not belong to any subgraph and will be kept "
+            "onloaded for the whole calibration",
+            log_once=True,
+        )
+
     return subgraphs
 
 
@@ -174,14 +286,52 @@ class SequentialTracer(HFTracer):
     inside of sequential targets, nor any modules which are not call graph ancestors of
     sequential targets
 
+    Modules which run while a node is executed on meta tensors (e.g. inside wrapped
+    functions) are recorded on `node.meta[INVOKED_SUBMODULES_META_KEY]` so that
+    `Subgraph.submodules` can attribute them to a subgraph
+
     :param ancestors: modules which are ancestors of sequential targets
     """
 
     def __init__(self, ancestors: set[Module]):
         self.ancestors = ancestors
+        self._invoked: list[str] | None = None
 
         # skip any mask creation functions not already caught by the autowrapper
         super().__init__(autowrap_functions=_get_autowrap_functions())
+
+    def create_proxy(self, kind, target, args, kwargs, *extra_args, **extra_kwargs):
+        """
+        Create a node and record the modules which run while HFTracer executes it on
+        meta tensors, so `Subgraph.submodules` can see modules called inside wrapped
+        functions. `call_module` nodes are skipped because they already own their
+        descendants via `recurse`
+        """
+        outer, self._invoked = self._invoked, []
+        try:
+            proxy = super().create_proxy(
+                kind, target, args, kwargs, *extra_args, **extra_kwargs
+            )
+            if self._invoked and kind != "call_module":
+                proxy.node.meta[INVOKED_SUBMODULES_META_KEY] = list(
+                    dict.fromkeys(self._invoked)
+                )
+            return proxy
+        finally:
+            self._invoked = outer
+
+    def call_module(self, module: Module, forward, args, kwargs):
+        """
+        Record `module` if it is being executed on meta tensors by `create_proxy`
+        (`_disable_call_module` is only set in that window). Names come from
+        `submodule_paths` rather than `path_of_module`, which would insert modules
+        constructed inside `forward` (e.g. `nn.Softmax`) as new root submodules
+        """
+        if getattr(self, "_disable_call_module", False):
+            name = self.submodule_paths.get(module)
+            if name is not None:
+                self._invoked.append(name)
+        return super().call_module(module, forward, args, kwargs)
 
     def create_arg(self, a: Any) -> Argument:
         # special extension allows models which depend on config values to be traced

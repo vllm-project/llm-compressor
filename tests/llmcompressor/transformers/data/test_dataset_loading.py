@@ -1,5 +1,6 @@
 import pytest
 from datasets import Dataset, IterableDataset, load_dataset
+from transformers import AutoProcessor
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.datasets import format_calibration_data, get_processed_dataset
@@ -344,3 +345,93 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
     assert len(calib_dataloader) == num_calibration_samples
     dataloader_sample = next(iter(calib_dataloader))["input_ids"]
     assert dataloader_sample[0].tolist() in calib_dataset["input_ids"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "dataset_key, dataset_config, split, processor_id",
+    [
+        ["perfectblend", None, "train[:8]", None],
+        ["open_platypus", None, "train[:8]", None],
+        ["evolcodealpaca", None, "train[:8]", None],
+        ["gsm8k", "main", "train[:8]", None],
+        ["ultrachat_200k", None, "train_sft[:8]", None],
+        ["wikitext", "wikitext-2-raw-v1", "train[:8]", None],
+        # multimodal pre-baked datasets; only their text tokenization is
+        # exercised, using a processor stub matching the expected processor type
+        ["flickr", None, "test[:2]", "Qwen/Qwen3-VL-8B-Instruct"],
+        ["peoples_speech", None, "test[:2]", "openai/whisper-large-v3"],
+    ],
+)
+def test_prebaked_datasets_generate_no_padding(
+    tiny_llama_path, dataset_key, dataset_config, split, processor_id
+):
+    """
+    Every pre-baked dataset processed through get_processed_dataset should
+    produce samples with no padding.
+
+    The default data_collator is "truncation" and pad_to_max_length is False, so
+    tokenization is run with padding=False. As a result, no sample may contain
+    padding tokens.
+
+    The no-padding check depends on the emitted features:
+      - Text datasets and the vision dataset (flickr) emit `input_ids` plus an
+        `attention_mask`. A sample is padded iff its attention_mask has a zero,
+        so we assert every sample's attention_mask is all ones.
+      - peoples_speech uses a Whisper processor which emits `decoder_input_ids`
+        (no attention_mask). That sequence is a single, un-padded transcription
+        ending in a single EOS/pad terminator, so we assert it is non-empty, is
+        not entirely padding, and contains at most one pad token.
+
+    Note: we intentionally do NOT assert on `pad_token_id in input_ids`. When a
+    tokenizer defines no pad token, the framework substitutes the EOS token as
+    the pad token (pad_token_id == eos_token_id), and EOS legitimately appears in
+    the text -- so that check would produce false positives.
+
+    "custom" is not a pre-baked HF dataset (it requires a local path), so it is
+    not covered here.
+    """
+    processor = AutoProcessor.from_pretrained(
+        processor_id if processor_id is not None else tiny_llama_path
+    )
+
+    dataset_args = DatasetArguments(
+        dataset=dataset_key,
+        dataset_config_name=dataset_config,
+        splits=split,
+    )
+
+    dataset = get_processed_dataset(dataset_args=dataset_args, processor=processor)
+
+    assert dataset is not None
+    assert len(dataset) > 0
+
+    if "attention_mask" in dataset.column_names:
+        assert "input_ids" in dataset.column_names
+        for i in range(len(dataset)):
+            input_ids = dataset[i]["input_ids"]
+            attention_mask = dataset[i]["attention_mask"]
+            assert len(attention_mask) == len(input_ids)
+            num_padded = len(attention_mask) - sum(attention_mask)
+            assert num_padded == 0, (
+                f"{dataset_key} sample {i} is padded with {num_padded} padding "
+                f"token(s); attention_mask sum={sum(attention_mask)}, "
+                f"len={len(attention_mask)}"
+            )
+    else:
+        # whisper: `decoder_input_ids` (no attention_mask is emitted)
+        assert "decoder_input_ids" in dataset.column_names
+        pad_token_id = processor.tokenizer.pad_token_id
+        for i in range(len(dataset)):
+            ids = dataset[i]["decoder_input_ids"]
+            if ids and not isinstance(ids[0], int):  # nested [[...]]
+                ids = ids[0]
+            assert len(ids) > 0
+            assert not all(
+                tok == pad_token_id for tok in ids
+            ), f"{dataset_key} sample {i} decoder_input_ids is entirely padding"
+            num_pad = ids.count(pad_token_id)
+            assert num_pad <= 1, (
+                f"{dataset_key} sample {i} decoder_input_ids has {num_pad} pad "
+                f"tokens; padding should not be introduced"
+            )

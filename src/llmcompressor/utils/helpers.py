@@ -123,7 +123,7 @@ def disable_hf_kernels(module: torch.nn.Module):
 
 
 @contextlib.contextmanager
-def calibration_forward_context(model: torch.nn.Module):
+def calibration_forward_context(model: torch.nn.Module, eager_attention: bool = False):
     """
     Context in which all calibration forward passes should occur.
 
@@ -132,6 +132,7 @@ def calibration_forward_context(model: torch.nn.Module):
     - Disable train mode and enable eval mode
     - Disable hf kernels which could bypass hooks
     - Disable lm head (input and weights can still be calibrated, output will be meta)
+    - Optionally force eager attention
     """
     with contextlib.ExitStack() as stack:
         stack.enter_context(torch.no_grad())
@@ -139,6 +140,24 @@ def calibration_forward_context(model: torch.nn.Module):
         stack.enter_context(eval_context(model))
         stack.enter_context(disable_hf_kernels(model))
         stack.enter_context(disable_lm_head(model))
+        if eager_attention:
+            stack.enter_context(use_eager_attention(model))
+        yield
+
+
+@contextlib.contextmanager
+def use_eager_attention(model: torch.nn.Module):
+    """
+    Temporarily force eager attention.
+
+    Keep this active across tracing and calibration when enabled: the attention
+    implementation used at trace time must match the implementation used to execute
+    the resulting graph.
+    """
+    if isinstance(model, PreTrainedModel):
+        with patch_attr(model.config, "_attn_implementation", "eager"):
+            yield
+    else:
         yield
 
 
