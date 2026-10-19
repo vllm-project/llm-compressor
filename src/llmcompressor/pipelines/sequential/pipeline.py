@@ -150,7 +150,7 @@ class SequentialPipeline(CalibrationPipeline):
             )
             subgraph_onload_modules(persistent_modules)
 
-        LifecycleCallbacks.calibration_start()
+        LifecycleCallbacks.calibration_start(modules=list(persistent_modules.values()))
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -260,14 +260,10 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                modules = subgraph.submodules(model)
-
-                # Decompress and initialize only this subgraph after onloading it.
+                modules = onloaded_modules = list(subgraph_modules.values())
                 if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
-                    for modifier in modifiers:
-                        if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(model, modules)
+                    decompress_subgraph_modules(onloaded_modules)
+                LifecycleCallbacks.sequential_epoch_start(onloaded_modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -296,7 +292,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(modules)
+                LifecycleCallbacks.sequential_epoch_end(onloaded_modules)
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures

@@ -5,7 +5,7 @@ from typing import Literal
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import wait_for_comms
-from compressed_tensors.offload import update_offload_parameter
+from compressed_tensors.offload import align_modules, update_offload_parameter
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
@@ -116,6 +116,12 @@ class SmoothQuantModifier(Modifier):
     )
     scales_: dict | None = Field(default=None, repr=False)
 
+    _lazy_initialization: bool = False
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return True
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run SmoothQuant on the given state
@@ -141,18 +147,34 @@ class SmoothQuantModifier(Modifier):
             )
         self.ignore = [] if not self.ignore else self.ignore
         self.mappings = self._infer_mappings_from_model(state.model)
-        self.resolved_mappings_ = self._resolve_mappings(state.model)
+        # Mapping definitions are model-wide metadata. Resolve them to live module
+        # references only once the relevant modules are onloaded by the pipeline.
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
+        self.resolved_mappings_ = []
         self.scales_ = {}
 
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._setup_scale_hooks()
+        modules = kwargs.get("modules") if self._lazy_initialization else None
+        self._initialize_scope(state.model, modules)
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        self._apply_smoothing(state.model)
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[Module], **kwargs
+    ):
+        if self._lazy_initialization:
+            self._initialize_scope(state.model, modules)
+
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[Module], **kwargs
+    ):
+        self._apply_smoothing(
+            state.model, modules=modules if self._lazy_initialization else None
+        )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
+        # Also handles non-sequential pipelines and any persistent-module scopes.
+        self._apply_smoothing(state.model)
         self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
@@ -183,7 +205,20 @@ class SmoothQuantModifier(Modifier):
         return get_layer_mappings_from_model(model)
 
     @handle_mapping_resolution_errors
-    def _resolve_mappings(self, model: Module) -> list[SmoothQuantMapping]:
+    def _initialize_scope(self, model: Module, modules: list[Module] | None) -> None:
+        resolved = self._resolve_mappings(model, modules=modules)
+        existing_names = {
+            mapping.smooth_name for mapping in (self.resolved_mappings_ or [])
+        }
+        new_mappings = [
+            mapping for mapping in resolved if mapping.smooth_name not in existing_names
+        ]
+        self.resolved_mappings_.extend(new_mappings)
+        self._setup_scale_hooks(new_mappings)
+
+    def _resolve_mappings(
+        self, model: Module, modules: list[Module] | None = None
+    ) -> list[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into SmoothQuantMapping objects, resolving regular expressions.
@@ -195,6 +230,7 @@ class SmoothQuantModifier(Modifier):
         """
         resolved_mappings = []
         module_to_name = get_module_to_name_dict(model)
+        module_scope = None if modules is None else {id(module) for module in modules}
         # Get names of modules that are not ignored
         ignored_names = set()
         if self.ignore:
@@ -223,6 +259,20 @@ class SmoothQuantModifier(Modifier):
                     for balance_layer in balance_layers
                 ]
 
+                if module_scope is not None:
+                    mapping_modules = [smooth_layer, *balance_layers]
+                    in_scope = [
+                        id(module) in module_scope for module in mapping_modules
+                    ]
+                    if any(in_scope) and not all(in_scope):
+                        raise ValueError(
+                            "SmoothQuant mapping spans sequential subgraphs. Choose "
+                            "sequential targets that keep each smooth layer and its "
+                            "balance layers in the same subgraph."
+                        )
+                    if not all(in_scope):
+                        continue
+
                 # Check if at least one layer would be smoothed (not ignored)
                 any_not_ignored = smooth_name not in ignored_names or any(
                     bn not in ignored_names for bn in balance_names
@@ -248,7 +298,7 @@ class SmoothQuantModifier(Modifier):
 
         return resolved_mappings
 
-    def _setup_scale_hooks(self):
+    def _setup_scale_hooks(self, mappings: list[SmoothQuantMapping] | None = None):
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -279,7 +329,7 @@ class SmoothQuantModifier(Modifier):
 
             return hook_fn
 
-        for mapping in self.resolved_mappings_:
+        for mapping in mappings if mappings is not None else self.resolved_mappings_:
             name = mapping.smooth_name
             layer = mapping.smooth_layer
             self.register_hook(layer, create_hook_fn(name), "forward")
@@ -319,7 +369,7 @@ class SmoothQuantModifier(Modifier):
         wait_for_comms(pending_comms)
 
     @torch.no_grad()
-    def _apply_smoothing(self, model: Module):
+    def _apply_smoothing(self, model: Module, modules: list[Module] | None = None):
         """
         After calibration, apply smoothing to the activations and push the transform
         into the following weights by applying the inverse to each balance weight.
@@ -334,25 +384,26 @@ class SmoothQuantModifier(Modifier):
 
         This modifies the weights of the model in-place.
         """
+        module_scope = None if modules is None else {id(module) for module in modules}
+        mappings = self.resolved_mappings_
+        if module_scope is not None:
+            mappings = [
+                mapping
+                for mapping in mappings
+                if id(mapping.smooth_layer) in module_scope
+                and all(id(layer) in module_scope for layer in mapping.balance_layers)
+            ]
+
         if is_distributed():
             self._reduce_activation_scales()
 
-        for mapping in self.resolved_mappings_:
+        for mapping in mappings:
             if mapping.smooth_name not in self.scales_:
                 continue
             logger.info(f"Smoothing with {mapping.smooth_name}")
 
-            activation_scales = (  # get dynamic range for each activation channel
-                self.scales_[mapping.smooth_name].max_channel_vals
-                - self.scales_[mapping.smooth_name].min_channel_vals
-            )
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
-
-            scales = self._calculate_smoothing_scales(balance_layers, activation_scales)
-            scales = torch.maximum(
-                scales, torch.Tensor([MINIMUM_SMOOTHING_SCALE]).to(scales.device)
-            )
 
             @torch.no_grad()
             def smooth(module):
@@ -373,9 +424,21 @@ class SmoothQuantModifier(Modifier):
                     if hasattr(module, "bias") and module.bias is not None:
                         update_offload_parameter(module, "bias", module.bias / scales)
 
-            for layer in balance_layers:
-                smooth(layer)
-            smooth(smooth_layer)
+            with align_modules([smooth_layer, *balance_layers]):
+                activation_scales = (
+                    self.scales_[mapping.smooth_name].max_channel_vals
+                    - self.scales_[mapping.smooth_name].min_channel_vals
+                )
+                scales = self._calculate_smoothing_scales(
+                    balance_layers, activation_scales
+                )
+                scales = torch.maximum(
+                    scales,
+                    torch.Tensor([MINIMUM_SMOOTHING_SCALE]).to(scales.device),
+                )
+                for layer in balance_layers:
+                    smooth(layer)
+                smooth(smooth_layer)
 
             # clear calibration data
             del self.scales_[mapping.smooth_name]

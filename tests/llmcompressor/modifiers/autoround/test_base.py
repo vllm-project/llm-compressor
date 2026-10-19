@@ -80,6 +80,29 @@ def test_on_sequential_epoch_end_passes_all_modules():
         mock_apply.assert_called_once_with(state, modules)
 
 
+def test_sequential_epoch_start_initializes_and_hooks_only_current_scope():
+    model = nn.Module()
+    model.layers = nn.ModuleList([_FakeDecoderLayer(), _FakeDecoderLayer()])
+    for name, module in model.named_modules():
+        module._tmp_name = name
+
+    modifier = AutoRoundModifier(scheme="W4A16")
+    modifier._lazy_initialization = True
+    modifier._sequential_targets = ["_FakeDecoderLayer"]
+    state = State(model=model)
+
+    modifier.on_sequential_epoch_start(
+        state,
+        Event(type_=EventType.SEQUENTIAL_EPOCH_START),
+        modules=list(model.layers[0].modules()),
+    )
+
+    assert hasattr(model.layers[0].q_proj, "quantization_scheme")
+    assert not hasattr(model.layers[1].q_proj, "quantization_scheme")
+    assert model.layers[0]._tmp_name in modifier._capture_hooks
+    assert model.layers[1]._tmp_name not in modifier._capture_hooks
+
+
 @pytest.mark.parametrize(
     ("scheme_name", "expected_bits"),
     [
