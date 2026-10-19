@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import torch
 
+import llmcompressor.pipelines.sequential.helpers as helpers_module
 import llmcompressor.pipelines.sequential.pipeline as pipeline_module
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 
@@ -125,22 +126,23 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         lambda: events.append("calibration_end"),
     )
     monkeypatch.setattr(
-        pipeline_module,
+        helpers_module,
         "is_module_quantized",
         lambda candidate: candidate is module,
     )
     monkeypatch.setattr(
-        pipeline_module,
+        helpers_module,
         "decompress_module",
         lambda candidate, leave_decompressed=True: events.append(
             ("decompress_module", candidate, leave_decompressed)
         ),
     )
     monkeypatch.setattr(
-        pipeline_module,
+        helpers_module,
         "compress_module",
         lambda candidate: events.append(("compress_module", candidate)),
     )
+    monkeypatch.setattr(helpers_module, "is_distributed", lambda: False)
 
     SequentialPipeline.__call__(model, [{}], dataset_args)
 
