@@ -1561,10 +1561,11 @@ class HFTracer(Tracer):
                     # concrete_args uses the parameter name "kwargs". Replacing the
                     # placeholder with its concrete mapping preserves nodes that use
                     # it; recursively deleting its users can erase the model body.
-                    kwargs_value = concrete_args[node.target[2:]]
-                    with self.graph.inserting_before(node):
-                        kwargs_node = self.graph.call_function(dict, (kwargs_value,))
-                    node.replace_all_uses_with(kwargs_node)
+                    if node.users:
+                        kwargs_value = concrete_args[node.target[2:]]
+                        with self.graph.inserting_before(node):
+                            kwargs_node = self.graph.call_function(dict, (kwargs_value,))
+                        node.replace_all_uses_with(kwargs_node)
                     self.graph.erase_node(node)
                 # It is a concrete arg so it is not used and should be removed.
                 else:
