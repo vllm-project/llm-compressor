@@ -11,6 +11,7 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.utils import match_targets
 
 from llmcompressor.entrypoints.higgs import (
     HiggsMSECollectorConverter,
@@ -233,11 +234,12 @@ def test_generate_config_groups_mixed_expert_schemes(candidate_schemes, other_sc
     config_groups = generate_config_groups(ilp_solution, candidate_schemes)
 
     # Each expert layer must be targeted only by the group of its own scheme
+    module = torch.nn.Linear(1, 1)
     for layer, scheme_name in ilp_solution.items():
         matching = [
             group
             for group in config_groups.values()
-            if any(re.match(target[3:], layer) for target in group.targets)
+            if match_targets(layer, module, group.targets)
         ]
         if scheme_name == UNQUANTIZED_SCHEME:
             assert matching == []
@@ -246,9 +248,12 @@ def test_generate_config_groups_mixed_expert_schemes(candidate_schemes, other_sc
             assert matching[0].weights == candidate_schemes[scheme_name].weights
 
     # Experts that share a scheme are still collapsed into a wildcard
-    assert f"re:^{re.escape(prefix)}\\.\\d+\\.up_proj$" in (
-        config_groups["group_0"].targets
-    )
+    (up_proj_group,) = [
+        group
+        for group in config_groups.values()
+        if match_targets(f"{prefix}.0.up_proj", module, group.targets)
+    ]
+    assert f"re:^{re.escape(prefix)}\\.\\d+\\.up_proj$" in up_proj_group.targets
 
 
 def test_alpha_heuristic_layer_types():
