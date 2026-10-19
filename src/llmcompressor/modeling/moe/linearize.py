@@ -27,8 +27,6 @@ from .conversion_mappings import (
 from .linear_experts import LinearExperts2D
 
 
-
-
 def _patch_replace_with_fp8_linear_for_moe():
     """Make replace_with_fp8_linear a no-op for MoE models.
 
@@ -44,7 +42,9 @@ def _patch_replace_with_fp8_linear_for_moe():
             logger.info("Skipping FP8 linear replacement for MoE model")
             return model
 
-        transformers.integrations.finegrained_fp8.replace_with_fp8_linear = patched_replace_with_fp8_linear
+        transformers.integrations.finegrained_fp8.replace_with_fp8_linear = (
+            patched_replace_with_fp8_linear
+        )
     except Exception as e:
         logger.warning(f"Could not patch replace_with_fp8_linear: {e}")
 

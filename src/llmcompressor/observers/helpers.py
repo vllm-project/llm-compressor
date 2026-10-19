@@ -180,9 +180,8 @@ def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
             # During layerwise calibration only fuse groups that are wholly
             # owned by the active subgraph. In particular, do not use observers
             # from modules that have not been decompressed and initialized yet.
-            if (
-                allowed_modules is not None
-                and not set(layers_to_fuse).issubset(allowed_modules)
+            if allowed_modules is not None and not set(layers_to_fuse).issubset(
+                allowed_modules
             ):
                 continue
             fusion_name_group = tuple(fused_layers.keys())
