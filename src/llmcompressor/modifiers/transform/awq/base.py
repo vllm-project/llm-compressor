@@ -162,6 +162,11 @@ class AWQModifier(Modifier):
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
+    _lazy_initialization: bool = PrivateAttr(default=False)
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -177,6 +182,7 @@ class AWQModifier(Modifier):
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
             self.mappings = get_layer_mappings_from_model(state.model)
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
 
         # Set default offload_device
         if self.offload_device == Sentinel("not_provided"):
@@ -208,52 +214,33 @@ class AWQModifier(Modifier):
         :return: True on a successful run, False otherwise
         """
 
-        self._set_resolved_mappings(state.model)
+        modules = kwargs.get("modules") if self._lazy_initialization else None
+        self._initialize_scope(state, modules)
 
-        # Check for unsupported token masking with MoE up_proj -> down_proj mappings
-        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
-            raise ValueError(
-                "Token masking (use_loss_mask=True) is not supported with "
-                "up_proj -> down_proj mappings in MoE models. The MoE routing "
-                "mechanism dispatches tokens to different experts, and the loss mask "
-                "cannot be properly aligned with this dispatch. Please either "
-                "disable token masking or exclude the up_proj -> down_proj mapping "
-                "for MoE layers from the AWQ configuration."
-            )
+        if not self._lazy_initialization:
+            self._validate_duo_scaling(self._resolved_mappings)
 
-        # Validate that duo_scaling is only used with per-channel quantization
-        if self.duo_scaling is not False:
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[Module], **kwargs
+    ):
+        if not self._lazy_initialization:
+            return
 
-            def _validate_balance_layer(name, module):
-                if (
-                    hasattr(module, "quantization_scheme")
-                    and hasattr(module.quantization_scheme, "weights")
-                    and module.quantization_scheme.weights.strategy
-                    == QuantizationStrategy.TENSOR
-                ):
-                    raise ValueError(
-                        "duo_scaling is only supported with per-channel quantization "
-                        "strategies (group or channel), but found TENSOR strategy on "
-                        f"layer {name}. Please set duo_scaling=False or use a "
-                        "per-channel quantization strategy."
-                    )
+        self._initialize_scope(state, modules)
 
-            for mapping in self._resolved_mappings:
-                for balance_name, balance_layer in zip(
-                    mapping.balance_names, mapping.balance_layers
-                ):
-                    _validate_balance_layer(balance_name, balance_layer)
-
-        self._setup_activation_cache_hooks()
-
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        self._apply_smoothing(state.model)
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[Module], **kwargs
+    ):
+        self._apply_smoothing(
+            state.model, modules=modules if self._lazy_initialization else None
+        )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks.
         No qparams are updated since this is just a transform.
         """
+        self._apply_smoothing(state.model)
         self._assert_all_activations_consumed()
 
         # remove activation hooks
@@ -278,7 +265,53 @@ class AWQModifier(Modifier):
 
         return True
 
-    def _set_resolved_mappings(self, model: Module) -> None:
+    def _initialize_scope(self, state: State, modules: list[Module] | None) -> None:
+        resolved = self._set_resolved_mappings(
+            state.model,
+            modules=modules,
+            include_unquantized=self._lazy_initialization,
+        )
+        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
+            raise ValueError(
+                "Token masking (use_loss_mask=True) is not supported with "
+                "up_proj -> down_proj mappings in MoE models. The MoE routing "
+                "mechanism dispatches tokens to different experts, and the loss mask "
+                "cannot be properly aligned with this dispatch. Please either "
+                "disable token masking or exclude the up_proj -> down_proj mapping "
+                "for MoE layers from the AWQ configuration."
+            )
+        if not resolved:
+            return
+
+        self._setup_activation_cache_hooks(resolved)
+
+    def _validate_duo_scaling(self, mappings: list[ResolvedMapping]) -> None:
+        if self.duo_scaling is False:
+            return
+
+        for mapping in mappings:
+            for balance_name, balance_layer in zip(
+                mapping.balance_names, mapping.balance_layers
+            ):
+                if (
+                    hasattr(balance_layer, "quantization_scheme")
+                    and hasattr(balance_layer.quantization_scheme, "weights")
+                    and balance_layer.quantization_scheme.weights.strategy
+                    == QuantizationStrategy.TENSOR
+                ):
+                    raise ValueError(
+                        "duo_scaling is only supported with per-channel quantization "
+                        "strategies (group or channel), but found TENSOR strategy on "
+                        f"layer {balance_name}. Please set duo_scaling=False or use a "
+                        "per-channel quantization strategy."
+                    )
+
+    def _set_resolved_mappings(
+        self,
+        model: Module,
+        modules: list[Module] | None = None,
+        include_unquantized: bool = False,
+    ) -> list[ResolvedMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into ResolvedMapping objects, resolving regular expressions.
@@ -292,6 +325,7 @@ class AWQModifier(Modifier):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+        module_scope = None if modules is None else {id(module) for module in modules}
 
         num_incompatible = 0
         for mapping in self.mappings:
@@ -315,6 +349,20 @@ class AWQModifier(Modifier):
                     for balance_layer in balance_layers
                 ]
 
+                if module_scope is not None:
+                    mapping_modules = [smooth_layer, *balance_layers]
+                    in_scope = [
+                        id(module) in module_scope for module in mapping_modules
+                    ]
+                    if any(in_scope) and not all(in_scope):
+                        raise ValueError(
+                            "AWQ mapping spans sequential subgraphs. Choose "
+                            "sequential targets that keep each smooth layer and its "
+                            "balance layers in the same subgraph."
+                        )
+                    if not all(in_scope):
+                        continue
+
                 # Check if at least one layer is targeted for quantization
                 any_targeted = hasattr(smooth_layer, "quantization_scheme") or any(
                     [
@@ -337,7 +385,7 @@ class AWQModifier(Modifier):
                     continue
 
                 # Warn that mappings or quantization config are malformed for model
-                if (not any_targeted) or len(balance_layers) == 0:
+                if (not any_targeted and not include_unquantized) or not balance_layers:
                     skip_message = (
                         "no balance layers were found."
                         if len(balance_layers) == 0
@@ -383,10 +431,25 @@ class AWQModifier(Modifier):
                 + "Set logging to DEBUG to view full list."
             )
 
-        self._resolved_mappings = resolved_mappings
-        return
+        if modules is None:
+            self._resolved_mappings = resolved_mappings
+            return resolved_mappings
 
-    def _setup_activation_cache_hooks(self) -> None:
+        existing = {
+            (mapping.smooth_name, tuple(mapping.balance_names))
+            for mapping in self._resolved_mappings
+        }
+        new_mappings = [
+            mapping
+            for mapping in resolved_mappings
+            if (mapping.smooth_name, tuple(mapping.balance_names)) not in existing
+        ]
+        self._resolved_mappings.extend(new_mappings)
+        return new_mappings
+
+    def _setup_activation_cache_hooks(
+        self, mappings: list[ResolvedMapping] | None = None
+    ) -> None:
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -449,7 +512,7 @@ class AWQModifier(Modifier):
 
             return cache_smooth_activations_hook
 
-        for mapping in self._resolved_mappings:
+        for mapping in mappings if mappings is not None else self._resolved_mappings:
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
             if mapping.parent not in self._parent_args_cache:
@@ -480,7 +543,9 @@ class AWQModifier(Modifier):
             )
 
     @torch.no_grad()
-    def _apply_smoothing(self, model: Module) -> None:
+    def _apply_smoothing(
+        self, model: Module, modules: list[Module] | None = None
+    ) -> None:
         """
         Calculate the best scaling factors for each layer to smooth activations and
         apply the scaling factors to the weights of the next layer to offset the
@@ -490,15 +555,39 @@ class AWQModifier(Modifier):
         """
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being updated
+        module_scope = None if modules is None else {id(module) for module in modules}
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_stats
+            and (
+                module_scope is None
+                or (
+                    id(mapping.smooth_layer) in module_scope
+                    and all(
+                        id(layer) in module_scope for layer in mapping.balance_layers
+                    )
+                )
+            )
         ]
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
+
+            if not any(
+                hasattr(layer, "quantization_scheme")
+                for layer in [smooth_layer, *balance_layers]
+            ):
+                logger.warning(
+                    "Skipping AWQ mapping for {} because no mapped layer is targeted "
+                    "for quantization",
+                    mapping.smooth_name,
+                )
+                del self._smooth_activation_stats[mapping.smooth_name]
+                continue
+
+            self._validate_duo_scaling([mapping])
 
             # pin memory for faster onloading during grid search
             # pinned memory in cache is deleted before next mapping is pinned
@@ -590,7 +679,18 @@ class AWQModifier(Modifier):
                 del self._parent_args_cache[parent_module]
                 del orig_layer_weights
 
-        self._assert_all_activations_consumed()
+        if modules is None:
+            self._assert_all_activations_consumed()
+        else:
+            unconsumed = [
+                mapping.smooth_name
+                for mapping in mappings_to_smooth
+                if mapping.smooth_name in self._smooth_activation_stats
+            ]
+            if unconsumed:
+                raise RuntimeError(
+                    f"Some cached activations were not used: {unconsumed}"
+                )
 
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:

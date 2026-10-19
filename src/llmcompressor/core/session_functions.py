@@ -144,14 +144,32 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def calibration_start(cls, **kwargs) -> ModifiedState:
+    def calibration_start(
+        cls, modules: list["Module"] | None = None, **kwargs
+    ) -> ModifiedState:
         """
         Invoke a start event for the active session during calibration. This event
         should be called before calibration starts for one epoch
 
+        :param modules: optional list of modules already onloaded by the pipeline,
+            provided to modifiers for scope-local calibration setup.
+
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
+        if modules is not None:
+            kwargs["modules"] = modules
         return cls.event(EventType.CALIBRATION_START, **kwargs)
+
+    @classmethod
+    def sequential_epoch_start(cls, modules: list["Module"], **kwargs) -> ModifiedState:
+        """
+        Invoke a sequential epoch start event for the active session. This is called
+        after a subgraph has been onloaded and before its calibration forward pass.
+
+        :param modules: de-duplicated modules included in the onloaded subgraph
+        :param kwargs: additional kwargs to pass to the current session's event method
+        """
+        return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
 
     @classmethod
     def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:

@@ -9,7 +9,13 @@ from compressed_tensors.quantization import (
 )
 from torch import nn
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import (
+    CompressionSession,
+    Event,
+    EventType,
+    State,
+)
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.quantization.calibration import initialize_observer
 
@@ -164,56 +170,67 @@ def test_nested_parent_modules_produce_valid_global_scale():
             ), f"{name} not valid: {param.item()}"
 
 
-def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
-    model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
-    modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
-    state = State(model=model)
-    state.layerwise_decompression = True
+def test_session_initialization_defers_quantization_until_scope_is_onloaded():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    session = CompressionSession()
 
-    modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
+    session.initialize(recipe=modifier, model=model)
 
-    assert not hasattr(model[0], "quantization_scheme")
-    assert not hasattr(model[1], "quantization_scheme")
+    assert getattr(model[0], "quantization_scheme", None) is None
+    assert getattr(model[1], "quantization_scheme", None) is None
 
-    modules = list(model[0].modules())
-    with patch(
-        "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
-    ) as fuse_weight_observers:
-        modifier.start_layerwise_calibration(model, modules)
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
 
-    fuse_weight_observers.assert_called_once_with(model, modules)
-
-    assert model[0].quantization_status == QuantizationStatus.CALIBRATION
+    assert model[0].quantization_scheme is not None
     assert hasattr(model[0], "weight_observer")
-    assert not hasattr(model[1], "quantization_scheme")
+    assert getattr(model[1], "quantization_scheme", None) is None
 
-    modifier.on_sequential_epoch_end(
-        state,
-        Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-        modules=list(model[0].modules()),
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[1]])
+    assert model[1].quantization_scheme is not None
+    assert hasattr(model[1], "weight_observer")
+
+    session.lifecycle.event(EventType.CALIBRATION_END)
+
+
+def test_lazy_basic_calibration_initializes_the_whole_model_at_calibration_start():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    session = CompressionSession()
+
+    session.initialize(recipe=modifier, model=model)
+    assert getattr(model[0], "quantization_scheme", None) is None
+    assert getattr(model[1], "quantization_scheme", None) is None
+
+    session.lifecycle.event(EventType.CALIBRATION_START)
+
+    assert model[0].quantization_scheme is not None
+    assert model[1].quantization_scheme is not None
+    assert hasattr(model[0], "weight_observer")
+    assert hasattr(model[1], "weight_observer")
+
+    session.lifecycle.event(EventType.CALIBRATION_END)
+
+
+def test_session_uses_eager_initialization_if_recipe_has_unsupported_modifier():
+    class _EagerOnlyModifier(Modifier):
+        def on_initialize(self, state: State, **kwargs) -> bool:
+            return True
+
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    quant_modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    session = CompressionSession()
+
+    session.initialize(
+        recipe=[quant_modifier, _EagerOnlyModifier()],
+        model=model,
     )
 
-    assert model[0].quantization_status == QuantizationStatus.FROZEN
-    assert not hasattr(model[0], "weight_observer")
-    assert not hasattr(model[1], "quantization_scheme")
+    assert model[0].quantization_scheme is not None
+    assert model[1].quantization_scheme is not None
 
 
-def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
-    model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
-    modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
-    modules = list(model[0].modules())
+def test_tensor_group_quantization_does_not_support_lazy_initialization():
+    modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
 
-    from compressed_tensors.quantization import apply_quantization_config
-
-    with patch(
-        "llmcompressor.modifiers.quantization.quantization.mixin.apply_quantization_config",
-        wraps=apply_quantization_config,
-    ) as apply_config:
-        modifier.start_layerwise_calibration(model, modules)
-
-    apply_config.assert_called_once_with(
-        model, modifier.resolved_config, allowed_modules=modules
-    )
-    assert model[0].quantization_status == QuantizationStatus.CALIBRATION
-    assert not hasattr(model[1], "quantization_scheme")
+    assert not modifier.supports_lazy_initialization

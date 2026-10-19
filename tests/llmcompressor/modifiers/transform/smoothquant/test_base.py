@@ -178,6 +178,56 @@ def test_moe_multiple_layers_all_experts_smoothed():
 
 
 @pytest.mark.unit
+def test_mapping_resolution_is_scoped_to_onloaded_subgraph():
+    def create_layer():
+        return torch.nn.ModuleDict(
+            {
+                "input_layernorm": torch.nn.LayerNorm(8),
+                "mlp": torch.nn.ModuleDict({"up_proj": torch.nn.Linear(8, 8)}),
+            }
+        )
+
+    model = torch.nn.ModuleDict(
+        {"layers": torch.nn.ModuleList([create_layer(), create_layer()])}
+    )
+    modifier = SmoothQuantModifier(
+        mappings=[(["re:.*up_proj"], "re:.*input_layernorm")]
+    )
+
+    resolved = modifier._resolve_mappings(
+        model, modules=list(model.layers[0].modules())
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].smooth_name == "layers.0.input_layernorm"
+
+
+@pytest.mark.unit
+def test_mapping_resolution_rejects_mapping_split_across_subgraphs():
+    def create_layer():
+        return torch.nn.ModuleDict(
+            {
+                "input_layernorm": torch.nn.LayerNorm(8),
+                "mlp": torch.nn.ModuleDict({"up_proj": torch.nn.Linear(8, 8)}),
+            }
+        )
+
+    model = torch.nn.ModuleDict(
+        {"layers": torch.nn.ModuleList([create_layer(), create_layer()])}
+    )
+    modifier = SmoothQuantModifier(
+        mappings=[(["re:.*up_proj"], "re:.*input_layernorm")]
+    )
+    scope = [
+        model.layers[0].input_layernorm,
+        model.layers[1].mlp.up_proj,
+    ]
+
+    with pytest.raises(ValueError, match="spans sequential subgraphs"):
+        modifier._resolve_mappings(model, modules=scope)
+
+
+@pytest.mark.unit
 def test_ignore_behavior():
     """Test that mapping is skipped when ALL layers are in ignore list"""
     hidden_size = 64

@@ -21,6 +21,7 @@ class Modifier(ModifierInterface, HooksMixin):
     1. initialize
     2. on_event ->
         * on_calibration_start if event.type_ == EventType.CALIBRATION_START
+        * on_sequential_epoch_start if event.type_ == EventType.SEQUENTIAL_EPOCH_START
         * on_start if self.start <= event.current_index
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
@@ -42,6 +43,11 @@ class Modifier(ModifierInterface, HooksMixin):
     model_config = ConfigDict(extra="forbid")
 
     requires_calibration_data: bool = False
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        """Whether this modifier can defer model setup to scoped callbacks."""
+        return False
 
     index: int | None = None
     group: str | None = None
@@ -138,6 +144,10 @@ class Modifier(ModifierInterface, HooksMixin):
         if event.type_ == EventType.CALIBRATION_START:
             self.on_calibration_start(state, event, **kwargs)
             self.started_ = True
+            return
+
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
+            self.on_sequential_epoch_start(state, event, **kwargs)
             return
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -277,6 +287,21 @@ class Modifier(ModifierInterface, HooksMixin):
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch start
         :param kwargs: Additional arguments for the calibration epoch start
+        """
+        pass
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        """
+        on_sequential_epoch_start is called after a sequential subgraph has been
+        onloaded and before its calibration forward pass.
+
+        :param state: The current state of the model
+        :param event: The event that triggered the sequential epoch start
+        :param modules: List of de-duplicated modules included in the sequential
+            subgraph
+        :param kwargs: Additional arguments for the sequential epoch start
         """
         pass
 

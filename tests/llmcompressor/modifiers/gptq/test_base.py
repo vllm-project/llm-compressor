@@ -2,7 +2,9 @@ from contextlib import nullcontext
 
 import pytest
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from torch import nn
 
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.gptq import GPTQModifier
 
 
@@ -62,6 +64,68 @@ def test_block_strategy_parsing(block_q_config_kwargs):
     w_scheme = resolved.config_groups["group_block"].weights
     assert w_scheme.strategy == "block"
     assert w_scheme.block_structure == [128, 128]
+
+
+def test_sequential_epoch_start_registers_gptq_hooks_in_scope():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(num_bits=8, symmetric=True, strategy="tensor"),
+    )
+    modifier = GPTQModifier(config_groups={"group_0": scheme})
+    state = State(model=model)
+    modifier.on_initialize(state, lazy_initialization=True)
+
+    assert getattr(model[0], "quantization_scheme", None) is None
+    assert getattr(model[1], "quantization_scheme", None) is None
+
+    # Sequential calibration starts with only persistent modules onloaded.
+    modifier.on_calibration_start(
+        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    )
+    modifier.initialized_ = True
+    event = Event(type_=EventType.SEQUENTIAL_EPOCH_START)
+    modifier.update_event(state, event, modules=[model[0]])
+
+    assert model[0].quantization_scheme is not None
+    assert getattr(model[1], "quantization_scheme", None) is None
+    assert len(model[0]._forward_hooks) == 1
+    assert len(model[1]._forward_hooks) == 0
+
+    # A shared module appearing in more than one traced scope must not accumulate
+    # duplicate Hessian hooks.
+    modifier.update_event(state, event, modules=[model[0]])
+    assert len(model[0]._forward_hooks) == 1
+    modifier.remove_hooks()
+
+
+def test_eager_setup_registers_gptq_hooks_as_subgraphs_load():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(num_bits=8, symmetric=True, strategy="tensor"),
+    )
+    modifier = GPTQModifier(config_groups={"group_0": scheme})
+    state = State(model=model)
+    modifier.on_initialize(state, lazy_initialization=False)
+
+    # The eager path has already attached quantization config model-wide, but
+    # calibration starts with only persistent modules onloaded.
+    modifier.on_calibration_start(
+        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    )
+    assert model[0].quantization_scheme is not None
+    assert model[1].quantization_scheme is not None
+    assert len(model[0]._forward_hooks) == 0
+    assert len(model[1]._forward_hooks) == 0
+
+    modifier.on_sequential_epoch_start(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[model[0]]
+    )
+
+    assert len(model[0]._forward_hooks) == 1
+    assert len(model[1]._forward_hooks) == 0
+    modifier.remove_hooks()
 
 
 @pytest.mark.parametrize(

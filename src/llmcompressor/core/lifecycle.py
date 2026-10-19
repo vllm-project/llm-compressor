@@ -85,6 +85,12 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
 
+        if "lazy_initialization" in kwargs:
+            raise TypeError(
+                "lazy_initialization is selected automatically from recipe modifier "
+                "capabilities and is no longer an initialize argument"
+            )
+
         self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
@@ -99,9 +105,22 @@ class CompressionLifecycle:
             if recipe_args:
                 self.recipe.args = {**recipe_args}
 
+        lazy_initialization = all(
+            modifier.supports_lazy_initialization for modifier in self.recipe.modifiers
+        )
+        if not lazy_initialization:
+            logger.info(
+                "Using eager model initialization because at least one recipe "
+                "modifier does not support scoped initialization"
+            )
+
         mod_data = []
         for mod in self.recipe.modifiers:
-            data = mod.initialize(state=self.state, **kwargs)
+            data = mod.initialize(
+                state=self.state,
+                lazy_initialization=lazy_initialization,
+                **kwargs,
+            )
             logger.debug("Initialized modifier: {}", mod)
             if data is not None:
                 mod_data.append(data)
