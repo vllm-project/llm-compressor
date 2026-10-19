@@ -44,6 +44,12 @@ class SparsityModifierBase(Modifier):
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _target_layers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
     _module_sparsities: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _lazy_initialization: bool = PrivateAttr(default=False)
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        # OWL runs a calibration pass over the complete model during initialize.
+        return self.sparsity_profile != "owl"
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -110,6 +116,7 @@ class SparsityModifierBase(Modifier):
         """
         model: torch.nn.Module = state.model
         dataloader: torch.utils.data.DataLoader = state.data.calib
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
 
         # infer module and sequential targets
         # Note: only pass sequential_targets from kwargs, not the full kwargs dict
@@ -142,8 +149,22 @@ class SparsityModifierBase(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules") if self._lazy_initialization else None
+        self._register_calibration_hooks(modules)
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        if self._lazy_initialization:
+            self._register_calibration_hooks(modules)
+
+    def _register_calibration_hooks(self, modules: list[torch.nn.Module] | None = None):
         # register hooks
+        module_scope = None if modules is None else set(modules)
         for index, (layer_name, layer) in enumerate(self._target_layers.items()):
+            if module_scope is not None and layer not in module_scope:
+                continue
+
             match self.sparsity:
                 case list():
                     layer_sparsity = self.sparsity[index]
@@ -160,6 +181,9 @@ class SparsityModifierBase(Modifier):
                 # accessible by the layer compressor. For now, we manually ignore it,
                 # but in the FUTURE this should be ignored by the user
                 if isinstance(module, torch.nn.Embedding):
+                    continue
+
+                if module in self._module_names:
                     continue
 
                 if name.endswith("lm_head"):

@@ -16,6 +16,7 @@ from torch.testing import assert_close
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
+from llmcompressor.core import State
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
@@ -160,6 +161,66 @@ def test_set_resolved_mappings():
             "z is compatible"
         )
     assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_set_resolved_mappings_is_scoped_to_onloaded_subgraph():
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(4, 4),
+                            "o_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+
+    resolved = awq._set_resolved_mappings(
+        model, modules=list(model.layers[0].modules())
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].smooth_name == "layers.0.v_proj"
+
+
+@pytest.mark.unit
+def test_lazy_awq_registers_only_current_scope_before_quant_config():
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(4, 4),
+                            "o_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    state = State(model=model)
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+    awq.initialize(state, lazy_initialization=True)
+
+    awq.on_calibration_start(state, None, modules=list(model.layers[0].modules()))
+
+    assert [mapping.smooth_name for mapping in awq._resolved_mappings] == [
+        "layers.0.v_proj"
+    ]
+    assert model.layers[1].v_proj._forward_hooks == {}
 
 
 @pytest.mark.unit

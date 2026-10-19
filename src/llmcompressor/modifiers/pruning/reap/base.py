@@ -83,6 +83,12 @@ class REAPPruningModifier(Modifier):
     )
     _cpu_pg: Any = PrivateAttr(default=None)
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
+    _lazy_initialization: bool = PrivateAttr(default=False)
+    _hooked_moe_layers: set[str] = PrivateAttr(default_factory=set)
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return True
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
@@ -102,6 +108,7 @@ class REAPPruningModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
         self._cpu_pg = dist.new_group(backend="gloo") if is_distributed() else None
         self._moe_attrs = get_moe_attrs(model, self.ignore)
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
@@ -176,8 +183,19 @@ class REAPPruningModifier(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        model = state.model
+        modules = kwargs.get("modules") if self._lazy_initialization else None
+        self._register_reap_hooks(state.model, modules)
 
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        if self._lazy_initialization:
+            self._register_reap_hooks(state.model, modules)
+
+    def _register_reap_hooks(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
+    ):
+        module_scope = None if modules is None else {id(module) for module in modules}
         # Info if moe_calibrate_all_experts is enabled, which is not necessary for REAP
         if get_calibrate_all_experts_flag():
             logger.info(
@@ -189,7 +207,11 @@ class REAPPruningModifier(Modifier):
             )
 
         for layer_name in self._moe_attrs.moe_layer_names:
+            if layer_name in self._hooked_moe_layers:
+                continue
             module = model.get_submodule(layer_name)
+            if module_scope is not None and id(module) not in module_scope:
+                continue
 
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(
                 self._moe_attrs.num_experts
@@ -215,6 +237,7 @@ class REAPPruningModifier(Modifier):
             self.register_hook(
                 experts, partial(self._experts_block_hook, layer_name), "forward"
             )
+            self._hooked_moe_layers.add(layer_name)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
@@ -233,6 +256,7 @@ class REAPPruningModifier(Modifier):
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
+        self._hooked_moe_layers.clear()
         if is_distributed():
             dist.destroy_process_group(group=self._cpu_pg)
             self._cpu_pg = None

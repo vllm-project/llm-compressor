@@ -55,6 +55,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return self.can_initialize_lazily()
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Prepare to calibrate activations and weights
@@ -70,7 +74,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        QuantizationMixin.initialize_quantization(self, state.model)
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
+        if not self._lazy_initialization:
+            QuantizationMixin.initialize_quantization(self, state.model)
 
         return True
 
@@ -78,7 +84,24 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Begin calibrating activations.
         """
-        QuantizationMixin.start_calibration(self, state.model)
+        if not self._lazy_initialization:
+            QuantizationMixin.start_calibration(self, state.model)
+            return
+
+        modules = kwargs.get("modules")
+        self.initialize_quantization(state.model, modules=modules)
+        self.start_calibration(state.model, modules=modules)
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        if not self._lazy_initialization:
+            return
+
+        self.initialize_quantization(state.model, modules=modules)
+        self.start_calibration(
+            state.model, modules=modules, warn_on_inference_mode=False
+        )
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs

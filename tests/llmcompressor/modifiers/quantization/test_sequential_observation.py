@@ -8,7 +8,13 @@ from compressed_tensors.quantization import (
 )
 from torch import nn
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import (
+    CompressionSession,
+    Event,
+    EventType,
+    State,
+)
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.quantization.calibration import initialize_observer
 
@@ -161,3 +167,69 @@ def test_nested_parent_modules_produce_valid_global_scale():
             assert (
                 torch.isfinite(param).all() and param.item() > 0
             ), f"{name} not valid: {param.item()}"
+
+
+def test_session_initialization_defers_quantization_until_scope_is_onloaded():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    session = CompressionSession()
+
+    session.initialize(recipe=modifier, model=model)
+
+    assert getattr(model[0], "quantization_scheme", None) is None
+    assert getattr(model[1], "quantization_scheme", None) is None
+
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
+
+    assert model[0].quantization_scheme is not None
+    assert hasattr(model[0], "weight_observer")
+    assert getattr(model[1], "quantization_scheme", None) is None
+
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[1]])
+    assert model[1].quantization_scheme is not None
+    assert hasattr(model[1], "weight_observer")
+
+    session.lifecycle.event(EventType.CALIBRATION_END)
+
+
+def test_lazy_basic_calibration_initializes_the_whole_model_at_calibration_start():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    session = CompressionSession()
+
+    session.initialize(recipe=modifier, model=model)
+    assert getattr(model[0], "quantization_scheme", None) is None
+    assert getattr(model[1], "quantization_scheme", None) is None
+
+    session.lifecycle.event(EventType.CALIBRATION_START)
+
+    assert model[0].quantization_scheme is not None
+    assert model[1].quantization_scheme is not None
+    assert hasattr(model[0], "weight_observer")
+    assert hasattr(model[1], "weight_observer")
+
+    session.lifecycle.event(EventType.CALIBRATION_END)
+
+
+def test_session_uses_eager_initialization_if_recipe_has_unsupported_modifier():
+    class _EagerOnlyModifier(Modifier):
+        def on_initialize(self, state: State, **kwargs) -> bool:
+            return True
+
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    quant_modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    session = CompressionSession()
+
+    session.initialize(
+        recipe=[quant_modifier, _EagerOnlyModifier()],
+        model=model,
+    )
+
+    assert model[0].quantization_scheme is not None
+    assert model[1].quantization_scheme is not None
+
+
+def test_tensor_group_quantization_does_not_support_lazy_initialization():
+    modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
+
+    assert not modifier.supports_lazy_initialization
