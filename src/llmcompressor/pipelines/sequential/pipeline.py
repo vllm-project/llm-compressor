@@ -6,15 +6,12 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.compressors import compress_module, decompress_module
-from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
-from compressed_tensors.quantization.utils import is_module_quantized
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -28,6 +25,8 @@ from llmcompressor.pipelines.sequential.error_logging import (
     process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
+    compress_subgraph_modules,
+    decompress_subgraph_modules,
     find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
@@ -266,9 +265,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # Decompress and initialize only this subgraph after onloading it.
                 if dataset_args.layerwise_decompression:
-                    compressed = [m for m in modules if is_module_quantized(m)]
-                    for module in tqdm(compressed, desc="Decompressing modules"):
-                        decompress_module(module, leave_decompressed=False)
+                    decompress_subgraph_modules(modules)
                     for modifier in modifiers:
                         if hasattr(modifier, "start_layerwise_calibration"):
                             modifier.start_layerwise_calibration(model, modules)
@@ -338,14 +335,7 @@ class SequentialPipeline(CalibrationPipeline):
                         )
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
-                    quantized = [m for m in modules if is_module_quantized(m)]
-                    if not is_distributed():
-                        for module in tqdm(quantized, desc="Compressing modules"):
-                            compress_module(module)
-                    else:
-                        replace_module_parallel(
-                            quantized, compress_module, desc="Compressing modules"
-                        )
+                    compress_subgraph_modules(modules)
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
