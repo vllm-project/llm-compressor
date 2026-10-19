@@ -31,7 +31,7 @@ import torch
 import torch.utils._pytree as pytree
 from torch import nn
 from torch.fx import Graph, GraphModule, Node, Proxy, Tracer
-from torch.fx.node import Argument
+from torch.fx.node import Argument, map_arg
 from torch.fx._compatibility import compatibility
 from torch.fx._symbolic_trace import is_fx_tracing
 from torch.fx.proxy import ParameterProxy
@@ -978,6 +978,38 @@ def _generate_random_int(
     return value
 
 
+def _get_output_dependencies_and_concrete_placeholders(
+    graph: Graph, sig: inspect.Signature, concrete_args: dict[str, Any]
+) -> tuple[set[Node], dict[str, str]]:
+    """Return output-dependent nodes and FX targets for concrete arguments."""
+    output_node = next(node for node in graph.nodes if node.op == "output")
+    output_dependencies = set()
+    to_visit = list(output_node.all_input_nodes)
+
+    # Traverse the graph backwards to find all nodes that contribute to the output.
+    while to_visit:
+        node = to_visit.pop()
+        if node in output_dependencies:
+            continue
+        output_dependencies.add(node)
+        to_visit.extend(node.all_input_nodes)
+
+    # Map FX placeholder targets back to the parameter names used by concrete_args.
+    concrete_placeholder_names = {}
+    for param in sig.parameters.values():
+        if param.name not in concrete_args:
+            continue
+        target = param.name
+        # FX prefixes VAR_KEYWORD and VAR_POSITIONAL placeholders with "**" and "*".
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            target = f"**{param.name}"
+        elif param.kind == inspect.Parameter.VAR_POSITIONAL:
+            target = f"*{param.name}"
+        concrete_placeholder_names[target] = param.name
+
+    return output_dependencies, concrete_placeholder_names
+
+
 class HFTracer(Tracer):
     """
     Tracer that is able to symbolically trace models from the library. To do that, it uses the HFProxy instead of the
@@ -1548,6 +1580,12 @@ class HFTracer(Tracer):
 
         # This is necessary because concrete args are added as input to the traced module since
         # https://github.com/pytorch/pytorch/pull/55888.
+        output_dependencies, concrete_placeholder_names = (
+            _get_output_dependencies_and_concrete_placeholders(
+                self.graph, sig, concrete_args
+            )
+        )
+
         for node in self.graph.nodes:
             if node.op == "placeholder":
                 # Removing default values for inputs as the forward pass will fail with them.
@@ -1557,21 +1595,20 @@ class HFTracer(Tracer):
                     # It cannot infer on the attributes and methods the input should have, and fails.
                     node.type = torch.Tensor
                 elif (
-                    node.target.startswith("**")
-                    and node.target[2:] in concrete_args
-                    and node.users
+                    node in output_dependencies
+                    and node.target in concrete_placeholder_names
                 ):
-                    # PyTorch names a VAR_KEYWORD placeholder "**kwargs", while
-                    # concrete_args uses the parameter name "kwargs". Replacing the
-                    # placeholder with its concrete mapping preserves nodes that use
-                    # it; recursively deleting its users can erase the model body.
-                    kwargs_value = concrete_args[node.target[2:]]
-                    with self.graph.inserting_before(node):
-                        kwargs_node = self.graph.call_function(dict, (kwargs_value,))
-                    node.replace_all_uses_with(kwargs_node)
+                    # Concrete placeholders can have users that are only FX specialization
+                    # checks. Keep one only when it contributes to the graph output, then
+                    # replace it with its concrete value.
+                    param_name = concrete_placeholder_names[node.target]
+                    concrete_value = concrete_args[param_name]
+                    for user in list(node.users):
+                        replace_node = lambda n: concrete_value if n is node else n
+                        user.args = map_arg(user.args, replace_node)
+                        user.kwargs = map_arg(user.kwargs, replace_node)
                     self.graph.erase_node(node)
-                # FX has already specialized this concrete arg. Any remaining users
-                # are generated specialization checks, so remove them with the node.
+                # The concrete placeholder does not contribute to the graph output.
                 else:
                     to_visit = [node]
                     to_delete = collections.OrderedDict()
