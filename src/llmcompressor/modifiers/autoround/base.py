@@ -181,6 +181,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
     _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
+    _lazy_initialization: bool = PrivateAttr(default=False)
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return self.can_initialize_lazily()
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -195,7 +200,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # execution devices, causing GPU→CPU copy timing to vary between
         # ranks → broadcast deadlock. Quant params are deterministic —
         # each rank computes identical values, no sync needed.
-        if QuantizationMixin.has_config(self):
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
+        if QuantizationMixin.has_config(self) and not self._lazy_initialization:
             from compressed_tensors.offload import disable_onloading
 
             with disable_onloading():
@@ -218,21 +224,31 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
         return True
 
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
         """
         Register activation calibration hooks and enable quantization as we calibrate
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.targets, self.ignore)
+        targets = list(
+            match_named_modules(model, self.targets, self.ignore, modules=modules)
+        )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in targets:
             # skip register observers for auto-round
             apply_calibration_status(module)
 
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+        if modules is None:
+            model.apply(enable_quantization)
+        else:
+            for module in modules:
+                module.apply(enable_quantization)
 
     def input_capture_hook(self, module, args, kwargs):
         name = module._tmp_name
@@ -249,11 +265,32 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        # register quantization calibration hooks
-        # assume quantization has been initialized by this modifier or one before it
-        self.start_calibration(state.model)
-        for _, module in state.model.named_modules():
+        modules = kwargs.get("modules") if self._lazy_initialization else None
+        self._initialize_scope(state.model, modules)
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        if self._lazy_initialization:
+            self._initialize_scope(state.model, modules)
+
+    def _initialize_scope(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
+    ):
+        if self._lazy_initialization and QuantizationMixin.has_config(self):
+            from compressed_tensors.offload import disable_onloading
+
+            with disable_onloading():
+                self.initialize_quantization(model, modules=modules)
+        self.start_calibration(model, modules=modules)
+
+        module_scope = None if modules is None else {id(module) for module in modules}
+        for _, module in model.named_modules():
+            if module_scope is not None and id(module) not in module_scope:
+                continue
             if self._is_decoding_layer(module):
+                if module._tmp_name in self._capture_hooks:
+                    continue
                 handle = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )

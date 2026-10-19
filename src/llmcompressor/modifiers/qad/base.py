@@ -132,6 +132,13 @@ class QADModifier(Modifier):
     # most recently run sequential target and its hidden states
     _cur_seq_target: torch.nn.Module | None = PrivateAttr(default=None)
     _cur_seq_target_output: torch.Tensor | None = PrivateAttr(default=None)
+    _lazy_initialization: bool = PrivateAttr(default=False)
+    _hooked_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+    _seen_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         pipeline = kwargs.get("pipeline")
@@ -141,8 +148,9 @@ class QADModifier(Modifier):
                 "weight quantization modifier and QAD share each subgraph's "
                 f"calibration stage; got pipeline={pipeline!r}"
             )
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
         modules = _modules_to_quantize(state.model.modules())
-        if not modules:
+        if not modules and not self._lazy_initialization:
             raise ValueError(
                 "Place QADModifier after a weight quantization modifier, such as "
                 "QuantizationModifier (RTN) or GPTQModifier, in the same recipe"
@@ -156,12 +164,29 @@ class QADModifier(Modifier):
         self._seq_target_names = {
             module: name or type(module).__name__
             for name, module in match_named_modules(state.model, seq_target_patterns)
-            if _modules_to_quantize(module.modules())
+            if self._lazy_initialization or _modules_to_quantize(module.modules())
         }
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules") if self._lazy_initialization else None
+        self._register_capture_hooks(state, modules)
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        if self._lazy_initialization:
+            self._register_capture_hooks(state, modules)
+
+    def _register_capture_hooks(
+        self, state: State, modules: list[torch.nn.Module] | None
+    ):
+        module_scope = None if modules is None else {id(module) for module in modules}
         for seq_target in self._seq_target_names:
+            if module_scope is not None and id(seq_target) not in module_scope:
+                continue
+            if seq_target in self._hooked_seq_targets:
+                continue
             self.register_hook(
                 seq_target,
                 partial(self._input_capture_hook, state=state),
@@ -171,8 +196,12 @@ class QADModifier(Modifier):
             self.register_hook(
                 seq_target, self._output_capture_hook, "forward", with_kwargs=True
             )
+            self._hooked_seq_targets.add(seq_target)
 
     def _input_capture_hook(self, module, args, kwargs, *, state):
+        if not _modules_to_quantize(module.modules()):
+            return
+        self._seen_seq_targets.add(module)
         if module not in self._input_caches:
             self._input_caches[module] = IntermediatesCache(
                 offload_device=self.offload_device
@@ -201,6 +230,8 @@ class QADModifier(Modifier):
         batches.append(_copy_tensors({"args": args, "kwargs": kwargs}))
 
     def _output_capture_hook(self, module, args, kwargs, output):
+        if module not in self._input_caches:
+            return
         if module not in self._output_caches:
             self._output_caches[module] = IntermediatesCache(
                 offload_device=self.offload_device
@@ -525,7 +556,12 @@ class QADModifier(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         try:
-            if len(self._distilled) != len(self._seq_target_names):
+            expected_targets = (
+                self._seen_seq_targets
+                if self._lazy_initialization
+                else set(self._seq_target_names)
+            )
+            if not expected_targets or self._distilled != expected_targets:
                 raise ValueError(
                     "QAD did not optimize every target; use the sequential pipeline "
                     "with each target inside a single subgraph"
@@ -544,6 +580,8 @@ class QADModifier(Modifier):
         self._predecessors.clear()
         self._cur_seq_target = None
         self._cur_seq_target_output = None
+        self._hooked_seq_targets.clear()
+        self._seen_seq_targets.clear()
 
 
 def _modules_to_quantize(modules):

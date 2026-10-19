@@ -4,11 +4,12 @@ import torch
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
+    TransformFactory,
     TransformScheme,
     apply_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, match_named_modules
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -86,6 +87,14 @@ class QuIPModifier(Modifier):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
+    _lazy_initialization: bool = PrivateAttr(default=False)
+    _transform_factories: dict[str, TransformFactory] = PrivateAttr(
+        default_factory=dict
+    )
+
+    @property
+    def supports_lazy_initialization(self) -> bool:
+        return True
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -100,26 +109,59 @@ class QuIPModifier(Modifier):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        self._lazy_initialization = kwargs.get("lazy_initialization", False)
         if self.transform_config is None:
             self.transform_config = self._create_config()
+        self._transform_factories = {
+            name: TransformFactory.from_scheme(scheme, name=name)
+            for name, scheme in self.transform_config.config_groups.items()
+        }
 
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
+        modules = kwargs.get("modules") if self._lazy_initialization else None
 
         # Untie embeddings if they will be targeted by transforms
-        if targets_embeddings(model, self._get_targets(model)):
+        if targets_embeddings(model, self._get_targets(model, modules)):
             untie_word_embeddings(model)
 
-        apply_transform_config(model, self.transform_config)
+        apply_transform_config(
+            model,
+            self.transform_config,
+            modules=modules,
+            factories=self._transform_factories,
+        )
 
-    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        if not self._lazy_initialization:
+            return
+
+        model = state.model
+        if targets_embeddings(model, self._get_targets(model, modules)):
+            untie_word_embeddings(model)
+        apply_transform_config(
+            model,
+            self.transform_config,
+            modules=modules,
+            factories=self._transform_factories,
+        )
+
+    def _get_targets(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ) -> NamedModules:
         return [
             (name, module)
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
-            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+            for name, module in match_named_modules(
+                model, arg.targets, arg.ignore, modules=modules
+            )
         ]
 
     def _create_config(self) -> TransformConfig:
