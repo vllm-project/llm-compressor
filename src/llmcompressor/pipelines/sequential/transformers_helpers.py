@@ -1520,6 +1520,17 @@ class HFTracer(Tracer):
                 }
             )
 
+        for param in sig.parameters.values():
+            if param.kind != inspect.Parameter.VAR_KEYWORD:
+                continue
+            if param.name not in concrete_args:
+                continue
+            kwargs_value = concrete_args[param.name]
+            if kwargs_value is inspect.Parameter.empty or kwargs_value is None:
+                # A VAR_KEYWORD parameter has no signature default, but its runtime
+                # value is an empty mapping when no extra keyword arguments are passed.
+                concrete_args[param.name] = {}
+
         input_names = sig.parameters.keys() - concrete_args.keys()
 
         # Creating a random input shape to generate dummy inputs.
