@@ -1556,16 +1556,19 @@ class HFTracer(Tracer):
                     # Without this, torch.jit.script fails because the inputs type is Optional[torch.Tensor].
                     # It cannot infer on the attributes and methods the input should have, and fails.
                     node.type = torch.Tensor
-                elif node.target.startswith("**") and node.target[2:] in concrete_args:
+                elif (
+                    node.target.startswith("**")
+                    and node.target[2:] in concrete_args
+                    and node.users
+                ):
                     # PyTorch names a VAR_KEYWORD placeholder "**kwargs", while
                     # concrete_args uses the parameter name "kwargs". Replacing the
                     # placeholder with its concrete mapping preserves nodes that use
                     # it; recursively deleting its users can erase the model body.
-                    if node.users:
-                        kwargs_value = concrete_args[node.target[2:]]
-                        with self.graph.inserting_before(node):
-                            kwargs_node = self.graph.call_function(dict, (kwargs_value,))
-                        node.replace_all_uses_with(kwargs_node)
+                    kwargs_value = concrete_args[node.target[2:]]
+                    with self.graph.inserting_before(node):
+                        kwargs_node = self.graph.call_function(dict, (kwargs_value,))
+                    node.replace_all_uses_with(kwargs_node)
                     self.graph.erase_node(node)
                 # It is a concrete arg so it is not used and should be removed.
                 else:
