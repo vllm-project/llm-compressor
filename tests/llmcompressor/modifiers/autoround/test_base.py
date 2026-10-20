@@ -83,13 +83,12 @@ def test_on_sequential_epoch_end_passes_all_modules():
 def test_sequential_epoch_start_initializes_and_hooks_only_current_scope():
     model = nn.Module()
     model.layers = nn.ModuleList([_FakeDecoderLayer(), _FakeDecoderLayer()])
-    for name, module in model.named_modules():
-        module._tmp_name = name
-
-    modifier = AutoRoundModifier(scheme="W4A16")
-    modifier._lazy_initialization = True
-    modifier._sequential_targets = ["_FakeDecoderLayer"]
+    # Scope handling is independent of the toy model's width (64 < group_size).
+    modifier = AutoRoundModifier(scheme="W4A16", bypass_divisibility_checks=True)
     state = State(model=model)
+    modifier.on_initialize(state, sequential_targets=["_FakeDecoderLayer"])
+    assert not hasattr(model.layers[0], "_tmp_name")
+    assert all(param.requires_grad for param in model.parameters())
 
     modifier.on_sequential_epoch_start(
         state,
@@ -100,7 +99,27 @@ def test_sequential_epoch_start_initializes_and_hooks_only_current_scope():
     assert hasattr(model.layers[0].q_proj, "quantization_scheme")
     assert not hasattr(model.layers[1].q_proj, "quantization_scheme")
     assert model.layers[0]._tmp_name in modifier._capture_hooks
-    assert model.layers[1]._tmp_name not in modifier._capture_hooks
+    assert not hasattr(model.layers[1], "_tmp_name")
+    assert not model.layers[0].q_proj.weight.requires_grad
+    assert model.layers[1].q_proj.weight.requires_grad
+
+
+@pytest.mark.parametrize("split_group", [False, True])
+def test_nvfp4_scope_validation_without_observers(split_group):
+    model = nn.Sequential(_FakeDecoderLayer(), _FakeDecoderLayer())
+    modifier = AutoRoundModifier(scheme="NVFP4")
+    state = State(model=model)
+    modifier.on_initialize(state, sequential_targets=["_FakeDecoderLayer"])
+    modules = [model[0].q_proj] if split_group else list(model[0].modules())
+
+    if split_group:
+        with pytest.raises(ValueError, match="span multiple sequential calibration"):
+            modifier.on_sequential_epoch_start(state, None, modules=modules)
+    else:
+        modifier.on_sequential_epoch_start(state, None, modules=modules)
+        assert hasattr(model[0].q_proj, "quantization_scheme")
+        assert not hasattr(model[0].q_proj, "weight_observer")
+        assert not hasattr(model[1].q_proj, "quantization_scheme")
 
 
 @pytest.mark.parametrize(

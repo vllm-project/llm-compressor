@@ -57,43 +57,22 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
-    @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
-
     def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        Prepare to calibrate activations and weights
-
-        According to the quantization config, a quantization scheme is attached to each
-        targeted module. The module's forward call is also overwritten to perform
-        quantization to inputs, weights, and outputs.
-
-        Then, according to the module's quantization scheme, observers and calibration
-        hooks are added. These hooks are disabled until the modifier starts.
-
-        Skipped when layerwise_decompression is enabled because modules are still
-        compressed; per-layer setup happens in start_layerwise_calibration instead.
-        """
+        """Validate configuration; the pipeline initializes each calibration scope."""
         if not QuantizationMixin.has_config(self):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
-        if not self._lazy_initialization:
-            QuantizationMixin.initialize_quantization(self, state.model)
-
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
         Begin calibrating activations.
 
-        Skipped when layerwise_decompression is enabled; per-layer calibration
-        setup is handled by start_layerwise_calibration in the pipeline.
+        Skipped when layerwise_decompression is enabled; per-layer calibration setup
+        is handled by on_sequential_epoch_start after each subgraph is decompressed.
         """
-        if not self._lazy_initialization:
-            QuantizationMixin.start_calibration(self, state.model)
+        if getattr(state, "layerwise_decompression", False):
             return
 
         modules = kwargs.get("modules")
@@ -103,9 +82,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        if not self._lazy_initialization:
-            return
-
         self.initialize_quantization(state.model, modules=modules)
         self.start_calibration(
             state.model, modules=modules, warn_on_inference_mode=False

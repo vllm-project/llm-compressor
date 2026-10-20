@@ -47,6 +47,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
+from llmcompressor.observers.helpers import validate_fused_layer_scope
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -63,11 +64,10 @@ class QuantizationMixin(HooksMixin):
 
     Lifecycle:
 
-    - on_initialize: QuantizationMixin.initialize_quantization
+    - on_calibration_start / on_sequential_epoch_start:
+      QuantizationMixin.initialize_quantization, then start_calibration
         - Attach schemes to modules
         - Attach observers to modules
-        - Disable quantization until calibration starts/finishes
-    - on_calibration_start: QuantizationMixin.start_calibration
         - Attach calibration hooks
         - Apply calibration status
         - Enable quantization during calibration
@@ -144,7 +144,6 @@ class QuantizationMixin(HooksMixin):
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
-    _lazy_initialization: bool = PrivateAttr(default=False)
     _initialized_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
     _calibrated_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
@@ -238,6 +237,7 @@ class QuantizationMixin(HooksMixin):
         """
 
         if modules is not None:
+            modules = list(modules)
             module_ids = {id(module) for module in modules}
             target_modules = [
                 module
@@ -255,6 +255,7 @@ class QuantizationMixin(HooksMixin):
             apply_quantization_config(
                 model, self.resolved_config, allowed_modules=target_modules
             )
+            validate_fused_layer_scope(model, modules)
 
             if not self.bypass_divisibility_checks:
                 validate_group_size_divisibility(

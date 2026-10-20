@@ -123,12 +123,6 @@ class SmoothQuantModifier(Modifier):
     _smooth_layers: set[Module] = PrivateAttr(default_factory=set)
     _balance_layers: set[Module] = PrivateAttr(default_factory=set)
 
-    _lazy_initialization: bool = False
-
-    @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Initialize and run SmoothQuant on the given state
@@ -154,7 +148,8 @@ class SmoothQuantModifier(Modifier):
             )
         self.ignore = [] if not self.ignore else self.ignore
         self.mappings = self._infer_mappings_from_model(state.model)
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
+        # Mapping definitions are model-wide metadata. Resolve them to live module
+        # references only once the relevant modules are onloaded by the pipeline.
         self.resolved_mappings_ = []
         # Resolve once for memory estimates used by automatic sequential grouping.
         estimate_mappings = self._resolve_mappings(state.model)
@@ -167,21 +162,18 @@ class SmoothQuantModifier(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules") if self._lazy_initialization else None
+        modules = kwargs.get("modules")
         self._initialize_scope(state.model, modules)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[Module], **kwargs
     ):
-        if self._lazy_initialization:
-            self._initialize_scope(state.model, modules)
+        self._initialize_scope(state.model, modules)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[Module], **kwargs
     ):
-        self._apply_smoothing(
-            state.model, modules=modules if self._lazy_initialization else None
-        )
+        self._apply_smoothing(state.model, modules=modules)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         # Also handles non-sequential pipelines and any persistent-module scopes.
