@@ -144,6 +144,23 @@ def test_fuse_weight_observers_requires_same_quantization():
         fuse_weight_observers(model)
 
 
+def test_fuse_weight_observers_rejects_split_tensor_group_scope():
+    model = _module_with(*KDA)
+
+    with pytest.raises(ValueError, match="span multiple sequential calibration"):
+        fuse_weight_observers(model, modules=[model.q_proj])
+
+
+def test_fuse_weight_observers_links_group_within_scope():
+    model = _module_with(*KDA)
+
+    fuse_weight_observers(model, modules=list(model.modules()))
+
+    for name in KDA:
+        expected = {getattr(model, other) for other in KDA if other != name}
+        assert _fused_partners(getattr(model, name)) == expected
+
+
 def test_kimi_k3_oneshot_and_model_free_agree():
     """
     The oneshot (module) and model_free_ptq (checkpoint) paths resolve the same

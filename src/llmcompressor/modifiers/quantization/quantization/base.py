@@ -59,7 +59,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
 
     @property
     def supports_lazy_initialization(self) -> bool:
-        return self.can_initialize_lazily()
+        return True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
