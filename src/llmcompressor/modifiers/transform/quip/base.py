@@ -146,13 +146,12 @@ class QuIPModifier(Modifier):
         model: torch.nn.Module,
         modules: list[torch.nn.Module] | None = None,
     ) -> NamedModules:
-        module_ids = None if modules is None else {id(module) for module in modules}
         return [
             (name, module)
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
             for name, module in match_named_modules(model, arg.targets, arg.ignore)
-            if module_ids is None or id(module) in module_ids
+            if modules is None or module in modules
         ]
 
     def _create_config(self) -> TransformConfig:
