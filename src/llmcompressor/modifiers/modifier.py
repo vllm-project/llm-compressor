@@ -45,9 +45,9 @@ class Modifier(ModifierInterface, HooksMixin):
     requires_calibration_data: bool = False
 
     @property
-    def supports_lazy_initialization(self) -> bool:
-        """Whether this modifier can defer model setup to scoped callbacks."""
-        return False
+    def required_pipeline(self) -> str | None:
+        """A required calibration pipeline, or None when any pipeline is supported."""
+        return None
 
     index: int | None = None
     group: str | None = None
@@ -93,12 +93,6 @@ class Modifier(ModifierInterface, HooksMixin):
             )
 
         self.initialized_ = self.on_initialize(state=state, **kwargs)
-
-        # trigger starts
-        fake_start_event = Event(type_=EventType.BATCH_START, global_step=0)
-        if self.should_start(fake_start_event):
-            self.on_start(state, fake_start_event, **kwargs)
-            self.started_ = True
 
     def finalize(self, state: State, **kwargs):
         """
@@ -210,8 +204,8 @@ class Modifier(ModifierInterface, HooksMixin):
     @abstractmethod
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        on_initialize is called on modifier initialization and
-        must be implemented by the inheriting modifier.
+        Prepare global configuration and metadata. Model-local setup belongs in
+        calibration callbacks (scoped by the pipeline) or on_start for training.
 
         :param state: The current state of the model
         :param kwargs: Additional arguments for initializing the modifier

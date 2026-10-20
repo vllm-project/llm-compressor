@@ -74,6 +74,7 @@ def build_parameterized_layers(
     model: Module,
     targets: str | list[str],
     param_name: str = "weight",
+    modules: list[Module] | None = None,
 ) -> dict[str, ModelParameterizedLayer]:
     """
     Build ModelParameterizedLayer objects for modules matching the given targets.
@@ -87,13 +88,17 @@ def build_parameterized_layers(
                     and special constants for backward compatibility)
     :param param_name: Name of the parameter to extract from each layer
         (default: "weight")
+    :param modules: Optional scope of modules whose parameters may be accessed
     :return: Dictionary mapping layer names to ModelParameterizedLayer objects
     """
     # Expand special constants if present
     targets = expand_special_targets(targets)
 
     parameterized_layers = {}
+    module_scope = None if modules is None else set(modules)
     for layer_name, module in match_named_modules(model, targets):
+        if module_scope is not None and module not in module_scope:
+            continue
         # Get the parameter from the module
         param = getattr(module, param_name, None)
         if param is None:

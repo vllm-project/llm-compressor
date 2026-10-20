@@ -78,9 +78,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - on_initialize
-        - apply config to model
-    - on_calibration_start
+    - on_calibration_start / on_sequential_epoch_start
+        - apply config to the current scope
         - add activation calibration hooks
         - add gptq weight calibration hooks
     - on_sequential_epoch_end
@@ -123,10 +122,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
-
-    @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
 
     requires_calibration_data: bool = True
 
@@ -190,45 +185,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        Initialize and run the GPTQ algorithm on the current state
-
-        :param state: session state storing input model and calibration data
-        """
-        # apply config to model and prepare calibration hooks
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
-        if QuantizationMixin.has_config(self) and not self._lazy_initialization:
-            QuantizationMixin.initialize_quantization(self, state.model)
-
-        # prepare module names
-        self._module_names = {
-            m: name
-            for name, m in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            )
-        }
-
+        """Model setup and module-name resolution happen as scopes are onloaded."""
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
-        if self._lazy_initialization:
-            if QuantizationMixin.has_config(self):
-                self.initialize_quantization(state.model, modules=modules)
-            self.start_calibration(state.model, modules=modules)
-        else:
-            # Register quantization calibration hooks. Configs were attached during
-            # initialize, so observers can be prepared across the whole model.
-            QuantizationMixin.start_calibration(self, state.model)
-
-            target_modules = match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            )
-            if not any(self._is_gptq_module(module) for _, module in target_modules):
-                raise ValueError(
-                    "GPTQModifier was unable to find any modules to quantize. Please "
-                    "check quantization `config_groups` and `targets` in recipe"
-                )
+        if QuantizationMixin.has_config(self):
+            self.initialize_quantization(state.model, modules=modules)
+        self.start_calibration(state.model, modules=modules)
 
         # Persistent modules are onloaded before calibration; all other hooks are
         # registered as their subgraphs are onloaded.
@@ -243,16 +207,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         """Register GPTQ hooks on the modules in the just-onloaded subgraph."""
-        if self._lazy_initialization:
-            if QuantizationMixin.has_config(self):
-                self.initialize_quantization(state.model, modules=modules)
-            self.start_calibration(
-                state.model, modules=modules, warn_on_inference_mode=False
-            )
-
-        # Even with eager quantization setup, only the persistent modules were
-        # onloaded at calibration_start. Register Hessian hooks as each subgraph
-        # becomes available.
+        if QuantizationMixin.has_config(self):
+            self.initialize_quantization(state.model, modules=modules)
+        self.start_calibration(
+            state.model, modules=modules, warn_on_inference_mode=False
+        )
         self._register_gptq_hooks(state.model, modules)
 
     @staticmethod
@@ -269,10 +228,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
         modules: list[torch.nn.Module] | None,
     ):
         module_ids = None if modules is None else {id(module) for module in modules}
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for name, module in match_named_modules(
+            model, self.resolved_targets, self.ignore
+        ):
             if module_ids is not None and id(module) not in module_ids:
                 continue
             if self._is_gptq_module(module) and module not in self._gptq_hooked_modules:
+                self._module_names[module] = name
                 self.register_hook(module, self.calibrate_module, "forward")
                 self._gptq_hooked_modules.add(module)
 
@@ -293,7 +255,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(self, state.model)
         self.remove_hooks()  # remove gptq hooks
         self._gptq_hooked_modules.clear()
-        if self._lazy_initialization and not has_gptq_modules:
+        if not has_gptq_modules:
             raise ValueError(
                 "GPTQModifier was unable to find any modules to quantize. Please "
                 "check quantization `config_groups` and `targets` in recipe"

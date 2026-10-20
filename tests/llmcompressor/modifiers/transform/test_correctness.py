@@ -23,7 +23,7 @@ def test_quip_scoped_application_reuses_transform_parameters():
     )
     modifier = QuIPModifier(transform_config=config)
     state = State(model=model)
-    modifier.on_initialize(state, lazy_initialization=True)
+    modifier.on_initialize(state)
 
     modifier.on_calibration_start(state, None, modules=list(model[0].modules()))
     assert "v_input" in model[0]._modules
