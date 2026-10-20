@@ -12,6 +12,7 @@ from compressed_tensors.offload.module import (
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
+from compressed_tensors.utils.match import match_targets
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -60,7 +61,7 @@ def _submit_subgraph_staging(
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
-    input_names: list[str],
+    input_names: list[str] | None,
     desc: str,
 ) -> Iterator[tuple[int, dict]]:
     """
@@ -93,9 +94,10 @@ class SequentialPipeline(CalibrationPipeline):
         3. The intermediate activations between each subgraph are cached and offloaded
             to the cpu between each batch in order to save memory
 
-        This pipeline requires that the model be traceable with respect to data from the
-        data loader. This may be an issue for vision models with vision datasets, due
-        to specialized input processing in the model.
+        Unless the entire model is the sequential target, this pipeline requires that
+        the model be traceable with respect to data from the data loader. This may be
+        an issue for vision models with vision datasets, due to specialized input
+        processing in the model.
 
         In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A
         model can be made traceable by wrapping the untraceable functions (see
@@ -135,8 +137,12 @@ class SequentialPipeline(CalibrationPipeline):
         )
         ignore = dataset_args.tracing_ignore
 
-        # trace subgraphs
-        sample_input = next(iter(dataloader))
+        # Skip the tracing sample for root targets to preserve loader order.
+        sample_input = (
+            {}
+            if match_targets("", model, sequential_targets)
+            else next(iter(dataloader))
+        )
         subgraphs = trace_subgraphs(
             model,
             sample_input,

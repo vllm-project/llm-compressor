@@ -43,13 +43,14 @@ class Subgraph:
     Dataclass specifying an executable subgraph of a model graph
 
     :param graph: subgraph of model graph
-    :param input_names: argument names of the compiled forward function
+    :param input_names: argument names of the compiled forward function, or None to
+        forward all cached inputs
     :param consumed_names: argument names which are not used by any subsequent subgraphs
         and can therefore be deleted from the intermediates cache
     """
 
     graph: Graph
-    input_names: set[str]
+    input_names: set[str] | None
     consumed_names: set[str]
     _code: PythonCode | None = None
 
@@ -79,7 +80,9 @@ class Subgraph:
 
                 qualified_name = target
                 if relative_name:
-                    qualified_name = f"{target}.{relative_name}"
+                    qualified_name = (
+                        f"{target}.{relative_name}" if target else relative_name
+                    )
                 ordered_names.append(qualified_name)
                 seen_modules.add(submodule)
 
@@ -138,11 +141,19 @@ def find_modules_outside_subgraphs(
     }
 
 
+def _forward_whole_model(model: Module, inputs: dict[str, Any]):
+    return model(**inputs)
+
+
 def _resolve_sequential_targets(
     model: PreTrainedModel, sequential_targets: list[str]
 ) -> set[Module]:
     """Combine requested targets with attention boundaries and remove nested ones."""
     orig_targets = {m for _, m in list(match_named_modules(model, sequential_targets))}
+
+    # The root owns every module, including attention boundaries.
+    if model in orig_targets:
+        return {model}
 
     # Add attention modules as targets (we don't want to trace inside attention)
     attention_targets = {
@@ -202,6 +213,23 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     targets = _resolve_sequential_targets(model, sequential_targets)
+
+    if targets == {model}:
+        # Treat the root as a leaf without tracing its forward.
+        graph = Graph()
+        root = graph.placeholder("self")
+        inputs = graph.placeholder("**kwargs")
+        output = graph.call_function(_forward_whole_model, args=(root, inputs))
+        output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
+        graph.output(output)
+        return [
+            Subgraph(
+                graph=graph,
+                input_names=None,
+                consumed_names=set(),
+            )
+        ]
+
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
@@ -558,8 +586,9 @@ def trace_consumed_names(subgraphs: list[Subgraph]):
     # The first occurrence in reverse order is the final use in execution order.
     seen_names: set[str] = set()
     for subgraph in reversed(subgraphs):
-        subgraph.consumed_names.update(subgraph.input_names - seen_names)
-        seen_names.update(subgraph.input_names)
+        if subgraph.input_names is not None:
+            subgraph.consumed_names.update(subgraph.input_names - seen_names)
+            seen_names.update(subgraph.input_names)
 
 
 def graph_is_well_formed(graph: Graph) -> bool:

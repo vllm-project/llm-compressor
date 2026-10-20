@@ -58,7 +58,7 @@ with load_context():
 ```
 
 ## Basic Pipeline ##
-It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxiliary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
+The basic pipeline calibrates the whole model without tracing. Use it only when the model and calibration memory, such as GPTQ hessians, fit in the available VRAM.
 
 In these cases, you can load the model directly onto your GPU devices, and call oneshot with the relevant argument.
 
