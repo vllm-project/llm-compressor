@@ -315,7 +315,7 @@ def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
         modifier.start_layerwise_calibration(model, modules)
 
     apply_config.assert_called_once_with(
-        model, modifier.resolved_config, allowed_modules=modules
+        model, modifier.resolved_config, modules=modules
     )
     assert model[0].quantization_status == QuantizationStatus.CALIBRATION
     assert not hasattr(model[1], "quantization_scheme")
