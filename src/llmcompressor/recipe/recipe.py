@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from typing import Any, Union
 
 import yaml
@@ -181,8 +182,9 @@ class Recipe(BaseModel):
             ModifierFactory.refresh()
 
         for stage_key, stage_val in recipe_dict.items():
-            if stage_key.endswith("_stage") and isinstance(stage_val, dict):
-                stage = stage_key.replace("_stage", "")
+            stage_match = re.fullmatch(r"(.*)_stage(_\d+)?", stage_key)
+            if stage_match and isinstance(stage_val, dict):
+                stage = stage_match.group(1)
                 for group_key, group_val in stage_val.items():
                     if group_key.endswith("_modifiers") and isinstance(group_val, dict):
                         inferred_group = group_key.replace("_modifiers", "")

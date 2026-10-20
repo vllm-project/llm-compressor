@@ -198,7 +198,10 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        self.validate_model(self.model)
+        # Skip model validation if using layerwise decompression
+        # for pre-quantized models
+        if not getattr(self.dataset_args, "layerwise_decompression", False):
+            self.validate_model(self.model)
 
     def __call__(self):
         """
@@ -261,6 +264,13 @@ class Oneshot:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
+
+            session.state.layerwise_decompression = (
+                self.dataset_args.layerwise_decompression
+            )
+            session.state.layerwise_compression = (
+                self.dataset_args.layerwise_compression
+            )
 
             session.initialize(
                 model=self.model,

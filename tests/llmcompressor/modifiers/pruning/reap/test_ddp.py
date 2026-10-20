@@ -41,7 +41,8 @@ def _load_report(path):
 @requires_gpu(2)
 @torchrun(world_size=2)
 def test_reap_ddp_qwen3():
-    """REAP with DDP on Qwen3.8-1.0B-A0.6B scores the same experts as single-GPU."""
+    """REAP with DDP on Qwen3.8-1.0B-A0.6B retains the same experts as single-GPU."""
+    torch.backends.cudnn.deterministic = True
     with tempfile.TemporaryDirectory() as tmpdir:
         ref_report = f"{tmpdir}/ref_report.json"
 
