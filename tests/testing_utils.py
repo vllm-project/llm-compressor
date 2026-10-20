@@ -270,6 +270,10 @@ class BaseTestConfig(BaseModel):
         0.70,
         description="GPU memory for vLLM (e.g. 0.8). Omit to use vLLM default.",
     )
+    vllm_moe_backend: Optional[str] = Field(
+        None,
+        description="MoE backend to pass to vLLM (e.g. 'triton').",
+    )
     num_gpus: int = Field(
         1,
         description=(
