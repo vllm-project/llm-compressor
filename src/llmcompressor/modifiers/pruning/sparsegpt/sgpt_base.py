@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy
 import torch
+from compressed_tensors.offload import get_execution_device
 from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -13,6 +14,8 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pytorch.utils.helpers import tensors_to_device
+from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 PRUNABLE_LAYER_TYPES = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
@@ -42,14 +45,14 @@ class SparsityModifierBase(Modifier):
     _prune_n: int | None = PrivateAttr(default=None)
     _prune_m: int | None = PrivateAttr(default=None)
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _target_layers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
-    _module_sparsities: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _lazy_initialization: bool = PrivateAttr(default=False)
+    _module_sparsities: dict[torch.nn.Module, float] = PrivateAttr(default_factory=dict)
+    _sequential_targets: list[str] = PrivateAttr(default_factory=list)
+    _owl_sparsities: dict[str, float] = PrivateAttr(default_factory=dict)
 
     @property
-    def supports_lazy_initialization(self) -> bool:
-        # OWL runs a calibration pass over the complete model during initialize.
-        return self.sparsity_profile != "owl"
+    def required_pipeline(self) -> str | None:
+        # OWL compares statistics across all layers before choosing any sparsities.
+        return "basic" if self.sparsity_profile == "owl" else None
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -110,61 +113,45 @@ class SparsityModifierBase(Modifier):
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
         """
-        Initialize and run the SparseGPT algorithm on the current state
+        Prepare global configuration without resolving or calibrating model layers.
 
         :param state: session state storing input model and calibration data
         """
-        model: torch.nn.Module = state.model
-        dataloader: torch.utils.data.DataLoader = state.data.calib
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
-
-        # infer module and sequential targets
-        # Note: only pass sequential_targets from kwargs, not the full kwargs dict
-        # which may contain 'model' and cause duplicate argument errors
-        self._sequential_targets = infer_sequential_targets(
-            model, sequential_targets=kwargs.get("sequential_targets")
-        )
-        layers = dict(match_named_modules(model, self._sequential_targets))
-        self._target_layers = dict(
-            match_named_modules(model, self.targets)
-        )  # layers containing targets
-
-        # infer layer sparsities
         if self.sparsity_profile == "owl":
-            logger.info(
-                "Using OWL to infer target layer-wise sparsities from "
-                f"{len(dataloader) if dataloader else 0} calibration samples..."
+            self._sequential_targets = infer_sequential_targets(
+                state.model, sequential_targets=kwargs.get("sequential_targets")
             )
-            self.sparsity = self._infer_owl_layer_sparsity(model, layers, dataloader)
-
-        # get layers and validate sparsity
-        if isinstance(self.sparsity, (list, dict)) and len(self._target_layers) != len(
-            self.sparsity
-        ):
-            raise ValueError(
-                f"{self.__repr_name__} was initialized with {len(self.sparsity)} "
-                f"sparsities values, but model has {len(layers)} target layers"
-            )
-
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules") if self._lazy_initialization else None
-        self._register_calibration_hooks(modules)
+        modules = kwargs.get("modules")
+        if self.sparsity_profile == "owl":
+            if modules is not None:
+                raise ValueError("OWL sparsity profiling requires pipeline='basic'.")
+            logger.info("Using OWL to infer layer sparsities before calibration")
+            layers = dict(match_named_modules(state.model, self._sequential_targets))
+            self._owl_sparsities = self._infer_owl_layer_sparsity(
+                state.model, layers, state.data.calib
+            )
+        self._register_calibration_hooks(state.model, modules)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        if self._lazy_initialization:
-            self._register_calibration_hooks(modules)
+        self._register_calibration_hooks(state.model, modules)
 
-    def _register_calibration_hooks(self, modules: list[torch.nn.Module] | None = None):
-        # register hooks
+    def _register_calibration_hooks(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
+        # Resolve live modules after any pipeline replacements (e.g. MoE linearization).
+        target_layers = list(match_named_modules(model, self.targets))
+        if isinstance(self.sparsity, list) and len(target_layers) != len(self.sparsity):
+            raise ValueError(
+                f"{type(self).__name__} received {len(self.sparsity)} sparsity values, "
+                f"but model has {len(target_layers)} target layers"
+            )
         module_scope = None if modules is None else set(modules)
-        for index, (layer_name, layer) in enumerate(self._target_layers.items()):
-            if module_scope is not None and layer not in module_scope:
-                continue
-
+        for index, (layer_name, layer) in enumerate(target_layers):
             match self.sparsity:
                 case list():
                     layer_sparsity = self.sparsity[index]
@@ -172,7 +159,9 @@ class SparsityModifierBase(Modifier):
                     layer_sparsity = self.sparsity
 
             for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
-                name = f"{layer_name}.{name}"
+                if module_scope is not None and module not in module_scope:
+                    continue
+                name = ".".join(part for part in (layer_name, name) if part)
 
                 if match_targets(name, module, self.ignore):
                     continue
@@ -185,6 +174,25 @@ class SparsityModifierBase(Modifier):
 
                 if module in self._module_names:
                     continue
+
+                if self._owl_sparsities:
+                    # OWL assigns sparsity to sequential blocks, while `targets`
+                    # may select individual linears within those blocks.
+                    owner = next(
+                        (
+                            parent
+                            for parent in sorted(
+                                self._owl_sparsities, key=len, reverse=True
+                            )
+                            if not parent
+                            or name == parent
+                            or name.startswith(parent + ".")
+                        ),
+                        None,
+                    )
+                    if owner is None:
+                        raise ValueError(f"No OWL sparsity was inferred for {name}")
+                    layer_sparsity = self._owl_sparsities[owner]
 
                 if name.endswith("lm_head"):
                     logger.warning(
@@ -252,8 +260,6 @@ class SparsityModifierBase(Modifier):
         return sparsities
 
     def _get_activations(self, model, dataloader, nsamples=128) -> dict[str, int]:
-        from llmcompressor.pipelines.basic import run_calibration
-
         acts = defaultdict(int)
 
         def save_acts(_module, input: tuple[Any, ...] | torch.Tensor, name: str):
@@ -267,9 +273,19 @@ class SparsityModifierBase(Modifier):
             for name, mod in model.named_modules()
             if isinstance(mod, torch.nn.Linear) and "lm_head" not in name
         )
-        with HooksMixin.disable_hooks(keep=hooks):
-            run_calibration(model, dataloader)
-        self.remove_hooks(hooks)
+        # This is a statistics pass, not another compression epoch. Dispatching
+        # lifecycle events here would recursively initialize and run the recipe.
+        try:
+            with (
+                HooksMixin.disable_hooks(keep=hooks),
+                calibration_forward_context(model),
+                DisableQuantization(model),
+            ):
+                device = get_execution_device(model)
+                for batch in dataloader:
+                    model(**tensors_to_device(batch, device))
+        finally:
+            self.remove_hooks(hooks)
 
         return acts
 

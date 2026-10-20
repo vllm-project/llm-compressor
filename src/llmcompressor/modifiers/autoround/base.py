@@ -133,8 +133,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     Lifecycle:
 
     - on_initialize
-        - apply config to model
-    - on_calibration_start
+        - infer sequential target patterns
+    - on_calibration_start / on_sequential_epoch_start
+        - apply config to the current scope
+        - name modules and freeze their parameters
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
@@ -183,39 +185,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     @property
-    def supports_lazy_initialization(self) -> bool:
-        return all(
-            scheme.weights is None
-            or scheme.weights.strategy != QuantizationStrategy.TENSOR_GROUP
-            for scheme in self.resolved_config.config_groups.values()
-        )
+    def required_pipeline(self) -> str:
+        return "sequential"
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize the model state for quantization and calibration.
+        Prepare configuration for per-subgraph quantization and calibration.
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks.
-        # Wrap in disable_onloading to suppress DistributedCPUCache's
-        # per-param broadcast+barrier when creating quant params (scale,
-        # zero_point). With LLMCOMPRESSOR_GPUS_PER_GROUP > 1, modules have varying GPU
-        # execution devices, causing GPU→CPU copy timing to vary between
-        # ranks → broadcast deadlock. Quant params are deterministic —
-        # each rank computes identical values, no sync needed.
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
-        if QuantizationMixin.has_config(self) and not self._lazy_initialization:
-            from compressed_tensors.offload import disable_onloading
-
-            with disable_onloading():
-                QuantizationMixin.initialize_quantization(self, state.model)
-
-        # prepare module names
-        self._add_temporary_names(state.model)
-        # freeze all model parameters
-        for _, param in state.model.named_parameters():
-            param.requires_grad_(False)
-
         self._sequential_targets = infer_sequential_targets(
             state.model, sequential_targets=kwargs.get("sequential_targets")
         )
@@ -254,7 +232,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             model.apply(enable_quantization)
         else:
             for module in modules:
-                module.apply(enable_quantization)
+                enable_quantization(module)
 
     def input_capture_hook(self, module, args, kwargs):
         name = module._tmp_name
@@ -271,29 +249,33 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules") if self._lazy_initialization else None
+        modules = kwargs.get("modules")
         self._initialize_scope(state.model, modules)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        if self._lazy_initialization:
-            self._initialize_scope(state.model, modules)
+        self._initialize_scope(state.model, modules)
 
     def _initialize_scope(
         self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
     ):
-        if self._lazy_initialization and QuantizationMixin.has_config(self):
+        if QuantizationMixin.has_config(self):
             from compressed_tensors.offload import disable_onloading
 
+            # Quant params are deterministic across ranks; avoid per-param
+            # broadcasts while registering them with DistributedCPUCache.
             with disable_onloading():
                 self.initialize_quantization(model, modules=modules)
         self.start_calibration(model, modules=modules)
 
         module_scope = None if modules is None else {id(module) for module in modules}
-        for _, module in model.named_modules():
+        for name, module in model.named_modules():
             if module_scope is not None and id(module) not in module_scope:
                 continue
+            module._tmp_name = name
+            for param in module.parameters(recurse=False):
+                param.requires_grad_(False)
             if self._is_decoding_layer(module):
                 if module._tmp_name in self._capture_hooks:
                     continue
@@ -558,10 +540,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     # It's a top-level module
                     setattr(model, name, module.orig_layer)
         return model
-
-    def _add_temporary_names(self, model: torch.nn.Module):
-        for name, mod in model.named_modules():
-            mod._tmp_name = name
 
     def _remove_temporary_names(self, model: torch.nn.Module):
         for _, mod in model.named_modules():

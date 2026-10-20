@@ -90,10 +90,9 @@ class AWQModifier(Modifier):
 
     Lifecycle:
 
-    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - on_calibration_start
+    - on_calibration_start / on_sequential_epoch_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
@@ -162,11 +161,6 @@ class AWQModifier(Modifier):
     )
     # List to store error metrics for each layer
     _error_metrics: list[dict] = PrivateAttr(default_factory=list)
-    _lazy_initialization: bool = PrivateAttr(default=False)
-
-    @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -182,7 +176,6 @@ class AWQModifier(Modifier):
         if self.mappings is None:
             logger.info("No AWQModifier.mappings provided, inferring from model...")
             self.mappings = get_layer_mappings_from_model(state.model)
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
 
         # Set default offload_device
         if self.offload_device == Sentinel("not_provided"):
@@ -203,8 +196,8 @@ class AWQModifier(Modifier):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
-        Start AWQ on the given state. This runs after quantization mixin has been
-        initialized (i.e. after quantization config has been applied)
+        Prepare mappings and hooks for the pipeline's initial calibration scope.
+        Quantization schemes may be attached by a subsequent modifier in this event.
 
         - resolve mappings
         - validate mappings and quant scheme
@@ -214,26 +207,18 @@ class AWQModifier(Modifier):
         :return: True on a successful run, False otherwise
         """
 
-        modules = kwargs.get("modules") if self._lazy_initialization else None
+        modules = kwargs.get("modules")
         self._initialize_scope(state, modules)
-
-        if not self._lazy_initialization:
-            self._validate_duo_scaling(self._resolved_mappings)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[Module], **kwargs
     ):
-        if not self._lazy_initialization:
-            return
-
         self._initialize_scope(state, modules)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[Module], **kwargs
     ):
-        self._apply_smoothing(
-            state.model, modules=modules if self._lazy_initialization else None
-        )
+        self._apply_smoothing(state.model, modules=modules)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
@@ -269,7 +254,7 @@ class AWQModifier(Modifier):
         resolved = self._set_resolved_mappings(
             state.model,
             modules=modules,
-            include_unquantized=self._lazy_initialization,
+            include_unquantized=True,
         )
         if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
             raise ValueError(

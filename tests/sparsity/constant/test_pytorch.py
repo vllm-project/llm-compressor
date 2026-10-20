@@ -82,6 +82,8 @@ def test_constant_pruning_modifier_e2e(model, optimizer):
         update=0.5,
     )
     modifier.initialize(state)
+    assert not modifier.parameterized_layers_
+    modifier.update_event(state, Event(type_=EventType.BATCH_START))
 
     # check mask is added and has correct sparsity
 

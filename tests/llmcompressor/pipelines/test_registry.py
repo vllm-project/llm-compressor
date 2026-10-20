@@ -2,6 +2,7 @@ import pytest
 
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.pruning import SparseGPTModifier, WandaPruningModifier
+from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import GPTQModifier, QuantizationModifier
 from llmcompressor.modifiers.transform import (
     AWQModifier,
@@ -10,8 +11,10 @@ from llmcompressor.modifiers.transform import (
     SpinQuantModifier,
 )
 from llmcompressor.pipelines import (
+    BasicPipeline,
     CalibrationPipeline,
     DataFreePipeline,
+    IndependentPipeline,
     SequentialPipeline,
 )
 
@@ -46,3 +49,37 @@ from llmcompressor.pipelines import (
 def test_infer_pipeline(modifiers, exp_pipeline):
     pipeline = CalibrationPipeline.from_modifiers(modifiers)
     assert isinstance(pipeline, exp_pipeline)
+
+
+@pytest.mark.parametrize("modifier_cls", [SparseGPTModifier, WandaPruningModifier])
+def test_owl_requires_basic_pipeline(modifier_cls):
+    modifier = modifier_cls(
+        sparsity=0.5, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
+    )
+    assert isinstance(CalibrationPipeline.from_modifiers([modifier]), BasicPipeline)
+    with pytest.raises(ValueError, match="requires pipeline='basic'"):
+        CalibrationPipeline.from_modifiers([modifier], user="sequential")
+    assert isinstance(
+        CalibrationPipeline.from_modifiers([modifier], user="independent"),
+        IndependentPipeline,
+    )
+
+
+@pytest.mark.parametrize("modifier", [AutoRoundModifier(), QADModifier()])
+def test_sequential_modifiers_reject_incompatible_pipelines(modifier):
+    assert isinstance(
+        CalibrationPipeline.from_modifiers([modifier]), SequentialPipeline
+    )
+    with pytest.raises(ValueError, match="requires pipeline='sequential'"):
+        CalibrationPipeline.from_modifiers([modifier], user="basic")
+
+
+def test_incompatible_pipeline_requirements_are_reported():
+    modifiers = [
+        SparseGPTModifier(
+            sparsity=0.5, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
+        ),
+        AutoRoundModifier(),
+    ]
+    with pytest.raises(ValueError, match="incompatible pipelines"):
+        CalibrationPipeline.from_modifiers(modifiers)

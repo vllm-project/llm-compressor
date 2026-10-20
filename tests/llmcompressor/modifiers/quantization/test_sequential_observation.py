@@ -213,8 +213,8 @@ def test_lazy_basic_calibration_initializes_the_whole_model_at_calibration_start
     session.lifecycle.event(EventType.CALIBRATION_END)
 
 
-def test_session_uses_eager_initialization_if_recipe_has_unsupported_modifier():
-    class _EagerOnlyModifier(Modifier):
+def test_session_always_defers_model_setup_for_mixed_recipes():
+    class _NoOpModifier(Modifier):
         def on_initialize(self, state: State, **kwargs) -> bool:
             return True
 
@@ -223,33 +223,43 @@ def test_session_uses_eager_initialization_if_recipe_has_unsupported_modifier():
     session = CompressionSession()
 
     session.initialize(
-        recipe=[quant_modifier, _EagerOnlyModifier()],
+        recipe=[quant_modifier, _NoOpModifier()],
         model=model,
     )
 
+    assert not hasattr(model[0], "quantization_scheme")
+    assert not hasattr(model[1], "quantization_scheme")
+
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
     assert model[0].quantization_scheme is not None
-    assert model[1].quantization_scheme is not None
+    assert not hasattr(model[1], "quantization_scheme")
+    session.lifecycle.event(EventType.CALIBRATION_END)
 
 
 def test_tensor_group_quantization_supports_lazy_initialization():
+    model = nn.Sequential(_FakeDecoderLayer(), _FakeDecoderLayer())
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
+    session = CompressionSession()
+    session.initialize(model=model, recipe=modifier)
 
-    assert modifier.supports_lazy_initialization
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=[])
+    session.lifecycle.event(
+        EventType.SEQUENTIAL_EPOCH_START, modules=list(model[0].modules())
+    )
+    assert hasattr(model[0].q_proj, "weight_observer")
+    assert not hasattr(model[1].q_proj, "quantization_scheme")
+    session.lifecycle.event(EventType.CALIBRATION_END)
 
 
 def test_lazy_tensor_group_calibration_rejects_split_fused_layers():
     model = nn.Sequential(_FakeDecoderLayer())
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
     state = State(model=model)
-    modifier.on_initialize(state, lazy_initialization=True)
+    modifier.on_initialize(state)
 
     q_proj = model[0].q_proj
-    modifier.initialize_quantization(model, modules=[q_proj])
-
     with pytest.raises(ValueError, match="span multiple sequential calibration"):
-        modifier.start_calibration(
-            model, modules=[q_proj], warn_on_inference_mode=False
-        )
+        modifier.on_sequential_epoch_start(state, None, modules=[q_proj])
 
 
 def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():

@@ -15,6 +15,7 @@ from compressed_tensors.quantization.utils import (
     maybe_pad_tensor_for_block_quant,
     strategy_cdiv,
 )
+from compressed_tensors.utils import getattr_chain
 from torch.nn import Module
 
 from llmcompressor.observers.fused_mappings import get_fused_layers
@@ -22,6 +23,7 @@ from llmcompressor.observers.fused_mappings import get_fused_layers
 __all__ = [
     "flatten_for_calibration",
     "fuse_weight_observers",
+    "validate_fused_layer_scope",
     "ACTIVATION_OBS",
 ]
 
@@ -160,6 +162,42 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
+def _fused_layers_in_scope(
+    fused_layers: dict[str, Module], scope_ids: set[int]
+) -> bool:
+    group_ids = {id(layer) for layer in fused_layers.values()}
+    if not group_ids.intersection(scope_ids):
+        return False
+    if group_ids.issubset(scope_ids):
+        return True
+
+    if any(
+        id(layer) in scope_ids
+        and (
+            getattr_chain(layer, "quantization_scheme.weights.strategy", None)
+            == QuantizationStrategy.TENSOR_GROUP
+            or getattr_chain(layer, "weight_observer.args.strategy", None)
+            == QuantizationStrategy.TENSOR_GROUP
+        )
+        for layer in fused_layers.values()
+    ):
+        raise ValueError(
+            f"TENSOR_GROUP fused layers {tuple(fused_layers)} span multiple sequential "
+            "calibration subgraphs. Choose `sequential_targets` so all fused layers "
+            "are included in one subgraph (for example, target their common decoder "
+            "or expert module instead of individual Linear modules)."
+        )
+    return False
+
+
+def validate_fused_layer_scope(model: Module, modules: Collection[Module]):
+    """Validate TENSOR_GROUP scopes, including modifiers that do not use observers."""
+    scope_ids = {id(module) for module in modules}
+    for submodule in model.modules():
+        for fused_layers in get_fused_layers(submodule):
+            _fused_layers_in_scope(fused_layers, scope_ids)
+
+
 def fuse_weight_observers(model: Module, modules: Collection[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
@@ -182,30 +220,10 @@ def fuse_weight_observers(model: Module, modules: Collection[Module] | None = No
             layers_to_fuse = list(fused_layers.values())
             fusion_name_group = tuple(fused_layers.keys())
 
-            if scope_ids is not None:
-                group_ids = {id(layer) for layer in layers_to_fuse}
-                if not group_ids.intersection(scope_ids):
-                    continue
-
-                in_scope_tensor_group = any(
-                    id(layer) in scope_ids
-                    and (obs := getattr(layer, "weight_observer", None)) is not None
-                    and obs.args.strategy == QuantizationStrategy.TENSOR_GROUP
-                    for layer in layers_to_fuse
-                )
-                if in_scope_tensor_group and not group_ids.issubset(scope_ids):
-                    raise ValueError(
-                        "TENSOR_GROUP fused layers "
-                        f"{fusion_name_group} span multiple sequential calibration "
-                        "subgraphs. Choose `sequential_targets` so all fused layers "
-                        "are included in one subgraph (for example, target their "
-                        "common decoder or expert module instead of individual "
-                        "Linear modules)."
-                    )
-                # Do not fuse a partially initialized non-TENSOR_GROUP group.
-                # Its remaining modules may belong to a later sequential scope.
-                if not group_ids.issubset(scope_ids):
-                    continue
+            if scope_ids is not None and not _fused_layers_in_scope(
+                fused_layers, scope_ids
+            ):
+                continue
 
             only_obs = True
             only_tensor_group = True

@@ -132,13 +132,13 @@ class QADModifier(Modifier):
     # most recently run sequential target and its hidden states
     _cur_seq_target: torch.nn.Module | None = PrivateAttr(default=None)
     _cur_seq_target_output: torch.Tensor | None = PrivateAttr(default=None)
-    _lazy_initialization: bool = PrivateAttr(default=False)
+    _seq_target_patterns: list[str] = PrivateAttr(default_factory=list)
     _hooked_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
     _seen_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
+    def required_pipeline(self) -> str:
+        return "sequential"
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         pipeline = kwargs.get("pipeline")
@@ -148,45 +148,40 @@ class QADModifier(Modifier):
                 "weight quantization modifier and QAD share each subgraph's "
                 f"calibration stage; got pipeline={pipeline!r}"
             )
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
-        modules = _modules_to_quantize(state.model.modules())
-        if not modules and not self._lazy_initialization:
+        # TODO add distributed support for QAD calibration
+        if is_distributed() and torch.distributed.get_world_size() > 1:
+            raise ValueError("QAD currently supports single-process calibration")
+        self._seq_target_patterns = infer_sequential_targets(
+            state.model, kwargs.get("sequential_targets")
+        )
+        return True
+
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules")
+        if modules is None and not _modules_to_quantize(state.model.modules()):
             raise ValueError(
                 "Place QADModifier after a weight quantization modifier, such as "
                 "QuantizationModifier (RTN) or GPTQModifier, in the same recipe"
             )
-        # TODO add distributed support for QAD calibration
-        if is_distributed() and torch.distributed.get_world_size() > 1:
-            raise ValueError("QAD currently supports single-process calibration")
-        seq_target_patterns = infer_sequential_targets(
-            state.model, kwargs.get("sequential_targets")
-        )
-        self._seq_target_names = {
-            module: name or type(module).__name__
-            for name, module in match_named_modules(state.model, seq_target_patterns)
-            if self._lazy_initialization or _modules_to_quantize(module.modules())
-        }
-        return True
-
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules") if self._lazy_initialization else None
         self._register_capture_hooks(state, modules)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        if self._lazy_initialization:
-            self._register_capture_hooks(state, modules)
+        self._register_capture_hooks(state, modules)
 
     def _register_capture_hooks(
         self, state: State, modules: list[torch.nn.Module] | None
     ):
         module_scope = None if modules is None else {id(module) for module in modules}
-        for seq_target in self._seq_target_names:
+        for name, seq_target in match_named_modules(
+            state.model, self._seq_target_patterns
+        ):
             if module_scope is not None and id(seq_target) not in module_scope:
                 continue
             if seq_target in self._hooked_seq_targets:
                 continue
+            self._seq_target_names[seq_target] = name or type(seq_target).__name__
             self.register_hook(
                 seq_target,
                 partial(self._input_capture_hook, state=state),
@@ -556,11 +551,7 @@ class QADModifier(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         try:
-            expected_targets = (
-                self._seen_seq_targets
-                if self._lazy_initialization
-                else set(self._seq_target_names)
-            )
+            expected_targets = self._seen_seq_targets
             if not expected_targets or self._distilled != expected_targets:
                 raise ValueError(
                     "QAD did not optimize every target; use the sequential pipeline "

@@ -213,7 +213,7 @@ def test_lazy_awq_registers_only_current_scope_before_quant_config():
     )
     state = State(model=model)
     awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
-    awq.initialize(state, lazy_initialization=True)
+    awq.initialize(state)
 
     awq.on_calibration_start(state, None, modules=list(model.layers[0].modules()))
 

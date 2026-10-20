@@ -36,12 +36,12 @@ class WandaPruningModifier(SparsityModifierBase):
 
     Lifecycle:
 
-    - on_initialize
+    - on_calibration_start / on_sequential_epoch_start
         - register_hook(module, calibrate_module, "forward")
         - run_sequential / run_basic
             - make_empty_row_scalars
             - accumulate_row_scalars
-    - on_sequential_batch_end
+    - on_sequential_epoch_end
         - sparsify_weight
     - on_finalize
         - remove_hooks()

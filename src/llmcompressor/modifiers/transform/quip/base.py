@@ -41,7 +41,7 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - on_calibration_start
+    - on_calibration_start / on_sequential_epoch_start
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
@@ -87,14 +87,9 @@ class QuIPModifier(Modifier):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
-    _lazy_initialization: bool = PrivateAttr(default=False)
     _transform_factories: dict[str, TransformFactory] = PrivateAttr(
         default_factory=dict
     )
-
-    @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -109,7 +104,6 @@ class QuIPModifier(Modifier):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
         if self.transform_config is None:
             self.transform_config = self._create_config()
         self._transform_factories = {
@@ -121,7 +115,7 @@ class QuIPModifier(Modifier):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         model = state.model
-        modules = kwargs.get("modules") if self._lazy_initialization else None
+        modules = kwargs.get("modules")
 
         # Untie embeddings if they will be targeted by transforms
         if targets_embeddings(model, self._get_targets(model, modules)):
@@ -137,9 +131,6 @@ class QuIPModifier(Modifier):
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        if not self._lazy_initialization:
-            return
-
         model = state.model
         if targets_embeddings(model, self._get_targets(model, modules)):
             untie_word_embeddings(model)

@@ -401,8 +401,11 @@ def test_validation_split():
 
 
 def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
+    qad = QADModifier()
+    state = State(model=BranchModel())
+    qad.on_initialize(state)
     with pytest.raises(ValueError, match="after a weight quantization"):
-        QADModifier().on_initialize(State(model=BranchModel()))
+        qad.on_calibration_start(state, None)
     with pytest.raises(ValidationError):
         QADModifier(teacher_mode="full")
 

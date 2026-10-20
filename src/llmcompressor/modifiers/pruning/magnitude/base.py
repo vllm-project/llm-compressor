@@ -1,7 +1,8 @@
 import warnings
 from typing import Any
 
-from pydantic import field_validator
+import torch
+from pydantic import Field, field_validator
 
 from llmcompressor.core import Event, EventType, ModelParameterizedLayer, State
 from llmcompressor.modifiers import Modifier
@@ -31,7 +32,9 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
     leave_enabled: bool = False
     apply_globally: bool = False
 
-    parameterized_layers_: dict[str, ModelParameterizedLayer] = None
+    parameterized_layers_: dict[str, ModelParameterizedLayer] = Field(
+        default_factory=dict
+    )
     _save_masks: bool = False
     _use_hooks: bool = False
     scheduler_function_: SchedulerCalculationType = None
@@ -75,19 +78,48 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
             self.mask_structure
         )
 
-        self.parameterized_layers_ = build_parameterized_layers(
-            state.model, self.targets
-        )
+        return True
 
-        for layer_param_name, parameterized_layer in self.parameterized_layers_.items():
+    def _initialize_scope(self, state: State, modules: list[torch.nn.Module] | None):
+        for layer_param_name, parameterized_layer in build_parameterized_layers(
+            state.model, self.targets, modules=modules
+        ).items():
+            if layer_param_name in self.parameterized_layers_:
+                continue
+            self.parameterized_layers_[layer_param_name] = parameterized_layer
             self.add_mask(
                 layer_param_name,
                 parameterized_layer,
                 persistent=self._save_masks,
                 add_hooks=self._use_hooks,
             )
+            self.update_mask(
+                layer_param_name,
+                self.mask_creator_function_(
+                    PruningMaskCreatorArgs(
+                        parameter=parameterized_layer.param,
+                        sparsity=self.init_sparsity,
+                        scores=parameterized_layer.param.data.abs(),
+                    )
+                ),
+            )
+        self.enable_masks()
 
-        return True
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
+        self._initialize_scope(state, kwargs.get("modules"))
+
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        self._initialize_scope(state, modules)
+
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        module_scope = set(modules)
+        for name, layer in self.parameterized_layers_.items():
+            if layer.layer in module_scope:
+                self.apply_mask_weight(name)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         for layer_param_name, _ in self.parameterized_layers_.items():
@@ -96,6 +128,7 @@ class MagnitudePruningModifier(Modifier, LayerParamMasking):
         return True
 
     def on_start(self, state: State, event: Event, **kwargs):
+        self._initialize_scope(state, None)
         sparsity = self.scheduler_function_(event, state)
         self.current_sparsity_ = sparsity
 
