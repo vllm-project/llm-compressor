@@ -1,9 +1,5 @@
 import torch
-from compressed_tensors.offload import (
-    get_cache_init_kwargs,
-    get_execution_device,
-    offload_module,
-)
+from compressed_tensors.offload import get_execution_device
 from transformers.activations import ACT2FN
 from transformers.models.llama4.configuration_llama4 import (
     Llama4Config,
@@ -55,12 +51,6 @@ class Llama4LinearExperts(LinearExperts2D):
             expert.copy_from_experts_module(experts, index)
 
         self._record_source_metadata(experts, config)
-
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
-
         return self
 
     def __init__(

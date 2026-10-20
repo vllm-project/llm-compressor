@@ -279,12 +279,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         # Needed by :meth:`to_experts_module` / ``repack_moe`` to restore the native
         # fused experts class and config (see issue #2699).
         self._record_source_metadata(experts, config)
-
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
-
         return self
 
     def _record_source_metadata(
