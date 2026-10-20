@@ -149,6 +149,9 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
+            # fold any MoE expert-sparsity config (e.g. MoNe / REAP) recorded on the
+            # model into the compressor's quantization config so it is serialized
+            _apply_moe_sparsity_config(model, compressor)
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
@@ -260,6 +263,30 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+def _apply_moe_sparsity_config(model: PreTrainedModel, compressor: ModelCompressor):
+    """
+    Fold a MoE expert-sparsity config recorded on ``model`` (as
+    ``model._moe_sparsity_config``, an
+    :class:`~compressed_tensors.config.ExpertSparsityConfig`) into the compressor's
+    quantization config, so ``ModelCompressor.update_config`` serializes it under
+    ``config.json``'s ``quantization_config.moe_sparsity_config``.
+
+    MoNe / REAP pruning record this during ``on_finalize``. A minimal quantization
+    config is created for pruning-only (non-quantized) models so the sparsity config
+    still has a home in the checkpoint.
+    """
+    moe_sparsity_config = getattr(model, "_moe_sparsity_config", None)
+    if moe_sparsity_config is None:
+        return
+
+    from compressed_tensors.quantization import QuantizationConfig
+
+    if compressor.quantization_config is None:
+        compressor.quantization_config = QuantizationConfig(config_groups={})
+
+    compressor.quantization_config.moe_sparsity_config = moe_sparsity_config
 
 
 def resave_config(config: PretrainedConfig, save_dir: str):
