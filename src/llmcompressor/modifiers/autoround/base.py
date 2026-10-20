@@ -181,11 +181,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _all_module_input: dict[str, list[tuple]] = PrivateAttr(default_factory=dict)
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
     _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
-    _lazy_initialization: bool = PrivateAttr(default=False)
 
     @property
     def supports_lazy_initialization(self) -> bool:
-        return self.can_initialize_lazily()
+        return all(
+            scheme.weights is None
+            or scheme.weights.strategy != QuantizationStrategy.TENSOR_GROUP
+            for scheme in self.resolved_config.config_groups.values()
+        )
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -234,8 +237,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         :param model: model to prepare for calibration
         """
+        module_ids = None if modules is None else {id(module) for module in modules}
         targets = list(
-            match_named_modules(model, self.targets, self.ignore, modules=modules)
+            (name, module)
+            for name, module in match_named_modules(model, self.targets, self.ignore)
+            if module_ids is None or id(module) in module_ids
         )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
