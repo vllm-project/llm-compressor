@@ -61,14 +61,16 @@ def _submit_subgraph_staging(
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
-    input_names: list[str] | None,
+    input_names: set[str] | None,
     desc: str,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
     overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = activations.iter_prefetch(input_names)
+    batch_source = activations.iter_prefetch(
+        list(input_names) if input_names is not None else None
+    )
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):

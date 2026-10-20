@@ -31,7 +31,9 @@ class BasicPipeline(CalibrationPipeline):
         dataset_args = replace(
             dataset_args if dataset_args is not None else DatasetArguments(),
             sequential_targets=[""],  # root module
+            sequential_targets_per_subgraph=1,
             propagate_error=False,
+            log_sequential_error=False,
         )
         SequentialPipeline()(model, dataloader, dataset_args)
 

@@ -10,23 +10,35 @@ class BranchedModel(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.linear = torch.nn.Linear(2, 2, bias=False)
+        torch.nn.init.eye_(self.linear.weight)
 
-    def forward(self, x, loss_mask=None):
+    def forward(self, x, loss_mask=None, **kwargs):
         if x.sum() < 0:
             x = -x
         if loss_mask is not None:
             x = x * loss_mask
-        return self.linear(x)
+        return self.linear(x) * kwargs.get("scale", 1)
 
 
 def test_basic_pipeline_preserves_untraced_calibration():
     model = BranchedModel()
     mask = torch.zeros(1, 2)
-    samples = [{"x": -torch.ones(1, 2)}, {"x": torch.ones(1, 2), "loss_mask": mask}]
-    args = DatasetArguments(sequential_targets=["Linear"], use_loss_mask=True)
+    samples = [
+        {"x": -torch.ones(1, 2)},
+        {"x": torch.ones(1, 2), "loss_mask": mask},
+        {"x": torch.ones(1, 2), "scale": 0},
+    ]
+    args = DatasetArguments(
+        sequential_targets=["Linear"],
+        sequential_targets_per_subgraph=4,
+        log_sequential_error=True,
+        use_loss_mask=True,
+    )
+    pre_calls = []
     outputs = []
 
     with (
+        model.register_forward_pre_hook(lambda *_: pre_calls.append(True)),
         model.register_forward_hook(
             lambda _module, _args, output: outputs.append(output)
         ),
@@ -34,14 +46,18 @@ def test_basic_pipeline_preserves_untraced_calibration():
     ):
         session.initialize(model=model, start=-1)
         BasicPipeline()(model, DataLoader(samples, batch_size=None), args)
-        assert len(outputs) == len(samples)
+        assert len(pre_calls) == len(outputs) == len(samples)
+        torch.testing.assert_close(outputs[0], torch.ones_like(outputs[0]))
         assert torch.count_nonzero(outputs[1]) == 0
+        assert torch.count_nonzero(outputs[2]) == 0
         assert session.state.loss_masks[0] is None
         assert torch.equal(session.state.loss_masks[1].cpu(), mask)
         session.finalize()
 
     assert args.sequential_targets == ["Linear"]
+    assert args.sequential_targets_per_subgraph == 4
     assert args.propagate_error is True
+    assert args.log_sequential_error is True
 
 
 def test_run_calibration_without_dataset_arguments():

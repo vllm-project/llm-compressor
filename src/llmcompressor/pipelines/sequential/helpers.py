@@ -215,7 +215,8 @@ def trace_subgraphs(
     targets = _resolve_sequential_targets(model, sequential_targets)
 
     if targets == {model}:
-        # Treat the root as a leaf without tracing its forward.
+        # FX traces the root's forward directly, without consulting is_leaf_module.
+        # Keep all kwargs so optional inputs may differ between calibration batches.
         graph = Graph()
         root = graph.placeholder("self")
         inputs = graph.placeholder("**kwargs")
