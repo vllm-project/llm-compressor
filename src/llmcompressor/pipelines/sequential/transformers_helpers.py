@@ -1520,17 +1520,6 @@ class HFTracer(Tracer):
                 }
             )
 
-        for param in sig.parameters.values():
-            if param.kind != inspect.Parameter.VAR_KEYWORD:
-                continue
-            if param.name not in concrete_args:
-                continue
-            kwargs_value = concrete_args[param.name]
-            if kwargs_value is inspect.Parameter.empty or kwargs_value is None:
-                # A VAR_KEYWORD parameter has no signature default, but its runtime
-                # value is an empty mapping when no extra keyword arguments are passed.
-                concrete_args[param.name] = {}
-
         input_names = sig.parameters.keys() - concrete_args.keys()
 
         # Creating a random input shape to generate dummy inputs.
@@ -1605,13 +1594,13 @@ class HFTracer(Tracer):
                     # Without this, torch.jit.script fails because the inputs type is Optional[torch.Tensor].
                     # It cannot infer on the attributes and methods the input should have, and fails.
                     node.type = torch.Tensor
+                # Concrete placeholders can have users that are only FX specialization
+                # checks. Keep one only when it contributes to the graph output, then
+                # replace it with its concrete value.
                 elif (
                     node in output_dependencies
                     and node.target in concrete_placeholder_names
                 ):
-                    # Concrete placeholders can have users that are only FX specialization
-                    # checks. Keep one only when it contributes to the graph output, then
-                    # replace it with its concrete value.
                     param_name = concrete_placeholder_names[node.target]
                     concrete_value = concrete_args[param_name]
                     for user in list(node.users):
@@ -1723,7 +1712,9 @@ def get_concrete_args(model: nn.Module, input_names: list[str]):
         )
 
     return {
-        p.name: p.default for p in sig.parameters.values() if p.name not in input_names
+        p.name: {} if p.kind is inspect.Parameter.VAR_KEYWORD else p.default
+        for p in sig.parameters.values()
+        if p.name not in input_names
     }
 
 
