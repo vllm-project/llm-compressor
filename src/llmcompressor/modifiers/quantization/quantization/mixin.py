@@ -16,7 +16,6 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
-    QuantizationStrategy,
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
@@ -225,14 +224,6 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def can_initialize_lazily(self) -> bool:
-        """Return whether quantization setup is independent across module scopes."""
-        return all(
-            scheme.weights is None
-            or scheme.weights.strategy != QuantizationStrategy.TENSOR_GROUP
-            for scheme in self.resolved_config.config_groups.values()
-        )
-
     def initialize_quantization(
         self,
         model: torch.nn.Module,
@@ -246,12 +237,13 @@ class QuantizationMixin(HooksMixin):
         """
 
         if modules is not None:
+            module_ids = {id(module) for module in modules}
             target_modules = [
                 module
                 for _, module in match_named_modules(
-                    model, self.resolved_targets, self.ignore, modules=modules
+                    model, self.resolved_targets, self.ignore
                 )
-                if module not in self._initialized_modules
+                if id(module) in module_ids and module not in self._initialized_modules
             ]
             if not target_modules:
                 return
@@ -300,11 +292,16 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        targets = list(
-            match_named_modules(
-                model, self.resolved_targets, self.ignore, modules=modules
+        if modules is not None:
+            modules = list(modules)
+        module_ids = None if modules is None else {id(module) for module in modules}
+        targets = [
+            (name, module)
+            for name, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
             )
-        )
+            if module_ids is None or id(module) in module_ids
+        ]
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
         if warn_on_inference_mode:
@@ -318,9 +315,9 @@ class QuantizationMixin(HooksMixin):
             apply_calibration_status(module)
             self._calibrated_modules.add(module)
 
-        # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
-        if modules is None:
-            fuse_weight_observers(model)
+        # Link fused weight observers for shared global_scale.
+        # Scoped setup also verifies that each TENSOR_GROUP fusion fits in the scope.
+        fuse_weight_observers(model, modules=modules)
 
     def end_calibration(self, model: torch.nn.Module):
         """

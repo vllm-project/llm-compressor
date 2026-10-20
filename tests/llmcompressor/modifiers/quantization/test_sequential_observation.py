@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import pytest
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -229,7 +230,22 @@ def test_session_uses_eager_initialization_if_recipe_has_unsupported_modifier():
     assert model[1].quantization_scheme is not None
 
 
-def test_tensor_group_quantization_does_not_support_lazy_initialization():
+def test_tensor_group_quantization_supports_lazy_initialization():
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
 
-    assert not modifier.supports_lazy_initialization
+    assert modifier.supports_lazy_initialization
+
+
+def test_lazy_tensor_group_calibration_rejects_split_fused_layers():
+    model = nn.Sequential(_FakeDecoderLayer())
+    modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
+    state = State(model=model)
+    modifier.on_initialize(state, lazy_initialization=True)
+
+    q_proj = model[0].q_proj
+    modifier.initialize_quantization(model, modules=[q_proj])
+
+    with pytest.raises(ValueError, match="span multiple sequential calibration"):
+        modifier.start_calibration(
+            model, modules=[q_proj], warn_on_inference_mode=False
+        )

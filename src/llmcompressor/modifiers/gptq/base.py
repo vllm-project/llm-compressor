@@ -126,7 +126,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     @property
     def supports_lazy_initialization(self) -> bool:
-        return self.can_initialize_lazily()
+        return True
 
     requires_calibration_data: bool = True
 
@@ -268,9 +268,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         model: torch.nn.Module,
         modules: list[torch.nn.Module] | None,
     ):
-        for _, module in match_named_modules(
-            model, self.resolved_targets, self.ignore, modules=modules
-        ):
+        module_ids = None if modules is None else {id(module) for module in modules}
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+            if module_ids is not None and id(module) not in module_ids:
+                continue
             if self._is_gptq_module(module) and module not in self._gptq_hooked_modules:
                 self.register_hook(module, self.calibrate_module, "forward")
                 self._gptq_hooked_modules.add(module)

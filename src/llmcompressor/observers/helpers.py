@@ -7,6 +7,8 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
+from collections.abc import Collection
+
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import (
@@ -158,7 +160,7 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-def fuse_weight_observers(model: Module):
+def fuse_weight_observers(model: Module, modules: Collection[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -169,13 +171,37 @@ def fuse_weight_observers(model: Module):
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
+    :param modules: optional active calibration scope. If a TENSOR_GROUP fused group is
+        only partially in scope, raises an error before calibration starts
     """
     from llmcompressor.observers.fusion import FusionHandler
 
+    scope_ids = None if modules is None else {id(module) for module in modules}
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
             fusion_name_group = tuple(fused_layers.keys())
             layers_to_fuse = list(fused_layers.values())
+
+            if scope_ids is not None:
+                group_ids = {id(layer) for layer in layers_to_fuse}
+                if not group_ids.intersection(scope_ids):
+                    continue
+
+                in_scope_tensor_group = any(
+                    id(layer) in scope_ids
+                    and (obs := getattr(layer, "weight_observer", None)) is not None
+                    and obs.args.strategy == QuantizationStrategy.TENSOR_GROUP
+                    for layer in layers_to_fuse
+                )
+                if in_scope_tensor_group and not group_ids.issubset(scope_ids):
+                    raise ValueError(
+                        "TENSOR_GROUP fused layers "
+                        f"{fusion_name_group} span multiple sequential calibration "
+                        "subgraphs. Choose `sequential_targets` so all fused layers "
+                        "are included in one subgraph (for example, target their "
+                        "common decoder or expert module instead of individual "
+                        "Linear modules)."
+                    )
 
             only_obs = True
             only_tensor_group = True
