@@ -57,7 +57,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_calibration_start
+    - on_calibration_start / on_sequential_epoch_start
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
@@ -114,14 +114,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
-    _lazy_initialization: bool = PrivateAttr(default=False)
     _transform_factories: dict[str, TransformFactory] = PrivateAttr(
         default_factory=dict
     )
-
-    @property
-    def supports_lazy_initialization(self) -> bool:
-        return True
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -136,7 +131,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        self._lazy_initialization = kwargs.get("lazy_initialization", False)
         if self.mappings is None:
             self.mappings = infer_mapping_from_model(state.model)
         if self.norm_mappings is None:
@@ -168,15 +162,14 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     @torch.no_grad()
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules") if self._lazy_initialization else None
+        modules = kwargs.get("modules")
         self._apply_transform_scope(state.model, modules)
 
     @torch.no_grad()
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        if self._lazy_initialization:
-            self._apply_transform_scope(state.model, modules)
+        self._apply_transform_scope(state.model, modules)
 
     def _apply_transform_scope(
         self, model: PreTrainedModel, modules: list[torch.nn.Module] | None
