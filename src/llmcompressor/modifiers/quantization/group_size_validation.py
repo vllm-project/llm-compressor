@@ -84,10 +84,11 @@ def get_layers_indivisible_by_group_size(
         fail at save/forward due to indivisibility.
     """
     with disable_onloading():
+        module_ids = None if modules is None else {id(module) for module in modules}
         indivisible: list[tuple[str, int, int]] = []
-        for name, module in match_named_modules(
-            model, resolved_targets, ignore, modules=modules
-        ):
+        for name, module in match_named_modules(model, resolved_targets, ignore):
+            if module_ids is not None and id(module) not in module_ids:
+                continue
             scheme: QuantizationScheme | None = getattr(
                 module, "quantization_scheme", None
             )

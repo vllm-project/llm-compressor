@@ -85,12 +85,6 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
 
-        if "lazy_initialization" in kwargs:
-            raise TypeError(
-                "lazy_initialization is selected automatically from recipe modifier "
-                "capabilities and is no longer an initialize argument"
-            )
-
         self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
