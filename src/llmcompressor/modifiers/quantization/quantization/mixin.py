@@ -238,13 +238,12 @@ class QuantizationMixin(HooksMixin):
 
         if modules is not None:
             modules = list(modules)
-            module_ids = {id(module) for module in modules}
             target_modules = [
                 module
                 for _, module in match_named_modules(
                     model, self.resolved_targets, self.ignore
                 )
-                if id(module) in module_ids and module not in self._initialized_modules
+                if module in modules and module not in self._initialized_modules
             ]
             if not target_modules:
                 return
@@ -296,13 +295,12 @@ class QuantizationMixin(HooksMixin):
         """
         if modules is not None:
             modules = list(modules)
-        module_ids = None if modules is None else {id(module) for module in modules}
         targets = [
             (name, module)
             for name, module in match_named_modules(
                 model, self.resolved_targets, self.ignore
             )
-            if module_ids is None or id(module) in module_ids
+            if modules is None or module in modules
         ]
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)

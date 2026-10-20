@@ -227,11 +227,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         model: torch.nn.Module,
         modules: list[torch.nn.Module] | None,
     ):
-        module_ids = None if modules is None else {id(module) for module in modules}
         for name, module in match_named_modules(
             model, self.resolved_targets, self.ignore
         ):
-            if module_ids is not None and id(module) not in module_ids:
+            if modules is not None and module not in modules:
                 continue
             if self._is_gptq_module(module) and module not in self._gptq_hooked_modules:
                 self._module_names[module] = name
