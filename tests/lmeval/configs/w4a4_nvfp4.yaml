@@ -6,6 +6,9 @@ dataset_split: "train[:20]"
 seed: 100
 num_calibration_samples: 20
 lmeval:
+  recovery_threshold:
+    exact_match,strict-match: 0.94
+    exact_match,flexible-extract: 0.94
   metrics:
     # Note: recovery will be dependent on 
     # the hardware cpabilities. For blackwell

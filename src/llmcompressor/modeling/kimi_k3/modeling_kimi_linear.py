@@ -50,7 +50,6 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 import transformers
-from einops import rearrange
 from packaging import version
 from torch import nn
 from transformers.activations import ACT2FN
@@ -73,7 +72,11 @@ from transformers.utils import (
 from transformers.utils.generic import check_model_inputs
 from transformers.utils.output_capturing import OutputRecorder
 
+logger = logging.get_logger(__name__)
+
 try:
+    from einops import rearrange
+
     from fla.modules import FusedRMSNormGated, ShortConvolution
     from fla.ops.kda import chunk_kda, fused_recurrent_kda
 
@@ -81,7 +84,8 @@ try:
     from fla.ops.utils.index import prepare_cu_seqlens_from_mask, prepare_lens_from_mask
     from fla.utils import tensor_cache
 except ImportError:
-    raise ImportError("Plese run `pip install -U fla-core`")
+    logger.warning("Plese run `pip install -U fla-core einops tiktoken`")
+    rearrange = FusedRMSNormGated = ShortConvolution = chunk_kda = fused_recurrent_kda = prepare_cu_seqlens_from_mask = prepare_lens_from_mask = tensor_cache = None
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 
@@ -90,8 +94,6 @@ from .configuration_kimi_k3 import KimiLinearConfig
 assert version.parse(transformers.__version__) >= version.parse(
     "4.56.0"
 ), "Please upgrade transformers to >= 4.56.0"
-
-logger = logging.get_logger(__name__)
 
 
 # Register Moonshot-specific activation functions
@@ -129,15 +131,16 @@ def index_first_axis(x, indices):
     return x[indices]
 
 
-@tensor_cache
-def get_unpad_data(
-    attention_mask: torch.Tensor,
-) -> tuple[torch.Tensor, torch.Tensor, int]:
-    lens = prepare_lens_from_mask(attention_mask)
-    indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
-    max_seqlen_in_batch = lens.max().item()
-    cu_seqlens = prepare_cu_seqlens_from_mask(attention_mask)
-    return indices, cu_seqlens, max_seqlen_in_batch
+if tensor_cache is not None:
+    @tensor_cache
+    def get_unpad_data(
+        attention_mask: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, int]:
+        lens = prepare_lens_from_mask(attention_mask)
+        indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+        max_seqlen_in_batch = lens.max().item()
+        cu_seqlens = prepare_cu_seqlens_from_mask(attention_mask)
+        return indices, cu_seqlens, max_seqlen_in_batch
 
 
 def pad_input(
@@ -930,7 +933,7 @@ class KimiSparseMoeBlock(nn.Module):
 
         if self.use_latent_moe:
             hidden_states = self.routed_expert_down_proj(hidden_states)
-        if not self.training:
+        if not get_calibrate_all_experts_flag():
             y = self.moe_infer(hidden_states, topk_idx, topk_weight)
         else:
             y = self.moe_train(hidden_states, topk_idx, topk_weight)
@@ -947,7 +950,7 @@ class KimiSparseMoeBlock(nn.Module):
         return y
 
     def moe_train(self, x, topk_ids, topk_weight):
-        """Training-compatible MoE dispatch with gradient flow."""
+        """Calibration-compatible MoE dispatch with gradient flow."""
         y = torch.zeros_like(x)
 
         with torch.no_grad():
@@ -956,10 +959,7 @@ class KimiSparseMoeBlock(nn.Module):
         for expert_idx, expert in enumerate(self.experts):
             top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
 
-            if get_calibrate_all_experts_flag():
-                expert_out = expert(x)[token_indices]
-            else:
-                expert_out = expert(x[token_indices])
+            expert_out = expert(x)[token_indices]
 
             expert_weights = topk_weight[token_indices, top_k_pos, None]
             y.index_add_(0, token_indices, (expert_out * expert_weights).to(y.dtype))

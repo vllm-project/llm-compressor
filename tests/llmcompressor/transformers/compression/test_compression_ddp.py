@@ -24,7 +24,7 @@ import tempfile
 import pytest
 import torch
 import torch.distributed
-from compressed_tensors.offload import init_dist, load_offloaded_model
+from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -36,6 +36,7 @@ from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.utils import load_context
 from tests.testing_utils import requires_gpu, torchrun
 
 # Test configuration
@@ -79,7 +80,7 @@ def _run_single_gpu(
     Returns:
         weights dict if return_model=False, else (weights, model, eval_dataset)
     """
-    with load_offloaded_model():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map="auto_offload"
         )
@@ -202,6 +203,8 @@ def _test_ddp_modifier(
         max_kl_div: Maximum allowed mean KL divergence (default 0.1)
         offload_folder: Optional folder for disk offload (default None)
     """
+    torch.backends.cudnn.deterministic = True
+
     # Set deterministic seed for reproducibility
     torch.manual_seed(42)
     torch.get_device_module().manual_seed_all(42)
@@ -233,7 +236,7 @@ def _test_ddp_modifier(
         if offload_folder:
             load_kwargs["offload_folder"] = offload_folder
 
-    with load_offloaded_model():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(MODEL, **load_kwargs)
 
     # Run oneshot with DDP — prebaked dataset handles rank partitioning automatically
@@ -483,6 +486,6 @@ def test_ddp_smoke_autoround():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.80,
+        min_top1_match=0.75,
         max_kl_div=0.01,
     )

@@ -15,6 +15,5 @@ model_free_ptq(
         "lm_head",
         "model.embed_tokens",
     ],
-    max_workers=15,
     device="cuda:0",
 )

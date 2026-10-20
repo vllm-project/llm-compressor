@@ -114,39 +114,42 @@ setup(
         ("pyyaml>=6.0.1,<=6.0.3" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
         # librosa 0.11.0 supports numpy 2.x
         # https://librosa.org/doc/0.11.0/changelog.html
-        ("numpy>=2.0.0,<=2.4.6" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
+        ("numpy>=2.0.0,<=2.5.4" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         ("requests>=2.32.2,<2.35.0" if BUILD_TYPE == "release" else "requests>=2.32.2"),
-        ("tqdm>=4.66.3,<=4.70.0" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
-        ("torch>=2.10.0,<=2.13.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
+        ("tqdm>=4.66.3,<=4.70.1" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
+        ("torch>=2.10.0,<=2.14.1" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=5.15.0,<=5.16.1"
+            "transformers>=5.15.0,<=5.20.2"
             if BUILD_TYPE == "release"
             else "transformers>=5.15.0"
         ),
-        ("datasets>=4.8.4,<=5.0.1" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
+        ("datasets>=4.8.4,<=5.1.0" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "auto-round>=0.14.1,<=0.14.2"
+            "auto-round>=0.15.1,<=0.16.1"
             if BUILD_TYPE == "release"
-            else "auto-round>=0.14.1"
+            else "auto-round>=0.15.1"
         ),
         (
-            "accelerate>=1.6.0,<=1.14.0"
+            "accelerate>=1.15.0,<=1.15.0"
             if BUILD_TYPE == "release"
-            else "accelerate>=1.6.0"
+            else "accelerate>=1.15.0"
         ),
         (
-            "nvidia-ml-py>=12.560.30,<=13.610.43"
+            "nvidia-ml-py>=12.560.30,<=13.615.71"
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=12.0.0,<=13.0.0" if BUILD_TYPE == "release" else "pillow>=12.0.0"),
         (
-            "compressed-tensors==0.18.0"
+            "compressed-tensors==0.19.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.18.1a2"
+            else "compressed-tensors>=0.19.1a2"
         ),
     ],
     extras_require={
+        "higgs": [
+            ("pulp>=2.7.0,<=2.10.0" if BUILD_TYPE == "release" else "pulp>=2.7.0"),
+        ],
         "dev": [
             # testing framework
             "pytest>=6.0.0",
@@ -171,9 +174,15 @@ setup(
             "zensical",
             "markdown",
             "pymdown-extensions",
+            # model-specific dependencies
+            "fla-core",
+            "einops",
+            "tiktoken",
+            "qwen_vl_utils",
+            "pulp>=2.7.0",
         ],
         "qwen": [
-            "qwen_vl_utils",
+            "qwen_vl_utils",  # TODO: remove
         ],
     },
     entry_points={
