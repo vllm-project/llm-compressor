@@ -171,16 +171,16 @@ def fuse_weight_observers(model: Module, modules: Collection[Module] | None = No
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
-    :param modules: optional active calibration scope. If a TENSOR_GROUP fused group is
-        only partially in scope, raises an error before calibration starts
+    :param modules: optional active calibration scope. Only groups fully in scope are
+        fused; a partially scoped TENSOR_GROUP group raises before calibration starts.
     """
     from llmcompressor.observers.fusion import FusionHandler
 
     scope_ids = None if modules is None else {id(module) for module in modules}
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
-            fusion_name_group = tuple(fused_layers.keys())
             layers_to_fuse = list(fused_layers.values())
+            fusion_name_group = tuple(fused_layers.keys())
 
             if scope_ids is not None:
                 group_ids = {id(layer) for layer in layers_to_fuse}
@@ -202,6 +202,10 @@ def fuse_weight_observers(model: Module, modules: Collection[Module] | None = No
                         "common decoder or expert module instead of individual "
                         "Linear modules)."
                     )
+                # Do not fuse a partially initialized non-TENSOR_GROUP group.
+                # Its remaining modules may belong to a later sequential scope.
+                if not group_ids.issubset(scope_ids):
+                    continue
 
             only_obs = True
             only_tensor_group = True

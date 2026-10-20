@@ -25,6 +25,8 @@ from llmcompressor.pipelines.sequential.error_logging import (
     process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
+    compress_subgraph_modules,
+    decompress_subgraph_modules,
     find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
@@ -259,8 +261,13 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                onloaded_modules = list(subgraph_modules.values())
-                LifecycleCallbacks.sequential_epoch_start(onloaded_modules)
+                modules = list(subgraph_modules.values())
+
+                # Decompress only this subgraph after onloading it. The sequential
+                # start callback then performs scope-local initialization.
+                if dataset_args.layerwise_decompression:
+                    decompress_subgraph_modules(modules)
+                LifecycleCallbacks.sequential_epoch_start(modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -289,7 +296,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(onloaded_modules)
+                LifecycleCallbacks.sequential_epoch_end(modules)
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
@@ -325,6 +332,10 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
+                # Repack weights before offloading the subgraph's tensors.
+                if dataset_args.layerwise_compression:
+                    compress_subgraph_modules(modules)
+
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
