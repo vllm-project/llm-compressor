@@ -253,7 +253,7 @@ class QuantizationMixin(HooksMixin):
                 reset_quantization_status(module)
 
             apply_quantization_config(
-                model, self.resolved_config, allowed_modules=target_modules
+                model, self.resolved_config, modules=target_modules
             )
             validate_fused_layer_scope(model, modules)
 
@@ -375,7 +375,7 @@ class QuantizationMixin(HooksMixin):
         :param model: the full model (needed for config application)
         :param modules: modules in the current subgraph to prepare
         """
-        apply_quantization_config(model, self.resolved_config, allowed_modules=modules)
+        apply_quantization_config(model, self.resolved_config, modules=modules)
         for module in modules:
             if is_module_quantized(module):
                 self._initialize_observers(module)
