@@ -154,6 +154,28 @@ class LifecycleCallbacks:
         return cls.event(EventType.CALIBRATION_START, **kwargs)
 
     @classmethod
+    def modules_added(cls, modules: dict[str, "Module"], **kwargs) -> ModifiedState:
+        """Notify modifiers about modules created during an active session.
+
+        Some model transformations, such as lazy MoE linearization, add modules
+        after the initialize and calibration-start lifecycle events have run.
+        Modifiers which attach per-module state can use ``on_modules_added`` to
+        initialize that state without reinitializing the whole model.
+        """
+        session = active_session()
+        for modifier in session.lifecycle.recipe.modifiers:
+            callback = getattr(modifier, "on_modules_added", None)
+            if callback is not None:
+                callback(state=session.state, modules=modules, **kwargs)
+
+        return ModifiedState(
+            model=session.state.model,
+            optimizer=session.state.optimizer,
+            loss=session.state.loss,
+            modifier_data=None,
+        )
+
+    @classmethod
     def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
         """
         Invoke a sequential epoch end event for the active session. This event should be
