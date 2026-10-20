@@ -14,10 +14,13 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 
 
 def _make_tiny_model(columns: int, divisible_columns: int | None = None):
-    """Model with one Linear with columns, optionally another with divisible_columns."""
-    linears = {"indiv": torch.nn.Linear(64, columns)}
+    """Model with one Linear with columns, optionally another with divisible_columns.
+
+    Columns are weight.shape[-1], i.e. in_features.
+    """
+    linears = {"indiv": torch.nn.Linear(columns, 64)}
     if divisible_columns is not None:
-        linears["div"] = torch.nn.Linear(64, divisible_columns)
+        linears["div"] = torch.nn.Linear(divisible_columns, 64)
     return torch.nn.ModuleDict(linears)
 
 
@@ -153,3 +156,28 @@ def test_initialize_quantization_succeeds_when_all_divisible():
 
     with torch.no_grad():
         modifier.on_initialize(state)
+
+
+def test_layer_narrower_than_group_size_is_indivisible():
+    """columns < group_size cannot form a single group either (e.g. Mamba dt_proj
+    with in_features=dt_rank=48), so it must be reported like any other
+    indivisible layer instead of failing later in compressed-tensors."""
+    from compressed_tensors.quantization import QuantizationStrategy
+
+    linear = torch.nn.Linear(48, 64)  # weight.shape=(64,48) -> columns=48 < 128
+    weight_args = types.SimpleNamespace(
+        strategy=QuantizationStrategy.GROUP, group_size=128
+    )
+    assert _layer_indivisible(linear, weight_args) == (48, 128)
+
+
+def test_initialize_quantization_raises_early_for_layer_narrower_than_group():
+    """Modifier raises at on_initialize for a layer with columns < group_size."""
+    model = _FlatModel(48, 64)  # weight.shape[-1]=48 < 128
+    state = State()
+    state.update(model=model, device="cpu")
+    modifier = QuantizationModifier(scheme="W4A16", targets=["Linear"])
+
+    with torch.no_grad(), pytest.raises(ValueError) as exc_info:
+        modifier.on_initialize(state)
+    assert "columns=48" in str(exc_info.value)
