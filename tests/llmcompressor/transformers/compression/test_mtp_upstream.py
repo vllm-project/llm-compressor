@@ -6,6 +6,12 @@ from unittest.mock import patch
 import pytest
 import torch
 from compressed_tensors.offload import OffloadCache, get_device_map
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    preset_name_to_scheme,
+)
+from compressed_tensors.utils.match import match_name
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
 from loguru import logger
 from safetensors.torch import load_file, save_file
@@ -137,9 +143,15 @@ def test_mtp_quantizes_with_backbone_using_upstream_model(tmp_path):
 def test_mtp_participates_in_initial_offload_and_sharded_save(tmp_path):
     model = _source_model(tmp_path, load_mtp=True)
     assert isinstance(model.mtp.layers[0].eh_proj._parameters, OffloadCache)
-    assert model.mtp.embed_tokens is model.get_input_embeddings()
+    embedding = model.mtp.embed_tokens
+    assert embedding is not model.get_input_embeddings()
+    assert isinstance(embedding.embed_norm, torch.nn.Identity)
+    assert isinstance(embedding._parameters, OffloadCache)
+    torch.testing.assert_close(
+        embedding.weight, model.get_input_embeddings().weight, rtol=0, atol=0
+    )
     assert model.mtp.shared_head is model.lm_head
-    assert "embed_tokens" not in model.mtp._modules
+    assert model.mtp._modules["embed_tokens"] is embedding
     reference = model.mtp.layers[0].mtp_block.mlp.up_proj.weight.detach().clone()
     oneshot(
         model=model,
@@ -152,13 +164,15 @@ def test_mtp_participates_in_initial_offload_and_sharded_save(tmp_path):
         model.save_pretrained(destination, max_shard_size="20KB")
         assert not (destination / "model_mtp.safetensors").exists()
         mapping = get_weight_mappings(destination)
+        assert "model.mtp.embed_tokens.weight" not in mapping
         assert len(set(mapping.values())) > 1
         name = "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
         tensor = load_file(mapping[name])[name].float()
         scale = load_file(mapping[name + "_scale"])[name + "_scale"]
         torch.testing.assert_close(tensor * scale, reference, atol=0.005, rtol=0.15)
         assert model.mtp.shared_head is model.lm_head
-        assert model.mtp.embed_tokens is model.get_input_embeddings()
+        assert model.mtp._modules["embed_tokens"] is embedding
+        assert isinstance(embedding._parameters, OffloadCache)
 
 
 def test_mtp_exists_before_non_source_rank_sync(tmp_path):
@@ -212,7 +226,10 @@ def test_untargeted_mtp_copied_from_checkpoint(tmp_path):
     )
     with open(destination / "config.json", encoding="utf-8") as handle:
         quant = json.load(handle)["quantization_config"]
-    assert "model.mtp.layers.0.transformer_block.mlp.up_proj" in quant["ignore"]
+    assert any(
+        match_name("model.mtp.layers.0.transformer_block.mlp.up_proj", target)
+        for target in quant["ignore"]
+    )
 
 
 @pytest.mark.parametrize("entrypoint", ["helper", "save"])
@@ -299,7 +316,7 @@ def test_source_quantized_mtp_copy_requires_conversion(
     assert not destination.exists()
 
 
-@pytest.mark.parametrize("target_backbone", [False, True])
+@pytest.mark.parametrize("target_backbone", [False, True, "int4", "fp8"])
 @pytest.mark.parametrize(
     "model_cls",
     [
@@ -320,9 +337,29 @@ def test_named_mtp_targets_match_saved_weights(tmp_path, target_backbone, model_
             model = model_cls.from_pretrained(source.name_or_path)
         projection = f"model.layers.{model.config.num_hidden_layers}.eh_proj"
     targets = [r"re:^mtp\.layers\."]
-    if target_backbone:
-        targets.append("model.layers.0.mlp.up_proj")
-    recipe = QuantizationModifier(scheme="FP8_DYNAMIC", targets=targets)
+    if target_backbone in ("int4", "fp8"):
+        backbone_bits, mtp_bits = (4, 8) if target_backbone == "int4" else (8, 4)
+        recipe = QuantizationModifier(
+            config_groups={
+                name: QuantizationScheme(
+                    targets=scheme_targets,
+                    weights=QuantizationArgs(
+                        num_bits=4, strategy="group", group_size=16
+                    ),
+                )
+                if bits == 4
+                else preset_name_to_scheme("FP8_DYNAMIC", targets=scheme_targets)
+                for name, bits, scheme_targets in (
+                    ("backbone", backbone_bits, [r"re:^model\.layers\."]),
+                    ("mtp", mtp_bits, targets),
+                )
+            },
+            ignore=["lm_head"],
+        )
+    else:
+        if target_backbone:
+            targets.append("model.layers.0.mlp.up_proj")
+        recipe = QuantizationModifier(scheme="FP8_DYNAMIC", targets=targets)
     oneshot(model=model, recipe=recipe)
     original_targets = list(model.mtp.layers[0].eh_proj.quantization_scheme.targets)
 
@@ -336,13 +373,36 @@ def test_named_mtp_targets_match_saved_weights(tmp_path, target_backbone, model_
             if name.endswith(".weight_scale")
         }
         config = json.loads((destination / "config.json").read_text())
-        exported = {
-            target
-            for group in config["quantization_config"]["config_groups"].values()
-            for target in group["targets"]
-        }
-        assert exported == quantized_modules
+        quantization = config["quantization_config"]
+        saved_modules = {name.rpartition(".")[0] for name in weights}
+        exported = {}
+        for group in quantization["config_groups"].values():
+            assert len(group["targets"]) <= 2
+            expected_format = (
+                "pack-quantized"
+                if group["weights"]["num_bits"] == 4
+                else "float-quantized"
+            )
+            assert group["format"] == expected_format
+            matched = {
+                name
+                for name in saved_modules
+                if any(match_name(name, target) for target in group["targets"])
+                and not any(
+                    match_name(name, ignore) for ignore in quantization["ignore"]
+                )
+            }
+            assert not matched.intersection(exported)
+            exported.update({name: group["weights"]["num_bits"] for name in matched})
+        assert set(exported) == quantized_modules
         assert projection in exported
+        if target_backbone in ("int4", "fp8"):
+            mtp_prefix = projection.rpartition(".")[0] + "."
+            assert set(exported.values()) == {4, 8}
+            for name, bits in exported.items():
+                assert bits == (
+                    mtp_bits if name.startswith(mtp_prefix) else backbone_bits
+                )
         assert (
             model.mtp.layers[0].eh_proj.quantization_scheme.targets == original_targets
         )
@@ -582,7 +642,7 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
         num_attention_heads=4,
         num_key_value_heads=2,
         q_lora_rank=32,
-        kv_lora_rank=16,
+        kv_lora_rank=32,
         qk_rope_head_dim=8,
         qk_nope_head_dim=16,
         v_head_dim=16,
