@@ -194,25 +194,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         model: torch.nn.Module,
         modules: list[torch.nn.Module] | None = None,
     ) -> NamedModules:
-        module_ids = None if modules is None else {id(module) for module in modules}
         return [
             (name, module)
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
             for name, module in match_named_modules(model, arg.targets, arg.ignore)
-            if module_ids is None or id(module) in module_ids
+            if modules is None or module in modules
         ]
 
     def _center_embeddings(
         self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
     ):
-        module_ids = None if modules is None else {id(module) for module in modules}
         for _, embedding in match_named_modules(
             model,
             [self.mappings.embedding],
             warn_on_fail=modules is None,
         ):
-            if module_ids is not None and id(embedding) not in module_ids:
+            if modules is not None and embedding not in modules:
                 continue
             center_embeddings(embedding)
 
