@@ -10,9 +10,14 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from torch import nn
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import CompressionSession, Event, EventType, State
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.autoround.base import _wrap_decoding_layer
+from llmcompressor.pipelines import (
+    CalibrationPipeline,
+    IndependentPipeline,
+    SequentialPipeline,
+)
 from llmcompressor.utils.dev import skip_weights_download
 
 
@@ -102,6 +107,49 @@ def test_sequential_epoch_start_initializes_and_hooks_only_current_scope():
     assert not hasattr(model.layers[1], "_tmp_name")
     assert not model.layers[0].q_proj.weight.requires_grad
     assert model.layers[1].q_proj.weight.requires_grad
+
+
+@pytest.mark.parametrize("pipeline", ["basic", "BASIC", "datafree"])
+def test_initialization_rejects_incompatible_pipeline_before_setup(pipeline):
+    model = nn.Sequential(_FakeDecoderLayer())
+    modifier = AutoRoundModifier(scheme="W4A16")
+    with pytest.raises(ValueError, match='requires pipeline="sequential"'):
+        CompressionSession().initialize(
+            model=model,
+            recipe=modifier,
+            pipeline=pipeline,
+            sequential_targets=["_FakeDecoderLayer"],
+        )
+    assert not modifier.initialized
+    assert not modifier._capture_hooks
+    assert not hasattr(model[0].q_proj, "quantization_scheme")
+
+
+@pytest.mark.parametrize(
+    "pipeline,expected",
+    [
+        (None, SequentialPipeline),
+        ("sequential", SequentialPipeline),
+        ("SEQUENTIAL", SequentialPipeline),
+        ("independent", IndependentPipeline),
+        ("INDEPENDENT", IndependentPipeline),
+    ],
+)
+def test_initialization_accepts_supported_pipeline(pipeline, expected):
+    model = nn.Sequential(_FakeDecoderLayer())
+    modifier = AutoRoundModifier(scheme="W4A16")
+    CompressionSession().initialize(
+        model=model,
+        recipe=modifier,
+        pipeline=pipeline,
+        sequential_targets=["_FakeDecoderLayer"],
+    )
+    assert modifier.initialized
+    assert isinstance(
+        CalibrationPipeline.from_modifiers([modifier], user=pipeline), expected
+    )
+    assert not modifier._capture_hooks
+    assert not hasattr(model[0].q_proj, "quantization_scheme")
 
 
 @pytest.mark.parametrize("split_group", [False, True])
