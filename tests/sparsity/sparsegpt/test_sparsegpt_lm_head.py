@@ -82,4 +82,5 @@ def test_ignore_matches_module_names(
     assert len(model.get_submodule(ignored_name)._forward_hooks) == 0
     assert len(model.model.layers[1].mlp.up_proj._forward_hooks) == 1
 
+    modifier.on_calibration_end(state, None)
     modifier.finalize(state)
