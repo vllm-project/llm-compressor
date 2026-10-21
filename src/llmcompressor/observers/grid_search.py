@@ -65,21 +65,19 @@ def _grid_search_observer(
     # Count values for one qparam across observations. Triton uses its packed
     # kernel up to 512 values and FP32 split reductions above that; eager mirrors
     # the corresponding error rounding so the selected grid point matches.
+    # Accumulating larger groups in FP32 also keeps half precision error sums from
+    # overflowing to inf, which would reject every candidate range.
     total_values = observed.shape[0] * observed.shape[-1]
-    if use_imatrix_error:
-        if total_values <= _GRID_SEARCH_TILE_SIZE and observed.dtype in (
-            torch.float16,
-            torch.bfloat16,
-        ):
-            error_dtype = observed.dtype
-        else:
-            error_dtype = torch.float32
-        error_norm = norm
-        if error_dtype != torch.float32:
-            error_norm = torch.tensor(norm, dtype=error_dtype).item()
+    if total_values <= _GRID_SEARCH_TILE_SIZE and observed.dtype in (
+        torch.float16,
+        torch.bfloat16,
+    ):
+        error_dtype = observed.dtype
     else:
-        error_dtype = min_vals.dtype
-        error_norm = norm
+        error_dtype = torch.float32
+    error_norm = norm
+    if use_imatrix_error and error_dtype != torch.float32:
+        error_norm = torch.tensor(norm, dtype=error_dtype).item()
 
     best_error = torch.full(
         min_vals.shape,
@@ -115,6 +113,7 @@ def _grid_search_observer(
                 shrink_min,
                 shrink_max,
                 norm,
+                error_dtype,
             )
 
         improved = error < best_error
@@ -139,6 +138,7 @@ def _calculate_mse_error(
     shrink_min: torch.Tensor,
     shrink_max: torch.Tensor,
     norm: float,
+    error_dtype: torch.dtype,
 ) -> torch.Tensor:
     """Calculate eager MSE error using the observer's established QDQ path."""
     scales, zero_points = calculate_qparams(
@@ -150,7 +150,10 @@ def _calculate_mse_error(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
-    return (quantized - observed).abs().pow(norm).sum(dim=(0, -1))
+    # like Triton, compute the difference in the observed dtype and the powered error
+    # in error_dtype, so that large errors do not overflow half precision
+    error = (quantized - observed).abs().to(error_dtype).pow(norm)
+    return error.sum(dim=(0, -1))
 
 
 def _fake_quantize_with_observer_qparams(
