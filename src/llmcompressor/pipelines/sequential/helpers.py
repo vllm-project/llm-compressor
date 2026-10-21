@@ -47,14 +47,13 @@ class Subgraph:
     Dataclass specifying an executable subgraph of a model graph
 
     :param graph: subgraph of model graph
-    :param input_names: argument names of the compiled forward function, or None to
-        forward all cached inputs
+    :param input_names: argument names of the compiled forward function
     :param consumed_names: argument names which are not used by any subsequent subgraphs
         and can therefore be deleted from the intermediates cache
     """
 
     graph: Graph
-    input_names: set[str] | None
+    input_names: set[str]
     consumed_names: set[str]
     _code: PythonCode | None = None
 
@@ -145,8 +144,19 @@ def find_modules_outside_subgraphs(
     }
 
 
-def _forward_whole_model(model: Module, inputs: dict[str, Any]):
-    return model(**inputs)
+def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
+    """Build an untraced subgraph for a model with consistent batch input names."""
+
+    def _forward_whole_model(model: Module, inputs: dict[str, Any]):
+        return model(**inputs)
+
+    graph = Graph()
+    root = graph.placeholder("self")
+    inputs = graph.placeholder("**kwargs")
+    output = graph.call_function(_forward_whole_model, args=(root, inputs))
+    output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
+    graph.output(output)
+    return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
 
 
 def decompress_subgraph_modules(modules: list[Module]) -> None:
@@ -239,20 +249,7 @@ def trace_subgraphs(
 
     if targets == {model}:
         # FX traces the root's forward directly, without consulting is_leaf_module.
-        # Keep all kwargs so optional inputs may differ between calibration batches.
-        graph = Graph()
-        root = graph.placeholder("self")
-        inputs = graph.placeholder("**kwargs")
-        output = graph.call_function(_forward_whole_model, args=(root, inputs))
-        output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
-        graph.output(output)
-        return [
-            Subgraph(
-                graph=graph,
-                input_names=None,
-                consumed_names=set(),
-            )
-        ]
+        return [_create_whole_model_subgraph(set(sample_input))]
 
     ancestors = get_sequential_ancestors(model, targets)
 
@@ -610,9 +607,8 @@ def trace_consumed_names(subgraphs: list[Subgraph]):
     # The first occurrence in reverse order is the final use in execution order.
     seen_names: set[str] = set()
     for subgraph in reversed(subgraphs):
-        if subgraph.input_names is not None:
-            subgraph.consumed_names.update(subgraph.input_names - seen_names)
-            seen_names.update(subgraph.input_names)
+        subgraph.consumed_names.update(subgraph.input_names - seen_names)
+        seen_names.update(subgraph.input_names)
 
 
 def graph_is_well_formed(graph: Graph) -> bool:

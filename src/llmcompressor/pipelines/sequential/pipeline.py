@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import warnings
 from concurrent.futures import Future, ThreadPoolExecutor
+from itertools import chain, islice
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -63,16 +64,14 @@ def _submit_subgraph_staging(
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
-    input_names: set[str] | None,
+    input_names: set[str],
     desc: str,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
     overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = activations.iter_prefetch(
-        list(input_names) if input_names is not None else None
-    )
+    batch_source = activations.iter_prefetch(list(input_names))
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -141,12 +140,16 @@ class SequentialPipeline(CalibrationPipeline):
         )
         ignore = dataset_args.tracing_ignore
 
-        # Skip the tracing sample for root targets to preserve loader order.
-        sample_input = (
-            {}
-            if match_targets("", model, sequential_targets)
-            else next(iter(dataloader))
-        )
+        cache_dataloader = dataloader
+        if match_targets("", model, sequential_targets):
+            # Reuse the first batch and iterator without another sampling pass.
+            # Taking at most one batch also keeps an empty loader empty.
+            batches = iter(dataloader)
+            sample_batches = tuple(islice(batches, 1))
+            sample_input = sample_batches[0] if sample_batches else {}
+            cache_dataloader = chain(sample_batches, batches)
+        else:
+            sample_input = next(iter(dataloader))
         subgraphs = trace_subgraphs(
             model,
             sample_input,
@@ -166,7 +169,7 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
             session.state.sequential_activations = IntermediatesCache.from_dataloader(
-                dataloader, onload_device, offload_device
+                cache_dataloader, onload_device, offload_device
             )
             activations = session.state.sequential_activations
             # When propagate_error=True or log_sequential_error=True, the
