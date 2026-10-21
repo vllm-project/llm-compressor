@@ -131,7 +131,11 @@ class MoNePruningModifier(Modifier):
                 "No pruning will be performed."
             )
 
-        if self._moe_attrs.n_group is not None:
+        # n_group == 1 is a degenerate "group-limited" router: a single group holds
+        # every expert, so routing is equivalent to ungrouped top-k and MoNe's uniform
+        # collapse is correct. Only genuine group-limited routers (n_group > 1), which
+        # would need group-balanced collapse, are unsupported.
+        if self._moe_attrs.n_group is not None and self._moe_attrs.n_group > 1:
             raise NotImplementedError(
                 "MoNe does not support group-limited routers "
                 f"(n_group={self._moe_attrs.n_group}). Group-balanced expert "
