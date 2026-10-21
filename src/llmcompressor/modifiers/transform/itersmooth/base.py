@@ -1,7 +1,7 @@
-"""Fused IterSmooth preprocessing, based on msModelSlim's analytic algorithm.
+"""Fused IterSmooth preprocessing with analytic channel scaling.
 
-The implementation uses llm-compressor's calibration lifecycle and offload API;
-it does not depend on msmodelslim or replace model classes at runtime.
+The implementation uses llm-compressor's calibration lifecycle and offload API
+without replacing model classes at runtime.
 """
 
 from dataclasses import dataclass, field
@@ -18,6 +18,7 @@ from torch import nn
 from torch.utils._pytree import tree_leaves
 
 from llmcompressor.core import Event, State
+from llmcompressor.modeling.offset_norm import CalibrationOffsetNorm
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.transform.itersmooth.mappings import (
     IterSmoothMapping,
@@ -43,6 +44,7 @@ class _ResolvedMapping:
     kv_heads: int = 1
     handles: set = field(default_factory=set)
     applied: bool = False
+    smoothed: bool = False
 
 
 class IterSmoothModifier(Modifier):
@@ -382,14 +384,35 @@ class IterSmoothModifier(Modifier):
                 new_bias -= shift.to(bias.device)
             new_bias[mapping.source_slice] /= source_scales.to(bias.device)
             update_offload_parameter(source, "bias", new_bias.to(bias.dtype))
+        mapping.smoothed = True
         logger.info(f"Applied IterSmooth to {mapping.name} ({config.subgraph_type})")
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
 
+    def _restore_offset_norm_weights(self, model: nn.Module):
+        # Oneshot exits norm_calibration_context before finalizing modifiers.
+        # Its restore can write to a temporary onloaded copy. Persist only the
+        # norms that IterSmooth actually changed, using the retained calibration
+        # modules as the source of their final effective weights.
+        for mapping in self._resolved:
+            source = mapping.source
+            if not mapping.smoothed or not isinstance(source, CalibrationOffsetNorm):
+                continue
+            original = model.get_submodule(mapping.name)
+            if original is source:
+                # Direct modifier users may keep standard calibration modules.
+                continue
+            update_offload_parameter(
+                original,
+                "weight",
+                (source.weight.detach().float() - 1.0).to(original.weight.dtype),
+            )
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         self.remove_hooks()
         if self._stats:
             raise ValueError(f"Unprocessed IterSmooth statistics: {list(self._stats)}")
+        self._restore_offset_norm_weights(state.model)
         self._resolved.clear()
         return True

@@ -22,8 +22,8 @@ oneshot(
 ```
 
 Use independent calibration epochs so the quantizer observes smoothed inputs.
-Unlike an iterative optimizer, the referenced msModelSlim implementation computes
-one analytic scale per subgraph. Bias-free RMSNorm models require the default
+This implementation computes analytic scales once per mapped subgraph rather
+than running an iterative optimizer. Bias-free RMSNorm models require the default
 `symmetric=True`; non-fused runtime hooks are not supported.
 
 See [the Qwen3.6-27B example](../../../../../examples/quantization_w8a8_int8/qwen3_6_itersmooth_example.py)
