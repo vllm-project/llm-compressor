@@ -26,6 +26,7 @@ from transformers import (
     LlamaConfig,
     LlamaForCausalLM,
     PretrainedConfig,
+    Qwen3_5MoeConfig,
 )
 
 from llmcompressor import oneshot, reset_session
@@ -193,7 +194,10 @@ def test_mtp_exists_before_non_source_rank_sync(tmp_path):
     assert seen == [loaded]
 
 
-def test_mtp_source_quantization_fails_during_loading(tmp_path):
+@pytest.mark.parametrize("unsupported_config", [False, True])
+def test_mtp_source_quantization_fails_during_loading(
+    tmp_path, mocker, unsupported_config
+):
     model = _source_model(tmp_path)
     source = tmp_path / "source" / "model.safetensors"
     weights = load_file(source)
@@ -201,6 +205,10 @@ def test_mtp_source_quantization_fails_during_loading(tmp_path):
     weights[name] = weights[name].to(torch.float8_e4m3fn)
     weights[name + "_scale"] = torch.ones(128, 1)
     save_file(weights, source)
+    if unsupported_config:
+        mocker.patch.object(
+            InklingTextConfig, "get_mtp_config", side_effect=ValueError("unsupported")
+        )
     with load_context(InklingForCausalLM, load_mtp=True):
         with pytest.raises(ValueError, match="source-quantized MTP"):
             InklingForCausalLM.from_pretrained(model.name_or_path)
@@ -483,22 +491,54 @@ def test_non_mtp_config_does_not_require_layer_count(tmp_path, patterns):
     assert not list(tmp_path.iterdir())
 
 
-def test_unsupported_untargeted_mtp_copies_without_duplicate_warning(tmp_path):
+@pytest.mark.parametrize("missing", ["patterns", "num_mtp_layers", "mtp_layer_types"])
+def test_unsupported_mtp_copies_through_sharded_save(tmp_path, mocker, missing):
     model = _source_model(tmp_path)
-    model._keys_to_ignore_on_load_unexpected = []
+    if missing == "patterns":
+        mocker.patch(
+            "llmcompressor.transformers.compression.mtp._mtp_patterns", return_value=[]
+        )
+    else:
+        config = Qwen3_5MoeConfig(text_config={"mtp_num_hidden_layers": 1})
+        if missing == "mtp_layer_types":
+            config.text_config.num_mtp_layers = 1
+        with pytest.raises(ValueError, match=missing):
+            config.get_mtp_config()
+        # Reuse checkpoint tensors with Transformers' actual Qwen config check.
+        mocker.patch.object(
+            InklingTextConfig, "get_mtp_config", side_effect=config.get_mtp_config
+        )
+    mocker.patch.object(MtpModel, "from_pretrained", side_effect=AssertionError)
+    mocker.patch("llmcompressor.model_free_ptq", side_effect=AssertionError)
+    with load_context(InklingForCausalLM):
+        model = InklingForCausalLM.from_pretrained(model.name_or_path)
+    assert not hasattr(model, "mtp")
     oneshot(model=model, recipe=QuantizationModifier(scheme="FP8_DYNAMIC"))
     destination = tmp_path / "destination"
     logs = []
     handler_id = logger.add(logs.append, format="{message}", level="WARNING")
     try:
-        model.save_pretrained(destination)
+        model.save_pretrained(destination, max_shard_size="20KB")
     finally:
         logger.remove(handler_id)
 
     assert not any("MTP" in log for log in logs)
-    assert (
-        "model.mtp.layers.0.transformer_block.mlp.up_proj.weight"
-        in get_weight_mappings(destination)
+    mapping = get_weight_mappings(destination)
+    assert len(set(mapping.values())) > 2
+    mtp = {
+        name: tensor
+        for name, tensor in load_file(tmp_path / "source" / "model.safetensors").items()
+        if name.startswith("model.mtp.")
+    }
+    assert {name for name in mapping if name.startswith("model.mtp.")} == set(mtp)
+    assert any(name.endswith("q_proj.weight_scale") for name in mapping)
+    copied = load_file(destination / "model_mtp.safetensors")
+    torch.testing.assert_close(copied, mtp, rtol=0, atol=0)
+    quant = json.loads((destination / "config.json").read_text())["quantization_config"]
+    assert all(
+        name.removesuffix(".weight") in quant["ignore"]
+        for name in mtp
+        if name.endswith(".weight")
     )
 
 

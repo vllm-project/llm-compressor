@@ -181,7 +181,10 @@ def modify_save_pretrained(model: PreTrainedModel):
                     copy_python_files_from_model_cache(model, save_dir)
 
                     if source_mtp is not None:
-                        logger.info("Use load_context(load_mtp=True) to quantize MTP.")
+                        logger.info(
+                            "Use load_context(load_mtp=True) to quantize MTP "
+                            "when supported by Transformers."
+                        )
                         save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
 
             # convert back from accelerate to restore model to original form

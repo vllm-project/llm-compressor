@@ -313,7 +313,7 @@ class Oneshot:
             logger.warning(
                 "MTP layers are not loaded for quantization and will be copied "
                 "unchanged when saving. Use load_context(load_mtp=True) "
-                "to quantize them."
+                "to quantize them when supported by Transformers."
             )
         if hasattr(model, "mtp") and self.recipe:
             recipe = Recipe.create_instance(

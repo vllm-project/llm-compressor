@@ -185,11 +185,18 @@ def load_with_mtp_model(
         model = original_from_pretrained(*args, **kwargs)
         if hasattr(model, "mtp") or not has_mtp_in_checkpoint(model):
             return model
-        if not _mtp_patterns(model):
-            raise ValueError(
-                f"{type(model).__name__} has no registered MTP checkpoint patterns. "
-                f"For unsupported layouts, see {FALLBACK_EXAMPLE}."
+        try:
+            if not _mtp_patterns(model):
+                raise ValueError("No registered MTP checkpoint patterns")
+            model.config.get_mtp_config()
+        except ValueError as error:
+            validate_mtp_copy_source(model)
+            logger.warning(
+                f"Cannot load MTP for {type(model).__name__}: {error}. "
+                "MTP weights will be copied unchanged when saving. "
+                f"To quantize them explicitly, see {FALLBACK_EXAMPLE}."
             )
+            return model
 
         from transformers.modeling_layers import MtpModel
 

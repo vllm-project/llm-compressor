@@ -76,11 +76,11 @@ If named targets no longer match after saving, update the targets in `config.jso
 
 ### Preserving unloaded MTP
 
-Use `load_context(load_mtp=False)` to skip attaching MTP. `oneshot()` does not load these layers later. Its `validate_model()` calls `validate_mtp_copy_source()` to check the source weights and warns that MTP will be copied unchanged. The recipe only affects loaded modules.
+Use `load_context(load_mtp=False)` to skip attaching MTP. With `load_mtp=True`, missing checkpoint patterns or a config rejected by Transformers' `get_mtp_config()` also leave MTP unloaded, with a warning. Errors during actual MTP weight loading still propagate. `oneshot()` does not load these layers later. Its `validate_model()` calls `validate_mtp_copy_source()` to check the source weights and warns that MTP will be copied unchanged. The recipe only affects loaded modules.
 
 The save wrapper also calls `validate_mtp_copy_source()` before writing any checkpoint files. This prevents a validation failure from leaving a partial checkpoint, including when calling `save_pretrained()` directly. After saving the backbone, it passes the validated source to `save_mtp_tensors()`, which copies the MTP weights unchanged and adds their module names to the exported quantization ignore list. If the config declares MTP but no weights are found, saving warns that there is nothing to copy.
 
-Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. For these checkpoints or unsupported loading layouts, see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/model_free_ptq/mtp_fp8_fallback.py), which works directly on checkpoint tensors.
+Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. To convert these checkpoints or quantize unsupported MTP layouts, use an explicit model-free workflow; see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/model_free_ptq/mtp_fp8_fallback.py), which works directly on checkpoint tensors. This fallback never runs model-free quantization automatically.
 
 ## Basic Pipeline ##
 It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxiliary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
