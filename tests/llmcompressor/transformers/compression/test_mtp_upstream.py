@@ -327,7 +327,9 @@ def test_source_quantized_mtp_copy_requires_conversion(
         DeepseekV3ForCausalLM,
     ],
 )
-def test_named_mtp_targets_match_saved_weights(tmp_path, target_backbone, model_cls):
+def test_named_mtp_quantization_saves_checkpoint_weights(
+    tmp_path, target_backbone, model_cls
+):
     if model_cls is InklingForCausalLM:
         model = _source_model(tmp_path, load_mtp=True)
         projection = "model.mtp.layers.0.input_proj"
@@ -361,51 +363,73 @@ def test_named_mtp_targets_match_saved_weights(tmp_path, target_backbone, model_
             targets.append("model.layers.0.mlp.up_proj")
         recipe = QuantizationModifier(scheme="FP8_DYNAMIC", targets=targets)
     oneshot(model=model, recipe=recipe)
-    original_targets = list(model.mtp.layers[0].eh_proj.quantization_scheme.targets)
+    expected = {}
+    original_targets = {}
+    original_schemes = {}
+    for name, module in model.named_modules():
+        if not isinstance(module, torch.nn.Linear):
+            continue
+        if name.startswith("mtp."):
+            bits = mtp_bits if target_backbone in ("int4", "fp8") else 8
+        elif name.startswith("model.layers.") and target_backbone in ("int4", "fp8"):
+            bits = backbone_bits
+        elif target_backbone is True and name == "model.layers.0.mlp.up_proj":
+            bits = 8
+        else:
+            assert not hasattr(module, "quantization_scheme"), name
+            continue
+        assert module.quantization_scheme.weights.num_bits == bits, name
+        original_targets[name] = list(module.quantization_scheme.targets)
+        original_schemes[tuple(original_targets[name])] = bits
+        # These are the checkpoint names written by the source fixtures above.
+        if name.startswith("mtp.layers.0."):
+            name = name.removeprefix("mtp.layers.0.")
+            if model_cls is InklingForCausalLM:
+                name = name.replace("mtp_block.", "transformer_block.").replace(
+                    "eh_proj", "input_proj"
+                )
+            else:
+                name = name.removeprefix("mtp_block.")
+            name = f"{projection.rpartition('.')[0]}.{name}"
+        expected[name] = bits
 
     for name in ("first", "second"):
         destination = tmp_path / name
         model.save_pretrained(destination)
         weights = get_weight_mappings(destination)
-        quantized_modules = {
+        tensors = {
+            name: tensor
+            for shard in set(weights.values())
+            for name, tensor in load_file(shard).items()
+        }
+        assert not any(name.startswith("mtp.") for name in weights)
+        assert {
             name.removesuffix(".weight_scale")
             for name in weights
             if name.endswith(".weight_scale")
-        }
+        } == set(expected)
+        assert projection in expected
+        for name, bits in expected.items():
+            weight_name = f"{name}.weight_packed" if bits == 4 else f"{name}.weight"
+            dtype = torch.int32 if bits == 4 else torch.float8_e4m3fn
+            assert tensors[weight_name].dtype == dtype, name
         config = json.loads((destination / "config.json").read_text())
         quantization = config["quantization_config"]
-        saved_modules = {name.rpartition(".")[0] for name in weights}
-        exported = {}
+        # Target remapping is deferred: config targets retain the HF names even
+        # when the tensors above are saved under different checkpoint names.
+        assert {
+            tuple(group["targets"]): group["weights"]["num_bits"]
+            for group in quantization["config_groups"].values()
+        } == original_schemes
         for group in quantization["config_groups"].values():
-            assert len(group["targets"]) <= 2
             expected_format = (
                 "pack-quantized"
                 if group["weights"]["num_bits"] == 4
                 else "float-quantized"
             )
             assert group["format"] == expected_format
-            matched = {
-                name
-                for name in saved_modules
-                if any(match_name(name, target) for target in group["targets"])
-                and not any(
-                    match_name(name, ignore) for ignore in quantization["ignore"]
-                )
-            }
-            assert not matched.intersection(exported)
-            exported.update({name: group["weights"]["num_bits"] for name in matched})
-        assert set(exported) == quantized_modules
-        assert projection in exported
-        if target_backbone in ("int4", "fp8"):
-            mtp_prefix = projection.rpartition(".")[0] + "."
-            assert set(exported.values()) == {4, 8}
-            for name, bits in exported.items():
-                assert bits == (
-                    mtp_bits if name.startswith(mtp_prefix) else backbone_bits
-                )
-        assert (
-            model.mtp.layers[0].eh_proj.quantization_scheme.targets == original_targets
-        )
+        for name, targets in original_targets.items():
+            assert model.get_submodule(name).quantization_scheme.targets == targets
 
 
 def test_dense_save_uses_normal_model_serialization(tmp_path):

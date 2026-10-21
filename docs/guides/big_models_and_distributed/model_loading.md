@@ -70,6 +70,10 @@ A checkpoint can contain MTP weights without those layers being loaded into the 
 
 See the [GLM-4.5-Air MTP example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/quantization_w8a8_fp8/glm4_5_air_mtp.py).
 
+Recipe targets select the loaded Hugging Face modules. Saving restores checkpoint names for weights and ignore entries, but leaves quantization targets unchanged. For example, a target such as `re:^mtp\.layers\.` can select MTP during quantization while the saved weights use `model.layers.N.*` or `model.mtp.layers.*`.
+
+If named targets no longer match after saving, update the targets in `config.json` to cover the checkpoint names and any prefix changes made by vLLM while preserving each module's scheme. Ensure backbone and MTP targets do not overlap when their schemes differ. The shared `FP8_DYNAMIC` scheme with `Linear` targets in the example does not require this correction. Automatic target remapping is deferred to [compressed-tensors #980](https://github.com/vllm-project/compressed-tensors/pull/980).
+
 ### Preserving unloaded MTP
 
 Use `load_context(load_mtp=False)` to skip attaching MTP. `oneshot()` does not load these layers later. Its `validate_model()` calls `validate_mtp_copy_source()` to check the source weights and warns that MTP will be copied unchanged. The recipe only affects loaded modules.
