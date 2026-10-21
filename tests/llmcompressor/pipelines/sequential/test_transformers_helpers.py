@@ -3,7 +3,10 @@ from contextlib import nullcontext
 import pytest
 import torch
 
-from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
+from llmcompressor.pipelines.sequential.transformers_helpers import (
+    HFTracer,
+    get_concrete_args,
+)
 
 
 class DummyAttributeModule(torch.nn.Module):
@@ -199,3 +202,45 @@ def test_hf_tracer_clears_attribute_maps_after_failure(monkeypatch):
     assert recovery_model.named_buffers_calls == 1
     assert tracer._parameter_to_name is None
     assert tracer._buffer_to_name is None
+
+
+def _add_kwargs_scale(hidden_states, kwargs):
+    return hidden_states + kwargs.get("scale", 1)
+
+
+def test_hf_tracer_preserves_concrete_kwargs_that_feed_output():
+    class Model(torch.nn.Module):
+        def forward(self, hidden_states, **kwargs):
+            return _add_kwargs_scale(hidden_states, kwargs)
+
+    model = Model()
+    graph = HFTracer(autowrap_functions=(_add_kwargs_scale,)).trace(
+        model,
+        concrete_args=get_concrete_args(model, ["hidden_states"]),
+        dummy_inputs={"hidden_states": torch.zeros(1)},
+        complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
+    )
+
+    assert any(node.op == "output" for node in graph.nodes)
+    assert any(node.target == "**kwargs" for node in graph.nodes)
+
+    traced = torch.fx.GraphModule(model, graph)
+    assert torch.equal(traced(torch.zeros(1)), torch.ones(1))
+
+
+def test_hf_tracer_defaults_empty_concrete_kwargs_to_empty_mapping():
+    class Model(torch.nn.Module):
+        def forward(self, hidden_states, **kwargs):
+            return hidden_states + kwargs.get("scale", 1)
+
+    model = Model()
+    concrete_args = get_concrete_args(model, ["hidden_states"])
+    graph = HFTracer().trace(
+        model,
+        concrete_args=concrete_args,
+        dummy_inputs={"hidden_states": torch.zeros(1)},
+        complete_concrete_args_with_inputs_not_in_dummy_inputs=False,
+    )
+
+    traced = torch.fx.GraphModule(model, graph)
+    assert torch.equal(traced(torch.zeros(1)), torch.ones(1))
