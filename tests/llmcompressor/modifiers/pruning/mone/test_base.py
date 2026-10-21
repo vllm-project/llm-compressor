@@ -142,12 +142,8 @@ class TestMoNeSaliencyTracker:
             tracker = MoNeSaliencyTracker(num_experts=4)
 
             # routing over two tokens: expert 0 and 1 are always selected
-            tracker.update_routing(
-                torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]])
-            )
-            tracker.update_routing(
-                torch.tensor([[0, 1]]), torch.tensor([[0.8, 0.2]])
-            )
+            tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]]))
+            tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.8, 0.2]]))
 
             # expert outputs over the tokens routed to each expert
             tracker.update_outputs(

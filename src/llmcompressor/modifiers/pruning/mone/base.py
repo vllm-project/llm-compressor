@@ -276,9 +276,7 @@ class MoNePruningModifier(Modifier):
                 dist.broadcast(novices, src=get_source_rank(), group=self._cpu_pg)
 
             self._retained_experts[layer_name] = retained
-            collapse_moe_layer(
-                model, layer_name, retained, novices, self._moe_attrs
-            )
+            collapse_moe_layer(model, layer_name, retained, novices, self._moe_attrs)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]

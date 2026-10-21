@@ -282,9 +282,7 @@ def collapse_moe_layer(
     }
 
     # Rebuild with retained experts (left-shifted), re-adding non-expert modules
-    new_modules = OrderedDict(
-        (str(i), experts[pos]) for i, pos in enumerate(retained)
-    )
+    new_modules = OrderedDict((str(i), experts[pos]) for i, pos in enumerate(retained))
     new_modules.update(non_expert_modules)
     experts._modules = new_modules
     experts.num_experts = len(retained)
@@ -320,9 +318,7 @@ def _set_novices(experts: nn.Module, novices: torch.Tensor) -> None:
             target_dtype = param.dtype
             break
     novices = novices.to(device=exec_device, dtype=target_dtype).contiguous()
-    experts.register_parameter(
-        "novices", nn.Parameter(novices, requires_grad=False)
-    )
+    experts.register_parameter("novices", nn.Parameter(novices, requires_grad=False))
 
 
 def _narrow_source_config(experts: nn.Module, new_num_experts: int) -> None:
