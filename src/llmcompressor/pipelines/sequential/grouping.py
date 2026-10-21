@@ -74,6 +74,16 @@ def plan_subgraph_memory(
         )
         return None
 
+    # weights are only decompressed when their subgraph runs, so neither their size
+    # nor their shape can be read up front
+    if dataset_args.layerwise_decompression:
+        logger.warning(
+            'sequential_targets_per_subgraph="auto" cannot estimate memory while '
+            "weights are compressed (layerwise_decompression=True). Falling back to "
+            "one target per subgraph"
+        )
+        return None
+
     # every rank must choose the same groups, since modifiers communicate when each
     # subgraph is compressed, so ranks agree on the inputs before estimating anything.
     # Whether activations are cached on a rank's device differs between ranks, so the

@@ -341,6 +341,13 @@ def test_plan_subgraph_memory_falls_back_without_budget(monkeypatch, budget):
     assert plan is None
 
 
+def test_plan_subgraph_memory_falls_back_with_layerwise_decompression(monkeypatch):
+    # compressed weights don't have the size or shape they'll have when calibrated
+    dataset_args = DatasetArguments(layerwise_decompression=True)
+    plan, _ = _plan(monkeypatch, budget=10_000, dataset_args=dataset_args)
+    assert plan is None
+
+
 def test_plan_subgraph_memory_falls_back_for_unknown_memory(monkeypatch):
     plan, _ = _plan(monkeypatch, budget=10_000, modifiers=[_UnknownModifier()])
     assert plan is None
