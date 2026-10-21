@@ -1,11 +1,11 @@
 import math
 
+import torch
 from compressed_tensors.quantization import QuantizationStrategy
 from compressed_tensors.quantization.utils.mxfp_utils import (
     should_generate_mx_scales,
 )
 from loguru import logger
-import torch
 from torch import distributed as dist
 from torch.utils.hooks import RemovableHandle
 

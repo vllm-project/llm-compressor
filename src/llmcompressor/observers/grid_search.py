@@ -180,9 +180,7 @@ def _calculate_mse_error(
     )
     error = (quantized - observed).abs().pow(norm)
     if group_absmax is not None:
-        error = error * torch.sqrt(
-            observed.float().square() + group_absmax.square()
-        )
+        error = error * torch.sqrt(observed.float().square() + group_absmax.square())
     return error.sum(dim=(0, -1))
 
 
@@ -207,9 +205,7 @@ def _make_grid_points(maxshrink: float, grid: float, grid_type: str) -> list[flo
                 break
             points.append(multiplier)
         return points
-    raise ValueError(
-        f"grid_type must be 'linear' or 'exponential', got {grid_type!r}"
-    )
+    raise ValueError(f"grid_type must be 'linear' or 'exponential', got {grid_type!r}")
 
 
 def _fake_quantize_with_observer_qparams(

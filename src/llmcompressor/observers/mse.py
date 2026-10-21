@@ -1,9 +1,9 @@
 import warnings
 
+import torch
 from compressed_tensors.quantization.utils.mxfp_utils import (
     should_generate_mx_scales,
 )
-import torch
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
@@ -83,9 +83,7 @@ class MemorylessMSEObserver(Observer):
         self.magnitude_normalization = observer_kwargs.get(
             "magnitude_normalization", False
         )
-        self.grid_type = _resolve_grid_type(
-            observer_kwargs.get("grid_type"), self.args
-        )
+        self.grid_type = _resolve_grid_type(observer_kwargs.get("grid_type"), self.args)
         self.triton_error_buffer = observer_kwargs.get(
             "triton_error_buffer", _default_triton_error_buffer(self.args)
         )
@@ -136,9 +134,7 @@ class MovingAverageMSEObserver(Observer):
         self.magnitude_normalization = observer_kwargs.get(
             "magnitude_normalization", False
         )
-        self.grid_type = _resolve_grid_type(
-            observer_kwargs.get("grid_type"), self.args
-        )
+        self.grid_type = _resolve_grid_type(observer_kwargs.get("grid_type"), self.args)
         self.triton_error_buffer = observer_kwargs.get(
             "triton_error_buffer", _default_triton_error_buffer(self.args)
         )
