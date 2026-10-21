@@ -204,6 +204,10 @@ def _make_grid_points(maxshrink: float, grid: float, grid_type: str) -> list[flo
             if multiplier < min_multiplier or multiplier <= 0.0:
                 break
             points.append(multiplier)
+        last_linear_multiplier = 1.0 - (total_steps - 1) / grid
+        if last_linear_multiplier not in points:
+            points.append(last_linear_multiplier)
+            points.sort(reverse=True)
         return points
     raise ValueError(f"grid_type must be 'linear' or 'exponential', got {grid_type!r}")
 

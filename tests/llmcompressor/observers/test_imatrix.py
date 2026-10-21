@@ -9,6 +9,7 @@ from compressed_tensors.utils.impl_backend import ImplBackend
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.grid_search import _make_grid_points
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 # ---------------------------------------------------------------------------
@@ -650,6 +651,10 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
     )
 
     if preset == "MXFP4A16":
+        linear_grid_points = _make_grid_points(maxshrink, grid, "linear")
+        exponential_grid_points = _make_grid_points(maxshrink, grid, "exponential")
+        assert linear_grid_points[-1] in exponential_grid_points
+
         search_args = (observed, args, maxshrink, patience, grid, norm)
         search_kwargs = {
             "expand": expand,
