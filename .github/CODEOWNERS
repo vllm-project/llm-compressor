@@ -87,7 +87,7 @@
 /tests/llmcompressor/modifiers/utils/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 
 /tests/llmcompressor/transformers/ @kylesayrs @dsikka @Roderick-Wu @HDCharles
-/tests/llmcompressor/transformers/autoround/ @kylesayrs @dsikka @Roderick-Wu @HDCharles
+/tests/llmcompressor/transformers/autoround/ @kylesayrs @yiliu30 @dsikka @Roderick-Wu @HDCharles
 /tests/llmcompressor/transformers/compression/ @kylesayrs @dsikka @HDCharles
 /tests/llmcompressor/transformers/compression/configs/ @kylesayrs @dsikka @HDCharles
 /tests/llmcompressor/transformers/compression/decompression_configs/ @kylesayrs @dsikka @HDCharles
