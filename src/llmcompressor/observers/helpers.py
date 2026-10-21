@@ -163,16 +163,16 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
 
 
 def _fused_layers_in_scope(
-    fused_layers: dict[str, Module], scope_ids: set[int]
+    fused_layers: dict[str, Module], module_scope: set[Module]
 ) -> bool:
-    group_ids = {id(layer) for layer in fused_layers.values()}
-    if not group_ids.intersection(scope_ids):
+    group = set(fused_layers.values())
+    if group.isdisjoint(module_scope):
         return False
-    if group_ids.issubset(scope_ids):
+    if group.issubset(module_scope):
         return True
 
     if any(
-        id(layer) in scope_ids
+        layer in module_scope
         and (
             getattr_chain(layer, "quantization_scheme.weights.strategy", None)
             == QuantizationStrategy.TENSOR_GROUP
@@ -192,10 +192,10 @@ def _fused_layers_in_scope(
 
 def validate_fused_layer_scope(model: Module, modules: Collection[Module]):
     """Validate TENSOR_GROUP scopes, including modifiers that do not use observers."""
-    scope_ids = {id(module) for module in modules}
+    module_scope = set(modules)
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
-            _fused_layers_in_scope(fused_layers, scope_ids)
+            _fused_layers_in_scope(fused_layers, module_scope)
 
 
 def fuse_weight_observers(model: Module, modules: Collection[Module] | None = None):
@@ -214,14 +214,14 @@ def fuse_weight_observers(model: Module, modules: Collection[Module] | None = No
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    scope_ids = None if modules is None else {id(module) for module in modules}
+    module_scope = None if modules is None else set(modules)
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
             layers_to_fuse = list(fused_layers.values())
             fusion_name_group = tuple(fused_layers.keys())
 
-            if scope_ids is not None and not _fused_layers_in_scope(
-                fused_layers, scope_ids
+            if module_scope is not None and not _fused_layers_in_scope(
+                fused_layers, module_scope
             ):
                 continue
 

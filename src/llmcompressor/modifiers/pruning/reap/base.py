@@ -217,7 +217,7 @@ class REAPPruningModifier(Modifier):
     def _register_reap_hooks(
         self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
     ):
-        module_scope = None if modules is None else {id(module) for module in modules}
+        module_scope = None if modules is None else set(modules)
         # Info if moe_calibrate_all_experts is enabled, which is not necessary for REAP
         if get_calibrate_all_experts_flag():
             logger.info(
@@ -232,7 +232,7 @@ class REAPPruningModifier(Modifier):
             if layer_name in self._hooked_moe_layers:
                 continue
             module = model.get_submodule(layer_name)
-            if module_scope is not None and id(module) not in module_scope:
+            if module_scope is not None and module not in module_scope:
                 continue
 
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(

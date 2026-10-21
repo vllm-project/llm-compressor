@@ -198,13 +198,6 @@ class AWQModifier(Modifier):
         """
         Prepare mappings and hooks for the pipeline's initial calibration scope.
         Quantization schemes may be attached by a subsequent modifier in this event.
-
-        - resolve mappings
-        - validate mappings and quant scheme
-        - setup activation cache hooks
-
-        :param state: state to run AWQ on
-        :return: True on a successful run, False otherwise
         """
 
         modules = kwargs.get("modules")
@@ -310,7 +303,7 @@ class AWQModifier(Modifier):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
-        module_scope = None if modules is None else {id(module) for module in modules}
+        module_scope = None if modules is None else set(modules)
 
         num_incompatible = 0
         for mapping in self.mappings:
@@ -336,9 +329,7 @@ class AWQModifier(Modifier):
 
                 if module_scope is not None:
                     mapping_modules = [smooth_layer, *balance_layers]
-                    in_scope = [
-                        id(module) in module_scope for module in mapping_modules
-                    ]
+                    in_scope = [module in module_scope for module in mapping_modules]
                     if any(in_scope) and not all(in_scope):
                         raise ValueError(
                             "AWQ mapping spans sequential subgraphs. Choose "
@@ -540,7 +531,7 @@ class AWQModifier(Modifier):
         """
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being updated
-        module_scope = None if modules is None else {id(module) for module in modules}
+        module_scope = None if modules is None else set(modules)
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
@@ -548,10 +539,8 @@ class AWQModifier(Modifier):
             and (
                 module_scope is None
                 or (
-                    id(mapping.smooth_layer) in module_scope
-                    and all(
-                        id(layer) in module_scope for layer in mapping.balance_layers
-                    )
+                    mapping.smooth_layer in module_scope
+                    and all(layer in module_scope for layer in mapping.balance_layers)
                 )
             )
         ]
