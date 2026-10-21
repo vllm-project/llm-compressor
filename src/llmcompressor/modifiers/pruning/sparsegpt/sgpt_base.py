@@ -151,7 +151,12 @@ class SparsityModifierBase(Modifier):
                     layer_sparsity = self.sparsity
 
             for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
-                name = f"{layer_name}.{name}"
+                # `match_named_modules` yields an empty relative name when the
+                # target layer is itself prunable, which is the case for the
+                # default `targets=["Linear"]`. Joining unconditionally would
+                # produce a name with a trailing dot (e.g. "lm_head."), which
+                # exact-name and `$`-anchored ignore patterns never match.
+                name = f"{layer_name}.{name}" if name else layer_name
 
                 if match_targets(name, module, self.ignore):
                     continue
