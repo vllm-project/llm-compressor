@@ -174,3 +174,54 @@ def test_disable_hooks_composable():
     with HooksMixin.disable_hooks():
         model(model.dummy_inputs)
     assert not mod_a.hook_called and not mod_b.hook_called
+
+
+def test_disable_hooks_nested():
+    model = DummyModel()
+
+    mod_a = ModA()
+    handle_a = mod_a.register_hook(model.linear1, mod_a.hook, "forward")
+
+    mod_b = ModB()
+    handle_b = mod_b.register_hook(model.linear2, mod_b.hook, "forward_pre")
+
+    with HooksMixin.disable_hooks():
+        with HooksMixin.disable_hooks(keep=set([handle_b])):
+            model(model.dummy_inputs)
+        assert not mod_a.hook_called and mod_b.hook_called
+
+        # exiting the inner context restores the outer context
+        mod_a.hook_called = False
+        mod_b.hook_called = False
+        model(model.dummy_inputs)
+        assert not mod_a.hook_called and not mod_b.hook_called
+
+    with HooksMixin.disable_hooks(keep=set([handle_a])):
+        with HooksMixin.disable_hooks(keep=set([handle_a, handle_b])):
+            pass
+
+        # handles kept by the outer context remain kept
+        mod_a.hook_called = False
+        mod_b.hook_called = False
+        model(model.dummy_inputs)
+        assert mod_a.hook_called and not mod_b.hook_called
+
+    mod_a.hook_called = False
+    mod_b.hook_called = False
+    model(model.dummy_inputs)
+    assert mod_a.hook_called and mod_b.hook_called
+
+
+def test_disable_hooks_on_subclass():
+    model = DummyModel()
+
+    mod_a = ModA()
+    mod_a.register_hook(model.linear1, mod_a.hook, "forward")
+
+    with ModA.disable_hooks():
+        model(model.dummy_inputs)
+    assert not mod_a.hook_called
+    assert "_HOOKS_DISABLED" not in vars(ModA)
+
+    model(model.dummy_inputs)
+    assert mod_a.hook_called
