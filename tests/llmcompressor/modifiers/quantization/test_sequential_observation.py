@@ -299,23 +299,3 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     assert model[0].quantization_status == QuantizationStatus.FROZEN
     assert not hasattr(model[0], "weight_observer")
     assert not hasattr(model[1], "quantization_scheme")
-
-
-def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
-    model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
-    modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
-    modules = list(model[0].modules())
-
-    from compressed_tensors.quantization import apply_quantization_config
-
-    with patch(
-        "llmcompressor.modifiers.quantization.quantization.mixin.apply_quantization_config",
-        wraps=apply_quantization_config,
-    ) as apply_config:
-        modifier.start_layerwise_calibration(model, modules)
-
-    apply_config.assert_called_once_with(
-        model, modifier.resolved_config, modules=modules
-    )
-    assert model[0].quantization_status == QuantizationStatus.CALIBRATION
-    assert not hasattr(model[1], "quantization_scheme")

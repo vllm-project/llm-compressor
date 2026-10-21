@@ -220,7 +220,7 @@ class SmoothQuantModifier(Modifier):
         """
         resolved_mappings = []
         module_to_name = get_module_to_name_dict(model)
-        module_scope = None if modules is None else {id(module) for module in modules}
+        module_scope = None if modules is None else set(modules)
         # Get names of modules that are not ignored
         ignored_names = set()
         if self.ignore:
@@ -251,9 +251,7 @@ class SmoothQuantModifier(Modifier):
 
                 if module_scope is not None:
                     mapping_modules = [smooth_layer, *balance_layers]
-                    in_scope = [
-                        id(module) in module_scope for module in mapping_modules
-                    ]
+                    in_scope = [module in module_scope for module in mapping_modules]
                     if any(in_scope) and not all(in_scope):
                         raise ValueError(
                             "SmoothQuant mapping spans sequential subgraphs. Choose "
@@ -374,14 +372,14 @@ class SmoothQuantModifier(Modifier):
 
         This modifies the weights of the model in-place.
         """
-        module_scope = None if modules is None else {id(module) for module in modules}
+        module_scope = None if modules is None else set(modules)
         mappings = self.resolved_mappings_
         if module_scope is not None:
             mappings = [
                 mapping
                 for mapping in mappings
-                if id(mapping.smooth_layer) in module_scope
-                and all(id(layer) in module_scope for layer in mapping.balance_layers)
+                if mapping.smooth_layer in module_scope
+                and all(layer in module_scope for layer in mapping.balance_layers)
             ]
 
         if is_distributed():

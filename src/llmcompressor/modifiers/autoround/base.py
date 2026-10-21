@@ -217,7 +217,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         modules: list[torch.nn.Module] | None = None,
     ):
         """
-        Register activation calibration hooks and enable quantization as we calibrate
+        Set calibration status and enable quantization without attaching observers.
 
         :param model: model to prepare for calibration
         """
@@ -254,18 +254,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules")
-        self._initialize_scope(state.model, modules)
-        self._update_quantization_bookkeeping(**kwargs)
+        self._initialize_scope(state.model, **kwargs)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self._initialize_scope(state.model, modules)
-        self._update_quantization_bookkeeping(**kwargs)
+        self._initialize_scope(state.model, modules, **kwargs)
 
     def _initialize_scope(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
     ):
         if QuantizationMixin.has_config(self):
             from compressed_tensors.offload import disable_onloading
@@ -276,9 +276,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self.initialize_quantization(model, modules=modules)
         self.start_calibration(model, modules=modules)
 
-        module_scope = None if modules is None else {id(module) for module in modules}
+        module_scope = None if modules is None else set(modules)
         for name, module in model.named_modules():
-            if module_scope is not None and id(module) not in module_scope:
+            if module_scope is not None and module not in module_scope:
                 continue
             module._tmp_name = name
             for param in module.parameters(recurse=False):
@@ -290,6 +290,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
                 self._capture_hooks[module._tmp_name] = handle
+        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
         self,

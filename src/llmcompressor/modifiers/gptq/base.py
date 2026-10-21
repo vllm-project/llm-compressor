@@ -139,7 +139,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     )
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
-    _gptq_hooked_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("batched_quantization")
     @classmethod
@@ -189,16 +188,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules")
-        if QuantizationMixin.has_config(self):
-            self.initialize_quantization(state.model, modules=modules)
-        self.start_calibration(state.model, modules=modules)
-        self._update_quantization_bookkeeping(**kwargs)
-
-        # Persistent modules are onloaded before calibration; all other hooks are
-        # registered as their subgraphs are onloaded.
-        self._register_gptq_hooks(state.model, modules)
-        if modules is None and not self._gptq_hooked_modules:
+        self._initialize_scope(state.model, **kwargs)
+        if kwargs.get("modules") is None and not self._module_names:
             raise ValueError(
                 "GPTQModifier was unable to find any modules to quantize. Please "
                 "check quantization `config_groups` and `targets` in recipe"
@@ -208,36 +199,37 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         """Register GPTQ hooks on the modules in the just-onloaded subgraph."""
-        if QuantizationMixin.has_config(self):
-            self.initialize_quantization(state.model, modules=modules)
-        self.start_calibration(
-            state.model, modules=modules, warn_on_inference_mode=False
+        self._initialize_scope(
+            state.model, modules, warn_on_inference_mode=False, **kwargs
         )
-        self._update_quantization_bookkeeping(**kwargs)
-        self._register_gptq_hooks(state.model, modules)
 
-    @staticmethod
-    def _is_gptq_module(module: torch.nn.Module) -> bool:
-        # HACK: embeddings are not accessible by the layer compressor. For now, we
-        # manually ignore them, but in the FUTURE this should be ignored by the user.
-        return getattr_chain(
-            module, "quantization_scheme.weights", None
-        ) is not None and not isinstance(module, torch.nn.Embedding)
-
-    def _register_gptq_hooks(
+    def _initialize_scope(
         self,
         model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None,
+        modules: list[torch.nn.Module] | None = None,
+        *,
+        warn_on_inference_mode: bool = True,
+        **kwargs,
     ):
+        if QuantizationMixin.has_config(self):
+            QuantizationMixin.initialize_quantization(self, model, modules=modules)
+        QuantizationMixin.start_calibration(
+            self, model, modules=modules, warn_on_inference_mode=warn_on_inference_mode
+        )
+        self._update_quantization_bookkeeping(**kwargs)
+
         for name, module in match_named_modules(
             model, self.resolved_targets, self.ignore
         ):
             if modules is not None and module not in modules:
                 continue
-            if self._is_gptq_module(module) and module not in self._gptq_hooked_modules:
-                self._module_names[module] = name
-                self.register_hook(module, self.calibrate_module, "forward")
-                self._gptq_hooked_modules.add(module)
+            if getattr_chain(module, "quantization_scheme.weights", None) is None:
+                continue
+            # Embeddings are not supported by the GPTQ layer compressor.
+            if isinstance(module, torch.nn.Embedding) or module in self._module_names:
+                continue
+            self.register_hook(module, self.calibrate_module, "forward")
+            self._module_names[module] = name
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -252,11 +244,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        has_gptq_modules = bool(self._gptq_hooked_modules)
+        has_gptq_modules = bool(self._module_names)
         QuantizationMixin.end_calibration(self, state.model)
         self._update_quantization_bookkeeping(**kwargs)
         self.remove_hooks()  # remove gptq hooks
-        self._gptq_hooked_modules.clear()
+        self._module_names.clear()
         if not has_gptq_modules:
             raise ValueError(
                 "GPTQModifier was unable to find any modules to quantize. Please "

@@ -75,17 +75,26 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         if getattr(state, "layerwise_decompression", False):
             return
 
-        modules = kwargs.get("modules")
-        self.initialize_quantization(state.model, modules=modules)
-        self.start_calibration(state.model, modules=modules)
-        self._update_quantization_bookkeeping(**kwargs)
+        self._initialize_scope(state.model, **kwargs)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self.initialize_quantization(state.model, modules=modules)
+        self._initialize_scope(
+            state.model, modules, warn_on_inference_mode=False, **kwargs
+        )
+
+    def _initialize_scope(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+        *,
+        warn_on_inference_mode: bool = True,
+        **kwargs,
+    ):
+        self.initialize_quantization(model, modules=modules)
         self.start_calibration(
-            state.model, modules=modules, warn_on_inference_mode=False
+            model, modules=modules, warn_on_inference_mode=warn_on_inference_mode
         )
         self._update_quantization_bookkeeping(**kwargs)
 

@@ -24,7 +24,6 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
-from compressed_tensors.quantization.utils.helpers import is_module_quantized
 from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -70,7 +69,6 @@ class QuantizationMixin(HooksMixin):
         - Attach observers to modules
         - Attach calibration hooks
         - Apply calibration status
-        - Enable quantization during calibration
     - on_calibration_end: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
@@ -289,7 +287,7 @@ class QuantizationMixin(HooksMixin):
     ):
         """
         Attach observers, register activation calibration hooks (including
-        kv_cache quantization) and enable quantization as we calibrate
+        kv_cache quantization), and set calibration status for the target modules.
 
         :param model: model to prepare for calibration
         """
@@ -387,26 +385,6 @@ class QuantizationMixin(HooksMixin):
                         offload_kwargs.setdefault(
                             child_name, offload_kwargs[name].copy()
                         )
-
-    def start_layerwise_calibration(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module]
-    ):
-        """
-        Set up quantization for a subset of modules after layerwise
-        decompression. Applies quantization config scoped to the given
-        modules, then initializes observers, calibration hooks, and fuses
-        weight observers.
-
-        :param model: the full model (needed for config application)
-        :param modules: modules in the current subgraph to prepare
-        """
-        apply_quantization_config(model, self.resolved_config, modules=modules)
-        for module in modules:
-            if is_module_quantized(module):
-                self._initialize_observers(module)
-                self._calibration_hooks |= self._initialize_hooks(module)
-                apply_calibration_status(module)
-        fuse_weight_observers(model, modules)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
