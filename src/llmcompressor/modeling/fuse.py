@@ -33,7 +33,11 @@ def center_embeddings(embedding: torch.nn.Module):
     update_offload_parameter(embedding, "weight", new_weight)
 
 
-def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear]):
+def fuse_norm_linears(
+    norm: torch.nn.Module,
+    linears: Iterable[torch.nn.Linear],
+    precision: torch.dtype = PRECISION,
+):
     """
     Fuse the scaling operation of norm layer into subsequent linear layers.
     This useful for ensuring transform invariance between norm and linear layers.
@@ -42,6 +46,7 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
 
     :param norm: norm layer whose weight will be fused into subsequent linears
     :param linears: linear layers which directly follow the norm layer
+    :param precision: arithmetic dtype for gain fusion, before restoring weight dtype
     """
     if not hasattr(norm, "weight"):
         raise ValueError(f"Cannot fuse norm of type {type(norm)}")
@@ -54,7 +59,7 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
             align_module_device(linear, exec_device),
         ):
             weight_dtype = linear.weight.dtype
-            new_weight = linear.weight.to(PRECISION) * norm.weight.to(PRECISION)
+            new_weight = linear.weight.to(precision) * norm.weight.to(precision)
             new_weight = new_weight.to(weight_dtype)
 
         update_offload_parameter(linear, "weight", new_weight)

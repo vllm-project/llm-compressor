@@ -72,6 +72,27 @@ def test_resave_original_config_without_experts(save_dir, original_dir):
     assert _read_json(save_dir / "config.json") == original
 
 
+@pytest.mark.parametrize("status", ["applied", "failed"])
+def test_resave_preserves_precision_transform_state(save_dir, original_dir, status):
+    original = {"architectures": ["Foo"], "torch_dtype": "float32"}
+    _write_json(original_dir / "config.json", original)
+    config = FakeConfig(name_or_path=str(original_dir), dtype="float32")
+    config.quarot_config = {"version": 1, "status": status, "seed": 1234}
+    config.flex_smooth_config = {
+        "version": 1,
+        "status": status,
+        "results": {"model.layers.0.input_layernorm": {"alpha": 0.4, "beta": 0.7}},
+    }
+    resave_config(config, str(save_dir))
+    saved = _read_json(save_dir / "config.json")
+    assert saved == dict(
+        original,
+        quarot_config=config.quarot_config,
+        flex_smooth_config=config.flex_smooth_config,
+    )
+    assert _read_json(original_dir / "config.json") == original
+
+
 def test_resave_config_is_sorted_and_indented(save_dir, original_dir):
     _write_json(
         original_dir / "config.json", {"b": 1, "a": 2, "torch_dtype": "float32"}
