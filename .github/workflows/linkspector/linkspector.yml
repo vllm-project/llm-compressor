@@ -12,6 +12,14 @@ ignorePatterns:
 excludedFiles:
   - 'docs/developer/index.md'
 
+# Community-submitted research entries are an append-only archive of external
+# links that rot over time. Because this job rescans the whole repository on
+# any Markdown change and fails the build on a dead link, a single rotted link
+# in an old entry would block every unrelated pull request. Links in new
+# entries are checked at review time instead.
+excludedDirs:
+  - 'docs/research'
+
 dirs:
   - .
 useGitIgnore: true

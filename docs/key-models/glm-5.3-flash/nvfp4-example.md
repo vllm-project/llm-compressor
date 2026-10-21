@@ -22,7 +22,6 @@ convert_checkpoint(
     model_stub=MODEL_ID,
     save_directory=SAVE_DIR,
     converter=FP8BlockDequantizer.from_pretrained(MODEL_ID),
-    max_workers=4,
 )
 ```
 

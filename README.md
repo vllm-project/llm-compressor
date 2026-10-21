@@ -20,6 +20,10 @@
 
 </div>
 
+<p align="center">
+  <b>English</b> · <a href="README.zh.md">简体中文</a>
+</p>
+
 `llmcompressor` is the fast, efficient, and easy-to-use library for optimizing models for deployment with vLLM, including:
 
 * Comprehensive set of quantization algorithms and transforms for weight, activation, KV cache, and attention quantization
@@ -57,6 +61,8 @@ Since the v0.13.0 release, a number of meaningful improvements have landed:
 
 The Red Hat AI team has been using LLM Compressor to produce a fresh batch of production-ready quantized checkpoints:
 
+* **Nemotron 3.5 Super VL FP8 Checkpoint**: An FP8 quantized checkpoint for [Nemotron 3.5 Super VL](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16). Weights, activations and MTP layers are all quantized to FP8. See the model card for full agentic metrics and performance benchmarks:
+  - [RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8)
 * **GLM-5.3 FP4 Checkpoints**: NVFP4 and MXFP4 quantized checkpoints for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to FP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
   - [RedHatAI/GLM-5.3-MXFP4](https://huggingface.co/RedHatAI/GLM-5.3-MXFP4)
   - [RedHatAI/GLM-5.3-NVFP4](https://huggingface.co/RedHatAI/GLM-5.3-NVFP4)
@@ -95,15 +101,11 @@ The Red Hat AI team has been using LLM Compressor to produce a fresh batch of pr
 * **Hy3 NVFP4+FP8**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) combining NVFP4 quantization of the MoE layers with FP8 quantization of the attention layers, significantly reducing VRAM requirements while maintaining accuracy recovery.
   - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
   - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
-* **GLM-5.2 NVFP4+FP8**: Mixed-precision quantized checkpoints for [GLM-5.2](https://huggingface.co/zai-org/GLM-5.2), created with DDP + disk offloading in under 2 hours. NVFP4 quantization of the MoE layers and FP8 quantization of the attention layers reduces the model size by >70% while maintaining state-of-the-art accuracy recovery on GPQA.
-  - [RedHatAI/GLM-5.2-NVFP4-FP8](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4-FP8)
-  - [RedHatAI/GLM-5.2-NVFP4](https://huggingface.co/RedHatAI/GLM-5.2-NVFP4)
-  - [GLM-5.2 Example Script](examples/quantizing_moe/glm5_example.py)
 
 
 ### Supported Precisions and Types
-* Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
-* Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
+* Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP6A8, MXFP8)
+* Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP6A16, MXFP4A16, NVFP4A16
 * Attention and KV Cache Quantization: FP8, NVFP4
 * Low/Arbitrary-bit Quantization: WNA4, WNA8, WNA16
 
@@ -139,6 +141,7 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
 * [Activation quantization to MXFP8](examples/quantization_w8a8_mxfp8)
+* [MXFP6 weights with MXFP8 activations](examples/quantization_w6a8_mxfp6)
 * [Activation quantization to `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
 * [Activation quantization to `fp4` (MXFP4)](examples/quantization_w4a4_mxfp4)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)

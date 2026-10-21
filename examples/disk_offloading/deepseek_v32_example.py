@@ -40,7 +40,6 @@ convert_checkpoint(
             r"re:.*self_attn.indexer.(wk|wq_b)$",
         ],
     ),
-    max_workers=4,
 )
 
 # 2) For some reason DeepSeek splits important config info into a separate file that

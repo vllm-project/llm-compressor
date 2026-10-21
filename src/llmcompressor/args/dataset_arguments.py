@@ -313,9 +313,8 @@ class DatasetArguments(CustomDatasetArguments):
     sequential_prefetch: bool = field(
         default=False,
         metadata={
-            "help": "When using the sequential pipeline, prefetch the next batch in a "
-            "background thread to overlap onload with forward. Default False; set True "
-            "for faster calibration when GPU memory allows (two batches on device)."
+            "help": "Deprecated. Activation prefetching is now always enabled in the "
+            "sequential pipeline."
         },
     )
     stage_weights_in_pinned_memory: bool = field(
@@ -324,6 +323,22 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "When using the sequential pipeline, stage offloaded module "
             "tensors in pinned CPU memory before onloading them to the execution "
             "device. Only moves weights. Default False."
+        },
+    )
+    layerwise_decompression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, each layer is decompressed before calibrating in "
+            "the sequential pipeline. Use when loading a pre-compressed model "
+            "that needs recalibration. Default False."
+        },
+    )
+    layerwise_compression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, each layer is compressed after propagation in the "
+            "sequential pipeline. Reduces peak memory by keeping only the "
+            "active layer decompressed. Default False."
         },
     )
 

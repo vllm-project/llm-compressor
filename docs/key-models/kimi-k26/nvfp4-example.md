@@ -39,7 +39,6 @@ convert_checkpoint(
         MODEL_ID,
         ignore=ignore,
     ),
-    max_workers=4,
 )
 ```
 
