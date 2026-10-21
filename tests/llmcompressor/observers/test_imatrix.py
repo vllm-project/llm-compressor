@@ -649,6 +649,56 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         grid_type=grid_type,
     )
 
+    if preset == "MXFP4A16":
+        search_args = (observed, args, maxshrink, patience, grid, norm)
+        search_kwargs = {
+            "expand": expand,
+            "importance_weights": importance,
+            "triton_error_buffer": 1.0,
+            "use_imatrix_error": True,
+            "magnitude_normalization": magnitude_normalization,
+        }
+        linear_bounds = ImplBackend.call(
+            "_grid_search_observer",
+            *search_args,
+            **search_kwargs,
+            grid_type="linear",
+        )
+        exponential_bounds = ImplBackend.call(
+            "_grid_search_observer",
+            *search_args,
+            **search_kwargs,
+            grid_type="exponential",
+        )
+
+        linear_qparams = calculate_qparams(
+            min_vals=linear_bounds[0],
+            max_vals=linear_bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        exponential_qparams = calculate_qparams(
+            min_vals=exponential_bounds[0],
+            max_vals=exponential_bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        assert torch.equal(linear_qparams[0], exponential_qparams[0])
+        assert torch.equal(linear_qparams[1], exponential_qparams[1])
+
+        qdq_weights = []
+        for scales, zero_points in (linear_qparams, exponential_qparams):
+            with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+                qdq_weights.append(
+                    fake_quantize(
+                        observed,
+                        scales.unsqueeze(-1),
+                        zero_points.unsqueeze(-1),
+                        args,
+                    ).to(observed.dtype)
+                )
+        assert torch.equal(qdq_weights[0], qdq_weights[1])
+
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
