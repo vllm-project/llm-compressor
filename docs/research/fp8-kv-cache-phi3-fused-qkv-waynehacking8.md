@@ -44,6 +44,9 @@ using the transformers implementation of Phi-3.
 - Dates: calibration and perplexity on 2026-10-16, GSM8K on 2026-10-17
 
 ```python
+from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
+
 oneshot(
     model=model,
     tokenizer=tokenizer,
