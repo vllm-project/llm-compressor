@@ -42,6 +42,30 @@ def _supports_record_stream(device: torch.device) -> bool:
     return True
 
 
+def _onload_device_types(intermediate: IntermediateValue) -> set[str]:
+    """All device types an IntermediateValue tree will onload to.
+
+    Containers (lists, tuples, dicts, dataclasses) carry ``device=None`` at
+    the top level; the real onload devices live on the nested
+    IntermediateValue nodes.
+    """
+    types = set()
+    stack = [intermediate]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, IntermediateValue):
+            if node.device is not None:
+                types.add(torch.device(node.device).type)
+            stack.append(node.value)
+        elif isinstance(node, (list, tuple)):
+            stack.extend(node)
+        elif isinstance(node, dict):
+            stack.extend(node.values())
+        elif is_dataclass(node):
+            stack.extend(getattr(node, f.name) for f in fields(node))
+    return types
+
+
 class IntermediatesCache:
     """
     Cache which stores intermediate values (activations) produced by batched, sequential
@@ -286,11 +310,28 @@ class IntermediatesCache:
         if num_batches == 0:
             return
 
+        # The prefetch thread submits device ops concurrently with the main
+        # thread. Only CPU and CUDA ops are safe to submit that way; backends
+        # without thread-safe op submission (MPS) can crash the process, so
+        # batches targeting them are fetched synchronously instead.
+        onload_types = {
+            dtype
+            for intermediates in self.batch_intermediates
+            for intermediate in intermediates.values()
+            for dtype in _onload_device_types(intermediate)
+        }
+        if not onload_types <= {"cpu", "cuda"}:
+            yield from self.iter(input_names)
+            return
+
         # Create a dedicated CUDA stream for H2D transfers so they run on a
         # separate stream from the main thread's compute stream. Without this,
         # both threads default to the null stream (stream 0) which serializes
         # all operations and prevents any overlap.
-        if torch.accelerator.is_available():
+        if (
+            torch.accelerator.is_available()
+            and torch.accelerator.current_accelerator().type == "cuda"
+        ):
             if self._prefetch_stream is None:
                 self._prefetch_stream = torch.Stream()
             h2d_stream = self._prefetch_stream

@@ -7,8 +7,11 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
+from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -16,6 +19,7 @@ from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
+from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
@@ -136,6 +140,25 @@ def find_modules_outside_subgraphs(
         for name, module in model.named_modules()
         if name and name not in subgraph_modules
     }
+
+
+def decompress_subgraph_modules(modules: list[Module]) -> None:
+    """Decompress quantized modules owned by one subgraph."""
+    compressed_modules = [module for module in modules if is_module_quantized(module)]
+    for module in tqdm(compressed_modules, desc="Decompressing modules"):
+        decompress_module(module, leave_decompressed=False)
+
+
+def compress_subgraph_modules(modules: list[Module]) -> None:
+    """Compress quantized modules owned by one subgraph."""
+    quantized_modules = [module for module in modules if is_module_quantized(module)]
+    if is_distributed():
+        replace_module_parallel(
+            quantized_modules, compress_module, desc="Compressing modules"
+        )
+    else:
+        for module in tqdm(quantized_modules, desc="Compressing modules"):
+            compress_module(module)
 
 
 def _resolve_sequential_targets(
