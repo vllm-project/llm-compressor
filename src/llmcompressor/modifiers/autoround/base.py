@@ -18,6 +18,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     enable_quantization,
 )
+from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
@@ -184,16 +185,21 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     _q_input: torch.Tensor | None = PrivateAttr(default=None)
     _capture_hooks: dict[str, Any] = PrivateAttr(default_factory=dict)
 
-    @property
-    def required_pipeline(self) -> str:
-        return "sequential"
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Prepare configuration for per-subgraph quantization and calibration.
 
         :param state: session state storing input model and calibration data
         """
+        pipeline = kwargs.get("pipeline")
+        if pipeline and standardize_lookup_name(pipeline) not in (
+            "sequential",
+            "independent",
+        ):
+            raise ValueError(
+                'AutoRoundModifier requires pipeline="sequential" or "independent"; '
+                f"got pipeline={pipeline!r}"
+            )
         self._sequential_targets = infer_sequential_targets(
             state.model, sequential_targets=kwargs.get("sequential_targets")
         )

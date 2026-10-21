@@ -136,10 +136,6 @@ class QADModifier(Modifier):
     _hooked_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
     _seen_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
-    @property
-    def required_pipeline(self) -> str:
-        return "sequential"
-
     def on_initialize(self, state: State, **kwargs) -> bool:
         pipeline = kwargs.get("pipeline")
         if pipeline and standardize_lookup_name(pipeline) != "sequential":

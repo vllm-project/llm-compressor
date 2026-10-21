@@ -37,28 +37,11 @@ class CalibrationPipeline(ABC, RegistryMixin):
         :return: CalibrationPipeline instance to be called with data (if not datafree)
         """
         user = standardize_lookup_name(user) if user else None
+        inferred = standardize_lookup_name(cls._infer_pipeline(modifiers))
         independent = standardize_lookup_name("independent")
 
         if user == independent:
-            return cls.load_from_registry(independent)
-
-        required = {
-            modifier.required_pipeline
-            for modifier in modifiers
-            if modifier.required_pipeline is not None
-        }
-        if len(required) > 1:
-            raise ValueError(
-                f"Recipe modifiers require incompatible pipelines: {sorted(required)}. "
-                "Run them in separate stages or use pipeline='independent'."
-            )
-        if required and user is not None and user not in required:
-            raise ValueError(
-                f"This recipe requires pipeline={next(iter(required))!r}, got {user!r}."
-            )
-
-        inferred = next(iter(required)) if required else cls._infer_pipeline(modifiers)
-        inferred = standardize_lookup_name(inferred)
+            inferred = independent
 
         if user is not None and user != inferred:
             logger.warning(

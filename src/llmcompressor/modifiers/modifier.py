@@ -44,11 +44,6 @@ class Modifier(ModifierInterface, HooksMixin):
 
     requires_calibration_data: bool = False
 
-    @property
-    def required_pipeline(self) -> str | None:
-        """A required calibration pipeline, or None when any pipeline is supported."""
-        return None
-
     index: int | None = None
     group: str | None = None
     start: float | None = None
