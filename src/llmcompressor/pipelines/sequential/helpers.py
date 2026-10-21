@@ -178,6 +178,8 @@ def compress_subgraph_modules(modules: list[Module]) -> None:
     else:
         for module in tqdm(quantized_modules, desc="Compressing modules"):
             compress_module(module)
+
+
 def find_modules_outside_graph(model: Module, graph: GraphModule) -> dict[str, Module]:
     """
     Return modules that no node of a traced graph calls. These are the same modules as
