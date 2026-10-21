@@ -201,7 +201,7 @@ def _make_grid_points(maxshrink: float, grid: float, grid_type: str) -> list[flo
         points = []
         for step in range(total_steps):
             multiplier = 2.0**-step
-            if multiplier < min_multiplier:
+            if multiplier < min_multiplier or multiplier <= 0.0:
                 break
             points.append(multiplier)
         return points
