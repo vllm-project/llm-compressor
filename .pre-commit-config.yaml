@@ -1,0 +1,52 @@
+# See https://pre-commit.com for usage.
+# Install the git hooks with: pre-commit install
+# These hooks mirror the checks in `make quality` so issues are caught
+# locally before CI runs them.
+default_install_hook_types:
+  - pre-commit
+  - commit-msg
+default_stages:
+  - pre-commit
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in sync with the `ruff` pin in setup.py ([dev] extra).
+    rev: v0.4.8
+    hooks:
+      # Scoped to the CHECKDIRS from `make quality` (src tests examples setup.py)
+      # so pre-commit flags exactly what CI does, no more and no less.
+      - id: ruff
+        args: [--fix]
+        files: ^(src|tests|examples)/|^setup\.py$
+      - id: ruff-format
+        files: ^(src|tests|examples)/|^setup\.py$
+  - repo: local
+    hooks:
+      # Mirrors `python tools/lint_cuda.py <dirs> --fail-on-issues` from
+      # `make quality`. Runs from the active (dev) environment; the script
+      # accepts individual files, so pre-commit passes the changed ones.
+      - id: lint-cuda
+        name: lint cuda
+        entry: python tools/lint_cuda.py --fail-on-issues
+        language: system
+        types: [python]
+        files: ^(src|tests|examples)/|^setup\.py$
+        require_serial: true
+      # Append a DCO Signed-off-by trailer if the commit message lacks one,
+      # matching the `git commit -s` requirement for vllm-project repos.
+      - id: signoff-commit
+        name: Sign-off commit
+        entry: bash
+        args:
+          - -c
+          - |
+            trailer="Signed-off-by: $(git config user.name) <$(git config user.email)>"
+            msg_file="$(git rev-parse --git-path COMMIT_EDITMSG)"
+            # -F/-x match the trailer as a literal, complete line so names/emails
+            # containing regex metacharacters (or a line with an extra suffix)
+            # can't be mistaken for an existing sign-off.
+            if ! grep -Fqx -- "$trailer" "$msg_file"; then
+              printf "\n%s\n" "$trailer" >> "$msg_file"
+            fi
+        language: system
+        stages: [commit-msg]
+        verbose: true

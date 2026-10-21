@@ -139,6 +139,8 @@ class AWQModifier(Modifier):
         Defaults to 20
     """
 
+    requires_calibration_data: bool = True
+
     # Allow arbitrary types because AWQMapping has fields of type torch.nn.Module
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
 
@@ -395,14 +397,18 @@ class AWQModifier(Modifier):
             args: tuple[torch.Tensor, ...],
             kwargs,
         ):
-            values = inspect.signature(module.forward).bind(*args, **kwargs)
+            # bind() nests **kwargs contents under a 'kwargs' key;
+            # flatten them so the result can be replayed as module(**cached)
+            arguments = (
+                inspect.signature(module.forward).bind(*args, **kwargs).arguments
+            )
+            arguments |= arguments.pop("kwargs", {})
 
-            # replace any quantized kv cache with None
-            for k, v in values.arguments.items():
+            for k, v in arguments.items():
                 if isinstance(v, QuantizedKVCache):
-                    values.arguments[k] = None
+                    arguments[k] = None
 
-            self._parent_args_cache[module].append(values.arguments)
+            self._parent_args_cache[module].append(arguments)
 
         def create_cache_smooth_activations_hook_fn(smooth_name):
             def cache_smooth_activations_hook(
@@ -589,9 +595,8 @@ class AWQModifier(Modifier):
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:
         cache = self._parent_args_cache[module]
-        use_prefetch = active_session().state.sequential_prefetch
-        batch_iter = cache.iter_prefetch() if use_prefetch else cache
-        outputs = [module(**batch_kwargs) for batch_kwargs in batch_iter]
+        batch_iter = cache.iter_prefetch()
+        outputs = [module(**batch) for batch in batch_iter]
         return [
             # If tuple, assume that first argument is the input
             output[0] if isinstance(output, tuple) else output
@@ -846,6 +851,15 @@ class AWQModifier(Modifier):
 
         # Save to disk
         logger.debug(f"AWQ per-mapping error metrics: {metrics_data}")
+
+        if not self._error_metrics:
+            logger.warning(
+                "No error metrics were collected during AWQ transformation; "
+                "skipping error summary.",
+                log_once=True,
+            )
+            # to avoid div by 0, exit early
+            return
 
         # Also print summary statistics
         reductions = [m["reduction"] for m in self._error_metrics]

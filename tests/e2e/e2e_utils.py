@@ -14,7 +14,6 @@ from compressed_tensors.entrypoints.convert.converters import (
     FP8BlockDequantizer,
     ModelOptNvfp4Converter,
 )
-from compressed_tensors.offload import load_offloaded_model
 from compressed_tensors.quantization import QuantizationArgs, QuantizationType
 from datasets import load_dataset
 from loguru import logger
@@ -23,6 +22,7 @@ from transformers import AutoProcessor, DefaultDataCollator
 from llmcompressor import model_free_ptq, oneshot
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.utils import load_context
 from tests.test_timer.timer_utils import log_time
 from tests.testing_utils import process_dataset
 
@@ -56,7 +56,7 @@ def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | 
     if max_memory is None:
         max_memory = {"cpu": "1000GB"}
 
-    with load_offloaded_model(pretrained_model_class):
+    with load_context(pretrained_model_class):
         loaded_model = pretrained_model_class.from_pretrained(
             model,
             device_map=device_map,
@@ -240,38 +240,46 @@ def prepare_oneshot_kwargs(
     kwargs = {"model": loaded_model}
 
     if dataset_id:
-        split = get_rank_partition(dataset_split, num_calibration_samples)
+        if "/" not in dataset_id:
+            # Prebaked dataset name (e.g., "perfectblend") — let oneshot handle
+            # loading, preprocessing, and DDP partitioning automatically
+            kwargs["dataset"] = dataset_id
+            kwargs["dataset_config_name"] = dataset_config
+            kwargs["splits"] = dataset_split
+        else:
+            split = get_rank_partition(dataset_split, num_calibration_samples)
 
-        ds = load_dataset(dataset_id, name=dataset_config, split=split)
-        if shuffle_calibration_samples:
-            ds = ds.shuffle(seed=42)
+            ds = load_dataset(dataset_id, name=dataset_config, split=split)
+            if shuffle_calibration_samples:
+                ds = ds.shuffle(seed=42)
 
-        ds = process_dataset(ds, processor, max_seq_length)
-        kwargs["dataset"] = ds
+            ds = process_dataset(ds, processor, max_seq_length)
+            kwargs["dataset"] = ds
+
+            if "flickr30k" in dataset_id:
+
+                def data_collator(batch):
+                    assert len(batch) == 1
+                    return {key: torch.tensor(value) for key, value in batch[0].items()}
+
+                kwargs["data_collator"] = data_collator
+            elif "calibration" in dataset_id:
+
+                def data_collator(batch):
+                    assert len(batch) == 1
+                    return {
+                        key: (
+                            torch.tensor(value)
+                            if key != "pixel_values"
+                            else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
+                        )
+                        for key, value in batch[0].items()
+                    }
+
+                kwargs["data_collator"] = data_collator
+
         kwargs["max_seq_length"] = max_seq_length
         kwargs["num_calibration_samples"] = num_calibration_samples
-
-        if "flickr30k" in dataset_id:
-
-            def data_collator(batch):
-                assert len(batch) == 1
-                return {key: torch.tensor(value) for key, value in batch[0].items()}
-
-            kwargs["data_collator"] = data_collator
-        elif "calibration" in dataset_id:
-
-            def data_collator(batch):
-                assert len(batch) == 1
-                return {
-                    key: (
-                        torch.tensor(value)
-                        if key != "pixel_values"
-                        else torch.tensor(value, dtype=torch.bfloat16).squeeze(0)
-                    )
-                    for key, value in batch[0].items()
-                }
-
-            kwargs["data_collator"] = data_collator
 
     kwargs["recipe"] = build_recipe(recipe, quant_type, scheme)
     kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples

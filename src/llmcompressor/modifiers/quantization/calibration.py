@@ -59,7 +59,12 @@ def initialize_observer(
     args: QuantizationArgs = getattr_chain(
         module, f"quantization_scheme.{arg_name}", None
     )
+    if args is None or args.dynamic is True:
+        return
+
     observer = args.observer
+    if observer is None:
+        observer = "memoryless_minmax" if base_name == "weight" else "minmax"
 
     # training is no longer supported: always use memoryless for weights
     if base_name == "weight" and args.observer in ("static_minmax", "minmax"):
@@ -83,6 +88,19 @@ def initialize_observer(
         observer.attach(module)
 
 
+def _is_module_collection(value: Any) -> bool:
+    """
+    Whether a value is a collection of modules rather than a single module.
+
+    Container modules such as `ModuleDict` are both `Module` and `Iterable`, so the
+    module check has to come first: iterating a `ModuleDict` yields its keys, which
+    are strings, and iterating a one character string yields itself, so recursing
+    into a container module never terminates. `str` is excluded for the same reason,
+    so that a string passed here by mistake is ignored rather than recursed into.
+    """
+    return isinstance(value, Iterable) and not isinstance(value, (Module, str))
+
+
 def observe(
     module: Module | Iterable[Module],
     base_name: str,
@@ -94,7 +112,7 @@ def observe(
     :param module: module or iterable of modules with observer attributes
     :param base_name: substring used to fetch the observer and value to observe
     """
-    if isinstance(module, Iterable):
+    if _is_module_collection(module):
         for m in module:
             observe(m, base_name)
         return
@@ -126,8 +144,9 @@ def update_qparams(
         we want only want one rank to update the offload+onload to avoid
         multiple writes to the offload (rest just update onload)
     """
-    if isinstance(module, Iterable) or not isinstance(base_name, str):
-        modules = [module] if not isinstance(module, Iterable) else module
+    is_collection = _is_module_collection(module)
+    if is_collection or not isinstance(base_name, str):
+        modules = module if is_collection else [module]
         base_names = [base_name] if isinstance(base_name, str) else base_name
         for m, b in product(modules, base_names):
             update_qparams(m, b, only_update_onload=only_update_onload)
@@ -137,6 +156,11 @@ def update_qparams(
     if observer is None:
         return
     if not observer.has_statistics:
+        logger.warning(
+            f"Attempted to calibrate a module {base_name} without statistics. This is "
+            " often indicative of a bad calibration setup, such as not using "
+            "`moe_calibrate_all_experts` or selecting the wrong calibration pipeline."
+        )
         return
 
     # Dynamic (activation) quantization: only store global_scale, not scale/zp
@@ -212,8 +236,10 @@ def freeze_module_quantization(module: Module):
         # no quantization scheme nothing to do
         return
 
-    if module.quantization_status == QuantizationStatus.FROZEN:
-        # nothing to do, already frozen
+    if module.quantization_status in (
+        QuantizationStatus.FROZEN,
+        QuantizationStatus.COMPRESSED,
+    ):
         return
 
     # remove observers

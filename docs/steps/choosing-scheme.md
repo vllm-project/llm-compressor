@@ -32,7 +32,7 @@ Your GPU architecture determines what compression schemes can be hardware-accele
 - **Alternative**: MXFP8 or FP8 for balanced compression and speed
 
 ### NVIDIA Hopper
-- **Minimum compute capability**: 8.9
+- **Minimum compute capability**: 9.0
 - **Recommended**: W8A8-FP8 for maximum throughput
 - **Alternative**: W4AFP8 for mixed-precision with good accuracy
 
@@ -82,6 +82,8 @@ config.json while a local format is indicated for each group of targeted layers.
 | NVFP4 - float  | nvfp4_pack_quantized   |
 | MXFP4A16 - float | mxfp4_pack_quantized |
 | MXFP4 - float  | mxfp4_pack_quantized   |
+| MXFP6A16 - float | mxfp6_pack_quantized |
+| MXFP6A8 - float  | mxfp6_pack_quantized |
 | MXFP8A16 - float | mxfp8_pack_quantized |
 | MXFP8 - float  | mxfp8_pack_quantized   |
 | W4A16 - int   | pack_quantized          |

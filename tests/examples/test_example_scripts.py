@@ -157,6 +157,13 @@ class TestCase(NamedTuple):
         ),
         pytest.param(
             TestCase(
+                "quantization_w6a8_mxfp6/qwen3_example_w6a8_mxfp6.py",
+                compressed_format=CompressionFormat.mxfp6_pack_quantized,
+                prefix="MXFP6A8",
+            ),
+        ),
+        pytest.param(
+            TestCase(
                 "quantization_w4a4_fp4/llama4_example.py",
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4",
@@ -196,6 +203,14 @@ class TestCase(NamedTuple):
                 compressed_format=CompressionFormat.nvfp4_pack_quantized,
                 prefix="NVFP4",
             ),
+        ),
+        pytest.param(
+            TestCase(
+                "quantizing_moe/kimi_k3_example.py",
+                compressed_format=CompressionFormat.nvfp4_pack_quantized,
+                prefix="NVFP4",
+            ),
+            marks=(requires_gpu(2), pytest.mark.multi_gpu),
         ),
     ],
     ids=repr,

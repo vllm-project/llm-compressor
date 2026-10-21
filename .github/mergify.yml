@@ -82,20 +82,6 @@ pull_request_rules:
         remove:
           - quality-failed
 
-  - name: label community PRs for two reviews
-    conditions:
-      - label != stale
-      - -closed
-      - -draft
-      - author != kylesayrs
-      - author != dsikka
-      - author != HDCharles
-      - author != brian-dellabetta
-    actions:
-      label:
-        add:
-          - two-reviews
-
 merge_protections:
   - name: Require two reviews
     description: >-

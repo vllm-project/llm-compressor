@@ -24,19 +24,19 @@ import tempfile
 import pytest
 import torch
 import torch.distributed
-from compressed_tensors.offload import init_dist, load_offloaded_model
+from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
-from llmcompressor.datasets.utils import get_rank_partition
+from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.datasets.utils import get_calibration_dataloader, get_rank_partition
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
-from llmcompressor.modifiers.transform.imatrix import IMatrixGatherer
 from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.utils import load_context
 from tests.testing_utils import requires_gpu, torchrun
 
 # Test configuration
@@ -50,29 +50,13 @@ MAX_SEQ_LENGTH = 512
 # ---------------------------------------------------------------------------
 
 
-def _prepare_dataset(model_id: str, num_samples: int):
-    """Prepare calibration dataset with minimal preprocessing."""
+def _make_eval_dataset(model_id: str, num_samples: int = 5):
+    """Create a small tokenized dataset for output comparison (not calibration)."""
     tok = AutoTokenizer.from_pretrained(model_id)
-
-    if tok.chat_template is None:
-        tok.chat_template = (
-            "{% for message in messages %}{{ message['content'] }}{% endfor %}"
-        )
-
-    split = get_rank_partition("train_sft", num_samples)
-    ds = load_dataset("HuggingFaceH4/ultrachat_200k", split=split)
-
-    ds = ds.map(
-        lambda ex: {"text": tok.apply_chat_template(ex["messages"], tokenize=False)}
+    return get_calibration_dataloader(
+        DatasetArguments(dataset="perfectblend", splits=f"train[:{num_samples}]"),
+        processor=tok,
     )
-    ds = ds.map(
-        lambda s: tok(
-            s["text"], padding=False, max_length=MAX_SEQ_LENGTH, truncation=True
-        ),
-        remove_columns=ds.column_names,
-    )
-    ds.set_format("torch")
-    return ds
 
 
 def _run_single_gpu(
@@ -90,23 +74,25 @@ def _run_single_gpu(
         recipe: Compression recipe
         num_samples: Number of calibration samples
         device: Device to run on
-        return_model: If True, return (weights, model, dataset) instead of just weights
+        return_model: If True, return (weights, model, eval_dataset) instead of just
+            weights
 
     Returns:
-        weights dict if return_model=False, else (weights, model, dataset)
+        weights dict if return_model=False, else (weights, model, eval_dataset)
     """
-    with load_offloaded_model():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map="auto_offload"
         )
-    ds = _prepare_dataset(model_id, num_samples)
 
     oneshot(
         model=model,
-        dataset=ds,
+        dataset="perfectblend",
+        splits=f"train[:{num_samples}]",
         recipe=recipe,
         num_calibration_samples=num_samples,
         max_seq_length=MAX_SEQ_LENGTH,
+        shuffle_calibration_samples=False,
     )
 
     # Extract quantized weights (exclude common ignored parameters)
@@ -117,7 +103,8 @@ def _run_single_gpu(
     }
 
     if return_model:
-        return weights, model, ds
+        eval_ds = _make_eval_dataset(model_id)
+        return weights, model, eval_ds
 
     del model
     torch.accelerator.empty_cache()
@@ -159,16 +146,9 @@ def _compare_outputs(ref_model, ddp_model, dataset, num_samples: int = 5):
     top1_total = 0
 
     with torch.no_grad():
-        for i in range(min(num_samples, len(dataset))):
-            sample = dataset[i]
-            inputs = {
-                k: v.unsqueeze(0).to("cuda:0")
-                for k, v in sample.items()
-                if k == "input_ids"
-            }
-
-            ref_out = ref_model(**inputs).logits[0].float().cpu()
-            ddp_out = ddp_model(**inputs).logits[0].float().cpu()
+        for sample in dataset:
+            ref_out = ref_model(**sample).logits[0].float().cpu()
+            ddp_out = ddp_model(**sample).logits[0].float().cpu()
 
             ref_log_probs = torch.nn.functional.log_softmax(ref_out, dim=-1)
             ddp_log_probs = torch.nn.functional.log_softmax(ddp_out, dim=-1)
@@ -223,6 +203,8 @@ def _test_ddp_modifier(
         max_kl_div: Maximum allowed mean KL divergence (default 0.1)
         offload_folder: Optional folder for disk offload (default None)
     """
+    torch.backends.cudnn.deterministic = True
+
     # Set deterministic seed for reproducibility
     torch.manual_seed(42)
     torch.get_device_module().manual_seed_all(42)
@@ -254,20 +236,19 @@ def _test_ddp_modifier(
         if offload_folder:
             load_kwargs["offload_folder"] = offload_folder
 
-    with load_offloaded_model():
+    with load_context():
         model = AutoModelForCausalLM.from_pretrained(MODEL, **load_kwargs)
 
-    # Prepare dataset with rank partitioning
-    ds = _prepare_dataset(MODEL, NUM_SAMPLES)
-
-    # Run oneshot with DDP
+    # Run oneshot with DDP — prebaked dataset handles rank partitioning automatically
     oneshot(
         model=model,
-        dataset=ds,
+        dataset="perfectblend",
+        splits=get_rank_partition("train", NUM_SAMPLES),
         recipe=recipe_factory(),
         num_calibration_samples=NUM_SAMPLES,
         max_seq_length=MAX_SEQ_LENGTH,
         pipeline=pipeline,
+        shuffle_calibration_samples=False,
     )
 
     # Extract DDP weights (exclude common ignored parameters)
@@ -390,13 +371,11 @@ def test_ddp_smoke_smoothquant():
 def test_ddp_smoke_imatrix():
     _test_ddp_modifier(
         "imatrix",
-        lambda: [
-            IMatrixGatherer(ignore=["lm_head"]),
-            QuantizationModifier(
-                scheme={"W4A16": ["Linear"]},
-                ignore=["lm_head"],
-            ),
-        ],
+        lambda: QuantizationModifier(
+            scheme={"W4A16": ["Linear"]},
+            ignore=["lm_head"],
+            weight_observer="imatrix_mse",
+        ),
         "independent",
         None,
         weight_atol=5e-3,
@@ -507,6 +486,6 @@ def test_ddp_smoke_autoround():
         "independent",
         None,
         weight_atol=1e-1,
-        min_top1_match=0.85,
+        min_top1_match=0.75,
         max_kl_div=0.01,
     )

@@ -40,7 +40,7 @@ class SanityPrompt(NamedTuple):
 
 
 SANITY_PROMPTS = [
-    SanityPrompt("The capital of France is", "paris"),
+    SanityPrompt("Actions speak louder than", "words"),
     SanityPrompt("The creator of the theory of relativity was Albert", "einstein"),
     SanityPrompt("The classic game is called rock, paper,", "scissors"),
 ]
@@ -79,7 +79,8 @@ class TestvLLM:
     def set_up(self, test_data_file: str):
         eval_config = yaml.safe_load(Path(test_data_file).read_text(encoding="utf-8"))
 
-        if os.environ.get("CADENCE", "commit") != eval_config.get("cadence"):
+        cadence = os.environ.get("CADENCE", "commit")
+        if cadence != "release" and cadence != eval_config.get("cadence"):
             pytest.skip("Skipping test; cadence mismatch")
 
         self.config = BaseTestConfig(**eval_config)
@@ -155,17 +156,20 @@ class TestvLLM:
 
             stub = f"{HF_MODEL_HUB_NAME}/{self.config.save_dir}-e2e"
 
-            self.api.create_repo(
-                repo_id=stub,
-                exist_ok=True,
-                repo_type="model",
-                private=False,
-            )
+            try:
+                self.api.create_repo(
+                    repo_id=stub,
+                    exist_ok=True,
+                    repo_type="model",
+                    private=False,
+                )
 
-            self.api.upload_folder(
-                repo_id=stub,
-                folder_path=self.config.save_dir,
-            )
+                self.api.upload_folder(
+                    repo_id=stub,
+                    folder_path=self.config.save_dir,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to upload model {stub}: {e}")
 
     def test_vllm(self, test_data_file: str):
         self.compress_model(test_data_file)
@@ -202,6 +206,8 @@ class TestvLLM:
             os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
 
         llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
+        if self.config.vllm_moe_backend is not None:
+            llm_kwargs["moe_backend"] = self.config.vllm_moe_backend
 
         json_scheme = json.dumps(self.config.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)

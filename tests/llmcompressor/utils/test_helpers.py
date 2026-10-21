@@ -69,7 +69,7 @@ def test_disable_cache(model_cls, model_stub):
 @requires_gpu
 @pytest.mark.parametrize("offload", ["sequential", "basic", "none"])
 def test_disable_lm_head(offload):
-    model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokellama-3.2")
+    model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokeqwen3")
     if offload == "sequential":
         set_onload_device(model, "cuda")
     if offload == "basic":

@@ -61,7 +61,7 @@ def _test_consecutive_runs(
     output_first = tmp_path / "test_1"
     output_second = tmp_path / "test_2"
     num_calibration_samples = 16
-    quantization_config = CompressedTensorsConfig(run_compressed=False)
+    quantization_config = CompressedTensorsConfig(dequantize=True)
 
     # test recipe with 50% sparsity, quantization and smoothquant
     oneshot(

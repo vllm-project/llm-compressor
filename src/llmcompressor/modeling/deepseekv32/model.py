@@ -842,7 +842,6 @@ class Transformer(nn.Module):
         self.norm = RMSNorm(args.dim)
         self.register_buffer("freqs_cis", precompute_freqs_cis(args), persistent=False)
 
-    @torch.inference_mode()
     def forward(self, input_ids: torch.Tensor, start_pos: int = 0):
         """
         Forward pass for the Transformer model.

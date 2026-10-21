@@ -24,6 +24,8 @@ class SparsityModifierBase(Modifier):
     Inheriters must implement `calibrate_module` and `compress_modules`
     """
 
+    requires_calibration_data: bool = True
+
     # modifier arguments
     sparsity: float | list[float] | None
     sparsity_profile: str | None = None

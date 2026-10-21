@@ -2,7 +2,7 @@
 
 SUCCESS=0
 
-while getopts "c:t:g:" OPT; do
+while getopts "c:t:g:f:" OPT; do
   case ${OPT} in
     c )
         CONFIG="$OPTARG"
@@ -12,6 +12,9 @@ while getopts "c:t:g:" OPT; do
         ;;
     g )
         GROUP="$OPTARG"
+        ;;
+    f )
+        FILTER="$OPTARG"
         ;;
     \? )
         exit 1
@@ -32,10 +35,24 @@ if [ ! -z "$GROUP" ]; then
     echo "Test group is specified: $GROUP"
 fi
 
+if [ -n "$FILTER" ]; then
+    echo "Config filter is specified: $FILTER"
+fi
+
 # Parse list of configs.
 for MODEL_CONFIG in "$CONFIG"/*
 do
     LOCAL_SUCCESS=0
+
+    [[ -e "$MODEL_CONFIG" ]] || continue
+
+    # skip configs that don't match the filter pattern (substring match on filename)
+    if [ -n "$FILTER" ]; then
+        if [[ "${MODEL_CONFIG##*/}" != *"$FILTER"* ]]; then
+            echo "=== SKIPPING MODEL (filter): $MODEL_CONFIG ==="
+            continue
+        fi
+    fi
 
     # run test if test group is not specified or the config matching the specified test group
     test_group=$(cat $MODEL_CONFIG | grep 'test_group:' | cut -d'"' -f2)

@@ -10,10 +10,17 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from compressed_tensors import align_module_device
+from compressed_tensors.distributed import (
+    get_source_rank,
+    is_distributed,
+    wait_for_comms,
+)
+from compressed_tensors.offload.utils import to_tensor
 from loguru import logger
+from torch import distributed as dist
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
-from llmcompressor.modeling.moe.granitemoe import GraniteMoeLinearExperts
+from llmcompressor.modeling.moe.gpt_oss import GptOssLinearExperts
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
 
@@ -42,7 +49,12 @@ class MoeModelAttrs:
 
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
-NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
+NUM_EXPERTS_CONFIG_KEYS = [
+    "num_experts",
+    "num_local_experts",
+    "moe_num_experts",
+    "n_routed_experts",
+]
 TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
 N_GROUP_CONFIG_KEYS = ["n_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
@@ -149,22 +161,21 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
                 continue
             experts = getattr(module, experts_attr)
             # REAP currently only supports LinearExperts2D experts, as they receive the
-            # top_k indices and weights from the router in their forward pass.
-            # Granite and Llama4 experts diverge from this behavior, so they are
-            # unsupported for now.
+            # top_k indices and weights from the router in their forward pass. Llama4
+            # experts diverge from this behavior, so they are unsupported for now.
             if not isinstance(experts, LinearExperts2D):
                 logger.warning(
                     f"Skipping layer {name}: experts module is not LinearExperts2D"
                 )
                 continue
-            if isinstance(experts, GraniteMoeLinearExperts):
-                logger.warning(
-                    f"Skipping unsupported GraniteMoeLinearExperts layer: {name}"
-                )
-                continue
             if isinstance(experts, Llama4LinearExperts):
                 logger.warning(
                     f"Skipping unsupported Llama4LinearExperts layer: {name}"
+                )
+                continue
+            if isinstance(experts, GptOssLinearExperts):
+                logger.warning(
+                    f"Skipping unsupported GptOssLinearExperts layer: {name}"
                 )
                 continue
             moe_layer_names.append(name)
@@ -173,7 +184,7 @@ def get_moe_attrs(model: nn.Module, ignore: list[str]) -> MoeModelAttrs | None:
         raise ValueError(
             "Could not find any supported MoE layers with experts in "
             "LinearExperts2D format. Make sure the model has MoE layers "
-            "(excluding GraniteMoeLinearExperts and Llama4LinearExperts), "
+            "(excluding Llama4LinearExperts), "
             "and that the name of its experts module is in EXPERTS_ATTRS "
             "and it the name of its router module is in ROUTER_ATTRS in "
             "reap/utils.py"
@@ -227,6 +238,39 @@ class REAPSaliencyTracker:
             self.count = torch.zeros(
                 self.num_experts, dtype=torch.float64, device=device
             )
+
+    def reduce_saliency_stats(
+        self,
+        device: torch.device,
+        group: dist.ProcessGroup | None = None,
+    ):
+        """Reduce saliency accumulators to the source rank (rank 0).
+
+        Each rank accumulates statistics over its partition of the calibration
+        data. Summing to rank 0 lets it compute a global pruning decision that
+        is then broadcast to all ranks.
+        """
+        self._ensure(device)
+        if is_distributed():
+            self.sum_saliency = self.sum_saliency.cpu()
+            self.count = self.count.cpu()
+            pending = [
+                dist.reduce(
+                    self.sum_saliency,
+                    dst=get_source_rank(),
+                    op=dist.ReduceOp.SUM,
+                    async_op=True,
+                    group=group,
+                ),
+                dist.reduce(
+                    self.count,
+                    dst=get_source_rank(),
+                    op=dist.ReduceOp.SUM,
+                    async_op=True,
+                    group=group,
+                ),
+            ]
+            wait_for_comms(pending)
 
     @torch.no_grad()
     def update(
@@ -294,7 +338,7 @@ class REAPSaliencyTracker:
         n_experts_to_drop: int,
         n_experts_to_drop_per_group: int | None,
         moe_attrs: MoeModelAttrs,
-    ) -> list[int]:
+    ) -> torch.Tensor:
         """Select which experts to keep, dropping the lowest-saliency ones."""
         saliency = self.mean_saliency
 
@@ -315,7 +359,7 @@ class REAPSaliencyTracker:
                     i for i in range(lo, lo + moe_attrs.group_size) if i not in drop_set
                 )
 
-        return retained
+        return torch.tensor(retained, dtype=torch.int)
 
     @property
     def total_count(self) -> float:
@@ -373,6 +417,13 @@ def prune_moe_layer(
     experts.num_experts = len(retained)
 
     _prune_router(router, retained)
+
+    # Some models (e.g. Hy3) place e_score_correction_bias on the MoE block
+    # rather than on the router; prune it here
+    e_bias = getattr(moe_block, "e_score_correction_bias", None)
+    if e_bias is not None:
+        e_bias = to_tensor(e_bias[retained].contiguous(), e_bias)
+        moe_block.e_score_correction_bias = e_bias
 
     # Update num_experts for any other modules in the layer that may track it
     for holder in (moe_block, router):

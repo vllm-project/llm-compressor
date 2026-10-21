@@ -7,6 +7,7 @@ sources and processing pipelines. Supports various input formats including
 HuggingFace datasets, custom JSON/CSV files, and DVC-managed datasets.
 """
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -62,9 +63,9 @@ class CustomDatasetArguments(DVCDatasetArguments):
         default=None,
         metadata={
             "help": (
-                "Typically a function which applies a chat template. Can take the form "
-                "of either a function to apply to the dataset or "
-                "a path to a function definition of the form /path/to/file.py:func"
+                "Deprecated. Preprocess and tokenize custom datasets before passing "
+                "them to oneshot(); see examples/custom_dataset_example.py. "
+                "This argument will be removed in a future release."
             )
         },
     )
@@ -91,6 +92,16 @@ class CustomDatasetArguments(DVCDatasetArguments):
             )
         },
     )
+
+    def __post_init__(self):
+        if self.preprocessing_func is not None:
+            warnings.warn(
+                "`preprocessing_func` is deprecated and will be removed in a future "
+                "release. Preprocess and tokenize the dataset before passing it to "
+                "oneshot(); see examples/custom_dataset_example.py.",
+                FutureWarning,
+                stacklevel=3,
+            )
 
 
 @dataclass
@@ -143,9 +154,9 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": (
                 "Optional dataset split selector. Passing a string like 'train' or "
-                "'train[:50%]' is strongly recommended. Legacy dict input is "
+                "'train[:50%%]' is strongly recommended. Legacy dict input is "
                 "deprecated and only supported for calibration compatibility "
-                "(for example: {'calibration': 'train[:50%]'})."
+                "(for example: {'calibration': 'train[:50%%]'})."
             )
         },
     )
@@ -172,7 +183,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={"help": "The number of workers to use for dataset processing."},
     )
     pad_to_max_length: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "Whether to pad all samples to `max_seq_length`. If False, "
             "will pad the samples dynamically when batching to the maximum length "
@@ -225,6 +236,7 @@ class DatasetArguments(CustomDatasetArguments):
             "_prepare_4d_causal_attention_mask_with_cache_position",
             "_update_linear_attn_mask",
             "project_per_layer_inputs",
+            "_apply_attn_res",
         ],
         metadata={
             "help": "List of functions to ignore during tracing, either "
@@ -272,6 +284,15 @@ class DatasetArguments(CustomDatasetArguments):
             "Default is True"
         },
     )
+    log_sequential_error: bool = field(
+        default=False,
+        metadata={
+            "help": "Only relevant for the sequential pipeline. If True, compute and "
+            "log the SQNR between each subgraph's pre-compression and "
+            "post-compression outputs, independent of propagate_error. "
+            "Default is False."
+        },
+    )
     use_loss_mask: bool = field(
         default=False,
         metadata={
@@ -292,16 +313,32 @@ class DatasetArguments(CustomDatasetArguments):
     sequential_prefetch: bool = field(
         default=False,
         metadata={
-            "help": "When using the sequential pipeline, prefetch the next batch in a "
-            "background thread to overlap onload with forward. Default False; set True "
-            "for faster calibration when GPU memory allows (two batches on device)."
+            "help": "Deprecated. Activation prefetching is now always enabled in the "
+            "sequential pipeline."
         },
     )
-    enable_compile: bool = field(
+    stage_weights_in_pinned_memory: bool = field(
         default=False,
         metadata={
-            "help": "If True, use torch.compiled functions where available"
-            "calibration. Default False."
+            "help": "When using the sequential pipeline, stage offloaded module "
+            "tensors in pinned CPU memory before onloading them to the execution "
+            "device. Only moves weights. Default False."
+        },
+    )
+    layerwise_decompression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, each layer is decompressed before calibrating in "
+            "the sequential pipeline. Use when loading a pre-compressed model "
+            "that needs recalibration. Default False."
+        },
+    )
+    layerwise_compression: bool = field(
+        default=False,
+        metadata={
+            "help": "When True, each layer is compressed after propagation in the "
+            "sequential pipeline. Reduces peak memory by keeping only the "
+            "active layer decompressed. Default False."
         },
     )
 

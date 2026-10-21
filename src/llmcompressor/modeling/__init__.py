@@ -13,3 +13,5 @@ needed for efficient compression.
 from .offset_norm import CalibrationOffsetNorm  # noqa: F401
 
 from .fuse import *
+from .moe.conversion_mappings import patch_moe_mappings  # noqa: F401
+from .moe.linearize import repack_moe  # noqa: F401

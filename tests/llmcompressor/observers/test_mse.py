@@ -1,9 +1,20 @@
 import pytest
 import torch
-from compressed_tensors.quantization import fake_quantize
+from compressed_tensors.quantization import (
+    QuantizationStrategy,
+    fake_quantize,
+    preset_name_to_scheme,
+)
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
+from compressed_tensors.utils import patch_attr
+from compressed_tensors.utils.impl_backend import ImplBackend
+from compressed_tensors.utils.triton import tl, triton
 
 from llmcompressor.observers import MovingAverageMSEObserver, Observer
+from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.observers.mse import MemorylessMSEObserver, NVFP4ExpandedMSEObserver
+from llmcompressor.utils.triton_utils import quantize_dequantize
 
 
 @pytest.mark.parametrize(
@@ -87,33 +98,148 @@ def test_mse_fp4():
     assert torch.nn.functional.mse_loss(qdq_tensor, module.weight) <= 0.0015  # 0.0013
 
 
-def test_mse_observer_torch_compile():
-    """Test that MSE observer produces correct results with compiled inner loop"""
-    from llmcompressor.core import active_session
+@pytest.mark.parametrize(
+    "preset,observed_shape",
+    [
+        pytest.param("W4A16", (16, 128), id="w4a16"),
+        pytest.param("NVFP4A16", (8, 1024), id="nvfp4a16"),
+    ],
+)
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
+    """Real W4A16 and NVFP4A16 group sizes preserve eager grid choices."""
+    args = preset_name_to_scheme(preset, ["Linear"]).weights
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(*observed_shape, device="cuda", dtype=torch.bfloat16),
+        "weight",
+        args,
+    )
+    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_kwargs = {"expand": 1.0}
+    eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+    triton = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+    assert torch.equal(eager[0], triton[0])
+    assert torch.equal(eager[1], triton[1])
 
+
+@triton.jit
+def _qdq_kernel(
+    values_ptr,
+    scale_ptr,
+    zero_point_ptr,
+    out_ptr,
+    num_values,
+    group_size,
+    q_min,
+    q_max,
+    QUANT_TYPE: tl.constexpr,
+    NUM_BITS: tl.constexpr,
+    HAS_ZP: tl.constexpr,
+    COMPUTE_DTYPE: tl.constexpr,
+    BLOCK: tl.constexpr,
+):
+    offsets = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    mask = offsets < num_values
+    group = offsets // group_size
+    values = tl.load(values_ptr + offsets, mask=mask, other=0.0).to(tl.float32)
+    scale = tl.load(scale_ptr + group, mask=mask, other=1.0).to(tl.float32)
+    zero_point = tl.load(zero_point_ptr + group, mask=mask, other=0.0).to(tl.float32)
+    result = quantize_dequantize(
+        values,
+        scale,
+        zero_point,
+        q_min,
+        q_max,
+        QUANT_TYPE=QUANT_TYPE,
+        NUM_BITS=NUM_BITS,
+        HAS_ZP=HAS_ZP,
+        COMPUTE_DTYPE=COMPUTE_DTYPE,
+    )
+    tl.store(out_ptr + offsets, result, mask=mask)
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("symmetric", [True, False])
+@pytest.mark.parametrize("num_bits", [4, 8])
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
+    """The shared QDQ helper reproduces fake_quantize bit for bit."""
     args = QuantizationArgs(
-        num_bits=8,
-        type="int",
-        symmetric=True,
-        strategy="tensor",
-        observer="memoryless_mse",
+        num_bits=num_bits,
+        symmetric=symmetric,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=128,
     )
-    observer = Observer.load_from_registry(
-        "memoryless_mse", base_name="weight", args=args
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(64, 1024, device="cuda", dtype=dtype), "weight", args
     )
-    x = torch.randn(1, 1, 128)
-    try:
-        # eager baseline
-        active_session().state.enable_compile = False
-        eager_qparams = observer(x).get_qparams()
-        eager_scale, eager_zp = eager_qparams["scale"], eager_qparams["zero_point"]
-        # compiled inner loop
-        active_session().state.enable_compile = True
-        compiled_qparams = observer(x).get_qparams()
-        compiled_scale = compiled_qparams["scale"]
-        compiled_zp = compiled_qparams["zero_point"]
-        torch.testing.assert_close(eager_scale, compiled_scale)
-        torch.testing.assert_close(eager_zp, compiled_zp)
-    finally:
-        # always restore state, even if assertions fail
-        active_session().state.enable_compile = False
+    scale, zero_point = calculate_qparams(
+        min_vals=torch.amin(observed, dim=(0, -1)),
+        max_vals=torch.amax(observed, dim=(0, -1)),
+        quantization_args=args,
+        global_scale=None,
+    )
+    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+        expected = fake_quantize(
+            observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), args
+        )
+
+    values = observed.reshape(-1).contiguous()
+    result = torch.empty_like(values, dtype=torch.float32)
+    q_min, q_max = calculate_range(args, values.device)
+    block = 1024
+    _qdq_kernel[(triton.cdiv(values.numel(), block),)](
+        values,
+        scale.reshape(-1).to(torch.float32).contiguous(),
+        zero_point.reshape(-1).to(torch.float32).contiguous(),
+        result,
+        values.numel(),
+        args.group_size,
+        float(q_min),
+        float(q_max),
+        QUANT_TYPE=0,
+        NUM_BITS=num_bits,
+        HAS_ZP=not symmetric,
+        COMPUTE_DTYPE={torch.float32: 0, torch.float16: 1, torch.bfloat16: 2}[dtype],
+        BLOCK=block,
+    )
+    assert torch.equal(result.to(dtype).reshape(observed.shape), expected)
+
+
+def test_mse_triton_error_buffer_defaults():
+    args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
+    observer = MovingAverageMSEObserver(base_name="weight", args=args)
+    assert observer.triton_error_buffer == 0.30
+
+    fp4_args = QuantizationArgs(num_bits=4, type="float", symmetric=True)
+    assert (
+        MemorylessMSEObserver(base_name="weight", args=fp4_args).triton_error_buffer
+        == 1.00
+    )
+    assert (
+        MovingAverageMSEObserver(base_name="weight", args=fp4_args).triton_error_buffer
+        == 1.00
+    )
+
+    nvfp4 = NVFP4ExpandedMSEObserver(base_name="weight", args=args)
+    assert nvfp4.triton_error_buffer == 1.00
+
+
+@pytest.mark.parametrize(
+    "observer_cls", [MemorylessMSEObserver, MovingAverageMSEObserver]
+)
+def test_mse_observer_rejects_expand_below_one(observer_cls):
+    # `expand` scales the initial search range (min/max * expand) and the grid
+    # search can only shrink it further, so an expand < 1.0 starts below the
+    # observed range and can never cover the data. Every MSE observer must
+    # reject it rather than silently produce a degenerate range.
+    args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
+    with pytest.raises(ValueError, match="expand value must be at least 1.0"):
+        observer_cls(base_name="weight", args=args, expand=0.5)
+
+    # expand >= 1.0 is accepted.
+    observer_cls(base_name="weight", args=args, expand=1.0)

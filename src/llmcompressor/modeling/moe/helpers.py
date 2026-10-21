@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, ClassVar
 
 import torch
+from compressed_tensors.offload import disable_onloading
 from loguru import logger
 from transformers import PreTrainedConfig
 
@@ -33,14 +34,17 @@ class FusedExpertsProtocol(TorchModuleProtocol):
 
     @classmethod
     def __validate__(cls, object: object) -> bool:
-        return (
-            isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
-            and (
-                isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
-                or isinstance(getattr(object, "gate_up_proj", None), torch.nn.Parameter)
+        with disable_onloading():
+            return (
+                isinstance(getattr(object, "down_proj", None), torch.nn.Parameter)
+                and (
+                    isinstance(getattr(object, "up_proj", None), torch.nn.Parameter)
+                    or isinstance(
+                        getattr(object, "gate_up_proj", None), torch.nn.Parameter
+                    )
+                )
+                and get_use_experts_implementation_args(object.__class__) is not None
             )
-            and get_use_experts_implementation_args(object.__class__) is not None
-        )
 
 
 def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | None:
@@ -126,7 +130,9 @@ class MoEConfig:
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
             ),
-            hidden_dim=_getattr_fallbacks(config, ["hidden_size", "hidden_dim"]),
+            hidden_dim=_getattr_fallbacks(
+                config, ["moe_latent_size", "hidden_size", "hidden_dim"]
+            ),
             intermediate_size=_getattr_fallbacks(
                 config,
                 ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
@@ -149,6 +155,9 @@ class MoEConfig:
                 ret.hidden_act = "sigmoid"
             case "lfm2_moe":
                 ret.hidden_act = "silu"
+            case "nemotron_h":
+                if config.moe_latent_size is None:
+                    ret.hidden_dim = config.hidden_size
 
         return ret
 

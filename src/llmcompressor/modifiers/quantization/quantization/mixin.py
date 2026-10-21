@@ -19,15 +19,18 @@ from compressed_tensors.quantization import (
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
-    is_attention_module,
+    is_cached_attention_module,
     is_preset_scheme,
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
+from compressed_tensors.quantization.utils.helpers import is_module_quantized
 from compressed_tensors.utils import match_named_modules
-from pydantic import Field, PrivateAttr, field_validator
+from loguru import logger
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
+from llmcompressor.core import Event, EventType, active_session
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
@@ -47,6 +50,7 @@ from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
+    warn_inference_mode_forwards,
 )
 
 __all__ = ["QuantizationMixin"]
@@ -247,6 +251,7 @@ class QuantizationMixin(HooksMixin):
         targets = match_named_modules(model, self.resolved_targets, self.ignore)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
+        warn_inference_mode_forwards(model)
 
         for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             self._initialize_observers(module)
@@ -264,10 +269,57 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        modules = [
+            module
+            for _, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
+            )
+        ]
+
+        # observer statistics are consumed when qparams are updated. Modules which
+        # still have statistics were never passed to `on_sequential_epoch_end`, for
+        # example modules which are traced through rather than called by a sequential
+        # subgraph (e.g. attention when using `sequential_targets="Linear"`)
+        remaining = [module for module in modules if _has_observer_statistics(module)]
+        if len(remaining) > 0:
+            module_types = sorted({type(module).__name__ for module in remaining})
+            logger.warning(
+                f"Found {len(remaining)} modules of type(s) {module_types} which were "
+                "calibrated but not quantized. This can occur when setting highly "
+                "granular sequential targets. Consider setting less granular "
+                "sequential targets for better performance. Quantizing remaining "
+                "modules now."
+            )
+            self.on_sequential_epoch_end(
+                active_session().state,
+                Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+                modules=remaining,
+            )
+
+        for module in modules:
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
+
+    def start_layerwise_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module]
+    ):
+        """
+        Set up quantization for a subset of modules after layerwise
+        decompression. Applies quantization config scoped to the given
+        modules, then initializes observers, calibration hooks, and fuses
+        weight observers.
+
+        :param model: the full model (needed for config application)
+        :param modules: modules in the current subgraph to prepare
+        """
+        apply_quantization_config(model, self.resolved_config, allowed_modules=modules)
+        for module in modules:
+            if is_module_quantized(module):
+                self._initialize_observers(module)
+                self._calibration_hooks |= self._initialize_hooks(module)
+                apply_calibration_status(module)
+        fuse_weight_observers(model, modules)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """
@@ -292,6 +344,34 @@ class QuantizationMixin(HooksMixin):
                     synced_obs.add(observer)
                     pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
+
+    @model_validator(mode="after")
+    def _set_requires_calibration_data(self):
+        if self.requires_calibration_data:
+            return self
+
+        if self.kv_cache_scheme is not None:
+            self.requires_calibration_data = True
+            return self
+
+        for scheme in self.resolved_config.config_groups.values():
+            if scheme.weights is not None:
+                if scheme.weights.observer in (
+                    "imatrix_mse",
+                    "nvfp4_expanded_imatrix",
+                ):
+                    self.requires_calibration_data = True
+                    return self
+            if scheme.input_activations is not None:
+                if scheme.input_activations.dynamic in (False, DynamicType.LOCAL):
+                    self.requires_calibration_data = True
+                    return self
+            if scheme.output_activations is not None:
+                if not scheme.output_activations.dynamic:
+                    self.requires_calibration_data = True
+                    return self
+
+        return self
 
     def has_config(self) -> bool:
         """
@@ -394,17 +474,23 @@ class QuantizationMixin(HooksMixin):
 
         # Apply observers to QuantizationArgs if specified
         update_map = [
-            (weight_obs, "weights"),
-            (input_obs, "input_activations"),
-            (output_obs, "output_activations"),
+            (weight_obs, "weights", "memoryless_minmax"),
+            (input_obs, "input_activations", "minmax"),
+            (output_obs, "output_activations", "minmax"),
         ]
 
-        for obs_value, scheme_attr in update_map:
+        for obs_value, scheme_attr, default_obs in update_map:
             q_args = getattr(scheme, scheme_attr, None)
-            if obs_value is not None and q_args is not None:
-                args_dict = q_args.model_dump()
-                args_dict["observer"] = obs_value
-                setattr(scheme, scheme_attr, QuantizationArgs.model_validate(args_dict))
+            if q_args is None:
+                continue
+            elif obs_value is None:
+                if (
+                    q_args.observer is not None
+                    and "observer" in q_args.model_fields_set
+                ):
+                    continue
+                obs_value = None if q_args.dynamic is True else default_obs
+            q_args.observer = obs_value
 
         return scheme
 
@@ -419,7 +505,7 @@ class QuantizationMixin(HooksMixin):
         )
         weight = scheme.weights is not None
         output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        is_attention = is_cached_attention_module(module)
 
         # input activations
         if input:
@@ -451,7 +537,7 @@ class QuantizationMixin(HooksMixin):
             DynamicType.LOCAL,
         )
         output = scheme.output_activations and not scheme.output_activations.dynamic
-        is_attention = is_attention_module(module)
+        is_attention = is_cached_attention_module(module)
 
         # input activations
         if input:
@@ -471,3 +557,11 @@ class QuantizationMixin(HooksMixin):
             hooks.add(self.register_hook(module, calibrate_output_hook, "forward"))
 
         return hooks
+
+
+def _has_observer_statistics(module: torch.nn.Module) -> bool:
+    return any(
+        getattr(observer, "has_statistics", False)
+        for base_name in ACTIVATION_OBS + ("weight",)
+        if (observer := getattr(module, f"{base_name}_observer", None)) is not None
+    )

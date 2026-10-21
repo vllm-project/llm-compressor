@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from llmcompressor.args import DatasetArguments
 
 
-@TextGenerationDataset.register(name="ultrachat_200k")
+@TextGenerationDataset.register(name="ultrachat_200k", alias="ultrachat")
 class UltraChatDataset(TextGenerationDataset):
     """
     Child text generation class for the Ultra Chat 200k dataset
@@ -19,6 +19,8 @@ class UltraChatDataset(TextGenerationDataset):
     :param split: split from dataset to load, for instance `test` or `train[:5%]`
     :param processor: processor or tokenizer to use on dataset
     """
+
+    add_special_tokens = False
 
     DEFAULT_CHAT_TEMPLATE = (
         "{% for message in messages %}\n"

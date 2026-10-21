@@ -1,6 +1,4 @@
-import torch
-from compressed_tensors.utils import save_mtp_tensors_to_checkpoint
-from datasets import load_dataset
+# NOTE: to use a custom dataset, see examples/custom_dataset_example.py
 from transformers import AutoProcessor, Qwen3_5MoeForConditionalGeneration
 
 from llmcompressor import oneshot
@@ -16,7 +14,7 @@ with load_context(Qwen3_5MoeForConditionalGeneration):
     model = Qwen3_5MoeForConditionalGeneration.from_pretrained(MODEL_ID)
 processor = AutoProcessor.from_pretrained(MODEL_ID)
 
-# No need to include mtp layers as they are not loaded
+# No need to ignore mtp layers as they are not loaded
 # through Qwen3_5MoeForConditionalGeneration
 recipe = QuantizationModifier(
     targets="Linear",
@@ -32,59 +30,19 @@ recipe = QuantizationModifier(
     ],
 )
 
-NUM_CALIBRATION_SAMPLES = 256
-MAX_SEQUENCE_LENGTH = 4096
-
-ds = load_dataset(
-    "HuggingFaceH4/ultrachat_200k",
-    split=f"train_sft[:{NUM_CALIBRATION_SAMPLES}]",
-)
-ds = ds.select_columns(["messages"])
-ds = ds.shuffle(seed=42)
-
-
-def preprocess_function(example):
-    messages = [
-        {"role": m["role"], "content": [{"type": "text", "text": m["content"]}]}
-        for m in example["messages"]
-    ]
-    return processor.apply_chat_template(
-        messages,
-        return_tensors="pt",
-        padding=False,
-        truncation=True,
-        max_length=MAX_SEQUENCE_LENGTH,
-        tokenize=True,
-        add_special_tokens=False,
-        return_dict=True,
-        add_generation_prompt=False,
-    )
-
-
-ds = ds.map(preprocess_function, batched=False, remove_columns=ds.column_names)
-
-
-def data_collator(batch):
-    assert len(batch) == 1
-    return {key: torch.tensor(value) for key, value in batch[0].items()}
-
-
 # Apply quantization.
 oneshot(
     model=model,
+    processor=processor,
     recipe=recipe,
-    dataset=ds,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+    dataset="perfectblend",
+    splits="train[:512]",
+    max_seq_length=4096,
+    num_calibration_samples=256,
     moe_calibrate_all_experts=True,
-    data_collator=data_collator,
 )
 
 # Save to disk in compressed-tensors format.
 SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR)
 processor.save_pretrained(SAVE_DIR)
-
-# MTP layers are excluded from the model through Qwen3_5MoeForConditionalGeneration
-# Save them as-is from the original checkpoint into the quantized output.
-save_mtp_tensors_to_checkpoint(source_model=MODEL_ID, dest_dir=SAVE_DIR)
