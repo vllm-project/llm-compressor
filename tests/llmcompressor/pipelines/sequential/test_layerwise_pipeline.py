@@ -45,6 +45,9 @@ class _FakeModifier:
     def on_sequential_epoch_start(self, modules):
         self.events.append(("sequential_epoch_start", modules))
 
+    def create_calibration_preparation(self, state, modules):
+        return None
+
 
 def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     monkeypatch,
@@ -118,7 +121,7 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,
         "sequential_epoch_start",
-        lambda modules: modifier.on_sequential_epoch_start(modules),
+        lambda modules, **kwargs: modifier.on_sequential_epoch_start(modules),
     )
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,

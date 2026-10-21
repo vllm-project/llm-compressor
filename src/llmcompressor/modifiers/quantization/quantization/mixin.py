@@ -7,6 +7,7 @@ from compressed_tensors.modeling import (
     IMPL_ATTR,
     KV_CACHE_ATTR,
 )
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.offload.dist_utils import (
     is_distributed,
 )
@@ -21,6 +22,7 @@ from compressed_tensors.quantization import (
     enable_quantization,
     is_cached_attention_module,
     is_preset_scheme,
+    match_quantization_schemes,
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
@@ -44,6 +46,10 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
+)
+from llmcompressor.modifiers.quantization.preparation import (
+    PreparedQuantization,
+    QuantizationPreparation,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -224,10 +230,33 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
+    def plan_quantization(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module],
+        *,
+        with_observers: bool = True,
+    ) -> QuantizationPreparation | None:
+        if not self.has_config():
+            return None
+        targets = []
+        with disable_onloading():
+            for module, scheme in match_quantization_schemes(
+                model, self.resolved_config, modules
+            ):
+                if module in self._initialized_modules:
+                    continue
+                # Packed weights are initialized after main-thread decompression.
+                weight = getattr(module, "weight", None)
+                if weight is not None:
+                    targets.append((module, scheme, tuple(weight.shape), weight.dtype))
+        return QuantizationPreparation(targets, with_observers)
+
     def initialize_quantization(
         self,
         model: torch.nn.Module,
         modules: Iterable[torch.nn.Module] | None = None,
+        preparation: PreparedQuantization | None = None,
     ):
         """
         Attach quantization schemes to modules in the model according to
@@ -252,7 +281,10 @@ class QuantizationMixin(HooksMixin):
                 reset_quantization_status(module)
 
             apply_quantization_config(
-                model, self.resolved_config, modules=target_modules
+                model,
+                self.resolved_config,
+                modules=target_modules,
+                parameters=None if preparation is None else preparation.parameters,
             )
             validate_fused_layer_scope(model, modules)
 
@@ -286,6 +318,7 @@ class QuantizationMixin(HooksMixin):
         modules: Iterable[torch.nn.Module] | None = None,
         *,
         warn_on_inference_mode: bool = True,
+        preparation: PreparedQuantization | None = None,
     ):
         """
         Attach observers, register activation calibration hooks (including
@@ -310,7 +343,10 @@ class QuantizationMixin(HooksMixin):
         for _, module in targets:
             if module in self._calibrated_modules:
                 continue
-            self._initialize_observers(module)
+            self._initialize_observers(
+                module,
+                None if preparation is None else preparation.observers.get(module),
+            )
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
             self._calibrated_modules.add(module)
@@ -554,8 +590,13 @@ class QuantizationMixin(HooksMixin):
 
         return scheme
 
-    def _initialize_observers(self, module: torch.nn.Module):
+    def _initialize_observers(self, module: torch.nn.Module, observers=None):
         if not hasattr(module, "quantization_scheme"):
+            return
+
+        if observers is not None:
+            for base_name, observer in observers.items():
+                initialize_observer(module, base_name, observer=observer)
             return
 
         scheme: QuantizationScheme = module.quantization_scheme

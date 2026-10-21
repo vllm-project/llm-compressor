@@ -200,8 +200,12 @@ class CompressionLifecycle:
 
         event = Event(type_=event_type)
         mod_data = []
-        for mod in self.recipe.modifiers:
-            data = mod.update_event(state=self.state, event=event, **kwargs)
+        preparations = kwargs.pop("modifier_preparations", None)
+        for index, mod in enumerate(self.recipe.modifiers):
+            mod_kwargs = kwargs.copy()
+            if preparations is not None:
+                mod_kwargs["preparation"] = preparations[index]
+            data = mod.update_event(state=self.state, event=event, **mod_kwargs)
             logger.debug("Updated event with modifier: {}", mod)
             if data is not None:
                 mod_data.append(data)

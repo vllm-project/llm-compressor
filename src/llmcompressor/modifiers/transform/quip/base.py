@@ -7,6 +7,7 @@ from compressed_tensors.transform import (
     TransformFactory,
     TransformScheme,
     apply_transform_config,
+    plan_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, match_named_modules
 from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
@@ -126,7 +127,20 @@ class QuIPModifier(Modifier):
             self.transform_config,
             modules=modules,
             factories=self._transform_factories,
+            prepared=plan_transform_config(
+                model, self.transform_config, self._transform_factories, modules
+            )(),
         )
+
+    def create_calibration_preparation(self, state: State, modules):
+        preparation = plan_transform_config(
+            state.model, self.transform_config, self._transform_factories, modules
+        )
+        return preparation if preparation.can_run_in_background else None
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self._transform_factories.clear()
+        return True
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -134,11 +148,17 @@ class QuIPModifier(Modifier):
         model = state.model
         if targets_embeddings(model, self._get_targets(model, modules)):
             untie_word_embeddings(model)
+        prepared = kwargs.get("preparation")
+        if prepared is None:
+            prepared = plan_transform_config(
+                model, self.transform_config, self._transform_factories, modules
+            )()
         apply_transform_config(
             model,
             self.transform_config,
             modules=modules,
             factories=self._transform_factories,
+            prepared=prepared,
         )
 
     def _get_targets(

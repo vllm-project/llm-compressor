@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import contextlib
 import warnings
+from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
+from compressed_tensors.offload import (
+    OffloadCache,
+    get_cache_init_kwargs,
+    set_onload_device,
+)
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
+from compressed_tensors.offload.utils import send_tensors
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -41,20 +47,82 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
+def _prepare_and_stage(
+    modules: dict[str, torch.nn.Module],
+    jobs: Sequence[Callable[[], Any] | None],
+    pin_memory: bool,
+) -> list[Any]:
+    # Jobs allocate CPU artifacts only. Hooks, model mutations, accelerator work,
+    # and lifecycle events belong to the main thread.
+    # PyTorch grad/device contexts are thread-local, so establish them here too.
+    with torch.no_grad(), torch.device("cpu"):
+        preparations = [job() if job is not None else None for job in jobs]
+    subgraph_stage_modules(modules, pin_memory=pin_memory)
+    return preparations
+
+
+def _inherit_offload_kwargs(
+    name: str, policies: dict[str, dict], module: torch.nn.Module
+) -> dict:
+    parent = name
+    while True:
+        if parent in policies:
+            return policies[parent].copy()
+        if not parent:
+            break
+        parent = parent.rpartition(".")[0]
+    return get_cache_init_kwargs(module)
+
+
+def _onload_new_children(model, subgraph, previous_modules, offload_kwargs):
+    """Install the complete scope while retaining its original offload policy."""
+    modules = subgraph.submodule_dict(model)
+    added = {}
+    for name, module in modules.items():
+        if name in previous_modules and previous_modules[name] is module:
+            continue
+        policy = _inherit_offload_kwargs(name, offload_kwargs, module)
+        offload_kwargs[name] = policy
+        if not isinstance(module._parameters, OffloadCache):
+            # Copy tensors instead of module.to(), which would move shared factory
+            # Parameters in place and retain accelerator memory outside the scope.
+            module._parameters = send_tensors(
+                module._parameters, device=policy["onload_device"]
+            )
+            module._buffers = send_tensors(
+                module._buffers, device=policy["onload_device"]
+            )
+        added[name] = module
+    if added:
+        subgraph_onload_modules(added)
+    return modules
+
+
+def _scope_offload_kwargs(modules, policies):
+    # Completion callbacks can remove observers or replace children. Offload only
+    # live descendants, including additions made by those callbacks.
+    return {
+        name: _inherit_offload_kwargs(name, policies, module)
+        for name, module in modules.items()
+    }
+
+
 def _submit_subgraph_staging(
     executor: ThreadPoolExecutor,
     modules: dict[str, torch.nn.Module],
     current_modules: dict[str, torch.nn.Module],
     pin_memory: bool,
+    jobs: Sequence[Callable[[], Any] | None] = (),
 ) -> tuple[dict[str, torch.nn.Module], Future] | None:
-    """Stage disjoint next-subgraph modules in the background."""
+    """Prepare initialization and stage disjoint next-subgraph modules."""
     if set(modules.values()) & set(current_modules.values()):
         return None
 
     future = executor.submit(
-        subgraph_stage_modules,
+        _prepare_and_stage,
         modules,
-        pin_memory=pin_memory,
+        jobs,
+        pin_memory,
     )
     return modules, future
 
@@ -214,13 +282,26 @@ class SequentialPipeline(CalibrationPipeline):
                 next_subgraph_modules,
                 {},
                 stage_weights_in_pinned_memory,
+                jobs=[
+                    modifier.create_calibration_preparation(
+                        session.state, list(next_subgraph_modules.values())
+                    )
+                    for modifier in modifiers
+                ],
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 if prefetched_staging is None:
                     subgraph_modules = subgraph.submodule_dict(model)
-                    subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                    preparations = _prepare_and_stage(
+                        subgraph_modules,
+                        [
+                            modifier.create_calibration_preparation(
+                                session.state, list(subgraph_modules.values())
+                            )
+                            for modifier in modifiers
+                        ],
+                        stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -231,7 +312,7 @@ class SequentialPipeline(CalibrationPipeline):
                     )
                 else:
                     subgraph_modules, stage_future = prefetched_staging
-                    stage_future.result()
+                    preparations = stage_future.result()
                 prefetched_staging = None
 
                 # prepare tqdm description texts
@@ -255,6 +336,12 @@ class SequentialPipeline(CalibrationPipeline):
                         next_subgraph_modules,
                         subgraph_modules,
                         stage_weights_in_pinned_memory,
+                        jobs=[
+                            modifier.create_calibration_preparation(
+                                session.state, list(next_subgraph_modules.values())
+                            )
+                            for modifier in modifiers
+                        ],
                     )
 
                 #######################
@@ -267,7 +354,13 @@ class SequentialPipeline(CalibrationPipeline):
                 # start callback then performs scope-local initialization.
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(modules)
-                LifecycleCallbacks.sequential_epoch_start(modules)
+                LifecycleCallbacks.sequential_epoch_start(
+                    modules, modifier_preparations=preparations
+                )
+                subgraph_modules = _onload_new_children(
+                    model, subgraph, subgraph_modules, offload_kwargs
+                )
+                modules = list(subgraph_modules.values())
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -336,7 +429,11 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_modules = subgraph.submodule_dict(model)
+                subgraph_offload_modules(
+                    subgraph_modules,
+                    _scope_offload_kwargs(subgraph_modules, offload_kwargs),
+                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################

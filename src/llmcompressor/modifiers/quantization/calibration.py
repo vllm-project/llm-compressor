@@ -20,6 +20,7 @@ from llmcompressor.observers import Observer
 
 __all__ = [
     "initialize_observer",
+    "create_observer",
     "observe",
     "update_qparams",
     "calibrate_input_hook",
@@ -36,6 +37,7 @@ __all__ = [
 def initialize_observer(
     module: Module,
     base_name: str,
+    observer: Observer | None = None,
 ):
     """
     Initialize observer module and attach as submodule.
@@ -47,6 +49,7 @@ def initialize_observer(
 
     :param module: torch.nn.Module that the observer is being attached to
     :param base_name: str used to name the observer attribute
+    :param observer: optional unattached observer allocated during preparation
 
     """
     if base_name == "weight":
@@ -59,6 +62,15 @@ def initialize_observer(
     args: QuantizationArgs = getattr_chain(
         module, f"quantization_scheme.{arg_name}", None
     )
+    if observer is None:
+        observer = create_observer(args, base_name)
+    if observer is not None:
+        module.register_module(f"{base_name}_observer", observer)
+        observer.attach(module)
+
+
+def create_observer(args: QuantizationArgs | None, base_name: str) -> Observer | None:
+    """Construct an unattached observer without touching model or offload state."""
     if args is None or args.dynamic is True:
         return
 
@@ -83,9 +95,7 @@ def initialize_observer(
         )
 
     if args is not None and args.dynamic is not True:
-        observer = Observer.load_from_registry(observer, base_name=base_name, args=args)
-        module.register_module(f"{base_name}_observer", observer)
-        observer.attach(module)
+        return Observer.load_from_registry(observer, base_name=base_name, args=args)
 
 
 def _is_module_collection(value: Any) -> bool:

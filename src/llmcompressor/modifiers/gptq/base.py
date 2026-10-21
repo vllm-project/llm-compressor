@@ -203,14 +203,23 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
 
+    def create_calibration_preparation(self, state: State, modules):
+        return self.plan_quantization(state.model, modules)
+
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         """Register GPTQ hooks on the modules in the just-onloaded subgraph."""
+        preparation = kwargs.get("preparation")
         if QuantizationMixin.has_config(self):
-            self.initialize_quantization(state.model, modules=modules)
+            self.initialize_quantization(
+                state.model, modules=modules, preparation=preparation
+            )
         self.start_calibration(
-            state.model, modules=modules, warn_on_inference_mode=False
+            state.model,
+            modules=modules,
+            warn_on_inference_mode=False,
+            preparation=preparation,
         )
         self._register_gptq_hooks(state.model, modules)
 

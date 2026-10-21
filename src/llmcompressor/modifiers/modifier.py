@@ -1,4 +1,6 @@
 from abc import abstractmethod
+from collections.abc import Callable
+from typing import Any
 
 import torch
 from pydantic import ConfigDict
@@ -298,6 +300,18 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for the sequential epoch start
         """
         pass
+
+    def create_calibration_preparation(
+        self, state: State, modules: list[torch.nn.Module]
+    ) -> Callable[[], Any] | None:
+        """Resolve a CPU preparation job on the main thread.
+
+        The returned job runs serially on the prefetch worker. It must not mutate
+        the model, access accelerator tensors, dispatch lifecycle events, or change
+        shared modifier/hook/offload state. Its result is passed as ``preparation``
+        to on_sequential_epoch_start, which installs it on the main thread.
+        """
+        return None
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs

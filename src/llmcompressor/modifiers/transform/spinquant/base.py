@@ -10,6 +10,7 @@ from compressed_tensors.transform import (
     TransformFactory,
     TransformScheme,
     apply_transform_config,
+    plan_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
@@ -169,10 +170,23 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self._apply_transform_scope(state.model, modules)
+        self._apply_transform_scope(state.model, modules, kwargs.get("preparation"))
+
+    def create_calibration_preparation(self, state: State, modules):
+        preparation = plan_transform_config(
+            state.model, self.transform_config, self._transform_factories, modules
+        )
+        return preparation if preparation.can_run_in_background else None
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self._transform_factories.clear()
+        return True
 
     def _apply_transform_scope(
-        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None
+        self,
+        model: PreTrainedModel,
+        modules: list[torch.nn.Module] | None,
+        prepared=None,
     ):
         targets = self._get_targets(model, modules)
         if targets_embeddings(model, targets):
@@ -182,11 +196,16 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self._center_embeddings(model, modules)
         self._fuse_norms(model, modules)
+        if prepared is None:
+            prepared = plan_transform_config(
+                model, self.transform_config, self._transform_factories, modules
+            )()
         apply_transform_config(
             model,
             self.transform_config,
             modules=modules,
             factories=self._transform_factories,
+            prepared=prepared,
         )
 
     def _get_targets(

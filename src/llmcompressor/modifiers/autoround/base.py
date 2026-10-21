@@ -251,13 +251,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         modules = kwargs.get("modules")
         self._initialize_scope(state.model, modules)
 
+    def create_calibration_preparation(self, state: State, modules):
+        return self.plan_quantization(state.model, modules, with_observers=False)
+
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self._initialize_scope(state.model, modules)
+        self._initialize_scope(state.model, modules, kwargs.get("preparation"))
 
     def _initialize_scope(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None,
+        preparation=None,
     ):
         if QuantizationMixin.has_config(self):
             from compressed_tensors.offload import disable_onloading
@@ -265,7 +271,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # Quant params are deterministic across ranks; avoid per-param
             # broadcasts while registering them with DistributedCPUCache.
             with disable_onloading():
-                self.initialize_quantization(model, modules=modules)
+                self.initialize_quantization(
+                    model, modules=modules, preparation=preparation
+                )
         self.start_calibration(model, modules=modules)
 
         module_scope = None if modules is None else {id(module) for module in modules}

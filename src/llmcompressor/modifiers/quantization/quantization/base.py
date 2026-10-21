@@ -79,12 +79,21 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self.initialize_quantization(state.model, modules=modules)
         self.start_calibration(state.model, modules=modules)
 
+    def create_calibration_preparation(self, state: State, modules):
+        return self.plan_quantization(state.model, modules)
+
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self.initialize_quantization(state.model, modules=modules)
+        preparation = kwargs.get("preparation")
+        self.initialize_quantization(
+            state.model, modules=modules, preparation=preparation
+        )
         self.start_calibration(
-            state.model, modules=modules, warn_on_inference_mode=False
+            state.model,
+            modules=modules,
+            warn_on_inference_mode=False,
+            preparation=preparation,
         )
 
     def on_sequential_epoch_end(
