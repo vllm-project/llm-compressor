@@ -23,7 +23,7 @@ from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
-# Python 3.10 resolves patch("llmcompressor.entrypoints.oneshot.<name>") to the
+# Python resolves patch("llmcompressor.entrypoints.oneshot.<name>") to the
 # re-exported oneshot function, so patch the module object directly
 oneshot_module = importlib.import_module("llmcompressor.entrypoints.oneshot")
 
