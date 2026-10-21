@@ -33,9 +33,10 @@ from llmcompressor.utils.dev import get_main_device
 
 MODEL_ID = "Qwen/Qwen3.6-27B"
 # Set this to an image directory or a JSON/JSONL file of image prompts.
+# Set to None for text-only calibration using TEXT_CALIBRATION_DATA.
 CALIBRATION_DATA = "calibImages"
 TEXT_CALIBRATION_DATA = None  # E.g. "/data/calib/qwen36.jsonl"; None disables it.
-TEXT_MAX_SEQUENCE_LENGTH = 2048  # Text-only truncation; None keeps the full prompt.
+TEXT_MAX_SEQUENCE_LENGTH = None  # Text-only truncation; None keeps the full prompt.
 DEFAULT_TEXT = "Describe this image in detail."
 SAVE_DIR = "Qwen3.6-27B-IterSmooth-W8A8"
 MAX_SHARD_SIZE = "4GB"

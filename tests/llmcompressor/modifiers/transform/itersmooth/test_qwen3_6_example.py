@@ -150,7 +150,9 @@ class TestQwen36CalibrationExample(unittest.TestCase):
 
     def test_mixed_inputs_use_one_smoothing_pass_before_quantization(self):
         prompts, calls, offloads = self.run_example(
-            CALIBRATION_DATA=self.image_data, TEXT_CALIBRATION_DATA=self.text_data
+            CALIBRATION_DATA=self.image_data,
+            TEXT_CALIBRATION_DATA=self.text_data,
+            TEXT_MAX_SEQUENCE_LENGTH=2048,
         )
         self.assertEqual(len(offloads), 1)
         self.assertEqual([call[0]["pipeline"] for call in calls], ["basic", "datafree"])
@@ -226,11 +228,10 @@ class TestQwen36CalibrationExample(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "image path"):
             self.run_example(CALIBRATION_DATA=image_data)
 
-    def test_text_truncation_can_be_disabled(self):
+    def test_text_inputs_are_untruncated_by_default(self):
         prompts, _, _ = self.run_example(
             CALIBRATION_DATA=None,
             TEXT_CALIBRATION_DATA=self.text_data,
-            TEXT_MAX_SEQUENCE_LENGTH=None,
         )
         self.assertEqual(prompts[0][1]["processor_kwargs"], {})
 
