@@ -104,8 +104,8 @@ The Red Hat AI team has been using LLM Compressor to produce a fresh batch of pr
 
 
 ### Supported Precisions and Types
-* Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP8)
-* Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP4A16, NVFP4A16
+* Activation Quantization: W8A8 (int8 and fp8), W4AFP8, Microscale (NVFP4, MXFP4, MXFP6A8, MXFP8)
+* Mixed Precision: W4A16, W8A16, MXFP8A16, MXFP6A16, MXFP4A16, NVFP4A16
 * Attention and KV Cache Quantization: FP8, NVFP4
 * Low/Arbitrary-bit Quantization: WNA4, WNA8, WNA16
 
@@ -141,6 +141,7 @@ Applying quantization with `llmcompressor`:
 * [Activation quantization to `int8`](examples/quantization_w8a8_int8/README.md)
 * [Activation quantization to `fp8`](examples/quantization_w8a8_fp8/README.md)
 * [Activation quantization to MXFP8](examples/quantization_w8a8_mxfp8)
+* [MXFP6 weights with MXFP8 activations](examples/quantization_w6a8_mxfp6)
 * [Activation quantization to `fp4` (NVFP4)](examples/quantization_w4a4_fp4)
 * [Activation quantization to `fp4` (MXFP4)](examples/quantization_w4a4_mxfp4)
 * [Activation quantization to `fp4` using AutoRound](examples/autoround/quantization_w4a4_fp4/README.md)

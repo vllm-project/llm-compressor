@@ -9,6 +9,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 - [W4A16 and W8A16](#w4a16-and-w8a16)
 - [NVFP4](#nvfp4)
 - [MXFP4](#mxfp4)
+- [MXFP6](#mxfp6)
 - [MXFP8](#mxfp8)
 
 ## PTQ Compression Schemes
@@ -74,6 +75,17 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Scales        | Stored in E8M0 exponent format (`uint8`), extracting the power-of-2 exponent from each float scale value |
 | Calibration   | No calibration data required if using RTN                                                    |
 | Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later; cross-platform compatible via the OCP MX spec; can be used as an alternative to NVFP4 when calibration data is not available, though RTN accuracy may be lower |
+
+
+### MXFP6
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| MXFP6         | 6-bit (E2M3) Microscaling floating point format defined by the OCP MX specification; 25% smaller weights than MXFP8 |
+| Weights       | Compressed using per-group quantization (group_size=32); four values packed into three bytes |
+| Activations   | `MXFP6A8` quantizes activations fully dynamically to MXFP8 (group_size=32); `MXFP6A16` keeps them in 16-bit |
+| Scales        | Stored in E8M0 exponent format (`uint8`), extracting the power-of-2 exponent from each float scale value |
+| Calibration   | No calibration data required if using RTN                                                    |
+| Use case      | Memory reduction between MXFP4 and MXFP8; can be mixed with MXFP8 layers in one model         |
 
 
 ### MXFP8
