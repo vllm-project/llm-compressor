@@ -113,17 +113,22 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,
         "calibration_start",
-        lambda: events.append("calibration_start"),
+        lambda modules=None, **kwargs: events.append("calibration_start"),
+    )
+    monkeypatch.setattr(
+        pipeline_module.LifecycleCallbacks,
+        "sequential_epoch_start",
+        lambda modules, **kwargs: modifier.on_sequential_epoch_start(modules),
     )
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,
         "sequential_epoch_end",
-        lambda modules: events.append(("sequential_epoch_end", modules)),
+        lambda modules, **kwargs: events.append(("sequential_epoch_end", modules)),
     )
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,
         "calibration_end",
-        lambda: events.append("calibration_end"),
+        lambda **kwargs: events.append("calibration_end"),
     )
     monkeypatch.setattr(
         helpers_module,

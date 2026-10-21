@@ -193,6 +193,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if QuantizationMixin.has_config(self):
             self.initialize_quantization(state.model, modules=modules)
         self.start_calibration(state.model, modules=modules)
+        self._update_quantization_bookkeeping(**kwargs)
 
         # Persistent modules are onloaded before calibration; all other hooks are
         # registered as their subgraphs are onloaded.
@@ -212,6 +213,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self.start_calibration(
             state.model, modules=modules, warn_on_inference_mode=False
         )
+        self._update_quantization_bookkeeping(**kwargs)
         self._register_gptq_hooks(state.model, modules)
 
     @staticmethod
@@ -252,6 +254,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         has_gptq_modules = bool(self._gptq_hooked_modules)
         QuantizationMixin.end_calibration(self, state.model)
+        self._update_quantization_bookkeeping(**kwargs)
         self.remove_hooks()  # remove gptq hooks
         self._gptq_hooked_modules.clear()
         if not has_gptq_modules:

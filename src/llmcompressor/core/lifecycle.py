@@ -201,6 +201,9 @@ class CompressionLifecycle:
         event = Event(type_=event_type)
         mod_data = []
         for mod in self.recipe.modifiers:
+            if (onloaded_modules := kwargs.get("onloaded_modules")) is not None:
+                # Earlier modifiers may add or replace modules in the active scope.
+                kwargs["modules"] = list(dict.fromkeys(onloaded_modules.values()))
             data = mod.update_event(state=self.state, event=event, **kwargs)
             logger.debug("Updated event with modifier: {}", mod)
             if data is not None:

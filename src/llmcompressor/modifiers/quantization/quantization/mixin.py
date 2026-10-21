@@ -361,6 +361,33 @@ class QuantizationMixin(HooksMixin):
         self._initialized_modules.clear()
         self._calibrated_modules.clear()
 
+    def _update_quantization_bookkeeping(
+        self,
+        onloaded_modules: dict[str, torch.nn.Module] | None = None,
+        offload_kwargs: dict[str, dict] | None = None,
+        **kwargs,
+    ):
+        """Track attention helpers and observer additions/removals in the scope."""
+        if onloaded_modules is None or offload_kwargs is None:
+            return
+        child_attrs = [IMPL_ATTR, KV_CACHE_ATTR]
+        child_attrs += [f"{base}_observer" for base in ACTIVATION_OBS + ("weight",)]
+        for name, module in list(onloaded_modules.items()):
+            if getattr(module, "quantization_scheme", None) is None:
+                continue
+            for attr in child_attrs:
+                child_name = f"{name}.{attr}" if name else attr
+                child = getattr(module, attr, None)
+                if child is None:
+                    onloaded_modules.pop(child_name, None)
+                    offload_kwargs.pop(child_name, None)
+                else:
+                    onloaded_modules[child_name] = child
+                    if name in offload_kwargs:
+                        offload_kwargs.setdefault(
+                            child_name, offload_kwargs[name].copy()
+                        )
+
     def start_layerwise_calibration(
         self, model: torch.nn.Module, modules: list[torch.nn.Module]
     ):
