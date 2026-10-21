@@ -162,17 +162,21 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     @torch.no_grad()
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules")
-        self._apply_transform_scope(state.model, modules)
+        self._apply_transform_scope(state.model, **kwargs)
 
     @torch.no_grad()
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        self._apply_transform_scope(state.model, modules)
+        self._apply_transform_scope(state.model, modules=modules, **kwargs)
 
     def _apply_transform_scope(
-        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None
+        self,
+        model: PreTrainedModel,
+        modules: list[torch.nn.Module] | None = None,
+        onloaded_modules: dict[str, torch.nn.Module] | None = None,
+        offload_kwargs: dict[str, dict] | None = None,
+        **kwargs,
     ):
         targets = self._get_targets(model, modules)
         if targets_embeddings(model, targets):
@@ -182,12 +186,27 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self._center_embeddings(model, modules)
         self._fuse_norms(model, modules)
+        if onloaded_modules is not None:
+            for factory in self._transform_factories.values():
+                factory.cache_device = torch.device("cpu")
         apply_transform_config(
             model,
             self.transform_config,
             modules=modules,
             factories=self._transform_factories,
         )
+        if onloaded_modules is not None and offload_kwargs is not None:
+            for name, module in dict(targets).items():
+                for child_name, child in module.named_children():
+                    child_name = f"{name}.{child_name}" if name else child_name
+                    onloaded_modules[child_name] = child
+                    if name in offload_kwargs:
+                        offload_kwargs.setdefault(
+                            child_name, offload_kwargs[name].copy()
+                        )
+
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
+        self._transform_factories.clear()
 
     def _get_targets(
         self,

@@ -114,32 +114,45 @@ class QuIPModifier(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        model = state.model
-        modules = kwargs.get("modules")
-
-        # Untie embeddings if they will be targeted by transforms
-        if targets_embeddings(model, self._get_targets(model, modules)):
-            untie_word_embeddings(model)
-
-        apply_transform_config(
-            model,
-            self.transform_config,
-            modules=modules,
-            factories=self._transform_factories,
-        )
+        self._apply_transform_scope(state.model, **kwargs)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        model = state.model
-        if targets_embeddings(model, self._get_targets(model, modules)):
+        self._apply_transform_scope(state.model, modules=modules, **kwargs)
+
+    def _apply_transform_scope(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+        onloaded_modules: dict[str, torch.nn.Module] | None = None,
+        offload_kwargs: dict[str, dict] | None = None,
+        **kwargs,
+    ):
+        targets = self._get_targets(model, modules)
+        if targets_embeddings(model, targets):
             untie_word_embeddings(model)
+        if onloaded_modules is not None:
+            for factory in self._transform_factories.values():
+                factory.cache_device = torch.device("cpu")
         apply_transform_config(
             model,
             self.transform_config,
             modules=modules,
             factories=self._transform_factories,
         )
+        if onloaded_modules is not None and offload_kwargs is not None:
+            for name, module in dict(targets).items():
+                for child_name, child in module.named_children():
+                    child_name = f"{name}.{child_name}" if name else child_name
+                    onloaded_modules[child_name] = child
+                    if name in offload_kwargs:
+                        offload_kwargs.setdefault(
+                            child_name, offload_kwargs[name].copy()
+                        )
+
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
+        self._transform_factories.clear()
 
     def _get_targets(
         self,

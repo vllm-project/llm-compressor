@@ -78,6 +78,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         modules = kwargs.get("modules")
         self.initialize_quantization(state.model, modules=modules)
         self.start_calibration(state.model, modules=modules)
+        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -86,6 +87,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self.start_calibration(
             state.model, modules=modules, warn_on_inference_mode=False
         )
+        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -125,6 +127,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             for module in modules:
                 freeze_module_quantization(module)
                 enable_quantization(module)
+            self._update_quantization_bookkeeping(**kwargs)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
@@ -135,3 +138,4 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         if not getattr(state, "layerwise_decompression", False):
             QuantizationMixin.end_calibration(self, state.model)
+            self._update_quantization_bookkeeping(**kwargs)
