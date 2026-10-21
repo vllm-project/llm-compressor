@@ -430,6 +430,9 @@ class ResolvedMapping:
         caching. When set, the activation cache hook is placed on this module
         instead of ``balance_layers[0]``. Populated from
         ``AWQMapping.activation_hook_target``.
+    :param head_dim: attention head size of the model, if the shapes of this mapping
+        describe the repeat groups of grouped query attention. Smoothing factors of
+        such a mapping are averaged over, and expanded back to, those repeat groups
     """
 
     smooth_name: str
@@ -439,3 +442,4 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
+    head_dim: int | None = None

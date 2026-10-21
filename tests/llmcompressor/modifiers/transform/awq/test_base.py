@@ -19,9 +19,15 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.transform.awq import base as awq_base
 from llmcompressor.modifiers.transform.awq.base import (
+    _compress_scales_for_gqa,
+    _expand_scales_for_gqa,
+    _get_head_dim,
+    _is_gqa_projection,
     get_lowest_common_ancestor_with_avoid,
 )
+from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.utils import get_high_precision
 from tests.testing_utils import requires_compute_capability, requires_gpu
 
@@ -871,3 +877,702 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
 
     # Verify QKV and gate/up are NOT fused together
     assert abs(q_gs - gate_gs) > 1e-6, f"QKV and gate/up incorrectly fused: {q_gs}"
+
+
+class _TinyGQAAttention(torch.nn.Module):
+    """
+    Minimal grouped query attention block.
+
+    The output of `v_proj` is repeated to the query dimension (`repeat_kv`) before
+    the output projection, which is the layout a `v_proj -> o_proj` mapping has to
+    account for.
+    """
+
+    def __init__(self, hidden_size, num_attention_heads, num_key_value_heads, head_dim):
+        super().__init__()
+        self.num_repeats = num_attention_heads // num_key_value_heads
+        self.head_dim = head_dim
+        self.v_proj = Linear(hidden_size, num_key_value_heads * head_dim, bias=False)
+        self.o_proj = Linear(num_attention_heads * head_dim, hidden_size, bias=False)
+
+    def repeat_kv(self, hidden_states):
+        num_kv_heads = hidden_states.size(-1) // self.head_dim
+        expanded = hidden_states.reshape(
+            *hidden_states.shape[:-1], num_kv_heads, 1, self.head_dim
+        ).expand(
+            *hidden_states.shape[:-1], num_kv_heads, self.num_repeats, self.head_dim
+        )
+        return expanded.reshape(
+            *hidden_states.shape[:-1], num_kv_heads * self.num_repeats * self.head_dim
+        )
+
+    def forward(self, hidden_states):
+        return self.o_proj(self.repeat_kv(self.v_proj(hidden_states)))
+
+
+class _TinyGQAConfig:
+    """Attention sizes of `_TinyGQAAttention`, in the shape of a hf config"""
+
+    def __init__(self, num_attention_heads=4, num_key_value_heads=2, head_dim=2):
+        self.num_attention_heads = num_attention_heads
+        self.num_key_value_heads = num_key_value_heads
+        self.head_dim = head_dim
+        self.hidden_size = 8
+
+
+def _make_gqa_attention(
+    with_config=True, num_attention_heads=4, num_key_value_heads=2, head_dim=2
+):
+    """
+    4 query heads, 2 kv heads and head size 2, so that v_proj has 4 outputs and
+    o_proj consumes 8 inputs. The block is wrapped so that its projections are named
+    `self_attn.v_proj` and `self_attn.o_proj`, which is how the awq mappings look
+    them up.
+    """
+    attention = _TinyGQAAttention(
+        hidden_size=8,
+        num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads,
+        head_dim=head_dim,
+    )
+    model = torch.nn.ModuleDict({"self_attn": attention})
+    if with_config:
+        model.config = _TinyGQAConfig(
+            num_attention_heads, num_key_value_heads, head_dim
+        )
+    return model
+
+
+# per channel group quantization is required for the smoothing factors to have an
+# effect on the quantization error
+_GQA_QUANT_SCHEME = QuantizationScheme(
+    targets=["Linear"],
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=4,
+        symmetric=False,
+        dynamic=False,
+    ),
+)
+
+
+@pytest.mark.unit
+def test_gqa_v_proj_o_proj_mapping_is_resolved():
+    """
+    A v_proj -> o_proj mapping of a grouped query attention model used to be
+    skipped because the number of query heads is a multiple of the number of kv
+    heads instead of being equal to it
+    """
+    model = _make_gqa_attention()
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
+        grouped_query_smoothing=True,
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+
+    awq._set_resolved_mappings(model)
+
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
+    assert mapping.smooth_name == "self_attn.v_proj"
+    assert mapping.balance_names == ["self_attn.o_proj"]
+    assert mapping.head_dim == 2
+
+
+@pytest.mark.unit
+def test_grouped_query_smoothing_is_disabled_by_default():
+    """
+    Smoothing value projections over the repeat groups of grouped query attention is
+    opt in: the mapping is left alone unless the modifier asks for it, so that the
+    behaviour of existing recipes does not change
+    """
+    model = _make_gqa_attention()
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+    assert awq.grouped_query_smoothing is False
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+
+    awq._set_resolved_mappings(model)
+
+    assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_gqa_v_proj_o_proj_mapping_requires_head_dim():
+    """
+    Without a config stating the attention head size the repeat groups of the kv
+    heads cannot be reconstructed, so the mapping has to be skipped as before
+    rather than smoothed incorrectly
+    """
+    model = _make_gqa_attention(with_config=False)
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
+        grouped_query_smoothing=True,
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+
+    awq._set_resolved_mappings(model)
+
+    assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "num_attention_heads, num_key_value_heads, head_dim, config_head_dim, expected",
+    [
+        (4, 3, 2, 2, False),  # query dim is not a whole number of kv repeats
+        (4, 2, 3, 2, False),  # head size does not describe the kv projection
+        (4, 2, 2, 3, False),  # head size does not divide either dimension
+        (4, 2, 2, 2, True),  # 2 kv heads of size 2, repeated twice
+        (4, 4, 2, 2, True),  # no repeats, shapes match and are handled as before
+    ],
+)
+def test_gqa_v_proj_o_proj_mapping_shape_alignment(
+    num_attention_heads, num_key_value_heads, head_dim, config_head_dim, expected
+):
+    """
+    Shapes which could be mistaken for grouped query attention, but where the head
+    size does not align the kv and query dimensions, must still be skipped
+    """
+    model = _make_gqa_attention(
+        with_config=False,
+        num_attention_heads=num_attention_heads,
+        num_key_value_heads=num_key_value_heads,
+        head_dim=head_dim,
+    )
+    model.config = _TinyGQAConfig(
+        num_attention_heads, num_key_value_heads, config_head_dim
+    )
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
+        grouped_query_smoothing=True,
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+
+    awq._set_resolved_mappings(model)
+
+    assert len(awq._resolved_mappings) == int(expected)
+
+
+@pytest.mark.unit
+def test_gqa_mapping_requires_output_projections():
+    """
+    The gqa handling assumes every balance layer consumes the repeated output of the
+    smooth layer. A mapping which also balances a layer of kv width, which cannot
+    carry the expanded scales, has to be left alone
+    """
+    attention = torch.nn.ModuleDict(
+        {
+            "v_proj": Linear(8, 4, bias=False),
+            "o_proj": Linear(8, 8, bias=False),
+            "z_proj": Linear(4, 8, bias=False),
+        }
+    )
+    model = torch.nn.ModuleDict({"self_attn": attention})
+    model.config = _TinyGQAConfig()
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj", "re:.*z_proj"])],
+        grouped_query_smoothing=True,
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+
+    awq._set_resolved_mappings(model)
+
+    assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_fused_qkv_o_proj_mapping_is_rejected_for_gqa():
+    """
+    Fused qkv_proj is not supported for grouped query attention, its v_proj block
+    occupies a third of the fused output features which does not match the repeat
+    groups of an arbitrary model
+    """
+
+    class _TinyFusedAttention(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.qkv_proj = Linear(8, 16, bias=False)
+            self.o_proj = Linear(8, 8, bias=False)
+
+    model = torch.nn.ModuleDict({"self_attn": _TinyFusedAttention()})
+    model.config = _TinyGQAConfig()
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*qkv_proj", ["re:.*o_proj"])],
+        grouped_query_smoothing=True,
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+
+    awq._set_resolved_mappings(model)
+
+    assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "config, kv_dim, query_dim, expected",
+    [
+        (_TinyGQAConfig(), 4, 8, 2),
+        (_TinyGQAConfig(head_dim=3), 4, 8, None),  # 4 != 2 kv heads * head size 3
+        (_TinyGQAConfig(), 4, 6, None),  # 6 != 4 query heads * head size 2
+        (None, 4, 8, None),
+        # head size missing, recovered from the kv projection width
+        (
+            type("Config", (), {"num_key_value_heads": 2, "num_attention_heads": 4}),
+            4,
+            8,
+            2,
+        ),
+        (
+            type("Config", (), {"num_key_value_heads": 2, "num_attention_heads": 4}),
+            4,
+            6,
+            None,
+        ),
+        # neither head size nor kv heads can be determined
+        (type("Config", (), {"hidden_size": 8, "num_attention_heads": 4}), 4, 8, None),
+    ],
+)
+def test_get_head_dim(config, kv_dim, query_dim, expected):
+    model = torch.nn.Module()
+    if config is not None:
+        model.config = config
+    assert _get_head_dim(model, kv_dim, query_dim) == expected
+
+
+@pytest.mark.unit
+def test_get_head_dim_from_nested_text_config():
+    """Multimodal configs nest the attention sizes under text_config"""
+    model = torch.nn.Module()
+    model.config = type("Config", (), {"text_config": _TinyGQAConfig()})()
+    assert _get_head_dim(model, 4) == 2
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "kv_dim, hidden_dim, head_dim, expected",
+    [
+        (4, 8, 2, True),  # 2 repeats of 2 wide kv heads
+        (4, 8, None, False),  # head size unknown
+        (8, 8, 2, False),  # no repeats, handled by the equality check
+        (4, 6, 2, False),  # not a whole number of repeats
+        (6, 8, 3, False),  # head size does not divide the dimensions evenly
+        (4, 8, 3, False),
+        (None, 8, 2, False),  # smooth layer is not a projection
+        (4, None, 2, False),  # balance layer is not a projection
+    ],
+)
+def test_is_gqa_projection(kv_dim, hidden_dim, head_dim, expected):
+    assert _is_gqa_projection(kv_dim, hidden_dim, head_dim) == expected
+
+
+@pytest.mark.unit
+def test_compress_scales_for_gqa():
+    """
+    Statistics of the query dimension are averaged over the kv heads they are
+    repeated from, per attention head
+    """
+    # 2 kv heads, 2 repeats, head size 3 -> kv_dim = 6, hidden_dim = 12
+    # layout after repeat_kv: [kv0_r0(3), kv0_r1(3), kv1_r0(3), kv1_r1(3)]
+    scales = torch.arange(12, dtype=torch.float)
+    compressed = _compress_scales_for_gqa(scales, kv_dim=6, head_dim=3)
+
+    assert compressed.shape == (6,)
+    # kv0 = mean([0, 1, 2], [3, 4, 5]), kv1 = mean([6, 7, 8], [9, 10, 11])
+    assert_close(compressed, torch.tensor([1.5, 2.5, 3.5, 7.5, 8.5, 9.5]))
+
+
+@pytest.mark.unit
+def test_expand_scales_for_gqa():
+    """
+    Scales of the kv dimension are repeated over the query heads reading from them
+    """
+    scales = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    expanded = _expand_scales_for_gqa(scales, query_dim=12, head_dim=3)
+
+    assert expanded.shape == (12,)
+    expected = torch.tensor(
+        [1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 4.0, 5.0, 6.0]
+    )
+    assert_close(expanded, expected)
+
+
+@pytest.mark.unit
+def test_compress_expand_scales_roundtrip():
+    kv_scales = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    expanded = _expand_scales_for_gqa(kv_scales, query_dim=12, head_dim=3)
+    compressed = _compress_scales_for_gqa(expanded, kv_dim=6, head_dim=3)
+    assert_close(compressed, kv_scales)
+
+
+@pytest.mark.unit
+def test_gqa_scale_grouping_matches_repeat_kv():
+    """
+    The gqa handling assumes the layout that models produce with `repeat_kv`, which
+    repeats every kv head contiguously. This pins that assumption against the
+    implementation the models actually use, so that a model laying its query heads out
+    differently cannot silently be grouped the wrong way
+    """
+    from transformers.models.llama.modeling_llama import repeat_kv
+
+    num_heads, num_kv_heads, head_dim = 4, 2, 3
+    num_repeats = num_heads // num_kv_heads
+    kv_dim = num_kv_heads * head_dim
+
+    # feed the kv channel index as a value: `repeat_kv` stamps the source channel of
+    # every query channel into the result
+    kv_channels = torch.arange(kv_dim, dtype=torch.float)
+    library_layout = repeat_kv(
+        kv_channels.reshape(1, num_kv_heads, 1, head_dim), num_repeats
+    ).reshape(-1)
+
+    assert_close(
+        _expand_scales_for_gqa(
+            kv_channels, query_dim=num_heads * head_dim, head_dim=head_dim
+        ),
+        library_layout,
+    )
+
+
+def _setup_gqa_smoothing():
+    """
+    Build a grouped query attention block with awq applied to its v_proj -> o_proj
+    mapping, ready for `_apply_smoothing`
+    """
+    model = _make_gqa_attention()
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])],
+        grouped_query_smoothing=True,
+    )
+    awq.offload_device = None
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(
+            config_groups={"group_0": _GQA_QUANT_SCHEME}
+        ).resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+    assert len(awq._resolved_mappings) == 1, "v_proj -> o_proj should not be skipped"
+    return model, awq, awq._resolved_mappings[0]
+
+
+def _record_calibration(awq, mapping, hidden_states, model):
+    """
+    Populate the caches that the calibration hooks would have populated: the parent
+    kwargs and the absolute input activations of the balance layer
+    """
+    attention = model["self_attn"]
+    o_proj_input = attention.repeat_kv(attention.v_proj(hidden_states))
+    awq._parent_args_cache[mapping.parent] = IntermediatesCache(
+        None, awq.offload_device
+    )
+    awq._parent_args_cache[mapping.parent].append({"input": o_proj_input})
+    flat_activations = o_proj_input.abs().flatten(0, -2)
+    awq._smooth_activation_stats[mapping.smooth_name] = [
+        flat_activations.sum(0),
+        torch.tensor(flat_activations.size(0)),
+    ]
+
+
+def _block_output(attention, hidden_states):
+    """
+    Unquantized output of the block. The quantization hooks are bypassed on purpose,
+    the smoothing is only expected to leave the fp16 function of the block untouched
+    """
+    values = torch.nn.functional.linear(hidden_states, attention.v_proj.weight)
+    return torch.nn.functional.linear(
+        attention.repeat_kv(values), attention.o_proj.weight
+    )
+
+
+def _assert_output_unchanged(output, expected):
+    """
+    The block output has to survive the smoothing up to floating point error. The
+    tolerance is relative to the output magnitude because the smoothing factors
+    spread the intermediate products, which amplifies fp32 rounding. Scales which
+    are not constant within a repeat group change the output by orders of magnitude
+    more than this, so the check still catches them
+    """
+    assert_close(output, expected, atol=1e-4 * expected.abs().max(), rtol=1e-3)
+
+
+@pytest.mark.unit
+@torch.no_grad()
+def test_compute_best_scale_of_non_projection_smooth_layer():
+    """
+    The default mappings include input_layernorm -> q/k/v_proj, whose smooth layer is
+    not a projection and therefore has no kv dimension. Such a mapping must not be
+    treated as grouped query attention, even though the model config does state a
+    head size
+    """
+    attention = torch.nn.ModuleDict(
+        {
+            "input_layernorm": torch.nn.LayerNorm(8),
+            "q_proj": Linear(8, 8, bias=False),
+        }
+    )
+    model = torch.nn.ModuleDict({"self_attn": attention})
+    model.config = _TinyGQAConfig()
+    awq = AWQModifier(
+        mappings=[AWQMapping("re:.*input_layernorm", ["re:.*q_proj"])],
+        duo_scaling=False,
+    )
+    awq.offload_device = None
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(
+            config_groups={"group_0": _GQA_QUANT_SCHEME}
+        ).resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+    assert len(awq._resolved_mappings) == 1
+    mapping = awq._resolved_mappings[0]
+
+    hidden_states = torch.randn(2, 4, 8)
+    q_proj_input = attention["input_layernorm"](hidden_states)
+    fp16_outputs = [attention["q_proj"](input=q_proj_input)]
+    awq._parent_args_cache[mapping.parent] = IntermediatesCache(
+        None, awq.offload_device
+    )
+    awq._parent_args_cache[mapping.parent].append({"input": q_proj_input})
+    flat_activations = q_proj_input.abs().flatten(0, -2)
+    awq._smooth_activation_stats[mapping.smooth_name] = [
+        flat_activations.sum(0),
+        torch.tensor(flat_activations.size(0)),
+    ]
+
+    scales = awq._compute_best_scale(
+        mapping,
+        fp16_outputs,
+        {mapping.balance_layers[0]: mapping.balance_layers[0].weight.clone()},
+    )
+
+    assert scales.size(0) == 8
+
+
+@pytest.mark.unit
+@torch.no_grad()
+def test_gqa_smoothing_preserves_block_output(monkeypatch):
+    """
+    Smoothing a grouped query attention block has to leave the unquantized output
+    untouched: `o_proj` input channels are multiplied by the scales while `v_proj`
+    output channels are divided by them, so the scales of the query channels have
+    to be constant within every repeat group of a kv head.
+
+    This runs the whole smoothing path (`_compute_best_scale` and the weight
+    updates) rather than only the mapping resolution.
+    """
+    torch.manual_seed(0)
+    model, awq, mapping = _setup_gqa_smoothing()
+    attention = model["self_attn"]
+
+    hidden_states = torch.randn(4, 32, 8)
+    _record_calibration(awq, mapping, hidden_states, model)
+    expected_output = _block_output(attention, hidden_states)
+
+    # the grid search has to run in the kv dimension, scales of the query dimension
+    # are not representable by v_proj
+    reductions = []
+    compress = awq_base._compress_scales_for_gqa
+
+    def record_reduction(scales, target_dim, head_dim):
+        reductions.append((scales.size(0), target_dim, head_dim))
+        return compress(scales, target_dim, head_dim)
+
+    monkeypatch.setattr(awq_base, "_compress_scales_for_gqa", record_reduction)
+
+    orig_v_proj = attention.v_proj.weight.clone()
+    orig_o_proj = attention.o_proj.weight.clone()
+    awq._apply_smoothing(model)
+
+    assert reductions, "expected the statistics to be reduced to the kv dimension"
+    assert all(
+        reduction == (8, 4, 2) for reduction in reductions
+    ), f"expected query dim 8 to be reduced to kv dim 4, got {reductions}"
+    # duo scaling is on by default, so the weight means are reduced as well
+    assert len(reductions) == 2
+
+    output = _block_output(attention, hidden_states)
+    _assert_output_unchanged(output, expected_output)
+
+    # v_proj divides its output channels, o_proj multiplies its input channels
+    scales = orig_v_proj[:, 0] / attention.v_proj.weight[:, 0]
+    applied = attention.o_proj.weight[0] / orig_o_proj[0]
+    expected_applied = scales.reshape(2, 2).repeat_interleave(2, dim=0).reshape(-1)
+    assert_close(applied, expected_applied, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "smooth_norm,smooth_value", list(product([False, True], repeat=2))
+)
+@torch.no_grad()
+def test_gqa_shared_value_mapping_coordinates(monkeypatch, smooth_norm, smooth_value):
+    """Default-order transforms preserve the cached O input and the FP function.
+
+    Fixed nonuniform scales isolate coordinate consistency from the quantization
+    search objective. This does not assert that either transform improves accuracy.
+    """
+
+    class Attention(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.q_proj = Linear(8, 8, bias=False)
+            self.k_proj = Linear(8, 4, bias=False)
+            self.v_proj = Linear(8, 4, bias=True)
+            self.o_proj = Linear(8, 8, bias=False)
+
+        def forward(self, hidden_states):
+            from transformers.models.llama.modeling_llama import repeat_kv
+
+            batch, length, _ = hidden_states.shape
+            query = self.q_proj(hidden_states).view(batch, length, 4, 2)
+            key = self.k_proj(hidden_states).view(batch, length, 2, 2)
+            value = self.v_proj(hidden_states).view(batch, length, 2, 2)
+            query = query.transpose(1, 2)
+            key = repeat_kv(key.transpose(1, 2), 2)
+            value = repeat_kv(value.transpose(1, 2), 2)
+            probs = (query @ key.transpose(-1, -2) / 2**0.5).softmax(-1)
+            context = (probs @ value).transpose(1, 2).reshape(batch, length, 8)
+            return self.o_proj(context)
+
+    class Block(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = _TinyGQAConfig()
+            self.input_layernorm = torch.nn.LayerNorm(8)
+            self.self_attn = Attention()
+
+        def forward(self, hidden_states):
+            return self.self_attn(self.input_layernorm(hidden_states))
+
+    torch.manual_seed(104)
+    model = Block()
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(
+            config_groups={"group_0": _GQA_QUANT_SCHEME}
+        ).resolve_quantization_config(),
+    )
+    for module in model.modules():
+        module.quantization_enabled = False
+    mappings = []
+    if smooth_norm:
+        mappings.append(
+            AWQMapping(
+                "input_layernorm",
+                ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"],
+            )
+        )
+    if smooth_value:
+        mappings.append(AWQMapping("self_attn.v_proj", ["self_attn.o_proj"]))
+    awq = AWQModifier(mappings=mappings, grouped_query_smoothing=True)
+    awq.offload_device = None
+    awq._set_resolved_mappings(model)
+    assert [m.smooth_name for m in awq._resolved_mappings] == [
+        m.smooth_layer for m in mappings
+    ]
+    awq._setup_activation_cache_hooks()
+    inputs = torch.randn(2, 7, 8)
+    expected = model(inputs)
+    awq.remove_hooks()
+
+    norm_scales = torch.tensor([0.25, 2, 0.5, 4, 1, 3, 0.75, 1.5])
+    value_scales = torch.tensor([0.5, 2, 4, 0.25])
+    original_value = model.self_attn.v_proj.weight.clone()
+    original_bias = model.self_attn.v_proj.bias.clone()
+    searched = []
+
+    def fixed_scale(self, mapping, fp16_outputs, orig_layer_weights):
+        searched.append(mapping.smooth_name)
+        if mapping.smooth_name == "input_layernorm":
+            assert mapping.parent is model.self_attn
+            return norm_scales
+
+        assert mapping.parent is model.self_attn.o_proj
+        # The preceding norm -> QKV transform is function preserving, including
+        # the V output; O's cached input must still match a fresh forward pass.
+        current_inputs = []
+        handle = model.self_attn.o_proj.register_forward_pre_hook(
+            lambda module, args: current_inputs.append(args[0].clone())
+        )
+        try:
+            assert_close(model(inputs), expected)
+        finally:
+            handle.remove()
+        cached = next(self._parent_args_cache[mapping.parent].iter_prefetch())
+        assert_close(cached["input"], current_inputs[0])
+        assert_close(fp16_outputs[0], expected)
+        return value_scales
+
+    monkeypatch.setattr(AWQModifier, "_compute_best_scale", fixed_scale)
+    awq._apply_smoothing(model)
+
+    assert searched == [m.smooth_layer for m in mappings]
+    assert_close(model(inputs), expected)
+    expected_value = original_value
+    if smooth_norm:
+        expected_value = expected_value * norm_scales.view(1, -1)
+    if smooth_value:
+        expected_value = expected_value / value_scales.view(-1, 1)
+    assert_close(model.self_attn.v_proj.weight, expected_value)
+    assert_close(
+        model.self_attn.v_proj.bias,
+        original_bias / value_scales if smooth_value else original_bias,
+    )
+    assert not awq._parent_args_cache
+    assert not awq._smooth_activation_stats
+
+
+@pytest.mark.unit
+@torch.no_grad()
+def test_gqa_smoothing_applies_group_constant_scales(monkeypatch):
+    """
+    Pin the weight updates to a known set of scales: the kv channels of `v_proj` are
+    divided by the scales, while the query channels of `o_proj` are multiplied by
+    them repeated over the kv heads they were expanded from
+    """
+    torch.manual_seed(0)
+    model, awq, mapping = _setup_gqa_smoothing()
+    attention = model["self_attn"]
+
+    kv_scales = torch.tensor([0.5, 2.0, 4.0, 0.25])
+    monkeypatch.setattr(
+        AWQModifier, "_compute_best_scale", lambda *args, **kwargs: kv_scales
+    )
+
+    hidden_states = torch.randn(4, 32, 8)
+    _record_calibration(awq, mapping, hidden_states, model)
+    expected_output = _block_output(attention, hidden_states)
+    orig_v_proj = attention.v_proj.weight.clone()
+    orig_o_proj = attention.o_proj.weight.clone()
+
+    awq._apply_smoothing(model)
+
+    assert_close(attention.v_proj.weight, orig_v_proj / kv_scales.view(-1, 1))
+    # kv0 = [0.5, 2.0] and kv1 = [4.0, 0.25] are both repeated twice, in the same
+    # order as `repeat_kv` lays out the query heads
+    expanded = torch.tensor([0.5, 2.0, 0.5, 2.0, 4.0, 0.25, 4.0, 0.25])
+    assert_close(attention.o_proj.weight, orig_o_proj * expanded.view(1, -1))
+
+    output = _block_output(attention, hidden_states)
+    _assert_output_unchanged(output, expected_output)
