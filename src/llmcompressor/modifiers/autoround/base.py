@@ -250,11 +250,13 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self._initialize_scope(state.model, modules)
+        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_start(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         self._initialize_scope(state.model, modules)
+        self._update_quantization_bookkeeping(**kwargs)
 
     def _initialize_scope(
         self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
@@ -477,6 +479,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         Finish calibrating by removing observers and calibration hooks
         """
         QuantizationMixin.end_calibration(self, state.model)
+        self._update_quantization_bookkeeping(**kwargs)
         self._remove_temporary_names(state.model)
         self.remove_hooks()
         self._q_input = None
