@@ -1,13 +1,14 @@
 """
 MoNe (Mixture of Novices) pruning modifier for MoE models.
 
-MoNe mirrors REAP's structure (see
-:class:`~llmcompressor.modifiers.pruning.reap.REAPPruningModifier`): it accumulates
-the same ``S_j = mean(g_j * ||f_j||_2)`` saliency via calibration hooks and selects
-the lowest-saliency experts per layer. Instead of pruning those experts, MoNe
-*collapses* them into constant "novice" vectors -- each expert's mean output, an
-unbiased estimator of its contribution -- and leaves the router untouched so the
-novices keep receiving their original routing weights.
+MoNe mirrors REAP's *collapse* structure (see
+:class:`~llmcompressor.modifiers.pruning.reap.REAPPruningModifier`) but ranks
+experts with its own "fusion" importance metric
+``I_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]`` accumulated via
+calibration hooks. It selects the lowest-importance experts per layer and,
+instead of pruning them, *collapses* them into constant "novice" vectors -- each
+expert's mean output, an unbiased estimator of its contribution -- leaving the
+router untouched so the novices keep receiving their original routing weights.
 
 See: https://arxiv.org/abs/2507.00390
 """
@@ -58,16 +59,20 @@ class MoNePruningModifier(Modifier):
     :class:`~llmcompressor.modifiers.pruning.reap.REAPPruningModifier` for the
     definition of ``g_j`` and ``f_j``).
 
-    The lowest-saliency experts per layer are collapsed: their mean output over
-    calibration tokens becomes a constant novice vector, retained experts are
-    left-shifted, and the router is kept at its original width so novices continue
-    to receive their routing weights. The per-layer retained counts are recorded in
-    the checkpoint's ``quantization_config.moe_sparsity_config`` with
-    ``method="novice"``.
+    Experts are ranked by the MoNe "fusion" importance
+    ``I_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]`` -- the product
+    of the expert's output fluctuation and its frequency-weighted router gate
+    weight. The lowest-importance experts per layer are collapsed: their mean
+    output over calibration tokens becomes a constant novice vector, retained
+    experts are left-shifted, and the router is kept at its original width so
+    novices continue to receive their routing weights. The per-layer retained
+    counts are recorded in the checkpoint's
+    ``quantization_config.moe_sparsity_config`` with ``method="novice"``.
 
-    MoNe runs during the sequential calibration pipeline: saliency and expert
-    outputs are accumulated via hooks on the MoE experts, and the structural
-    collapse for a layer is executed when it completes (``SEQUENTIAL_EPOCH_END``).
+    MoNe runs during the sequential calibration pipeline: routing and expert
+    output statistics are accumulated via hooks on the MoE experts, and the
+    structural collapse for a layer is executed when it completes
+    (``SEQUENTIAL_EPOCH_END``).
 
     :param sparsity: fraction of experts to collapse per layer (0, 1).
     :param ignore: module name patterns to skip during MoE layer detection.
@@ -91,10 +96,6 @@ class MoNePruningModifier(Modifier):
         default_factory=dict
     )
     _n_experts_to_drop: int = PrivateAttr(default=0)
-    _n_experts_to_drop_per_group: int | None = PrivateAttr(default=None)
-    _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
-        default_factory=dict
-    )
     _output_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
@@ -131,37 +132,11 @@ class MoNePruningModifier(Modifier):
             )
 
         if self._moe_attrs.n_group is not None:
-            self._n_experts_to_drop_per_group = round(
-                self._n_experts_to_drop / self._moe_attrs.n_group
+            raise NotImplementedError(
+                "MoNe does not support group-limited routers "
+                f"(n_group={self._moe_attrs.n_group}). Group-balanced expert "
+                "collapse is not implemented."
             )
-
-            if self._n_experts_to_drop_per_group == 0:
-                raise ValueError(
-                    f"Group-limited router detected: sparsity={self.sparsity} "
-                    f"results in 0 experts to collapse per group "
-                    f"(out of {self._moe_attrs.group_size}). "
-                    "No pruning will be performed."
-                )
-
-        # Unlike REAP, MoNe does not shrink the router: collapsed experts remain
-        # routable as novices, so top_k routing is always satisfiable and no
-        # "too aggressive" check is required.
-        if self._n_experts_to_drop_per_group is not None:
-            if (
-                self._n_experts_to_drop_per_group * self._moe_attrs.n_group
-                != self._n_experts_to_drop
-            ):
-                logger.warning(
-                    f"MoNe: group-limited routing requires an equal collapse "
-                    f"per group; collapsing "
-                    f"{self._n_experts_to_drop_per_group * self._moe_attrs.n_group} "
-                    f"experts instead of the requested "
-                    f"{self._n_experts_to_drop} "
-                    f"(n_group={self._moe_attrs.n_group})"
-                )
-                self._n_experts_to_drop = (
-                    self._n_experts_to_drop_per_group * self._moe_attrs.n_group
-                )
 
         logger.info(
             f"MoNe initialized: {len(self._moe_attrs.moe_layer_names)} MoE layers, "
@@ -187,11 +162,10 @@ class MoNePruningModifier(Modifier):
             self._saliency_trackers[layer_name] = MoNeSaliencyTracker(
                 self._moe_attrs.num_experts
             )
-            self._norm_buffers[layer_name] = {}
             self._output_buffers[layer_name] = {}
 
-            # One hook per expert to record its per-token output (norm for saliency,
-            # full vectors for novice means), stored in the layer's buffers.
+            # One hook per expert to record its per-token output (for the novice
+            # mean and the output-fluctuation term), stored in the layer's buffers.
             experts = getattr(module, self._moe_attrs.experts_attr)
             expert_list = [
                 expert for expert in experts.children() if isinstance(expert, ExpertMLP)
@@ -202,7 +176,7 @@ class MoNePruningModifier(Modifier):
                 )
 
             # Hook for the experts block to capture the router's top-k decisions and
-            # weights and fold them into the saliency / novice accumulators. It must
+            # weights and fold them into the routing / novice accumulators. It must
             # run after the per-expert hooks have populated the buffers.
             self.register_hook(
                 experts, partial(self._experts_block_hook, layer_name), "forward"
@@ -235,7 +209,6 @@ class MoNePruningModifier(Modifier):
                 json.dump(self._retained_experts, f)
 
         self._saliency_trackers.clear()
-        self._norm_buffers.clear()
         self._output_buffers.clear()
         if is_distributed():
             dist.destroy_process_group(group=self._cpu_pg)
@@ -268,15 +241,10 @@ class MoNePruningModifier(Modifier):
             with align_module_device(router):
                 hidden_dim = router.weight.shape[1]
 
-            tracker.reduce_saliency_stats(device, group=self._cpu_pg)
-            tracker.reduce_output_stats(device, hidden_dim, group=self._cpu_pg)
+            tracker.reduce_stats(device, hidden_dim, group=self._cpu_pg)
 
             if is_source_process():
-                retained = tracker.compute_retained_experts(
-                    self._n_experts_to_drop,
-                    self._n_experts_to_drop_per_group,
-                    self._moe_attrs,
-                )
+                retained = tracker.compute_retained_experts(self._n_experts_to_drop)
             else:
                 retained = torch.empty(expected, dtype=torch.int, device="cpu")
 
@@ -310,7 +278,6 @@ class MoNePruningModifier(Modifier):
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]
-            self._norm_buffers.pop(layer_name, None)
             self._output_buffers.pop(layer_name, None)
 
     # -- calibration hooks ---------------------------------------------------
@@ -323,16 +290,13 @@ class MoNePruningModifier(Modifier):
         args: tuple,
         output: Any,
     ):
-        """Record expert ``f_j`` output norms (saliency) and full outputs (novices)
-        for every token this batch."""
-        if layer_name not in self._norm_buffers:
+        """Record expert ``f_j`` full outputs (for the novice mean and the
+        output-fluctuation term) for every token this batch."""
+        if layer_name not in self._output_buffers:
             # Layer has already been collapsed
             return
         if isinstance(output, tuple):
             output = output[0]
-        with torch.no_grad():
-            norms = torch.linalg.norm(output.float(), dim=-1).reshape(-1)
-        self._norm_buffers[layer_name][expert_idx] = norms
         self._output_buffers[layer_name][expert_idx] = output.detach()
 
     def _experts_block_hook(
@@ -342,7 +306,7 @@ class MoNePruningModifier(Modifier):
         args: tuple,
         output: Any,
     ):
-        """Combine router decisions with expert norms/outputs to update saliency and
+        """Combine router decisions with expert outputs to update the routing and
         novice accumulators."""
         top_k_indices = args[1]
         top_k_weights = args[2]
@@ -351,12 +315,10 @@ class MoNePruningModifier(Modifier):
         if tracker is None:
             return
 
-        norm_buffer = self._norm_buffers[layer_name]
         output_buffer = self._output_buffers[layer_name]
 
         with torch.no_grad():
-            tracker.update(top_k_indices, top_k_weights, norm_buffer)
+            tracker.update_routing(top_k_indices, top_k_weights)
             tracker.update_outputs(top_k_indices, output_buffer)
 
-        self._norm_buffers[layer_name] = {}
         self._output_buffers[layer_name] = {}

@@ -1,13 +1,23 @@
 """
-Utilities for MoNe (Mixture of Novices): saliency + novice-output tracking and
-expert collapse.
+Utilities for MoNe (Mixture of Novices): importance tracking, novice-output
+tracking and expert collapse.
 
-MoNe shares REAP's structure. It selects low-saliency experts using the same
-``S_j = mean(g_j * ||f_j||_2)`` metric, but instead of pruning those experts it
-*collapses* them into constant "novice" vectors (each expert's mean output, an
-unbiased estimator of its contribution). Retained experts are left-shifted while
-the router keeps all ``R + N`` rows, so novices continue to receive their
-original router weights at inference time.
+MoNe shares REAP's *collapse* structure but uses its own importance metric. The
+lowest-importance experts are *collapsed* into constant "novice" vectors (each
+expert's mean output, an unbiased estimator of its contribution). Retained
+experts are left-shifted while the router keeps all ``R + N`` rows, so novices
+continue to receive their original router weights at inference time.
+
+Expert importance is the MoNe "fusion" metric
+
+    ``I_j = fluctuation_j * routing_score_j``
+
+where ``fluctuation_j = || std_tokens(f_j) ||_2`` is the L2 norm (over hidden
+dims) of the per-dimension standard deviation of expert ``j``'s output ``f_j``,
+and ``routing_score_j = E_tokens[ g_j * 1(j in top-k) ]`` is the
+frequency-weighted mean router gate weight (averaged over *all* tokens, zero when
+``j`` is not selected). Experts whose output varies little (low fluctuation) are
+well approximated by their constant mean, so they are collapsed first.
 """
 
 import copy
@@ -29,7 +39,6 @@ from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.reap.utils import (
     NUM_EXPERTS_CONFIG_KEYS,
     MoeModelAttrs,
-    REAPSaliencyTracker,
     _prune_router,
 )
 
@@ -40,27 +49,47 @@ __all__ = [
 ]
 
 
-class MoNeSaliencyTracker(REAPSaliencyTracker):
+class MoNeSaliencyTracker:
     """
-    Extends :class:`REAPSaliencyTracker` with per-expert mean-output accumulation.
+    Accumulates the MoNe "fusion" importance metric and the per-expert mean
+    output used as the novice vector.
 
-    The saliency statistics are identical to REAP and decide which experts to
-    collapse. Additionally, the running sum of each expert's output activations
-    (over the tokens routed to it) is accumulated so that the mean output -- the
-    constant "novice" vector for a collapsed expert -- can be recovered.
+    Two groups of statistics are accumulated per expert, over the tokens routed
+    to it (allocated lazily on the device of the incoming data):
+
+    - Output statistics (``sum_output``, ``sum_sq_output``, ``output_count``):
+      the mean output is the novice vector, and the per-dimension variance gives
+      the ``fluctuation`` term of the importance metric.
+    - Routing statistics (``sum_gate``, ``token_count``): the frequency-weighted
+      mean gate weight gives the ``routing_score`` term.
+
+    Importance is ``fluctuation_j * routing_score_j``; experts with the lowest
+    importance are collapsed into novices.
     """
 
     def __init__(self, num_experts: int):
-        super().__init__(num_experts)
+        self.num_experts = num_experts
+        # output statistics: mean -> novice vector, variance -> fluctuation
         self.sum_output: torch.Tensor | None = None
+        self.sum_sq_output: torch.Tensor | None = None
         self.output_count: torch.Tensor | None = None
+        # routing statistics: frequency-weighted mean gate weight
+        self.sum_gate: torch.Tensor | None = None
+        self.token_count: int = 0
 
     def _ensure_outputs(self, device: torch.device, hidden_dim: int):
         if self.sum_output is None:
             self.sum_output = torch.zeros(
                 self.num_experts, hidden_dim, dtype=torch.float64, device=device
             )
+            self.sum_sq_output = torch.zeros_like(self.sum_output)
             self.output_count = torch.zeros(
+                self.num_experts, dtype=torch.float64, device=device
+            )
+
+    def _ensure_routing(self, device: torch.device):
+        if self.sum_gate is None:
+            self.sum_gate = torch.zeros(
                 self.num_experts, dtype=torch.float64, device=device
             )
 
@@ -71,7 +100,8 @@ class MoNeSaliencyTracker(REAPSaliencyTracker):
         expert_outputs_dict: dict[int, torch.Tensor],
     ):
         """
-        Accumulate the sum of each expert's output over the tokens routed to it.
+        Accumulate the sum and sum-of-squares of each expert's output over the
+        tokens routed to it (for the novice mean and the fluctuation term).
 
         :param topk_indices: ``[num_tokens, top_k]`` selected expert ids, used to
             mask routed tokens when ``calibrate_all_experts`` is enabled
@@ -93,37 +123,109 @@ class MoNeSaliencyTracker(REAPSaliencyTracker):
                 output = output[mask]
             if output.shape[0] == 0:
                 continue
-            self.sum_output[expert_idx] += output.to(torch.float64).sum(dim=0)
+            output = output.to(torch.float64)
+            self.sum_output[expert_idx] += output.sum(dim=0)
+            self.sum_sq_output[expert_idx] += output.pow(2).sum(dim=0)
             self.output_count[expert_idx] += output.shape[0]
 
-    def reduce_output_stats(
+    @torch.no_grad()
+    def update_routing(
+        self,
+        topk_indices: torch.Tensor,
+        topk_weights: torch.Tensor,
+    ):
+        """
+        Accumulate the frequency-weighted router gate weight per expert.
+
+        ``sum_gate[j]`` collects ``g_j`` summed over the tokens for which ``j`` is
+        in the top-k, and ``token_count`` counts all tokens, so that
+        ``routing_score_j = sum_gate[j] / token_count`` equals
+        ``E_tokens[ g_j * 1(j in top-k) ]``.
+
+        :param topk_indices: ``[num_tokens, top_k]`` selected expert ids
+        :param topk_weights: ``[num_tokens, top_k]`` gate weight per selection
+        """
+        self._ensure_routing(topk_indices.device)
+        flat_idx = topk_indices.reshape(-1).to(torch.long)
+        flat_weights = topk_weights.reshape(-1).to(torch.float64)
+        self.sum_gate.index_add_(0, flat_idx, flat_weights)
+        self.token_count += topk_indices.shape[0]
+
+    def reduce_stats(
         self,
         device: torch.device,
         hidden_dim: int,
         group: "dist.ProcessGroup | None" = None,
     ):
-        """Reduce novice-output accumulators to the source rank (rank 0)."""
+        """Reduce all accumulators to the source rank (rank 0)."""
         self._ensure_outputs(device, hidden_dim)
-        if is_distributed():
-            self.sum_output = self.sum_output.cpu()
-            self.output_count = self.output_count.cpu()
-            pending = [
-                dist.reduce(
-                    self.sum_output,
-                    dst=get_source_rank(),
-                    op=dist.ReduceOp.SUM,
-                    async_op=True,
-                    group=group,
-                ),
-                dist.reduce(
-                    self.output_count,
-                    dst=get_source_rank(),
-                    op=dist.ReduceOp.SUM,
-                    async_op=True,
-                    group=group,
-                ),
-            ]
-            wait_for_comms(pending)
+        self._ensure_routing(device)
+        if not is_distributed():
+            return
+
+        self.sum_output = self.sum_output.cpu()
+        self.sum_sq_output = self.sum_sq_output.cpu()
+        self.output_count = self.output_count.cpu()
+        self.sum_gate = self.sum_gate.cpu()
+        token_count = torch.tensor(float(self.token_count), dtype=torch.float64)
+        pending = [
+            dist.reduce(
+                tensor,
+                dst=get_source_rank(),
+                op=dist.ReduceOp.SUM,
+                async_op=True,
+                group=group,
+            )
+            for tensor in (
+                self.sum_output,
+                self.sum_sq_output,
+                self.output_count,
+                self.sum_gate,
+                token_count,
+            )
+        ]
+        wait_for_comms(pending)
+        self.token_count = int(token_count.item())
+
+    @property
+    def total_count(self) -> int:
+        """Total number of tokens seen by the routing hook (used to detect which
+        trackers actually collected calibration samples)."""
+        return self.token_count
+
+    @property
+    def output_fluctuation(self) -> torch.Tensor:
+        """``[num_experts]`` L2 norm (over hidden dims) of the per-dimension
+        standard deviation of each expert's output."""
+        if self.sum_output is None:
+            return torch.zeros(self.num_experts, dtype=torch.float64)
+        sum_output = self.sum_output.to("cpu", torch.float64)
+        sum_sq = self.sum_sq_output.to("cpu", torch.float64)
+        count = self.output_count.to("cpu", torch.float64).clamp(min=1.0)
+        mean = sum_output / count.unsqueeze(-1)
+        variance = (sum_sq / count.unsqueeze(-1) - mean.pow(2)).clamp_min(0.0)
+        std = variance.sqrt()
+        return torch.linalg.norm(std, dim=1)
+
+    @property
+    def routing_score(self) -> torch.Tensor:
+        """``[num_experts]`` frequency-weighted mean gate weight."""
+        if self.sum_gate is None or self.token_count <= 0:
+            return torch.zeros(self.num_experts, dtype=torch.float64)
+        return self.sum_gate.to("cpu", torch.float64) / float(self.token_count)
+
+    @property
+    def importance(self) -> torch.Tensor:
+        """The MoNe fusion importance ``fluctuation * routing_score`` per expert."""
+        return self.output_fluctuation * self.routing_score
+
+    def compute_retained_experts(self, n_experts_to_drop: int) -> torch.Tensor:
+        """Select which experts to keep, dropping the lowest-importance ones."""
+        importance = torch.nan_to_num(self.importance, nan=-float("inf"))
+        _, drop_indices = torch.topk(importance, n_experts_to_drop, largest=False)
+        drop_set = {int(i) for i in drop_indices.tolist()}
+        retained = [i for i in range(self.num_experts) if i not in drop_set]
+        return torch.tensor(retained, dtype=torch.int)
 
     def compute_novices(self, dropped: list[int]) -> torch.Tensor:
         """Return the ``(len(dropped), hidden_dim)`` matrix of novice vectors --

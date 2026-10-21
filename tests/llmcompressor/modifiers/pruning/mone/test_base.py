@@ -132,27 +132,57 @@ def _make_state(model):
 
 @pytest.mark.unit
 class TestMoNeSaliencyTracker:
-    def test_saliency_matches_reap(self):
-        """The saliency metric is inherited verbatim from REAP."""
+    def test_fusion_importance_metric(self):
+        """Importance is ``||std(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``."""
         import llmcompressor.modeling.moe.context as context
 
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
             tracker = MoNeSaliencyTracker(num_experts=4)
-            topk_indices = torch.tensor([[0, 1], [0, 2]])
-            topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
-            expert_norms_dict = {
-                0: torch.tensor([3.0, 1.0]),
-                1: torch.tensor([2.0]),
-                2: torch.tensor([4.0]),
-            }
-            tracker.update(topk_indices, topk_weights, expert_norms_dict)
-            mean = tracker.mean_saliency
-            assert mean[0].item() == pytest.approx(1.15)
-            assert mean[1].item() == pytest.approx(0.8)
-            assert mean[2].item() == pytest.approx(2.0)
-            assert mean[3].item() == pytest.approx(0.0)
+
+            # routing over two tokens: expert 0 and 1 are always selected
+            tracker.update_routing(
+                torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]])
+            )
+            tracker.update_routing(
+                torch.tensor([[0, 1]]), torch.tensor([[0.8, 0.2]])
+            )
+
+            # expert outputs over the tokens routed to each expert
+            tracker.update_outputs(
+                torch.tensor([[0, 1]]),
+                {0: torch.tensor([[1.0, 2.0]]), 1: torch.tensor([[10.0, 10.0]])},
+            )
+            tracker.update_outputs(
+                torch.tensor([[0, 1]]),
+                {0: torch.tensor([[3.0, 4.0]]), 1: torch.tensor([[12.0, 14.0]])},
+            )
+
+            # routing_score = sum_gate / token_count (token_count == 2)
+            routing = tracker.routing_score
+            torch.testing.assert_close(
+                routing,
+                torch.tensor([0.7, 0.3, 0.0, 0.0], dtype=torch.float64),
+            )
+
+            # fluctuation = L2 norm over dims of per-dim std
+            # expert 0: std=[1,1] -> sqrt(2); expert 1: std=[1,2] -> sqrt(5)
+            fluc = tracker.output_fluctuation
+            assert fluc[0].item() == pytest.approx(2**0.5)
+            assert fluc[1].item() == pytest.approx(5**0.5)
+            assert fluc[2].item() == pytest.approx(0.0)
+            assert fluc[3].item() == pytest.approx(0.0)
+
+            importance = tracker.importance
+            assert importance[0].item() == pytest.approx(2**0.5 * 0.7)
+            assert importance[1].item() == pytest.approx(5**0.5 * 0.3)
+            assert importance[2].item() == pytest.approx(0.0)
+            assert importance[3].item() == pytest.approx(0.0)
+
+            # lowest-importance experts (2, 3) are dropped
+            retained = tracker.compute_retained_experts(n_experts_to_drop=2)
+            assert sorted(retained.tolist()) == [0, 1]
         finally:
             context._CALIBRATE_ALL_EXPERTS = original_state
 
@@ -401,6 +431,21 @@ def test_mone_full_lifecycle():
         out = model(torch.randn(2, 4, config.hidden_size))
         assert out.shape == (2, 4, config.hidden_size)
         assert not torch.isnan(out).any()
+
+
+@pytest.mark.unit
+def test_mone_group_limited_router_not_implemented():
+    """Group-limited routers are explicitly unsupported."""
+    config = FakeMoEConfig(num_experts=8, num_hidden_layers=1)
+    config.n_group = 2
+    config.topk_group = 1
+    model = FakeMoEModel(config)
+
+    modifier = MoNePruningModifier(sparsity=0.5)
+    state = _make_state(model)
+
+    with pytest.raises(NotImplementedError, match="group-limited"):
+        modifier.initialize(state)
 
 
 @pytest.mark.unit
