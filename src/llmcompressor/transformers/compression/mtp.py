@@ -137,6 +137,15 @@ def has_mtp_in_checkpoint(model: PreTrainedModel) -> bool:
 def validate_mtp_copy_source(
     model: PreTrainedModel,
 ) -> tuple[dict[str, tuple[str, str | None]], list[str]] | None:
+    """Return source MTP weights and patterns only if the weights are unquantized.
+
+    Return None when the model config does not declare MTP. If MTP is declared
+    but no weights are found, return an empty weight map with the patterns;
+    save_mtp_tensors warns when saving this source.
+
+    Raise ValueError for source-quantized MTP weights, which cannot be copied
+    without preserving their serving scheme.
+    """
     if not has_mtp_in_checkpoint(model):
         return None
 

@@ -330,6 +330,8 @@ class Oneshot:
                         )
                     )
                 ):
+                    # TODO: Support MTP forward execution and sequential offloading
+                    # during calibration before allowing data-dependent MTP schemes.
                     raise ValueError(
                         "MTP calibration is not supported in oneshot; MTP targets "
                         "currently support data-free schemes only."
