@@ -1,5 +1,6 @@
 import pytest
 from datasets import Dataset
+from pydantic import ValidationError
 from tokenizers import Tokenizer, models, pre_tokenizers
 from transformers import (
     LlamaConfig,
@@ -86,6 +87,14 @@ def test_unsupported_all_target_raises(modifier_class):
     # `__ALL__` is no longer supported, but it used to be silently ignored
     with pytest.raises(ValueError, match="__ALL__"):
         modifier_class(sparsity=0.5, targets="__ALL__")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("modifier_class", MODIFIERS)
+def test_none_target_raises_a_validation_error(modifier_class):
+    # `None` used to raise a cryptic `TypeError: 'NoneType' object is not iterable`
+    with pytest.raises(ValidationError):
+        modifier_class(sparsity=0.5, targets=None)
 
 
 @pytest.mark.integration

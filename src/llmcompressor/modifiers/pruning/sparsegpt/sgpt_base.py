@@ -60,10 +60,14 @@ class SparsityModifierBase(Modifier):
         return True
 
     @field_validator("targets", mode="before")
-    def validate_targets(cls, value: str | list[str]) -> list[str]:
+    def validate_targets(cls, value: str | list[str] | None) -> list[str] | None:
         # `match_named_modules` iterates over its targets, so a plain string
         # would be iterated character by character and match nothing at all.
         # Normalize it to a list and expand the special target constants.
+        if value is None:
+            # let pydantic raise a validation error for the invalid value
+            return value
+
         return expand_special_targets(value)
 
     @field_validator("sparsity_profile", mode="before")
