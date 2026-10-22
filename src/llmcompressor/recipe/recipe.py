@@ -57,6 +57,7 @@ class Recipe(BaseModel):
 
         Lfecycle:
         | - Validate Modifiers
+        | - Copy Modifiers
         | - Create recipe string from modifiers
         | - Create recipe instance from recipe string
 
@@ -78,6 +79,13 @@ class Recipe(BaseModel):
             raise ValueError("modifiers must be a list of Modifier instances")
 
         group_name = modifier_group_name or "default"
+
+        # Copy the modifiers so that the caller's instances are never used by a
+        # run directly. A run marks the modifiers it is given as initialized and
+        # finalized, which would make a second use of the same objects fail
+        # with "Cannot initialize a modifier that has already been initialized".
+        # Copying keeps the caller's recipe reusable across several runs.
+        modifiers = [modifier.model_copy(deep=True) for modifier in modifiers]
 
         # assume one stage for modifier instances
         return cls(
@@ -124,8 +132,9 @@ class Recipe(BaseModel):
             or a valid recipe string in yaml/json format
         """
         if isinstance(path_or_modifiers, Recipe):
-            # already a recipe
-            return path_or_modifiers
+            # already a recipe, copy it so that the caller's recipe and its
+            # modifiers stay reusable across several runs
+            return path_or_modifiers.model_copy(deep=True)
 
         if isinstance(path_or_modifiers, (Modifier, list)):
             return cls.from_modifiers(
