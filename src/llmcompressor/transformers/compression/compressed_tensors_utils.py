@@ -1,6 +1,8 @@
+import copy
 import datetime
 import json
 import os
+import re
 import weakref
 from contextlib import contextmanager
 from functools import wraps
@@ -273,9 +275,17 @@ def _apply_moe_sparsity_config(model: PreTrainedModel, compressor: ModelCompress
     quantization config, so ``ModelCompressor.update_config`` serializes it under
     ``config.json``'s ``quantization_config.moe_sparsity_config``.
 
-    MoNe / REAP pruning record this during ``on_finalize``. A minimal quantization
-    config is created for pruning-only (non-quantized) models so the sparsity config
-    still has a home in the checkpoint.
+    MoNe / REAP pruning record this during ``on_finalize``.
+
+    When saving a model that was loaded from an already-quantized checkpoint on the
+    quantized-forward path (``layerwise_decompression=False``), the collapsed/pruned
+    experts are repacked into fused ``CompressedFusedLinear`` modules that carry no
+    ``quantization_scheme``. ``ModelCompressor.from_pretrained_model`` therefore infers
+    no quantization config, and a naive empty config would serialize as ``fakequant``
+    with empty ``config_groups`` -- an unloadable checkpoint. We instead recover the
+    original scheme from the loaded checkpoint's config and retarget its ``config_groups``
+    to the fused expert layout. A genuinely empty config is only used for pruning-only
+    (non-quantized) models.
     """
     moe_sparsity_config = getattr(model, "_moe_sparsity_config", None)
     if moe_sparsity_config is None:
@@ -284,9 +294,121 @@ def _apply_moe_sparsity_config(model: PreTrainedModel, compressor: ModelCompress
     from compressed_tensors.quantization import QuantizationConfig
 
     if compressor.quantization_config is None:
-        compressor.quantization_config = QuantizationConfig(config_groups={})
+        compressor.quantization_config = _recover_pruned_quantization_config(
+            model
+        ) or QuantizationConfig(config_groups={})
 
     compressor.quantization_config.moe_sparsity_config = moe_sparsity_config
+
+
+def _as_quantization_config_dict(raw) -> dict | None:
+    """Best-effort extraction of a compressed-tensors quantization config dict (one that
+    contains ``config_groups``) from whatever ``model.config.quantization_config`` holds
+    (a plain dict, an HF ``CompressedTensorsConfig`` wrapper, or a CT object)."""
+    seen = set()
+    while raw is not None and id(raw) not in seen:
+        seen.add(id(raw))
+        if isinstance(raw, dict):
+            if "config_groups" in raw:
+                return raw
+            raw = raw.get("quantization_config")
+            continue
+        if hasattr(raw, "to_dict"):
+            raw = raw.to_dict()
+            continue
+        raw = getattr(raw, "quantization_config", None)
+    return None
+
+
+def _retarget_expert_groups_to_fused(
+    config_groups: dict, fused_names: list[str]
+) -> dict:
+    """Rewrite per-expert ``config_groups`` targets to the fused expert layout and drop
+    groups that no longer match any module.
+
+    Pre-collapse checkpoints target individual experts, e.g.
+    ``re:.*mlp\\.experts\\.\\d+\\.(gate_proj|up_proj|down_proj)$``. After collapse/repack
+    the experts are fused per layer (``experts.gate_up_proj`` / ``experts.down_proj``), so
+    each target's expert tail is replaced with the fused leaf names actually present while
+    its layer-range prefix is preserved. Groups whose retargeted patterns match nothing
+    (e.g. a trailing MTP layer that transformers did not rebuild) are dropped.
+
+    :param config_groups: original ``config_groups`` mapping (plain dicts)
+    :param fused_names: module names of the fused compressed expert projections
+    :return: retargeted ``config_groups`` containing only still-matching groups
+    """
+    # fused leaf names, e.g. {"down_proj", "gate_up_proj"}
+    leaves = sorted({name.rsplit(".", 1)[-1] for name in fused_names})
+    fused_tail = r"experts\.(" + "|".join(re.escape(x) for x in leaves) + r")$"
+    marker = r"experts\."
+
+    kept: dict = {}
+    for gname, group in config_groups.items():
+        group = copy.deepcopy(group)
+        new_targets = []
+        for target in group.get("targets", []):
+            if not isinstance(target, str) or not target.startswith("re:"):
+                new_targets.append(target)
+                continue
+            body = target[len("re:") :]
+            if marker not in body:
+                new_targets.append(target)
+                continue
+            prefix = body[: body.rindex(marker)]
+            new_targets.append("re:" + prefix + fused_tail)
+        group["targets"] = new_targets
+
+        patterns = [
+            re.compile(t[len("re:") :]) for t in new_targets if t.startswith("re:")
+        ]
+        if any(p.search(n) for n in fused_names for p in patterns):
+            kept[gname] = group
+    return kept
+
+
+def _recover_pruned_quantization_config(model: PreTrainedModel):
+    """Rebuild a :class:`QuantizationConfig` for a pre-quantized model whose experts were
+    collapsed (MoNe) / pruned (REAP) and repacked into fused compressed modules whose
+    scheme can no longer be inferred. Returns ``None`` if the model was not loaded from a
+    quantized checkpoint (pruning-only) or no fused group still matches."""
+    from compressed_tensors.quantization import QuantizationConfig
+
+    from llmcompressor.modeling.moe.pack_helpers import CompressedFusedLinear
+
+    orig = _as_quantization_config_dict(
+        getattr(model.config, "quantization_config", None)
+    )
+    if not orig or not orig.get("config_groups"):
+        return None
+
+    fused_names = [
+        name
+        for name, module in model.named_modules()
+        if isinstance(module, CompressedFusedLinear)
+    ]
+    if not fused_names:
+        return None
+
+    kept = _retarget_expert_groups_to_fused(orig["config_groups"], fused_names)
+    if not kept:
+        return None
+
+    recovered = copy.deepcopy(orig)
+    recovered["config_groups"] = kept
+    recovered.pop("moe_sparsity_config", None)  # set by the caller
+    formats = {g.get("format") for g in kept.values() if g.get("format")}
+    if len(formats) == 1:
+        recovered["format"] = next(iter(formats))
+
+    try:
+        return QuantizationConfig.model_validate(recovered)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.warning(
+            f"Could not recover quantization config for pruned pre-quantized model "
+            f"({e}); falling back to an empty config. The saved checkpoint's "
+            "quantization metadata may be incomplete."
+        )
+        return None
 
 
 def resave_config(config: PretrainedConfig, save_dir: str):
