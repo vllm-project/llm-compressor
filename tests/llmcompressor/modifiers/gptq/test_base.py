@@ -66,7 +66,7 @@ def test_block_strategy_parsing(block_q_config_kwargs):
     assert w_scheme.block_structure == [128, 128]
 
 
-def test_sequential_epoch_start_registers_gptq_hooks_in_scope():
+def test_calibration_hooks_follow_scope_initialization():
     model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
     scheme = QuantizationScheme(
         targets=["Linear"],
@@ -80,15 +80,20 @@ def test_sequential_epoch_start_registers_gptq_hooks_in_scope():
     assert getattr(model[1], "quantization_scheme", None) is None
 
     # Sequential calibration starts with only persistent modules onloaded.
+    modifier.on_sequential_epoch_initialize(
+        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    )
     modifier.on_calibration_start(
         state, Event(type_=EventType.CALIBRATION_START), modules=[]
     )
     modifier.initialized_ = True
-    event = Event(type_=EventType.SEQUENTIAL_EPOCH_START)
+    event = Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE)
     modifier.update_event(state, event, modules=[model[0]])
 
     assert model[0].quantization_scheme is not None
     assert getattr(model[1], "quantization_scheme", None) is None
+    assert not model[0]._forward_hooks
+    modifier.on_calibration_start(state, None, modules=[model[0]])
     assert len(model[0]._forward_hooks) == 1
     assert len(model[1]._forward_hooks) == 0
 
@@ -111,6 +116,9 @@ def test_gptq_resolves_replaced_modules_as_subgraphs_load():
     old_module = model[0]
     model[0] = nn.Linear(8, 8)
 
+    modifier.on_sequential_epoch_initialize(
+        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    )
     modifier.on_calibration_start(
         state, Event(type_=EventType.CALIBRATION_START), modules=[]
     )
@@ -119,9 +127,11 @@ def test_gptq_resolves_replaced_modules_as_subgraphs_load():
     assert len(model[0]._forward_hooks) == 0
     assert len(model[1]._forward_hooks) == 0
 
-    modifier.on_sequential_epoch_start(
-        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[model[0]]
+    modifier.on_sequential_epoch_initialize(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE), modules=[model[0]]
     )
+    assert not model[0]._forward_hooks
+    modifier.on_calibration_start(state, None, modules=[model[0]])
 
     assert len(model[0]._forward_hooks) == 1
     assert len(model[1]._forward_hooks) == 0

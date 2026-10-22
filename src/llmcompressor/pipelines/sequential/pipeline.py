@@ -152,6 +152,13 @@ class SequentialPipeline(CalibrationPipeline):
             subgraph_onload_modules(persistent_modules) if persistent_modules else {}
         )
 
+        if dataset_args.layerwise_decompression:
+            decompress_subgraph_modules(list(persistent_modules.values()))
+        LifecycleCallbacks.sequential_epoch_initialize(
+            modules=list(persistent_modules.values()),
+            onloaded_modules=persistent_modules,
+            offload_kwargs=persistent_offload_kwargs,
+        )
         LifecycleCallbacks.calibration_start(
             modules=list(persistent_modules.values()),
             onloaded_modules=persistent_modules,
@@ -268,13 +275,19 @@ class SequentialPipeline(CalibrationPipeline):
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
 
                 # Decompress only this subgraph after onloading it. The sequential
-                # start callback then performs scope-local initialization.
+                # initialization callback then prepares model state before calibration.
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(list(subgraph_modules.values()))
-                LifecycleCallbacks.sequential_epoch_start(
+                LifecycleCallbacks.sequential_epoch_initialize(
                     list(subgraph_modules.values()),
                     onloaded_modules=subgraph_modules,
                     offload_kwargs=offload_kwargs,
+                )
+                LifecycleCallbacks.calibration_start(
+                    modules=list(subgraph_modules.values()),
+                    onloaded_modules=subgraph_modules,
+                    offload_kwargs=offload_kwargs,
+                    warn_on_inference_mode=False,
                 )
 
                 # do a preliminary pass to trigger modifier hooks
@@ -306,6 +319,11 @@ class SequentialPipeline(CalibrationPipeline):
 
                 LifecycleCallbacks.sequential_epoch_end(
                     list(subgraph_modules.values()),
+                    onloaded_modules=subgraph_modules,
+                    offload_kwargs=offload_kwargs,
+                )
+                LifecycleCallbacks.calibration_end(
+                    modules=list(subgraph_modules.values()),
                     onloaded_modules=subgraph_modules,
                     offload_kwargs=offload_kwargs,
                 )
@@ -353,10 +371,18 @@ class SequentialPipeline(CalibrationPipeline):
                 #### END OF ONLOAD ####
                 #######################
 
-            # redundant, finish any remaining compression
+            # Persistent modules collect statistics throughout the subgraph loop.
+            LifecycleCallbacks.sequential_epoch_end(
+                list(persistent_modules.values()),
+                onloaded_modules=persistent_modules,
+                offload_kwargs=persistent_offload_kwargs,
+            )
             LifecycleCallbacks.calibration_end(
+                modules=list(persistent_modules.values()),
                 onloaded_modules=persistent_modules,
                 offload_kwargs=persistent_offload_kwargs,
             )
             if persistent_modules:
+                if dataset_args.layerwise_compression:
+                    compress_subgraph_modules(list(persistent_modules.values()))
                 subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)

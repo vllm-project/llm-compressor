@@ -161,11 +161,6 @@ class QADModifier(Modifier):
             )
         self._register_capture_hooks(state, modules)
 
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
-    ):
-        self._register_capture_hooks(state, modules)
-
     def _register_capture_hooks(
         self, state: State, modules: list[torch.nn.Module] | None
     ):
@@ -546,6 +541,21 @@ class QADModifier(Modifier):
             update_offload_parameter(module, "weight", weight)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules")
+        self.remove_hooks(modules=modules)
+        if modules is None:
+            self._hooked_seq_targets.clear()
+        else:
+            self._hooked_seq_targets.difference_update(modules)
+        for cache in (self._input_caches, self._output_caches, self._predecessors):
+            for module in list(cache):
+                if modules is None or module in modules:
+                    del cache[module]
+        if modules is None or self._cur_seq_target in modules:
+            self._cur_seq_target = None
+            self._cur_seq_target_output = None
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
         try:
             expected_targets = self._seen_seq_targets
             if not expected_targets or self._distilled != expected_targets:
@@ -555,9 +565,6 @@ class QADModifier(Modifier):
                 )
         finally:
             self._clear_cache()
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        self._clear_cache()
         return True
 
     def _clear_cache(self):

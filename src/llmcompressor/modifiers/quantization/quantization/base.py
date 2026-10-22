@@ -4,13 +4,11 @@ from compressed_tensors.distributed import (
     greedy_bin_packing,
     is_distributed,
 )
-from compressed_tensors.quantization import enable_quantization
 from compressed_tensors.quantization.utils import is_module_quantized
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
-    freeze_module_quantization,
     observe,
     update_qparams,
 )
@@ -66,36 +64,21 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        """
-        Begin calibrating activations.
-
-        Skipped when layerwise_decompression is enabled; per-layer calibration setup
-        is handled by on_sequential_epoch_start after each subgraph is decompressed.
-        """
-        if getattr(state, "layerwise_decompression", False):
-            return
-
-        self._initialize_scope(state.model, **kwargs)
-
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
-    ):
-        self._initialize_scope(
-            state.model, modules, warn_on_inference_mode=False, **kwargs
+        self.start_calibration(
+            state.model,
+            modules=kwargs.get("modules"),
+            warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
         )
+        self._update_quantization_bookkeeping(**kwargs)
 
-    def _initialize_scope(
+    def on_sequential_epoch_initialize(
         self,
-        model: torch.nn.Module,
+        state: State,
+        event: Event,
         modules: list[torch.nn.Module] | None = None,
-        *,
-        warn_on_inference_mode: bool = True,
         **kwargs,
     ):
-        self.initialize_quantization(model, modules=modules)
-        self.start_calibration(
-            model, modules=modules, warn_on_inference_mode=warn_on_inference_mode
-        )
+        self.initialize_quantization(state.model, modules=modules)
         self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
@@ -131,20 +114,12 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             update_qparams(rank_to_modules[rank], "weight")
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
-        if getattr(state, "layerwise_decompression", False):
-            self.remove_hooks(self._calibration_hooks)
-            for module in modules:
-                freeze_module_quantization(module)
-                enable_quantization(module)
-            self._update_quantization_bookkeeping(**kwargs)
-
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        """
-        Finish calibrating by removing observers and calibration hooks.
+        self.end_calibration(state.model, modules=kwargs.get("modules"))
+        self._update_quantization_bookkeeping(**kwargs)
 
-        Skipped when layerwise_decompression is enabled; per-layer cleanup
-        is handled in on_sequential_epoch_end.
-        """
-        if not getattr(state, "layerwise_decompression", False):
-            QuantizationMixin.end_calibration(self, state.model)
-            self._update_quantization_bookkeeping(**kwargs)
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self.remove_hooks()
+        self._initialized_modules.clear()
+        self._calibrated_modules.clear()
+        return True
