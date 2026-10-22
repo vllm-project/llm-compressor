@@ -176,6 +176,16 @@ class SparsityModifierBase(Modifier):
                 if isinstance(module, torch.nn.Embedding):
                     continue
 
+                # the pruning algorithms only support linear and 2d
+                # convolutional modules, fail with a clear error instead of an
+                # obscure one during calibration
+                if isinstance(module, (torch.nn.Conv1d, torch.nn.Conv3d)):
+                    raise ValueError(
+                        f"{type(module).__name__} modules are not supported by "
+                        f"{type(self).__name__}, but {name} was selected for "
+                        "pruning. Please exclude them with `ignore`"
+                    )
+
                 if name.endswith("lm_head"):
                     logger.warning(
                         "`lm_head` was previously auto-ignored by SparseGPT and Wanda "

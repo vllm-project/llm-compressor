@@ -1,4 +1,5 @@
 import pytest
+import torch
 from datasets import Dataset
 from pydantic import ValidationError
 from tokenizers import Tokenizer, models, pre_tokenizers
@@ -9,7 +10,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.modifiers.pruning.wanda import WandaPruningModifier
 
@@ -95,6 +96,39 @@ def test_none_target_raises_a_validation_error(modifier_class):
     # `None` used to raise a cryptic `TypeError: 'NoneType' object is not iterable`
     with pytest.raises(ValidationError):
         modifier_class(sparsity=0.5, targets=None)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("modifier_class", MODIFIERS)
+def test_unsupported_conv_module_raises(modifier_class):
+    # the pruning algorithms only support linear and 2d convolutional modules
+    model = _build_model()
+    model.conv = torch.nn.Conv1d(4, 8, 3)
+
+    modifier = modifier_class(sparsity=0.5, targets="__ALL_PRUNABLE__")
+    state = State()
+    state.update(model=model, device="cpu", calib_data=None)
+    modifier.initialize(state)
+
+    with pytest.raises(ValueError, match="Conv1d"):
+        modifier.on_calibration_start(state, Event(type_=EventType.CALIBRATION_START))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("modifier_class", MODIFIERS)
+def test_ignored_conv_module_does_not_raise(modifier_class):
+    model = _build_model()
+    model.conv = torch.nn.Conv1d(4, 8, 3)
+
+    modifier = modifier_class(
+        sparsity=0.5, targets="__ALL_PRUNABLE__", ignore=["Conv1d"]
+    )
+    state = State()
+    state.update(model=model, device="cpu", calib_data=None)
+    modifier.initialize(state)
+    modifier.on_calibration_start(state, Event(type_=EventType.CALIBRATION_START))
+
+    assert model.conv not in modifier._module_names
 
 
 @pytest.mark.integration
