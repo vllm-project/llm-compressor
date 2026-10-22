@@ -537,9 +537,8 @@ class QADModifier(Modifier):
         modules = kwargs.get("modules")
         self.remove_hooks(modules=modules)
         for cache in (self._input_caches, self._output_caches, self._predecessors):
-            for module in list(cache):
-                if modules is None or module in modules:
-                    del cache[module]
+            for module in list(cache) if modules is None else modules:
+                cache.pop(module, None)
         if modules is None or self._cur_seq_target in modules:
             self._cur_seq_target = None
             self._cur_seq_target_output = None
