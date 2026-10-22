@@ -278,11 +278,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             with disable_onloading():
                 self.initialize_quantization(model, modules=modules)
 
-        module_scope = None if modules is None else set(modules)
-        for name, module in model.named_modules():
-            if module_scope is not None and module not in module_scope:
-                continue
+        for name, module in match_named_modules(
+            model, self._sequential_targets, modules=modules
+        ):
             module._tmp_name = name
+
+        for module in model.modules() if modules is None else modules:
             for param in module.parameters(recurse=False):
                 param.requires_grad_(False)
         self._update_quantization_bookkeeping(**kwargs)
