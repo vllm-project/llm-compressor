@@ -164,12 +164,9 @@ class QADModifier(Modifier):
     def _register_capture_hooks(
         self, state: State, modules: list[torch.nn.Module] | None
     ):
-        module_scope = None if modules is None else set(modules)
         for name, seq_target in match_named_modules(
-            state.model, self._seq_target_patterns
+            state.model, self._seq_target_patterns, modules=modules
         ):
-            if module_scope is not None and seq_target not in module_scope:
-                continue
             if seq_target in self._hooked_seq_targets:
                 continue
             self._seq_target_names[seq_target] = name or type(seq_target).__name__

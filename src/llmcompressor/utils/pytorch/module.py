@@ -95,10 +95,7 @@ def build_parameterized_layers(
     targets = expand_special_targets(targets)
 
     parameterized_layers = {}
-    module_scope = None if modules is None else set(modules)
-    for layer_name, module in match_named_modules(model, targets):
-        if module_scope is not None and module not in module_scope:
-            continue
+    for layer_name, module in match_named_modules(model, targets, modules=modules):
         # Get the parameter from the module
         param = getattr(module, param_name, None)
         if param is None:
