@@ -225,3 +225,24 @@ def test_disable_hooks_on_subclass():
 
     model(model.dummy_inputs)
     assert mod_a.hook_called
+
+
+def test_scoped_removal_uses_hook_owner_for_ancestor_hooks():
+    import torch
+
+    from llmcompressor.modifiers.utils.hooks import HooksMixin
+
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 4))
+    modifier = HooksMixin()
+    seen = []
+    modifier.register_hook(
+        model, lambda *args: seen.append("first"), "forward", owner=model[0]
+    )
+    modifier.register_hook(
+        model, lambda *args: seen.append("persistent"), "forward", owner=model[1]
+    )
+    modifier.remove_hooks(modules=[model[0]])
+    model(torch.ones(1, 4))
+    assert seen == ["persistent"]
+    modifier.remove_hooks()
+    assert not modifier._hooks and not modifier._hook_owners

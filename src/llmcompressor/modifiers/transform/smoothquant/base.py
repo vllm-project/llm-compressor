@@ -150,10 +150,15 @@ class SmoothQuantModifier(Modifier):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
-        self._initialize_scope(state.model, modules)
+        mappings = [
+            mapping
+            for mapping in self.resolved_mappings_
+            if modules is None or mapping.smooth_layer in modules
+        ]
+        self._setup_scale_hooks(mappings)
 
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[Module], **kwargs
+    def on_sequential_epoch_initialize(
+        self, state: State, event: Event, modules: list[Module] | None = None, **kwargs
     ):
         self._initialize_scope(state.model, modules)
 
@@ -163,9 +168,9 @@ class SmoothQuantModifier(Modifier):
         self._apply_smoothing(state.model, modules=modules)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        # Also handles non-sequential pipelines and any persistent-module scopes.
-        self._apply_smoothing(state.model)
-        self.remove_hooks()
+        modules = kwargs.get("modules")
+        self._apply_smoothing(state.model, modules=modules)
+        self.remove_hooks(modules=modules)
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -204,7 +209,6 @@ class SmoothQuantModifier(Modifier):
             mapping for mapping in resolved if mapping.smooth_name not in existing_names
         ]
         self.resolved_mappings_.extend(new_mappings)
-        self._setup_scale_hooks(new_mappings)
 
     def _resolve_mappings(
         self, model: Module, modules: list[Module] | None = None

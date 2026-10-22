@@ -184,7 +184,7 @@ def test_disabled_propagate_false(
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
 @patch(f"{_PIPELINE}.trace_subgraphs")
-def test_sequential_epoch_start_runs_after_subgraph_onload(
+def test_sequential_epoch_initialize_runs_after_subgraph_onload(
     mock_trace, mock_targets, fake_pipeline, fake_dataloader, monkeypatch
 ):
     mock_trace.return_value = [FakeSubgraph(input_names={"h"}, consumed_names=set())]
@@ -195,19 +195,18 @@ def test_sequential_epoch_start_runs_after_subgraph_onload(
         events.append(("onload", list(modules.values())))
         return {}
 
-    def record_epoch_start(cls, modules, **kwargs):
-        events.append(("epoch_start", modules))
+    def record_epoch_initialize(cls, modules, **kwargs):
+        events.append(("epoch_initialize", modules))
 
     monkeypatch.setattr(sequential_pipeline, "subgraph_onload_modules", fake_onload)
     monkeypatch.setattr(
         LifecycleCallbacks,
-        "sequential_epoch_start",
-        classmethod(record_epoch_start),
+        "sequential_epoch_initialize",
+        classmethod(record_epoch_initialize),
     )
 
     SequentialPipeline()(model, fake_dataloader, DatasetArguments())
 
-    start_index = next(
-        index for index, (event, _) in enumerate(events) if event == "epoch_start"
-    )
-    assert events[start_index - 1][0] == "onload"
+    for index, (event, modules) in enumerate(events):
+        if event == "epoch_initialize" and modules:
+            assert events[index - 1] == ("onload", modules)

@@ -57,7 +57,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_calibration_start / on_sequential_epoch_start
+    - on_sequential_epoch_initialize
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
@@ -161,12 +161,12 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     @torch.no_grad()
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._apply_transform_scope(state.model, **kwargs)
-
-    @torch.no_grad()
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
     ):
         self._apply_transform_scope(state.model, modules=modules, **kwargs)
 
@@ -205,8 +205,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                             child_name, offload_kwargs[name].copy()
                         )
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_finalize(self, state: State, **kwargs) -> bool:
         self._transform_factories.clear()
+        return True
 
     def _get_targets(
         self,

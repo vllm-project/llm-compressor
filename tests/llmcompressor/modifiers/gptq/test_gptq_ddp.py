@@ -68,6 +68,7 @@ def test_gptq_distributed_global_scale_writeback():
 
     state = State(model=model)
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     torch.manual_seed(100 + dist.get_rank())  # different calibration data per rank

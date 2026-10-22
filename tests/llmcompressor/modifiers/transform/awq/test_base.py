@@ -16,7 +16,6 @@ from torch.testing import assert_close
 from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
-from llmcompressor.core import State
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
@@ -195,7 +194,7 @@ def test_set_resolved_mappings_is_scoped_to_onloaded_subgraph():
 
 
 @pytest.mark.unit
-def test_lazy_awq_registers_only_current_scope_before_quant_config():
+def test_awq_sees_quant_config_from_later_modifier_before_calibration():
     model = torch.nn.ModuleDict(
         {
             "layers": torch.nn.ModuleList(
@@ -211,11 +210,24 @@ def test_lazy_awq_registers_only_current_scope_before_quant_config():
             )
         }
     )
-    state = State(model=model)
-    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
-    awq.initialize(state)
+    from llmcompressor.core import CompressionSession, EventType
 
-    awq.on_calibration_start(state, None, modules=list(model.layers[0].modules()))
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+    quant = QuantizationModifier(scheme="W8A8")
+    session = CompressionSession()
+    session.initialize(model=model, recipe=[awq, quant])
+
+    modules = list(model.layers[0].modules())
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=modules)
+    assert hasattr(model.layers[0].o_proj, "quantization_scheme")
+    assert not awq._hooks
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=modules)
+
+    assert not hasattr(model.layers[1].o_proj, "quantization_scheme")
+    assert (
+        model.layers[0].o_proj.quantization_scheme.weights.strategy
+        == QuantizationStrategy.CHANNEL
+    )
 
     assert [mapping.smooth_name for mapping in awq._resolved_mappings] == [
         "layers.0.v_proj"
@@ -825,9 +837,9 @@ def test_get_grid_search_params(n_grid, duo_scaling):
     assert all(ratio >= 0.0 for ratio, _ in grid_search_params), "ratio<0 found"
     assert all(ratio <= 1.0 for ratio, _ in grid_search_params), "ratio>1 found"
 
-    assert (
-        len(grid_search_params) == n_grid
-    ), f"Expected {n_grid} grid points, found {len(grid_search_params)}"
+    assert len(grid_search_params) == n_grid, (
+        f"Expected {n_grid} grid points, found {len(grid_search_params)}"
+    )
 
     n_false = len(
         [ratio for (ratio, duo_scaling) in grid_search_params if duo_scaling is False]
@@ -895,9 +907,9 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check QKV
     for proj_name in ["q_proj", "k_proj", "v_proj"]:
         proj = getattr(layer_0.self_attn, proj_name)
-        assert hasattr(
-            proj, "weight_global_scale"
-        ), f"{proj_name} missing weight_global_scale"
+        assert hasattr(proj, "weight_global_scale"), (
+            f"{proj_name} missing weight_global_scale"
+        )
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"
@@ -915,9 +927,9 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
     # Check gate/up
     for proj_name in ["gate_proj", "up_proj"]:
         proj = getattr(layer_0.mlp, proj_name)
-        assert hasattr(
-            proj, "weight_global_scale"
-        ), f"{proj_name} missing weight_global_scale"
+        assert hasattr(proj, "weight_global_scale"), (
+            f"{proj_name} missing weight_global_scale"
+        )
 
         gs = proj.weight_global_scale.item()
         assert gs > 0, f"{proj_name} global_scale should be positive, got {gs}"

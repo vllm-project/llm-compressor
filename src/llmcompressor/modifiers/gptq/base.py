@@ -21,6 +21,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr, StrictInt, field_validator
 from torch import distributed as dist
+from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -78,8 +79,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - on_calibration_start / on_sequential_epoch_start
+    - on_sequential_epoch_initialize
         - apply config to the current scope
+        - resolve module names
+    - on_calibration_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
     - on_sequential_epoch_end
@@ -139,6 +142,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
     )
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
+    _gptq_hooks: dict[torch.nn.Module, RemovableHandle] = PrivateAttr(
+        default_factory=dict
+    )
+    _has_gptq_modules: bool = PrivateAttr(default=False)
 
     @field_validator("batched_quantization")
     @classmethod
@@ -188,48 +195,49 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._initialize_scope(state.model, **kwargs)
-        if kwargs.get("modules") is None and not self._module_names:
-            raise ValueError(
-                "GPTQModifier was unable to find any modules to quantize. Please "
-                "check quantization `config_groups` and `targets` in recipe"
-            )
-
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
-    ):
-        """Register GPTQ hooks on the modules in the just-onloaded subgraph."""
-        self._initialize_scope(
-            state.model, modules, warn_on_inference_mode=False, **kwargs
-        )
-
-    def _initialize_scope(
-        self,
-        model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None = None,
-        *,
-        warn_on_inference_mode: bool = True,
-        **kwargs,
-    ):
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, model, modules=modules)
+        modules = kwargs.get("modules")
         QuantizationMixin.start_calibration(
-            self, model, modules=modules, warn_on_inference_mode=warn_on_inference_mode
+            self,
+            state.model,
+            modules=modules,
+            warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
         )
         self._update_quantization_bookkeeping(**kwargs)
 
         for name, module in match_named_modules(
-            model, self.resolved_targets, self.ignore
+            state.model, self.resolved_targets, self.ignore
         ):
             if modules is not None and module not in modules:
                 continue
             if getattr_chain(module, "quantization_scheme.weights", None) is None:
                 continue
             # Embeddings are not supported by the GPTQ layer compressor.
-            if isinstance(module, torch.nn.Embedding) or module in self._module_names:
+            if isinstance(module, torch.nn.Embedding) or module in self._gptq_hooks:
                 continue
-            self.register_hook(module, self.calibrate_module, "forward")
-            self._module_names[module] = name
+            self._gptq_hooks[module] = self.register_hook(
+                module, self.calibrate_module, "forward"
+            )
+            self._has_gptq_modules = True
+
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
+        if QuantizationMixin.has_config(self):
+            QuantizationMixin.initialize_quantization(
+                self, state.model, modules=modules
+            )
+        self._module_names.update(
+            (module, name)
+            for name, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
+            if modules is None or module in modules
+        )
+        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -238,22 +246,19 @@ class GPTQModifier(Modifier, QuantizationMixin):
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
-        self.compress_modules()
+        self.compress_modules(modules)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        has_gptq_modules = bool(self._module_names)
-        QuantizationMixin.end_calibration(self, state.model)
+        modules = kwargs.get("modules")
+        QuantizationMixin.end_calibration(self, state.model, modules=modules)
         self._update_quantization_bookkeeping(**kwargs)
-        self.remove_hooks()  # remove gptq hooks
-        self._module_names.clear()
-        if not has_gptq_modules:
-            raise ValueError(
-                "GPTQModifier was unable to find any modules to quantize. Please "
-                "check quantization `config_groups` and `targets` in recipe"
-            )
+        self.remove_hooks(modules=modules)
+        for module in list(self._gptq_hooks):
+            if modules is None or module in modules:
+                del self._gptq_hooks[module]
 
     def calibrate_module(
         self,
@@ -288,13 +293,18 @@ class GPTQModifier(Modifier, QuantizationMixin):
             self._num_samples[module],
         )
 
-    def compress_modules(self):
+    def compress_modules(self, modules: list[torch.nn.Module] | None = None):
         """
         Quantize modules which have been calibrated
         """
+        calibrated = [
+            module
+            for module in self._num_samples
+            if modules is None or module in modules
+        ]
         ### Not Distributed
         if not is_distributed():
-            self.compress_module_list(list(self._num_samples.keys()))
+            self.compress_module_list(calibrated)
             return
 
         ### Distributed
@@ -303,7 +313,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Assign modules to ranks
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
-            list(self._hessians.keys()),
+            calibrated,
             world_size,
             item_weight_fn=lambda mod: self._hessians[mod].shape[0],
         )
@@ -428,6 +438,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
+        if self.started_ and not self._has_gptq_modules:
+            raise ValueError(
+                "GPTQModifier was unable to find any modules to quantize. Please "
+                "check quantization `config_groups` and `targets` in recipe"
+            )
+        self.remove_hooks()
+        self._gptq_hooks.clear()
+        self._module_names.clear()
+        self._initialized_modules.clear()
+        self._calibrated_modules.clear()
         if not self.ended_:
             self.on_end(state, None)
 

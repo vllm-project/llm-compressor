@@ -17,7 +17,7 @@ def test_sequential_epoch_end_passes_modules(monkeypatch):
     assert seen["kwargs"] == {"modules": modules, "extra_kwarg": True}
 
 
-def test_sequential_epoch_start_passes_modules(monkeypatch):
+def test_sequential_epoch_initialize_passes_modules(monkeypatch):
     modules = [object()]
     seen = {}
 
@@ -27,9 +27,9 @@ def test_sequential_epoch_start_passes_modules(monkeypatch):
 
     monkeypatch.setattr(LifecycleCallbacks, "event", classmethod(fake_event))
 
-    LifecycleCallbacks.sequential_epoch_start(modules, extra_kwarg=True)
+    LifecycleCallbacks.sequential_epoch_initialize(modules, extra_kwarg=True)
 
-    assert seen["event_type"] == EventType.SEQUENTIAL_EPOCH_START
+    assert seen["event_type"] == EventType.SEQUENTIAL_EPOCH_INITIALIZE
     assert seen["kwargs"] == {"modules": modules, "extra_kwarg": True}
 
 
@@ -60,7 +60,7 @@ def test_modifiers_share_updated_module_and_offload_bookkeeping():
         def on_initialize(self, state, **kwargs):
             return True
 
-        def on_sequential_epoch_start(self, state, event, modules, **kwargs):
+        def on_sequential_epoch_initialize(self, state, event, modules, **kwargs):
             state.model[0] = torch.nn.Sequential(torch.nn.Linear(8, 8))
             kwargs["onloaded_modules"]["0"] = state.model[0]
             kwargs["onloaded_modules"]["0.0"] = state.model[0][0]
@@ -70,16 +70,20 @@ def test_modifiers_share_updated_module_and_offload_bookkeeping():
         def on_initialize(self, state, **kwargs):
             return True
 
-        def on_sequential_epoch_start(self, state, event, modules, **kwargs):
+        def on_sequential_epoch_initialize(self, state, event, modules, **kwargs):
             layer = state.model[0][0]
             assert layer in modules
+            assert not hasattr(layer, "weight_observer")
+
+        def on_calibration_start(self, state, event, modules, **kwargs):
+            layer = state.model[0][0]
             assert layer.weight_observer in modules
             assert (
                 kwargs["onloaded_modules"]["0.0.weight_observer"]
                 is layer.weight_observer
             )
 
-        def on_sequential_epoch_end(self, state, event, modules, **kwargs):
+        def on_calibration_end(self, state, event, modules, **kwargs):
             assert "0.0.weight_observer" not in kwargs["onloaded_modules"]
             assert "0.0.weight_observer" not in kwargs["offload_kwargs"]
 
@@ -111,13 +115,18 @@ def test_modifiers_share_updated_module_and_offload_bookkeeping():
         )
         # Exercise per-subgraph observer cleanup as well as creation.
         session.state.layerwise_decompression = True
-        LifecycleCallbacks.calibration_start(modules=[])
-        LifecycleCallbacks.sequential_epoch_start(
+        LifecycleCallbacks.sequential_epoch_initialize(
             [original], onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
+        )
+        LifecycleCallbacks.calibration_start(
+            onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
         )
         assert original not in onloaded_modules.values()
         assert offload_kwargs["0.0"]["offload_device"] == "disk"
         LifecycleCallbacks.sequential_epoch_end(
             [original], onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
+        )
+        LifecycleCallbacks.calibration_end(
+            onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
         )
         session.finalize()
