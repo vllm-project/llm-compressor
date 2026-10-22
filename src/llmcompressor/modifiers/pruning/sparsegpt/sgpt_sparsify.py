@@ -7,6 +7,20 @@ from loguru import logger
 SGPT_PRECISION = torch.float32
 
 
+def _threshold_index(numel: int, sparsity: float) -> int:
+    """
+    Get the index of the pruning threshold in the sorted importance values.
+
+    The index is clamped to the bounds of the sorted values, so that a sparsity
+    of 1.0 prunes every weight instead of indexing one past the end.
+
+    :param numel: The number of importance values
+    :param sparsity: The target sparsity
+    :return: The index of the threshold
+    """
+    return min(max(int(numel * sparsity), 0), numel - 1)
+
+
 def make_empty_hessian(
     module: torch.nn.Module, device: torch.device | None = None
 ) -> torch.Tensor:
@@ -157,11 +171,15 @@ def sparsify_weight(
                         * W1**2
                         / (torch.diag(Hinv1).reshape((1, -1))) ** 2
                     )
-                    thresh = torch.sort(tmp.flatten())[0][int(tmp.numel() * sparsity)]
+                    thresh = torch.sort(tmp.flatten())[0][
+                        _threshold_index(tmp.numel(), sparsity)
+                    ]
                     mask1 = tmp <= thresh
             else:
                 tmp = W1**2 / (torch.diag(Hinv1).reshape((1, -1))) ** 2
-                thresh = torch.sort(tmp.flatten())[0][int(tmp.numel() * sparsity)]
+                thresh = torch.sort(tmp.flatten())[0][
+                    _threshold_index(tmp.numel(), sparsity)
+                ]
                 mask1 = tmp <= thresh
         else:
             if mask is not None:

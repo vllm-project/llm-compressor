@@ -45,6 +45,24 @@ class SparsityModifierBase(Modifier):
     _target_layers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
     _module_sparsities: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
 
+    @field_validator("sparsity", mode="before")
+    def validate_sparsity(
+        cls, value: float | list[float] | None
+    ) -> float | list[float] | None:
+        # a sparsity outside of [0, 1] is silently misinterpreted by the
+        # pruning algorithms rather than rejected
+        if value is None:
+            return value
+
+        sparsities = value if isinstance(value, (list, tuple)) else [value]
+        for sparsity in sparsities:
+            if not isinstance(sparsity, (int, float)) or not 0.0 <= sparsity <= 1.0:
+                raise ValueError(
+                    f"sparsity must be between 0 and 1, but got {sparsity}"
+                )
+
+        return value
+
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
         if not value:
