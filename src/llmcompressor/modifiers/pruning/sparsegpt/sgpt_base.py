@@ -47,16 +47,28 @@ class SparsityModifierBase(Modifier):
 
     @field_validator("sparsity", mode="before")
     def validate_sparsity(
-        cls, value: float | list[float] | None
-    ) -> float | list[float] | None:
+        cls, value: float | list[float] | dict[str, float] | None
+    ) -> float | list[float] | dict[str, float] | None:
         # a sparsity outside of [0, 1] is silently misinterpreted by the
         # pruning algorithms rather than rejected
         if value is None:
             return value
 
-        sparsities = value if isinstance(value, (list, tuple)) else [value]
+        if isinstance(value, dict):
+            sparsities = list(value.values())
+        elif isinstance(value, (list, tuple)):
+            sparsities = list(value)
+        else:
+            sparsities = [value]
+
         for sparsity in sparsities:
-            if not isinstance(sparsity, (int, float)) or not 0.0 <= sparsity <= 1.0:
+            # `bool` is a subclass of `int`, but `sparsity=True` is not a
+            # meaningful sparsity
+            if isinstance(sparsity, bool) or not isinstance(sparsity, (int, float)):
+                raise ValueError(
+                    f"sparsity must be a number between 0 and 1, but got {sparsity!r}"
+                )
+            if not 0.0 <= sparsity <= 1.0:
                 raise ValueError(
                     f"sparsity must be between 0 and 1, but got {sparsity}"
                 )

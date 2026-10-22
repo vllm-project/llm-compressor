@@ -81,6 +81,16 @@ def test_out_of_range_sparsity_is_rejected(modifier_class, sparsity):
 
 @pytest.mark.unit
 @pytest.mark.parametrize("modifier_class", MODIFIERS)
+@pytest.mark.parametrize("sparsity", [True, False, [True, 0.5]])
+def test_boolean_sparsity_is_rejected(modifier_class, sparsity):
+    # `bool` is a subclass of `int`, so `sparsity=True` used to be accepted and
+    # converted to 1.0, which prunes every weight
+    with pytest.raises(ValueError, match="must be a number"):
+        modifier_class(sparsity=sparsity)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("modifier_class", MODIFIERS)
 def test_in_range_sparsity_is_accepted(modifier_class):
     assert modifier_class(sparsity=0.0) is not None
     assert modifier_class(sparsity=0.5) is not None
