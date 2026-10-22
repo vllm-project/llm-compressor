@@ -55,8 +55,8 @@ class WandaPruningModifier(SparsityModifierBase):
         shape. Defaults to 0:0 which represents an unstructured mask.
     :param owl_m: Number of outliers to use for OWL
     :param owl_lmbda: Lambda value to use for OWL
-    :param targets: list of layer names to compress during OBCQ, or '__ALL__'
-        to compress every layer in the model
+    :param targets: list of layer names to compress during Wanda, or a single
+        name as a string. Defaults to ["Linear"] (i.e. all Linear layers are targeted)
     :param ignore: optional list of module class names or submodule names to not
         quantize even if they match a target. Defaults to empty list.
     """

@@ -13,7 +13,10 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers.modifier import Modifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.utils.pytorch.module import infer_sequential_targets
+from llmcompressor.utils.pytorch.module import (
+    expand_special_targets,
+    infer_sequential_targets,
+)
 
 PRUNABLE_LAYER_TYPES = ["Linear", "Conv1d", "Conv2d", "Conv3d"]
 
@@ -55,6 +58,13 @@ class SparsityModifierBase(Modifier):
             )
 
         return True
+
+    @field_validator("targets", mode="before")
+    def validate_targets(cls, value: str | list[str]) -> list[str]:
+        # `match_named_modules` iterates over its targets, so a plain string
+        # would be iterated character by character and match nothing at all.
+        # Normalize it to a list and expand the special target constants.
+        return expand_special_targets(value)
 
     @field_validator("sparsity_profile", mode="before")
     def validate_sparsity_profile(cls, value: str | None) -> bool:
