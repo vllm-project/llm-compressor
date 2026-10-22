@@ -3,9 +3,9 @@ MoNe (Mixture of Novices) pruning modifier for MoE models.
 
 MoNe mirrors REAP's *collapse* structure (see
 :class:`~llmcompressor.modifiers.pruning.reap.REAPPruningModifier`) but ranks
-experts with its own "fusion" importance metric
-``I_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]`` accumulated via
-calibration hooks. It selects the lowest-importance experts per layer and,
+experts with its own "fusion" saliency metric
+``S_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]`` accumulated via
+calibration hooks. It selects the lowest-saliency experts per layer and,
 instead of pruning them, *collapses* them into constant "novice" vectors -- each
 expert's mean output, an unbiased estimator of its contribution -- leaving the
 router untouched so the novices keep receiving their original routing weights.
@@ -14,6 +14,7 @@ See: https://arxiv.org/abs/2507.00390
 """
 
 import json
+from collections import defaultdict
 from functools import partial
 from pathlib import Path
 from typing import Any, Optional
@@ -53,7 +54,7 @@ class MoNePruningModifier(Modifier):
     Collapses low-saliency experts from MoE layers into constant "novice" vectors
     using the MoNe saliency metric. For each expert ``j`` the saliency is
 
-        ``I_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``
+        ``S_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``
 
     the product of the expert's output fluctuation (the L2 norm of the
     per-dimension standard deviation of expert ``j``'s output ``f_j``) and its
@@ -71,10 +72,16 @@ class MoNePruningModifier(Modifier):
     structural collapse for a layer is executed when it completes
     (``SEQUENTIAL_EPOCH_END``).
 
-    :param sparsity: fraction of experts to collapse per layer (0, 1).
+    :param sparsity: fraction of experts to collapse per layer, in ``[0, 1)``.
+        When ``0.0``, no experts are collapsed; saliency is still computed so
+        that a ``report_path`` can be written, but the model weights and
+        config are never modified.
     :param ignore: module name patterns to skip during MoE layer detection.
-    :param report_path: optional path to a ``.json`` file where the mapping of
-        retained expert indices per layer is written after collapse completes.
+    :param report_path: optional path to a ``.json`` file where the per-expert
+        statistics are written after calibration completes. The report is a JSON
+        object mapping ``count`` and ``saliency`` to one inner list per MoE layer
+        (ordered by layer). Required when ``sparsity`` is ``0.0``, since the
+        report is then the modifier's only output.
 
     Example recipe::
 
@@ -84,7 +91,7 @@ class MoNePruningModifier(Modifier):
 
     requires_calibration_data: bool = True
 
-    sparsity: float
+    sparsity: float = 0.0
     ignore: list[str] = Field(default_factory=list)
     report_path: Optional[str] = Field(default=None)
 
@@ -98,11 +105,12 @@ class MoNePruningModifier(Modifier):
     )
     _cpu_pg: Any = PrivateAttr(default=None)
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
+    _report: dict = PrivateAttr(default_factory=lambda: defaultdict(dict))
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "MoNePruningModifier":
-        if not 0.0 < self.sparsity < 1.0:
-            raise ValueError(f"sparsity must be in (0, 1), got {self.sparsity}")
+        if not 0.0 <= self.sparsity < 1.0:
+            raise ValueError(f"sparsity must be in [0, 1), got {self.sparsity}")
         return self
 
     @model_validator(mode="after")
@@ -115,6 +123,16 @@ class MoNePruningModifier(Modifier):
             Path(self.report_path).parent.mkdir(parents=True, exist_ok=True)
         return self
 
+    @model_validator(mode="after")
+    def _validate_noop(self) -> "MoNePruningModifier":
+        if self.sparsity == 0.0 and self.report_path is None:
+            raise ValueError(
+                "sparsity is 0.0 (no collapsing) and no report_path is set; MoNe "
+                "would do nothing. Set sparsity > 0 to collapse experts, or set "
+                "report_path to write a saliency report"
+            )
+        return self
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
         self._cpu_pg = dist.new_group(backend="gloo") if is_distributed() else None
@@ -122,11 +140,21 @@ class MoNePruningModifier(Modifier):
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
         if self._n_experts_to_drop == 0:
-            raise ValueError(
-                f"sparsity={self.sparsity} results in 0 "
-                f"experts to collapse (out of {self._moe_attrs.num_experts}). "
-                "No pruning will be performed."
+            if self.sparsity > 0.0:
+                raise ValueError(
+                    f"sparsity={self.sparsity} results in 0 "
+                    f"experts to collapse (out of {self._moe_attrs.num_experts}). "
+                    "No pruning will be performed."
+                )
+            # sparsity == 0.0: report-only mode (report_path is guaranteed to be
+            # set by validation); saliency is still collected, but there is no
+            # collapsing to set up
+            logger.info(
+                f"MoNe initialized: {len(self._moe_attrs.moe_layer_names)} MoE "
+                f"layers, {self._moe_attrs.num_experts} experts/layer, no "
+                "experts will be collapsed (sparsity=0.0)"
             )
+            return True
 
         # n_group == 1 is a degenerate "group-limited" router: a single group holds
         # every expert, so routing is equivalent to ungrouped top-k and MoNe's uniform
@@ -191,23 +219,31 @@ class MoNePruningModifier(Modifier):
 
         model = state.model
 
-        num_experts_per_layer = build_moe_num_experts(
-            model, self._moe_attrs, self._retained_experts
-        )
-        # Picked up by the compressed save path and written into
-        # config.json's quantization_config.moe_sparsity_config.
-        model._moe_sparsity_config = ExpertSparsityConfig(
-            method=MoESparsityMethod.NOVICE,
-            num_experts=num_experts_per_layer,
-        )
-        logger.info(
-            f"MoNe: recorded moe_sparsity_config (method=novice) with per-layer "
-            f"retained counts {num_experts_per_layer}"
-        )
+        if self._n_experts_to_drop > 0:
+            num_experts_per_layer = build_moe_num_experts(
+                model, self._moe_attrs, self._retained_experts
+            )
+            # Picked up by the compressed save path and written into
+            # config.json's quantization_config.moe_sparsity_config.
+            model._moe_sparsity_config = ExpertSparsityConfig(
+                method=MoESparsityMethod.NOVICE,
+                num_experts=num_experts_per_layer,
+            )
+            logger.info(
+                f"MoNe: recorded moe_sparsity_config (method=novice) with per-layer "
+                f"retained counts {num_experts_per_layer}"
+            )
 
         if self.report_path is not None and is_source_process():
-            with open(self.report_path, "w") as f:
-                json.dump(self._retained_experts, f)
+            report = {
+                key: [
+                    self._report[layer_name].get(key, [])
+                    for layer_name in self._moe_attrs.moe_layer_names
+                ]
+                for key in ("count", "saliency")
+            }
+            with open(self.report_path, "w") as file:
+                json.dump(report, file)
 
         self._saliency_trackers.clear()
         self._output_buffers.clear()
@@ -220,8 +256,9 @@ class MoNePruningModifier(Modifier):
     # -- decision finalization ----------------------------------------------
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """Collapse any tracked layer whose saliency is complete, then release its
-        activation buffers."""
+        """Record saliency for any tracked layer whose saliency is complete,
+        collapse it when ``sparsity > 0``, then release its activation
+        buffers."""
 
         model = state.model
         expected = self._moe_attrs.num_experts - self._n_experts_to_drop
@@ -244,36 +281,44 @@ class MoNePruningModifier(Modifier):
 
             tracker.reduce_stats(device, hidden_dim, group=self._cpu_pg)
 
+            # record per-expert statistics for the report (source rank holds the
+            # globally reduced statistics)
             if is_source_process():
-                retained = tracker.compute_retained_experts(self._n_experts_to_drop)
-            else:
-                retained = torch.empty(expected, dtype=torch.int, device="cpu")
+                self._report[layer_name]["count"] = tracker.output_count.tolist()
+                self._report[layer_name]["saliency"] = tracker.saliency.tolist()
 
-            if is_distributed():
-                dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
+            if self._n_experts_to_drop > 0:
+                if is_source_process():
+                    retained = tracker.compute_retained_experts(self._n_experts_to_drop)
+                else:
+                    retained = torch.empty(expected, dtype=torch.int, device="cpu")
 
-            assert (
-                len(retained) == expected
-            ), f"Expected {expected} retained experts, got {len(retained)}"
+                if is_distributed():
+                    dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
 
-            retained = retained.tolist()
-            retained_set = set(retained)
-            dropped = [
-                i for i in range(self._moe_attrs.num_experts) if i not in retained_set
-            ]
+                assert (
+                    len(retained) == expected
+                ), f"Expected {expected} retained experts, got {len(retained)}"
 
-            if is_source_process():
-                novices = tracker.compute_novices(dropped)
-            else:
-                novices = torch.empty(
-                    n_dropped, hidden_dim, dtype=torch.float64, device="cpu"
+                retained = retained.tolist()
+                retained_set = set(retained)
+                num_experts = self._moe_attrs.num_experts
+                dropped = [i for i in range(num_experts) if i not in retained_set]
+
+                if is_source_process():
+                    novices = tracker.compute_novices(dropped)
+                else:
+                    novices = torch.empty(
+                        n_dropped, hidden_dim, dtype=torch.float64, device="cpu"
+                    )
+
+                if is_distributed():
+                    dist.broadcast(novices, src=get_source_rank(), group=self._cpu_pg)
+
+                self._retained_experts[layer_name] = retained
+                collapse_moe_layer(
+                    model, layer_name, retained, novices, self._moe_attrs
                 )
-
-            if is_distributed():
-                dist.broadcast(novices, src=get_source_rank(), group=self._cpu_pg)
-
-            self._retained_experts[layer_name] = retained
-            collapse_moe_layer(model, layer_name, retained, novices, self._moe_attrs)
 
             # free this layer's accumulators / buffers now
             del self._saliency_trackers[layer_name]

@@ -132,8 +132,8 @@ def _make_state(model):
 
 @pytest.mark.unit
 class TestMoNeSaliencyTracker:
-    def test_fusion_importance_metric(self):
-        """Importance is ``||std(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``."""
+    def test_fusion_saliency_metric(self):
+        """Saliency is ``||std(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``."""
         import llmcompressor.modeling.moe.context as context
 
         original_state = context._CALIBRATE_ALL_EXPERTS
@@ -170,13 +170,13 @@ class TestMoNeSaliencyTracker:
             assert fluc[2].item() == pytest.approx(0.0)
             assert fluc[3].item() == pytest.approx(0.0)
 
-            importance = tracker.importance
-            assert importance[0].item() == pytest.approx(2**0.5 * 0.7)
-            assert importance[1].item() == pytest.approx(5**0.5 * 0.3)
-            assert importance[2].item() == pytest.approx(0.0)
-            assert importance[3].item() == pytest.approx(0.0)
+            saliency = tracker.saliency
+            assert saliency[0].item() == pytest.approx(2**0.5 * 0.7)
+            assert saliency[1].item() == pytest.approx(5**0.5 * 0.3)
+            assert saliency[2].item() == pytest.approx(0.0)
+            assert saliency[3].item() == pytest.approx(0.0)
 
-            # lowest-importance experts (2, 3) are dropped
+            # lowest-saliency experts (2, 3) are dropped
             retained = tracker.compute_retained_experts(n_experts_to_drop=2)
             assert sorted(retained.tolist()) == [0, 1]
         finally:
@@ -370,11 +370,21 @@ def test_mone_is_registered():
 @pytest.mark.unit
 def test_mone_validation():
     with pytest.raises(ValueError, match="sparsity"):
-        MoNePruningModifier()
-    with pytest.raises(ValueError, match="sparsity"):
-        MoNePruningModifier(sparsity=0.0)
-    with pytest.raises(ValueError, match="sparsity"):
         MoNePruningModifier(sparsity=1.0)
+
+    with pytest.raises(ValueError, match="sparsity"):
+        MoNePruningModifier(sparsity=-0.1)
+
+    # report_path must end with .json
+    with pytest.raises(ValueError, match=r"\.json"):
+        MoNePruningModifier(sparsity=0.5, report_path="report.pkl")
+
+    # sparsity=0.0 (report-only) requires a report_path
+    with pytest.raises(ValueError, match="report_path"):
+        MoNePruningModifier(sparsity=0.0)
+
+    # sparsity=0.0 with a report_path is valid
+    MoNePruningModifier(sparsity=0.0, report_path="report.json")
 
 
 @pytest.mark.unit
@@ -442,6 +452,60 @@ def test_mone_group_limited_router_not_implemented():
 
     with pytest.raises(NotImplementedError, match="group-limited"):
         modifier.initialize(state)
+
+
+@pytest.mark.unit
+def test_mone_report_only_does_not_modify_model(tmp_path):
+    """With sparsity=0.0, saliency is reported but weights/config are untouched."""
+    torch.manual_seed(42)
+
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    report_path = str(tmp_path / "report.json")
+    modifier = MoNePruningModifier(sparsity=0.0, report_path=report_path)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with torch.no_grad():
+        for _ in range(5):
+            x = torch.randn(2, 8, config.hidden_size)
+            model(x)
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    # Model config and weights are unchanged; no sparsity config is recorded
+    assert model.config.num_experts == 8
+    assert not hasattr(model, "_moe_sparsity_config")
+    for layer in model.layers:
+        expert_count = sum(
+            1 for m in layer.experts.children() if isinstance(m, ExpertMLP)
+        )
+        assert expert_count == 8
+        assert layer.gate.weight.shape[0] == 8
+        assert layer.experts.novices is None
+
+    # Report holds per-expert statistics for each MoE layer, ordered by layer
+    with open(report_path) as f:
+        report = json.load(f)
+
+    assert sorted(report) == ["count", "saliency"]
+    for values in report.values():
+        assert len(values) == 2
+
+    for layer_counts, layer_saliency in zip(report["count"], report["saliency"]):
+        assert len(layer_counts) == 8
+        assert len(layer_saliency) == 8
+        assert all(isinstance(value, float) for value in layer_saliency)
+        # every expert was routed to at least once across the 5 batches
+        assert all(count > 0 for count in layer_counts)
 
 
 @pytest.mark.unit

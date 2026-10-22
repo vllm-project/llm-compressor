@@ -1,16 +1,16 @@
 """
-Utilities for MoNe (Mixture of Novices): importance tracking, novice-output
+Utilities for MoNe (Mixture of Novices): saliency tracking, novice-output
 tracking and expert collapse.
 
-MoNe shares REAP's *collapse* structure but uses its own importance metric. The
-lowest-importance experts are *collapsed* into constant "novice" vectors (each
+MoNe shares REAP's *collapse* structure but uses its own saliency metric. The
+lowest-saliency experts are *collapsed* into constant "novice" vectors (each
 expert's mean output, an unbiased estimator of its contribution). Retained
 experts are left-shifted while the router keeps all ``R + N`` rows, so novices
 continue to receive their original router weights at inference time.
 
-Expert importance is the MoNe "fusion" metric
+Expert saliency is the MoNe "fusion" metric
 
-    ``I_j = fluctuation_j * routing_score_j``
+    ``S_j = fluctuation_j * routing_score_j``
 
 where ``fluctuation_j = || std_tokens(f_j) ||_2`` is the L2 norm (over hidden
 dims) of the per-dimension standard deviation of expert ``j``'s output ``f_j``,
@@ -51,7 +51,7 @@ __all__ = [
 
 class MoNeSaliencyTracker:
     """
-    Accumulates the MoNe "fusion" importance metric and the per-expert mean
+    Accumulates the MoNe "fusion" saliency metric and the per-expert mean
     output used as the novice vector.
 
     Two groups of statistics are accumulated per expert, over the tokens routed
@@ -59,12 +59,12 @@ class MoNeSaliencyTracker:
 
     - Output statistics (``sum_output``, ``sum_sq_output``, ``output_count``):
       the mean output is the novice vector, and the per-dimension variance gives
-      the ``fluctuation`` term of the importance metric.
+      the ``fluctuation`` term of the saliency metric.
     - Routing statistics (``sum_gate``, ``token_count``): the frequency-weighted
       mean gate weight gives the ``routing_score`` term.
 
-    Importance is ``fluctuation_j * routing_score_j``; experts with the lowest
-    importance are collapsed into novices.
+    Saliency is ``fluctuation_j * routing_score_j``; experts with the lowest
+    saliency are collapsed into novices.
     """
 
     def __init__(self, num_experts: int):
@@ -215,14 +215,14 @@ class MoNeSaliencyTracker:
         return self.sum_gate.to("cpu", torch.float64) / float(self.token_count)
 
     @property
-    def importance(self) -> torch.Tensor:
-        """The MoNe fusion importance ``fluctuation * routing_score`` per expert."""
+    def saliency(self) -> torch.Tensor:
+        """The MoNe fusion saliency ``fluctuation * routing_score`` per expert."""
         return self.output_fluctuation * self.routing_score
 
     def compute_retained_experts(self, n_experts_to_drop: int) -> torch.Tensor:
-        """Select which experts to keep, dropping the lowest-importance ones."""
-        importance = torch.nan_to_num(self.importance, nan=-float("inf"))
-        _, drop_indices = torch.topk(importance, n_experts_to_drop, largest=False)
+        """Select which experts to keep, dropping the lowest-saliency ones."""
+        saliency = torch.nan_to_num(self.saliency, nan=-float("inf"))
+        _, drop_indices = torch.topk(saliency, n_experts_to_drop, largest=False)
         drop_set = {int(i) for i in drop_indices.tolist()}
         retained = [i for i in range(self.num_experts) if i not in drop_set]
         return torch.tensor(retained, dtype=torch.int)
