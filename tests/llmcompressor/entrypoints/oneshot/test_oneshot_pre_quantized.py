@@ -1,7 +1,9 @@
+import json
+
 import pytest
 from compressed_tensors.quantization import QuantizationConfig
 from loguru import logger
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, LlamaConfig, LlamaForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -94,3 +96,41 @@ def test_oneshot_stacks(tmp_path):
     assert quant_config.format == "mixed-precision"
     assert ordered_schemes[0].format == "float-quantized"
     assert ordered_schemes[1].format == "int-quantized"
+
+
+def test_oneshot_loads_custom_code_model_with_trust_remote_code(tmp_path):
+    (tmp_path / "configuration_mycustom.py").write_text(
+        "from transformers import LlamaConfig\n"
+        "class MyCustomConfig(LlamaConfig):\n"
+        "    model_type = 'mycustom'\n"
+    )
+    (tmp_path / "modeling_mycustom.py").write_text(
+        "from transformers import LlamaForCausalLM\n"
+        "from .configuration_mycustom import MyCustomConfig\n"
+        "class MyCustomForCausalLM(LlamaForCausalLM):\n"
+        "    config_class = MyCustomConfig\n"
+    )
+    config = LlamaConfig(
+        vocab_size=128,
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+    )
+    LlamaForCausalLM(config).save_pretrained(tmp_path)
+    config_path = tmp_path / "config.json"
+    config_dict = json.loads(config_path.read_text())
+    config_dict.update(
+        model_type="mycustom",
+        architectures=["MyCustomForCausalLM"],
+        auto_map={
+            "AutoConfig": "configuration_mycustom.MyCustomConfig",
+            "AutoModelForCausalLM": "modeling_mycustom.MyCustomForCausalLM",
+        },
+    )
+    config_path.write_text(json.dumps(config_dict))
+
+    model = oneshot(model=str(tmp_path), recipe=[], trust_remote_code_model=True)
+
+    assert type(model).__name__ == "MyCustomForCausalLM"
