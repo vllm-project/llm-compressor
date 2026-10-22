@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors import align_module_device
 from compressed_tensors.offload import (
     get_cache_init_kwargs,
     get_execution_device,

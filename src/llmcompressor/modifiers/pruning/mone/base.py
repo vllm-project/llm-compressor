@@ -51,18 +51,15 @@ __all__ = ["MoNePruningModifier"]
 class MoNePruningModifier(Modifier):
     """
     Collapses low-saliency experts from MoE layers into constant "novice" vectors
-    using the REAP saliency metric. For each expert ``j`` the saliency is
+    using the MoNe saliency metric. For each expert ``j`` the saliency is
 
-        ``S_j = mean(g_j * ||f_j||_2)``
+        ``I_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``
 
-    averaged over the tokens routed to expert ``j`` (see
-    :class:`~llmcompressor.modifiers.pruning.reap.REAPPruningModifier` for the
-    definition of ``g_j`` and ``f_j``).
-
-    Experts are ranked by the MoNe "fusion" importance
-    ``I_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]`` -- the product
-    of the expert's output fluctuation and its frequency-weighted router gate
-    weight. The lowest-importance experts per layer are collapsed: their mean
+    the product of the expert's output fluctuation (the L2 norm of the
+    per-dimension standard deviation of expert ``j``'s output ``f_j``) and its
+    routing score (the frequency-weighted mean router gate weight ``g_j``,
+    averaged over all tokens and zero when ``j`` is not in the top-k). The
+    lowest-saliency experts per layer are collapsed: their mean
     output over calibration tokens becomes a constant novice vector, retained
     experts are left-shifted, and the router is kept at its original width so
     novices continue to receive their routing weights. The per-layer retained
