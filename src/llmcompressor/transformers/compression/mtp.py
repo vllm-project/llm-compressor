@@ -188,7 +188,15 @@ def load_with_mtp_model(
         try:
             if not _mtp_patterns(model):
                 raise ValueError("No registered MTP checkpoint patterns")
-            model.config.get_mtp_config()
+            mtp_config = model.config.get_mtp_config()
+            if (
+                getattr(mtp_config, "first_k_dense_replace", 0) > 0
+                and getattr(mtp_config, "mlp_layer_types", None) is None
+            ):
+                raise ValueError(
+                    "This Transformers version constructs dense MTP layers instead "
+                    "of MoE layers. Upgrade Transformers to quantize this model's MTP."
+                )
         except ValueError as error:
             validate_mtp_copy_source(model)
             logger.warning(

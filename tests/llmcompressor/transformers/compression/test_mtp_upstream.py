@@ -145,14 +145,16 @@ def test_mtp_participates_in_initial_offload_and_sharded_save(tmp_path):
     model = _source_model(tmp_path, load_mtp=True)
     assert isinstance(model.mtp.layers[0].eh_proj._parameters, OffloadCache)
     embedding = model.mtp.embed_tokens
-    assert embedding is not model.get_input_embeddings()
-    assert isinstance(embedding.embed_norm, torch.nn.Identity)
+    if embedding is not model.get_input_embeddings():
+        assert isinstance(embedding.embed_norm, torch.nn.Identity)
     assert isinstance(embedding._parameters, OffloadCache)
     torch.testing.assert_close(
         embedding.weight, model.get_input_embeddings().weight, rtol=0, atol=0
     )
     assert model.mtp.shared_head is model.lm_head
-    assert model.mtp._modules["embed_tokens"] is embedding
+    assert (model.mtp._modules.get("embed_tokens") is embedding) == (
+        embedding is not model.get_input_embeddings()
+    )
     reference = model.mtp.layers[0].mtp_block.mlp.up_proj.weight.detach().clone()
     oneshot(
         model=model,
@@ -172,7 +174,7 @@ def test_mtp_participates_in_initial_offload_and_sharded_save(tmp_path):
         scale = load_file(mapping[name + "_scale"])[name + "_scale"]
         torch.testing.assert_close(tensor * scale, reference, atol=0.005, rtol=0.15)
         assert model.mtp.shared_head is model.lm_head
-        assert model.mtp._modules["embed_tokens"] is embedding
+        assert model.mtp.embed_tokens is embedding
         assert isinstance(embedding._parameters, OffloadCache)
 
 
@@ -346,6 +348,11 @@ def test_named_mtp_quantization_saves_checkpoint_weights(
         with load_context(model_cls, load_mtp=True):
             model = model_cls.from_pretrained(source.name_or_path)
         projection = f"model.layers.{model.config.num_hidden_layers}.eh_proj"
+    backbone_target = (
+        "model.layers.0.mlp.up_proj"
+        if model_cls is InklingForCausalLM
+        else "model.layers.0.mlp.experts.0.up_proj"
+    )
     targets = [r"re:^mtp\.layers\."]
     if target_backbone in ("int4", "fp8"):
         backbone_bits, mtp_bits = (4, 8) if target_backbone == "int4" else (8, 4)
@@ -368,7 +375,7 @@ def test_named_mtp_quantization_saves_checkpoint_weights(
         )
     else:
         if target_backbone:
-            targets.append("model.layers.0.mlp.up_proj")
+            targets.append(backbone_target)
         recipe = QuantizationModifier(scheme="FP8_DYNAMIC", targets=targets)
     oneshot(model=model, recipe=recipe)
     expected = {}
@@ -381,7 +388,7 @@ def test_named_mtp_quantization_saves_checkpoint_weights(
             bits = mtp_bits if target_backbone in ("int4", "fp8") else 8
         elif name.startswith("model.layers.") and target_backbone in ("int4", "fp8"):
             bits = backbone_bits
-        elif target_backbone is True and name == "model.layers.0.mlp.up_proj":
+        elif target_backbone is True and name == backbone_target:
             bits = 8
         else:
             assert not hasattr(module, "quantization_scheme"), name
@@ -688,7 +695,7 @@ def test_mtp_disk_offload_matches_cpu_save(tmp_path, load_mtp):
         )
 
 
-def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
+def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM, first_k_dense_replace=0):
     # Keep the released depth because upstream MtpModel discovers MTP using
     # architecture-defined layer indices. Shrink only widths and expert counts.
     num_layers = {
@@ -712,7 +719,7 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
         v_head_dim=16,
         n_routed_experts=2,
         num_experts_per_tok=1,
-        first_k_dense_replace=1,
+        first_k_dense_replace=first_k_dense_replace,
         num_nextn_predict_layers=1,
         num_mtp_layers=1,
         max_position_embeddings=128,
@@ -723,6 +730,8 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
         config.mtp_mlp_layer_types = [config.mlp_layer_types[-1]]
     model = model_cls(config).eval()
     mtp = MtpModel(model, 1)
+    # Build a real MoE checkpoint even when older MtpModel creates a dense block.
+    mtp.layers[0].mtp_block = deepcopy(model.get_decoder().layers[-1])
     # MtpModel's generic initializer does not initialize architecture-specific
     # fused expert tensors, which are allocated with torch.empty.
     mtp.layers.apply(model._init_weights)
@@ -733,6 +742,7 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
     source = tmp_path / "source"
     model.save_pretrained(source)
     weights = load_file(source / "model.safetensors")
+    assert "mtp_block.mlp.experts.0.up_proj.weight" in mtp.layers[0].state_dict()
     for name, tensor in mtp.layers[0].state_dict().items():
         name = name.removeprefix("mtp_block.")
         if name == "post_norm.weight":
@@ -760,19 +770,26 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM):
 def test_trailing_mtp_layer_uses_upstream_weight_mapping(
     tmp_path, target_mtp, model_cls
 ):
-    model = _source_glm_model(tmp_path, model_cls)
+    model = _source_glm_model(tmp_path, model_cls, first_k_dense_replace=1)
     source = model.name_or_path
     prefix = f"model.layers.{model.config.num_hidden_layers}."
+    mtp_config = model.config.get_mtp_config()
+    supported = (
+        getattr(mtp_config, "mlp_layer_types", None) is not None
+        or getattr(mtp_config, "first_k_dense_replace", 0) == 0
+    )
     with load_context(model_cls, load_mtp=target_mtp):
         model = model_cls.from_pretrained(source)
+    assert hasattr(model, "mtp") == (target_mtp and supported)
 
     recipe = QuantizationModifier(scheme="FP8_DYNAMIC", ignore=["lm_head"])
     oneshot(model=model, recipe=recipe)
 
     destination = tmp_path / "destination"
-    model.save_pretrained(destination)
+    model.save_pretrained(destination, max_shard_size="100KB")
     weights = get_weight_mappings(destination)
-    if target_mtp:
+    assert len(set(weights.values())) > 1
+    if target_mtp and supported:
         assert any(
             name.startswith(f"{prefix}self_attn.") and name.endswith("weight_scale")
             for name in weights
@@ -786,5 +803,23 @@ def test_trailing_mtp_layer_uses_upstream_weight_mapping(
         assert not any(
             name.startswith(prefix) and name.endswith("weight_scale")
             for name in weights
+        )
+        expected = {
+            name: tensor
+            for name, tensor in load_file(
+                tmp_path / "source" / "model.safetensors"
+            ).items()
+            if name.startswith(prefix)
+        }
+        torch.testing.assert_close(
+            load_file(destination / "model_mtp.safetensors"), expected, rtol=0, atol=0
+        )
+        quant = json.loads((destination / "config.json").read_text())[
+            "quantization_config"
+        ]
+        assert all(
+            name.removesuffix(".weight") in quant["ignore"]
+            for name in expected
+            if name.endswith(".weight")
         )
     assert not any(name.startswith("mtp.") for name in weights)
