@@ -287,8 +287,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         calibrated = [
             module
-            for module in self._num_samples
-            if modules is None or module in modules
+            for module in (self._num_samples if modules is None else modules)
+            if module in self._num_samples
         ]
         ### Not Distributed
         if not is_distributed():
