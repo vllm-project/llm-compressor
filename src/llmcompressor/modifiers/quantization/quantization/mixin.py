@@ -143,7 +143,6 @@ class QuantizationMixin(HooksMixin):
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
     _initialized_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
-    _calibrated_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: str | list[str]) -> list[str]:
@@ -291,12 +290,9 @@ class QuantizationMixin(HooksMixin):
             warn_inference_mode_forwards(model)
 
         for _, module in targets:
-            if module in self._calibrated_modules:
-                continue
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
-            self._calibrated_modules.add(module)
 
         # Link fused weight observers for shared global_scale.
         # Scoped setup also verifies that each TENSOR_GROUP fusion fits in the scope.
@@ -344,7 +340,6 @@ class QuantizationMixin(HooksMixin):
         for module in modules:
             freeze_module_quantization(module)  # remove observers
             enable_quantization(module)
-        self._calibrated_modules.difference_update(modules)
 
     def _update_quantization_bookkeeping(
         self,
