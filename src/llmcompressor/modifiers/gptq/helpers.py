@@ -42,13 +42,30 @@ def accumulate_hessian(
     module: torch.nn.Module,
     hessian: torch.Tensor,
     num_samples: torch.Tensor,
+    mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Accumulate one module-input batch into its GPTQ Hessian statistics.
 
     The Hessian and sample counter are updated in place and returned for the
     hook caller to retain. Linear, Conv1D, and Conv2d inputs are reshaped into
     the common ``[input_features, observations]`` representation first.
+
+    :param mask: optional token mask with shape ``inp.shape[:-1]`` (e.g.
+        ``[batch, seq_len]``). Only tokens where the mask is nonzero contribute to
+        the Hessian; the sample counter still counts every sequence in the batch.
+        Supported for Linear and Conv1D modules only.
     """
+    if mask is not None:
+        if isinstance(module, torch.nn.Conv2d):
+            raise ValueError("Token masking is not supported for Conv2d modules")
+        if mask.shape != inp.shape[:-1]:
+            raise ValueError(
+                f"Token mask of shape {tuple(mask.shape)} cannot be aligned with "
+                f"module input of shape {tuple(inp.shape)}. Masks are only supported "
+                "for modules which see every token of the batch (e.g. not routed MoE "
+                "experts)"
+            )
+
     inp = inp.to(device=hessian.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -60,6 +77,8 @@ def accumulate_hessian(
         case torch.nn.Linear() | transformers.Conv1D():
             if len(inp.shape) == 3:
                 inp = inp.reshape((-1, inp.shape[-1]))
+            if mask is not None:
+                inp = inp[mask.reshape(-1).to(device=inp.device, dtype=torch.bool)]
             inp = inp.t()
         case torch.nn.Conv2d():
             unfold = torch.nn.Unfold(
