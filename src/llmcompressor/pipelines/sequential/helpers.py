@@ -266,6 +266,7 @@ def trace_subgraphs(
         # Attention uses the model's configured implementation unless
         # `eager_attention` is enabled.
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+        stack.enter_context(patch_attr(torch.compiler, "_is_exporting_flag", True))
 
         # autowrap forwards
         stack.enter_context(autowrap_forwards(ancestors, ignore))

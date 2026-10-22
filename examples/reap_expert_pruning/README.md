@@ -24,6 +24,46 @@ REAP is useful for reducing the VRAM footprint of MoE models without sacrificing
 
 However, excess pruning can lead to a degradation in model quality, as shown in the results below. Additionally, the dataset choice for calibration is important. If calibration samples leave out certain features or topics, it is possible that experts normally relevant for these samples will be marked as irrelevant overall and removed. Exercise care and know your application before pruning.
 
+## Saliency reports and checkpoint-space pruning
+
+`REAPPruningModifier` can run in report-only mode with `sparsity=0.0`, writing
+per-expert statistics (routed-token `count` and `saliency`, one inner list per
+MoE layer, ordered by layer) to a `.json` report without modifying the model
+(see `qwen3_example.py`):
+
+```python
+recipe = REAPPruningModifier(sparsity=0.0, report_path="qwen3_report.json")
+```
+
+A report can be visualized as a per-layer heatmap with
+`tools/plot_reap_report.py`:
+
+```bash
+python tools/plot_reap_report.py qwen3_report.json --metric saliency
+```
+
+The report can then be fed to `ExpertPruner` (see
+`qwen3_prune_from_report.py`), which prunes experts directly from the
+safetensors checkpoint, shard by shard, without loading the model into memory.
+This makes it cheap to try several sparsities or scoring metrics from a single
+calibration run. Experts are scored by REAP `saliency`,
+`layerwise_saliency` (saliency normalized by each layer's maximum, which makes
+scores comparable across layers), `count` (routed tokens), or router-weight
+`magnitude` (no report needed). With `uniform=True` the same fraction is pruned
+from every layer; with `uniform=False` the lowest-scoring experts are pruned
+across all layers, so layers may retain different numbers of experts, and the
+per-layer counts are recorded in the checkpoint's
+`quantization_config.moe_sparsity_config`.
+
+Group-limited routers (e.g. DeepSeek-V3's `n_group`/`topk_group`) partition each
+layer's experts into groups and only route tokens to experts of the top
+`topk_group` groups, so the groups must stay balanced: `ExpertPruner` prunes
+such models uniformly, dropping the same number of experts from every group,
+and rejects `uniform=False`.
+
+DeepSeek-V3 also uses a `e_score_correction_bias` which must be specified using
+`aux_re=re.compile(r"model.layers\.(\d+)\.mlp\.gate\.e_score_correction_bias")`.
+
 ## Results
 
 The end-to-end examples in `examples/reap_expert_pruning` were used to compress two different models. 
