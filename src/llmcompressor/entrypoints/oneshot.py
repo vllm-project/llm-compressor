@@ -304,14 +304,10 @@ class Oneshot:
         """
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
-        config = AutoConfig.from_pretrained(
-            model.config.name_or_path,
-            trust_remote_code=self.model_args.trust_remote_code_model,
-        )
+        config = self._load_model_config(model)
+
         qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
-        quant_method = (
-            qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None
-        )
+        quant_method = self._get_quant_method(qconfig)
 
         # Fall back to in-memory config for models with
         # quantization_config set programmatically
@@ -335,6 +331,48 @@ class Oneshot:
                 "oneshot does not currently support models that are already quantized "
                 f"in a different format ({quant_method}). {resolution}"
             )
+
+    def _load_model_config(self, model: PreTrainedModel):
+        """
+        Load the config of a model, preferring the on-disk config and falling back
+        to the in-memory config for models which do not have a checkpoint on disk,
+        such as models which were created in memory.
+
+        :param model: The model whose config should be loaded
+        :return: The model config
+        """
+        name_or_path = getattr(model.config, "name_or_path", None)
+        if name_or_path:
+            try:
+                return AutoConfig.from_pretrained(
+                    name_or_path,
+                    trust_remote_code=self.model_args.trust_remote_code_model,
+                )
+            except (OSError, ValueError):
+                logger.debug(
+                    f"Could not load a config from {name_or_path}, falling back to "
+                    "the in-memory model config"
+                )
+
+        return model.config
+
+    @staticmethod
+    def _get_quant_method(qconfig) -> str | None:
+        """
+        Get the quantization method of a quantization config, if it has one. The
+        config may either be a dict (as read from a checkpoint) or an object (as
+        set programmatically on an in-memory model).
+
+        :param qconfig: The quantization config, if any
+        :return: The quantization method, if any
+        """
+        if qconfig is None:
+            return None
+
+        if isinstance(qconfig, dict):
+            return qconfig.get(QUANTIZATION_METHOD_NAME, None)
+
+        return getattr(qconfig, QUANTIZATION_METHOD_NAME, None)
 
 
 def oneshot(
