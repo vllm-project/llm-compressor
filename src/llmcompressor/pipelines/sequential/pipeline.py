@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import warnings
 from concurrent.futures import Future, ThreadPoolExecutor
-from itertools import chain, islice
 from typing import TYPE_CHECKING, Iterator
 
 import torch
@@ -13,7 +12,6 @@ from compressed_tensors.offload.module import (
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
-from compressed_tensors.utils.match import match_targets
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -140,16 +138,8 @@ class SequentialPipeline(CalibrationPipeline):
         )
         ignore = dataset_args.tracing_ignore
 
-        cache_dataloader = dataloader
-        if match_targets("", model, sequential_targets):
-            # Reuse the first batch and iterator without another sampling pass.
-            # Taking at most one batch also keeps an empty loader empty.
-            batches = iter(dataloader)
-            sample_batches = tuple(islice(batches, 1))
-            sample_input = sample_batches[0] if sample_batches else {}
-            cache_dataloader = chain(sample_batches, batches)
-        else:
-            sample_input = next(iter(dataloader))
+        # trace subgraphs
+        sample_input = next(iter(dataloader))
         subgraphs = trace_subgraphs(
             model,
             sample_input,
@@ -169,7 +159,7 @@ class SequentialPipeline(CalibrationPipeline):
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
             session.state.sequential_activations = IntermediatesCache.from_dataloader(
-                cache_dataloader, onload_device, offload_device
+                dataloader, onload_device, offload_device
             )
             activations = session.state.sequential_activations
             # When propagate_error=True or log_sequential_error=True, the

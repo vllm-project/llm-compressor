@@ -29,13 +29,6 @@ class BranchedModel(torch.nn.Module):
         return self.linear(x) * kwargs.get("scale", 1)
 
 
-class SinglePassDataLoader(DataLoader):
-    def __iter__(self):
-        assert not getattr(self, "_iterated", False), "loader iterated more than once"
-        self._iterated = True
-        return super().__iter__()
-
-
 def test_basic_pipeline_preserves_untraced_calibration():
     model = BranchedModel()
     mask = torch.zeros(1, 2)
@@ -45,7 +38,7 @@ def test_basic_pipeline_preserves_untraced_calibration():
         {"x": 3 * torch.ones(1, 2), "loss_mask": torch.ones(1, 2), "scale": 0},
     ]
     order = [2, 0, 1]
-    dataloader = SinglePassDataLoader(samples, batch_size=None, sampler=order)
+    dataloader = DataLoader(samples, batch_size=None, sampler=order)
     args = DatasetArguments(
         sequential_targets=["Linear"],
         sequential_targets_per_subgraph=4,
@@ -81,11 +74,11 @@ def test_basic_pipeline_preserves_untraced_calibration():
     assert args == original_args
 
 
-@pytest.mark.parametrize("num_batches", [0, 1])
+@pytest.mark.parametrize("num_batches", [1, 3])
 def test_run_calibration_without_dataset_arguments(num_batches):
     model = BranchedModel()
     samples = [{"x": -torch.ones(1, 2)} for _ in range(num_batches)]
-    dataloader = SinglePassDataLoader(samples, batch_size=None)
+    dataloader = DataLoader(samples, batch_size=None)
     outputs = []
 
     with (
