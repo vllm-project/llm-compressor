@@ -160,6 +160,18 @@ def test_recipe_with_a_modifier_without_arguments():
     assert recipe.modifiers[0].group == "quantization"
 
 
+def test_recipe_with_invalid_modifier_arguments():
+    # the arguments of a modifier have to be a mapping
+    with pytest.raises(ValueError, match="must be a dictionary"):
+        Recipe.create_instance(
+            """
+            test_stage:
+                quantization_modifiers:
+                    QuantizationModifier: "not a mapping"
+            """
+        )
+
+
 @pytest.mark.parametrize(
     "modifiers,is_valid",
     [

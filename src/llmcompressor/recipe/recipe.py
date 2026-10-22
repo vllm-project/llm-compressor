@@ -191,6 +191,12 @@ class Recipe(BaseModel):
                         for mod_type, mod_args in group_val.items():
                             # a modifier without any arguments is written with an
                             # empty value, which parses to None
+                            if mod_args is not None and not isinstance(mod_args, dict):
+                                raise ValueError(
+                                    f"Arguments for modifier '{mod_type}' must be a "
+                                    f"dictionary, but got "
+                                    f"{type(mod_args).__name__}: {mod_args}"
+                                )
                             mod_args = dict(mod_args or {})
 
                             # `group` is passed explicitly below, so it must not
