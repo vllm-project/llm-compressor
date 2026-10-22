@@ -41,7 +41,7 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - on_calibration_start / on_sequential_epoch_start
+    - on_sequential_epoch_initialize
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
@@ -113,11 +113,12 @@ class QuIPModifier(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._apply_transform_scope(state.model, **kwargs)
-
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
     ):
         self._apply_transform_scope(state.model, modules=modules, **kwargs)
 
@@ -151,8 +152,9 @@ class QuIPModifier(Modifier):
                             child_name, offload_kwargs[name].copy()
                         )
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def on_finalize(self, state: State, **kwargs) -> bool:
         self._transform_factories.clear()
+        return True
 
     def _get_targets(
         self,

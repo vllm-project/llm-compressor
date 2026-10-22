@@ -135,9 +135,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - infer sequential target patterns
-    - on_calibration_start / on_sequential_epoch_start
+    - on_sequential_epoch_initialize
         - apply config to the current scope
         - name modules and freeze their parameters
+    - on_calibration_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
@@ -254,19 +255,25 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._initialize_scope(state.model, **kwargs)
+        modules = kwargs.get("modules")
+        self.start_calibration(state.model, modules=modules)
+        for module in state.model.modules() if modules is None else modules:
+            if self._is_decoding_layer(module):
+                if module._tmp_name in self._capture_hooks:
+                    continue
+                self._capture_hooks[module._tmp_name] = self.register_hook(
+                    module, self.input_capture_hook, "forward_pre", with_kwargs=True
+                )
+        self._update_quantization_bookkeeping(**kwargs)
 
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
-    ):
-        self._initialize_scope(state.model, modules, **kwargs)
-
-    def _initialize_scope(
+    def on_sequential_epoch_initialize(
         self,
-        model: torch.nn.Module,
+        state: State,
+        event: Event,
         modules: list[torch.nn.Module] | None = None,
         **kwargs,
     ):
+        model = state.model
         if QuantizationMixin.has_config(self):
             from compressed_tensors.offload import disable_onloading
 
@@ -274,7 +281,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             # broadcasts while registering them with DistributedCPUCache.
             with disable_onloading():
                 self.initialize_quantization(model, modules=modules)
-        self.start_calibration(model, modules=modules)
 
         module_scope = None if modules is None else set(modules)
         for name, module in model.named_modules():
@@ -283,13 +289,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             module._tmp_name = name
             for param in module.parameters(recurse=False):
                 param.requires_grad_(False)
-            if self._is_decoding_layer(module):
-                if module._tmp_name in self._capture_hooks:
-                    continue
-                handle = self.register_hook(
-                    module, self.input_capture_hook, "forward_pre", with_kwargs=True
-                )
-                self._capture_hooks[module._tmp_name] = handle
         self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
@@ -485,12 +484,26 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        QuantizationMixin.end_calibration(self, state.model)
+        modules = kwargs.get("modules")
+        QuantizationMixin.end_calibration(self, state.model, modules=modules)
         self._update_quantization_bookkeeping(**kwargs)
-        self._remove_temporary_names(state.model)
-        self.remove_hooks()
+        self._remove_temporary_names(state.model, modules)
+        self.remove_hooks(modules=modules)
         self._q_input = None
+        self._capture_hooks = {
+            name: hook
+            for name, hook in self._capture_hooks.items()
+            if hook in self._hooks
+        }
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self.remove_hooks()
+        self._initialized_modules.clear()
+        self._calibrated_modules.clear()
         self._capture_hooks.clear()
+        self._all_module_input.clear()
+        self._remove_temporary_names(state.model)
+        return True
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
@@ -550,8 +563,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     setattr(model, name, module.orig_layer)
         return model
 
-    def _remove_temporary_names(self, model: torch.nn.Module):
-        for _, mod in model.named_modules():
+    def _remove_temporary_names(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
+        for mod in model.modules() if modules is None else modules:
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
 

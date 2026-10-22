@@ -118,7 +118,9 @@ def _prepare(kind="rtn", dtype=torch.float32, model_class=BranchModel, **qad_kwa
     quant.on_initialize(state)
     qad.on_initialize(state)
     start = Event(type_=EventType.CALIBRATION_START)
+    quant.on_sequential_epoch_initialize(state, start)
     quant.on_calibration_start(state, start)
+    qad.on_sequential_epoch_initialize(state, start)
     qad.on_calibration_start(state, start)
     return model, reference, batches, state, quant, qad
 
@@ -265,7 +267,8 @@ def test_teacher_cache_is_independent():
     stored_output = output_cache.fetch(0)
     torch.testing.assert_close(stored_input["args"][0], saved_input)
     torch.testing.assert_close(stored_output["teacher_output"][0], saved_teacher_output)
-    qad.on_finalize(state)
+    with pytest.raises(ValueError, match="did not optimize every target"):
+        qad.on_finalize(state)
     assert not qad._input_caches and not qad._output_caches and not qad._hooks
 
 
@@ -290,7 +293,8 @@ def test_cache_replay_preserves_selected_batch_order():
     for index, batch in zip(indices, replayed):
         torch.testing.assert_close(batch["args"][0], batches[index]["x"])
         torch.testing.assert_close(batch["teacher_output"], reference(**batches[index]))
-    qad.on_finalize(state)
+    with pytest.raises(ValueError, match="did not optimize every target"):
+        qad.on_finalize(state)
     assert not qad._input_caches and not qad._output_caches
 
 
@@ -403,6 +407,7 @@ def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
     state = State(model=BranchModel())
     qad.on_initialize(state)
     with pytest.raises(ValueError, match="after a weight quantization"):
+        qad.on_sequential_epoch_initialize(state, None)
         qad.on_calibration_start(state, None)
     with pytest.raises(ValidationError):
         QADModifier(teacher_mode="full")
@@ -574,7 +579,8 @@ def test_unchained_subgraph_targets_rejected():
         quant.on_sequential_epoch_end(state, None, modules)
         with pytest.raises(ValueError, match="previous target's output"):
             qad.on_sequential_epoch_end(state, None, modules)
-    qad.on_finalize(state)
+    with pytest.raises(ValueError, match="did not optimize every target"):
+        qad.on_finalize(state)
 
 
 def test_training_failure_restores_grad_flags():

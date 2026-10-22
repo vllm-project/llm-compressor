@@ -41,22 +41,27 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     modifier = QuantizationModifier(targets="Linear", scheme="FP8")
     state = State(model=model)
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     # Wrap update_statistics_from_observed to track which observers are called
-    with patch.object(
-        model[0].weight_observer,
-        "update_statistics_from_observed",
-        wraps=model[0].weight_observer.update_statistics_from_observed,
-    ) as mock0, patch.object(
-        model[1].weight_observer,
-        "update_statistics_from_observed",
-        wraps=model[1].weight_observer.update_statistics_from_observed,
-    ) as mock1, patch.object(
-        model[2].weight_observer,
-        "update_statistics_from_observed",
-        wraps=model[2].weight_observer.update_statistics_from_observed,
-    ) as mock2:
+    with (
+        patch.object(
+            model[0].weight_observer,
+            "update_statistics_from_observed",
+            wraps=model[0].weight_observer.update_statistics_from_observed,
+        ) as mock0,
+        patch.object(
+            model[1].weight_observer,
+            "update_statistics_from_observed",
+            wraps=model[1].weight_observer.update_statistics_from_observed,
+        ) as mock1,
+        patch.object(
+            model[2].weight_observer,
+            "update_statistics_from_observed",
+            wraps=model[2].weight_observer.update_statistics_from_observed,
+        ) as mock2,
+    ):
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
@@ -82,30 +87,39 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     state = State(model=model)
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     # Patch get_qparams and sync_activation_stats to track calls
-    with patch.object(
-        model[0].input_observer,
-        "get_qparams",
-        wraps=model[0].input_observer.get_qparams,
-    ) as qp_mock0, patch.object(
-        model[1].input_observer,
-        "get_qparams",
-        wraps=model[1].input_observer.get_qparams,
-    ) as qp_mock1, patch.object(
-        model[2].input_observer,
-        "get_qparams",
-        wraps=model[2].input_observer.get_qparams,
-    ) as qp_mock2, patch.object(
-        model[0].input_observer, "sync_activation_stats", return_value=[]
-    ) as sync_mock0, patch.object(
-        model[1].input_observer, "sync_activation_stats", return_value=[]
-    ) as sync_mock1, patch.object(
-        model[2].input_observer, "sync_activation_stats", return_value=[]
-    ) as sync_mock2, patch(
-        "llmcompressor.modifiers.quantization.quantization.mixin.is_distributed",
-        return_value=True,
+    with (
+        patch.object(
+            model[0].input_observer,
+            "get_qparams",
+            wraps=model[0].input_observer.get_qparams,
+        ) as qp_mock0,
+        patch.object(
+            model[1].input_observer,
+            "get_qparams",
+            wraps=model[1].input_observer.get_qparams,
+        ) as qp_mock1,
+        patch.object(
+            model[2].input_observer,
+            "get_qparams",
+            wraps=model[2].input_observer.get_qparams,
+        ) as qp_mock2,
+        patch.object(
+            model[0].input_observer, "sync_activation_stats", return_value=[]
+        ) as sync_mock0,
+        patch.object(
+            model[1].input_observer, "sync_activation_stats", return_value=[]
+        ) as sync_mock1,
+        patch.object(
+            model[2].input_observer, "sync_activation_stats", return_value=[]
+        ) as sync_mock2,
+        patch(
+            "llmcompressor.modifiers.quantization.quantization.mixin.is_distributed",
+            return_value=True,
+        ),
     ):
         # Process chunks sequentially
         modifier.on_sequential_epoch_end(
@@ -152,6 +166,7 @@ def test_nested_parent_modules_produce_valid_global_scale():
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
     state = State(model=model)
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):
@@ -166,9 +181,9 @@ def test_nested_parent_modules_produce_valid_global_scale():
 
     for name, param in model.named_parameters():
         if "global_scale" in name:
-            assert (
-                torch.isfinite(param).all() and param.item() > 0
-            ), f"{name} not valid: {param.item()}"
+            assert torch.isfinite(param).all() and param.item() > 0, (
+                f"{name} not valid: {param.item()}"
+            )
 
 
 def test_session_initialization_defers_quantization_until_scope_is_onloaded():
@@ -181,20 +196,23 @@ def test_session_initialization_defers_quantization_until_scope_is_onloaded():
     assert getattr(model[0], "quantization_scheme", None) is None
     assert getattr(model[1], "quantization_scheme", None) is None
 
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[0]])
     session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
 
     assert model[0].quantization_scheme is not None
     assert hasattr(model[0], "weight_observer")
     assert getattr(model[1], "quantization_scheme", None) is None
 
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[1]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[1]])
     assert model[1].quantization_scheme is not None
+    assert not hasattr(model[1], "weight_observer")
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[1]])
     assert hasattr(model[1], "weight_observer")
 
     session.lifecycle.event(EventType.CALIBRATION_END)
 
 
-def test_lazy_basic_calibration_initializes_the_whole_model_at_calibration_start():
+def test_basic_scope_initializes_before_calibration_start():
     model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     session = CompressionSession()
@@ -203,6 +221,9 @@ def test_lazy_basic_calibration_initializes_the_whole_model_at_calibration_start
     assert getattr(model[0], "quantization_scheme", None) is None
     assert getattr(model[1], "quantization_scheme", None) is None
 
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE)
+    assert model[0].quantization_scheme is not None
+    assert not hasattr(model[0], "weight_observer")
     session.lifecycle.event(EventType.CALIBRATION_START)
 
     assert model[0].quantization_scheme is not None
@@ -230,6 +251,7 @@ def test_session_always_defers_model_setup_for_mixed_recipes():
     assert not hasattr(model[0], "quantization_scheme")
     assert not hasattr(model[1], "quantization_scheme")
 
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[0]])
     session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
     assert model[0].quantization_scheme is not None
     assert not hasattr(model[1], "quantization_scheme")
@@ -242,9 +264,13 @@ def test_tensor_group_quantization_supports_lazy_initialization():
     session = CompressionSession()
     session.initialize(model=model, recipe=modifier)
 
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[])
     session.lifecycle.event(EventType.CALIBRATION_START, modules=[])
     session.lifecycle.event(
-        EventType.SEQUENTIAL_EPOCH_START, modules=list(model[0].modules())
+        EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=list(model[0].modules())
+    )
+    session.lifecycle.event(
+        EventType.CALIBRATION_START, modules=list(model[0].modules())
     )
     assert hasattr(model[0].q_proj, "weight_observer")
     assert not hasattr(model[1].q_proj, "quantization_scheme")
@@ -259,7 +285,7 @@ def test_lazy_tensor_group_calibration_rejects_split_fused_layers():
 
     q_proj = model[0].q_proj
     with pytest.raises(ValueError, match="span multiple sequential calibration"):
-        modifier.on_sequential_epoch_start(state, None, modules=[q_proj])
+        modifier.on_sequential_epoch_initialize(state, None, modules=[q_proj])
 
 
 def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
@@ -269,7 +295,6 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     state.layerwise_decompression = True
 
     modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
 
     assert not hasattr(model[0], "quantization_scheme")
     assert not hasattr(model[1], "quantization_scheme")
@@ -278,11 +303,13 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     with patch(
         "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
     ) as fuse_weight_observers:
-        modifier.on_sequential_epoch_start(
+        modifier.on_sequential_epoch_initialize(
             state,
-            Event(type_=EventType.SEQUENTIAL_EPOCH_START),
+            Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE),
             modules=modules,
         )
+        assert not hasattr(model[0], "weight_observer")
+        modifier.on_calibration_start(state, None, modules=modules)
 
     fuse_weight_observers.assert_called_once_with(model, modules=modules)
 
@@ -295,6 +322,8 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
         Event(type_=EventType.SEQUENTIAL_EPOCH_END),
         modules=list(model[0].modules()),
     )
+    assert hasattr(model[0], "weight_observer")
+    modifier.on_calibration_end(state, None, modules=list(model[0].modules()))
 
     assert model[0].quantization_status == QuantizationStatus.FROZEN
     assert not hasattr(model[0], "weight_observer")

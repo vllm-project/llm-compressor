@@ -63,9 +63,9 @@ class QuantizationMixin(HooksMixin):
 
     Lifecycle:
 
-    - on_calibration_start / on_sequential_epoch_start:
-      QuantizationMixin.initialize_quantization, then start_calibration
+    - on_sequential_epoch_initialize: QuantizationMixin.initialize_quantization
         - Attach schemes to modules
+    - on_calibration_start: QuantizationMixin.start_calibration
         - Attach observers to modules
         - Attach calibration hooks
         - Apply calibration status
@@ -78,7 +78,7 @@ class QuantizationMixin(HooksMixin):
         as this is not desired for all Modifiers inheriting from it. Modifier must
         explicitly call `observe(modules, base_name="weight")` then
         `update_qparams(modules, base_name="weight")`.
-        See QuantizationModifier.on_event method for example
+        See QuantizationModifier.on_sequential_epoch_end for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -317,19 +317,24 @@ class QuantizationMixin(HooksMixin):
         # Scoped setup also verifies that each TENSOR_GROUP fusion fits in the scope.
         fuse_weight_observers(model, modules=modules)
 
-    def end_calibration(self, model: torch.nn.Module):
+    def end_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
         """
         Remove calibration hooks and observers, and set the model status to frozen.
         Keep quantization enabled for future operations
 
         :param model: model to end calibration for
+        :param modules: modules in the completed scope, or None for the whole model
         """
-        self.remove_hooks(self._calibration_hooks)
+        removed = self.remove_hooks(self._calibration_hooks, modules=modules)
+        self._calibration_hooks.difference_update(removed)
         modules = [
             module
             for _, module in match_named_modules(
                 model, self.resolved_targets, self.ignore
             )
+            if modules is None or module in modules
         ]
 
         # observer statistics are consumed when qparams are updated. Modules which
@@ -354,10 +359,8 @@ class QuantizationMixin(HooksMixin):
 
         for module in modules:
             freeze_module_quantization(module)  # remove observers
-
-        model.apply(enable_quantization)  # keep quantization enabled
-        self._initialized_modules.clear()
-        self._calibrated_modules.clear()
+            enable_quantization(module)
+        self._calibrated_modules.difference_update(modules)
 
     def _update_quantization_bookkeeping(
         self,

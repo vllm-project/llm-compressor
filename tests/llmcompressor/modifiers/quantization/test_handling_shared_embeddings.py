@@ -35,9 +35,9 @@ def test_quantization_with_automatic_untie():
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
     modifier = QuantizationModifier(
@@ -52,6 +52,7 @@ def test_quantization_with_automatic_untie():
 
     # Initialize and start calibration (should automatically untie if needed)
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
@@ -85,9 +86,9 @@ def test_quantization_untie_only_when_targeted():
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
     # Only target attention projection layers, not embeddings
@@ -101,6 +102,7 @@ def test_quantization_untie_only_when_targeted():
         baseline_output = model(**input_data)
 
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
@@ -109,9 +111,9 @@ def test_quantization_untie_only_when_targeted():
     assert torch.nn.MSELoss()(output.logits, baseline_output.logits) <= _EXP_MSE
 
     # Verify embeddings are still tied (since they weren't targeted)
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "Embeddings were untied even though they were not in the target list"
+    assert input_embed.weight is output_embed.weight, (
+        "Embeddings were untied even though they were not in the target list"
+    )
 
 
 @requires_gpu
@@ -135,9 +137,9 @@ def test_spinquant_with_tied_embeddings(rotations):
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
 
@@ -151,12 +153,13 @@ def test_spinquant_with_tied_embeddings(rotations):
         baseline_output = model(**input_data)
 
     spinquant_modifier.on_initialize(state)
+    spinquant_modifier.on_sequential_epoch_initialize(state, None)
     spinquant_modifier.on_calibration_start(state, None)
 
     # Verify embeddings were untied by SpinQuant
-    assert (
-        input_embed.weight is not output_embed.weight
-    ), f"SpinQuant {rotations} should have untied embeddings but they are still tied"
+    assert input_embed.weight is not output_embed.weight, (
+        f"SpinQuant {rotations} should have untied embeddings but they are still tied"
+    )
 
     with torch.no_grad():
         output = model(**input_data)
@@ -194,9 +197,9 @@ def test_quip_with_tied_embeddings(rotations):
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
 
@@ -211,17 +214,18 @@ def test_quip_with_tied_embeddings(rotations):
     quip_modifier.on_initialize(state)
 
     # Embeddings should still be tied after initialization
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "Embeddings should still be tied after on_initialize"
+    assert input_embed.weight is output_embed.weight, (
+        "Embeddings should still be tied after on_initialize"
+    )
 
     # Start QuIP (should untie embeddings if lm_head is targeted)
+    quip_modifier.on_sequential_epoch_initialize(state, None)
     quip_modifier.on_calibration_start(state, None)
 
     # Verify embeddings were untied by QuIP during on_calibration_start
-    assert (
-        input_embed.weight is not output_embed.weight
-    ), "QuIP should have untied embeddings but they are still tied"
+    assert input_embed.weight is not output_embed.weight, (
+        "QuIP should have untied embeddings but they are still tied"
+    )
 
 
 @requires_gpu
@@ -249,9 +253,9 @@ def test_quip_untie_only_when_targeted(rotations):
     # Verify embeddings are initially tied
     input_embed = model.get_input_embeddings()
     output_embed = model.get_output_embeddings()
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "test setup failed, need to test a model with shared input/output embeddings"
+    assert input_embed.weight is output_embed.weight, (
+        "test setup failed, need to test a model with shared input/output embeddings"
+    )
 
     state = State(model=model)
 
@@ -264,12 +268,13 @@ def test_quip_untie_only_when_targeted(rotations):
 
     # Initialize and start QuIP
     quip_modifier.on_initialize(state)
+    quip_modifier.on_sequential_epoch_initialize(state, None)
     quip_modifier.on_calibration_start(state, None)
 
     # Verify embeddings are still tied (since lm_head was ignored)
-    assert (
-        input_embed.weight is output_embed.weight
-    ), "Embeddings should still be tied when lm_head is in the ignore list"
+    assert input_embed.weight is output_embed.weight, (
+        "Embeddings should still be tied when lm_head is in the ignore list"
+    )
 
 
 def _reduce_vocab_size(model, new_vocab_size):

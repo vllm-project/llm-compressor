@@ -93,7 +93,7 @@ class AWQModifier(Modifier):
 
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - on_calibration_start / on_sequential_epoch_start
+    - on_calibration_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
@@ -201,33 +201,29 @@ class AWQModifier(Modifier):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
-        Prepare mappings and hooks for the pipeline's initial calibration scope.
-        Quantization schemes may be attached by a subsequent modifier in this event.
+        Resolve mappings and install hooks after every modifier initializes the scope.
         """
 
         modules = kwargs.get("modules")
-        self._initialize_scope(state, modules)
+        resolved = self._set_resolved_mappings(
+            state.model,
+            modules=modules,
+        )
+        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
+            raise ValueError(
+                "Token masking (use_loss_mask=True) is not supported with "
+                "up_proj -> down_proj mappings in MoE models. The MoE routing "
+                "mechanism dispatches tokens to different experts, and the loss mask "
+                "cannot be properly aligned with this dispatch. Please either "
+                "disable token masking or exclude the up_proj -> down_proj mapping "
+                "for MoE layers from the AWQ configuration."
+            )
+        if not resolved:
+            return
 
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[Module], **kwargs
-    ):
-        self._initialize_scope(state, modules)
+        self._validate_duo_scaling(resolved)
+        self._setup_activation_cache_hooks(resolved)
 
-    def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[Module], **kwargs
-    ):
-        self._apply_smoothing(state.model, modules=modules)
-
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
-        """
-        Finish calibrating by removing observers and calibration hooks.
-        No qparams are updated since this is just a transform.
-        """
-        self._apply_smoothing(state.model)
-        self._assert_all_activations_consumed()
-
-        # remove activation hooks
-        self.remove_hooks()
 
     def estimate_sequential_memory(
         self, module: Module, num_tokens: int
@@ -276,6 +272,25 @@ class AWQModifier(Modifier):
 
         return held, scratch
 
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[Module], **kwargs
+    ):
+        self._apply_smoothing(state.model, modules=modules)
+
+    def on_calibration_end(self, state: State, event: Event, **kwargs):
+        """
+        Finish calibrating by removing observers and calibration hooks.
+        No qparams are updated since this is just a transform.
+        """
+        modules = kwargs.get("modules")
+        self._apply_smoothing(state.model, modules=modules)
+        self.remove_hooks(modules=modules)
+        self._resolved_mappings = [
+            mapping
+            for mapping in self._resolved_mappings
+            if modules is not None and mapping.smooth_layer not in modules
+        ]
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the activations and mapping data
@@ -286,35 +301,16 @@ class AWQModifier(Modifier):
         if not self.ended_:
             self.on_end(state, None)
 
+        self._assert_all_activations_consumed()
+        self.remove_hooks()
         self._log_error_metrics()
 
         self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
-        self._mappings_by_parent.clear()
         self._error_metrics.clear()
 
         return True
-
-    def _initialize_scope(self, state: State, modules: list[Module] | None) -> None:
-        resolved = self._set_resolved_mappings(
-            state.model,
-            modules=modules,
-            include_unquantized=True,
-        )
-        if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
-            raise ValueError(
-                "Token masking (use_loss_mask=True) is not supported with "
-                "up_proj -> down_proj mappings in MoE models. The MoE routing "
-                "mechanism dispatches tokens to different experts, and the loss mask "
-                "cannot be properly aligned with this dispatch. Please either "
-                "disable token masking or exclude the up_proj -> down_proj mapping "
-                "for MoE layers from the AWQ configuration."
-            )
-        if not resolved:
-            return
-
-        self._setup_activation_cache_hooks(resolved)
 
     def _validate_duo_scaling(self, mappings: list[ResolvedMapping]) -> None:
         if self.duo_scaling is False:
@@ -341,7 +337,6 @@ class AWQModifier(Modifier):
         self,
         model: Module,
         modules: list[Module] | None = None,
-        include_unquantized: bool = False,
     ) -> list[ResolvedMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -414,7 +409,7 @@ class AWQModifier(Modifier):
                     continue
 
                 # Warn that mappings or quantization config are malformed for model
-                if (not any_targeted and not include_unquantized) or not balance_layers:
+                if not any_targeted or not balance_layers:
                     skip_message = (
                         "no balance layers were found."
                         if len(balance_layers) == 0
@@ -558,6 +553,7 @@ class AWQModifier(Modifier):
                     mapping.parent,
                     cache_parent_kwargs_hook,
                     "forward_pre",
+                    owner=mapping.smooth_layer,
                     with_kwargs=True,
                 )
 
@@ -574,6 +570,7 @@ class AWQModifier(Modifier):
                 layer_to_hook,
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
                 "forward",
+                owner=mapping.smooth_layer,
             )
 
     @torch.no_grad()
@@ -618,8 +615,6 @@ class AWQModifier(Modifier):
                 )
                 del self._smooth_activation_stats[mapping.smooth_name]
                 continue
-
-            self._validate_duo_scaling([mapping])
 
             # pin memory for faster onloading during grid search
             # pinned memory in cache is deleted before next mapping is pinned
@@ -886,9 +881,9 @@ class AWQModifier(Modifier):
             }
         )
 
-        assert (
-            torch.isnan(best_scales).sum() == 0
-        ), f"Nan found in scales: {best_scales}"
+        assert torch.isnan(best_scales).sum() == 0, (
+            f"Nan found in scales: {best_scales}"
+        )
 
         return best_scales.detach().cpu()
 

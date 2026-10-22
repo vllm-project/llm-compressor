@@ -1,7 +1,7 @@
 from abc import abstractmethod
 
 import torch
-from pydantic import ConfigDict
+from pydantic import ConfigDict, PrivateAttr
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
@@ -20,8 +20,8 @@ class Modifier(ModifierInterface, HooksMixin):
     Lifecycle:
     1. initialize
     2. on_event ->
-        * on_calibration_start if event.type_ == EventType.CALIBRATION_START
-        * on_sequential_epoch_start if event.type_ == EventType.SEQUENTIAL_EPOCH_START
+        * on_sequential_epoch_initialize for SEQUENTIAL_EPOCH_INITIALIZE
+        * on_calibration_start for CALIBRATION_START
         * on_start if self.start <= event.current_index
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
@@ -54,6 +54,7 @@ class Modifier(ModifierInterface, HooksMixin):
     finalized_: bool = False
     started_: bool = False
     ended_: bool = False
+    _active_calibration_scopes: int = PrivateAttr(default=0)
 
     @property
     def initialized(self) -> bool:
@@ -132,11 +133,13 @@ class Modifier(ModifierInterface, HooksMixin):
 
         if event.type_ == EventType.CALIBRATION_START:
             self.on_calibration_start(state, event, **kwargs)
+            self._active_calibration_scopes += 1
             self.started_ = True
+            self.ended_ = False
             return
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
-            self.on_sequential_epoch_start(state, event, **kwargs)
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_INITIALIZE:
+            self.on_sequential_epoch_initialize(state, event, **kwargs)
             return
 
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
@@ -145,7 +148,10 @@ class Modifier(ModifierInterface, HooksMixin):
 
         if event.type_ == EventType.CALIBRATION_END:
             self.on_calibration_end(state, event, **kwargs)
-            self.ended_ = True
+            self._active_calibration_scopes = max(
+                0, self._active_calibration_scopes - 1
+            )
+            self.ended_ = self._active_calibration_scopes == 0
             return
 
         ## training lifecycle ##
@@ -200,7 +206,7 @@ class Modifier(ModifierInterface, HooksMixin):
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Prepare global configuration and metadata. Model-local setup belongs in
-        calibration callbacks (scoped by the pipeline) or on_start for training.
+        on_sequential_epoch_initialize, or on_start for training.
 
         :param state: The current state of the model
         :param kwargs: Additional arguments for initializing the modifier
@@ -271,7 +277,8 @@ class Modifier(ModifierInterface, HooksMixin):
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         """
-        on_calibration_start is called at the start of a calibration epoch.
+        Set up observers and hooks for the current calibration scope, after all
+        modifiers have initialized that scope.
 
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch start
@@ -279,18 +286,22 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
     ):
         """
-        on_sequential_epoch_start is called after a sequential subgraph has been
-        onloaded and before its calibration forward pass.
+        Initialize model state after onloading/decompression, before any modifier's
+        calibration-start callback. modules=None initializes the whole model.
 
         :param state: The current state of the model
-        :param event: The event that triggered the sequential epoch start
+        :param event: The event that triggered scope initialization
         :param modules: List of de-duplicated modules included in the sequential
             subgraph
-        :param kwargs: Additional arguments for the sequential epoch start
+        :param kwargs: Additional arguments for scope initialization
         """
         pass
 
