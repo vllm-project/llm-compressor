@@ -232,51 +232,38 @@ class QuantizationMixin(HooksMixin):
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
+        :param modules: modules to initialize, or None for the whole model.
+            Modules already initialized by this modifier are skipped.
         """
-
-        if modules is not None:
-            modules = list(modules)
-            target_modules = [
-                module
-                for _, module in match_named_modules(
-                    model, self.resolved_targets, self.ignore
-                )
-                if module in modules and module not in self._initialized_modules
-            ]
-            if not target_modules:
-                return
-
-            for module in target_modules:
-                reset_quantization_status(module)
-
-            apply_quantization_config(
-                model, self.resolved_config, modules=target_modules
-            )
-            validate_fused_layer_scope(model, modules)
-
-            if not self.bypass_divisibility_checks:
-                validate_group_size_divisibility(
-                    model,
-                    self.resolved_targets,
-                    self.ignore,
-                    modules=target_modules,
-                )
-
-            for module in target_modules:
-                disable_quantization(module)
-            self._initialized_modules.update(target_modules)
+        modules = list(model.modules() if modules is None else modules)
+        uninitialized_modules = [
+            module for module in modules if module not in self._initialized_modules
+        ]
+        if not uninitialized_modules:
             return
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in match_named_modules(
+            model, self.resolved_targets, self.ignore, modules=uninitialized_modules
+        ):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        apply_quantization_config(
+            model, self.resolved_config, modules=uninitialized_modules
+        )
+        validate_fused_layer_scope(model, modules)
 
         if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
+            validate_group_size_divisibility(
+                model,
+                self.resolved_targets,
+                self.ignore,
+                modules=uninitialized_modules,
+            )
 
         # disable quantization until calibration
-        model.apply(disable_quantization)
+        for module in uninitialized_modules:
+            disable_quantization(module)
+        self._initialized_modules.update(uninitialized_modules)
 
     def start_calibration(
         self,

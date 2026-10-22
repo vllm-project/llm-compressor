@@ -212,6 +212,26 @@ def test_session_initialization_defers_quantization_until_scope_is_onloaded():
     session.lifecycle.event(EventType.CALIBRATION_END)
 
 
+def test_overlapping_initialization_preserves_existing_quantization():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
+    modifier.initialize_quantization(model, modules=[model[0]])
+    scale = model[0].weight_scale
+    with torch.no_grad():
+        scale.fill_(7)
+    model[0].quantization_status = QuantizationStatus.FROZEN
+    model[0].quantization_enabled = True
+
+    modifier.initialize_quantization(model)
+
+    assert model[0].weight_scale is scale
+    assert torch.all(scale == 7)
+    assert model[0].quantization_status == QuantizationStatus.FROZEN
+    assert model[0].quantization_enabled
+    assert model[1].quantization_status == QuantizationStatus.INITIALIZED
+    assert not model[1].quantization_enabled
+
+
 def test_basic_scope_initializes_before_calibration_start():
     model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
