@@ -109,14 +109,6 @@ class SequentialPipeline(CalibrationPipeline):
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
-        if getattr(dataset_args, "sequential_prefetch", False):
-            warnings.warn(
-                "sequential_prefetch is deprecated and has no effect because "
-                "activation prefetching is always enabled.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
         session = active_session()
 
         # prepare model for sequential onloading
@@ -149,6 +141,10 @@ class SequentialPipeline(CalibrationPipeline):
         num_subgraphs = len(subgraphs)
         persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
         if persistent_modules:
+            warnings.warn(
+                "Found persistent modules outside of subgraphs."
+                "This feature will be deprecated in a future release."
+            )
             subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
