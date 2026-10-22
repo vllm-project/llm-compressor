@@ -310,13 +310,6 @@ class DatasetArguments(CustomDatasetArguments):
             "multiprocessing."
         },
     )
-    sequential_prefetch: bool = field(
-        default=False,
-        metadata={
-            "help": "Deprecated. Activation prefetching is now always enabled in the "
-            "sequential pipeline."
-        },
-    )
     stage_weights_in_pinned_memory: bool = field(
         default=False,
         metadata={

@@ -21,7 +21,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
-from compressed_tensors.utils import getattr_chain
+from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import (
@@ -38,7 +38,13 @@ from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
+from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.recipe import Recipe
+from llmcompressor.transformers.compression.mtp import (
+    has_mtp_in_checkpoint,
+    validate_mtp_copy_source,
+)
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
@@ -302,6 +308,34 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
+        if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
+            validate_mtp_copy_source(model)
+            logger.warning(
+                "MTP layers are not loaded for quantization and will be copied "
+                "unchanged when saving. Use load_context(load_mtp=True) "
+                "to quantize them when supported by Transformers."
+            )
+        if hasattr(model, "mtp") and self.recipe:
+            recipe = Recipe.create_instance(
+                self.recipe, target_stage=self.recipe_args.stage
+            )
+            for modifier in recipe.modifiers:
+                if (
+                    isinstance(modifier, QuantizationMixin)
+                    and modifier.requires_calibration_data
+                    and any(
+                        name.startswith("mtp.")
+                        for name, _ in match_named_modules(
+                            model, modifier.resolved_targets, modifier.ignore
+                        )
+                    )
+                ):
+                    # TODO: Support MTP forward execution and sequential offloading
+                    # during calibration before allowing data-dependent MTP schemes.
+                    raise ValueError(
+                        "MTP calibration is not supported in oneshot; MTP targets "
+                        "currently support data-free schemes only."
+                    )
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(

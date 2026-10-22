@@ -9,6 +9,7 @@ from compressed_tensors.utils.impl_backend import ImplBackend
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
+from llmcompressor.observers.grid_search import _make_grid_points
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 # ---------------------------------------------------------------------------
@@ -518,6 +519,8 @@ def _assert_imatrix_eager_triton_parity(
     norm,
     expand,
     triton_error_buffer,
+    magnitude_normalization=False,
+    grid_type=None,
 ):
     """Check exact ranges, qparams, and fake-quantized weights across backends."""
     search_args = (observed, args, maxshrink, patience, grid, norm)
@@ -526,6 +529,8 @@ def _assert_imatrix_eager_triton_parity(
         "importance_weights": importance,
         "triton_error_buffer": triton_error_buffer,
         "use_imatrix_error": True,
+        "magnitude_normalization": magnitude_normalization,
+        "grid_type": grid_type,
     }
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
@@ -563,9 +568,21 @@ def _assert_imatrix_eager_triton_parity(
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 @pytest.mark.parametrize(
-    "preset,observed_shape,maxshrink,patience,grid,expand",
+    "preset,observed_shape,maxshrink,patience,grid,expand,norm,"
+    "magnitude_normalization,grid_type",
     [
-        pytest.param("W4A16", (16, 128), 0.95, 5, 20.0, 1.0, id="w4a16"),
+        pytest.param(
+            "W4A16",
+            (16, 128),
+            0.95,
+            5,
+            20.0,
+            1.0,
+            3.0,
+            False,
+            None,
+            id="w4a16",
+        ),
         pytest.param(
             "NVFP4A16",
             (8, 1024),
@@ -573,14 +590,37 @@ def _assert_imatrix_eager_triton_parity(
             1000,
             200.0,
             1.8,
+            3.0,
+            False,
+            None,
             id="nvfp4a16",
+        ),
+        pytest.param(
+            "MXFP4A16",
+            (8, 128),
+            0.95,
+            0,
+            20.0,
+            1.0,
+            2.0,
+            True,
+            "exponential",
+            id="mxfp4",
         ),
     ],
 )
 def test_imatrix_triton_matches_eager_for_realistic_schemes(
-    preset, observed_shape, maxshrink, patience, grid, expand
+    preset,
+    observed_shape,
+    maxshrink,
+    patience,
+    grid,
+    expand,
+    norm,
+    magnitude_normalization,
+    grid_type,
 ):
-    """Real W4A16 and NVFP4A16 group sizes preserve eager qparams and QDQ."""
+    """Representative W4A16, NVFP4A16, and MXFP4 cases match across backends."""
     args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
     observed = flatten_for_calibration(
@@ -603,10 +643,66 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         maxshrink=maxshrink,
         patience=patience,
         grid=grid,
-        norm=3.0,
+        norm=norm,
         expand=expand,
         triton_error_buffer=1.0,
+        magnitude_normalization=magnitude_normalization,
+        grid_type=grid_type,
     )
+
+    if preset == "MXFP4A16":
+        linear_grid_points = _make_grid_points(maxshrink, grid, "linear")
+        exponential_grid_points = _make_grid_points(maxshrink, grid, "exponential")
+        assert linear_grid_points[-1] in exponential_grid_points
+
+        search_args = (observed, args, maxshrink, patience, grid, norm)
+        search_kwargs = {
+            "expand": expand,
+            "importance_weights": importance,
+            "triton_error_buffer": 1.0,
+            "use_imatrix_error": True,
+            "magnitude_normalization": magnitude_normalization,
+        }
+        linear_bounds = ImplBackend.call(
+            "_grid_search_observer",
+            *search_args,
+            **search_kwargs,
+            grid_type="linear",
+        )
+        exponential_bounds = ImplBackend.call(
+            "_grid_search_observer",
+            *search_args,
+            **search_kwargs,
+            grid_type="exponential",
+        )
+
+        linear_qparams = calculate_qparams(
+            min_vals=linear_bounds[0],
+            max_vals=linear_bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        exponential_qparams = calculate_qparams(
+            min_vals=exponential_bounds[0],
+            max_vals=exponential_bounds[1],
+            quantization_args=args,
+            global_scale=None,
+        )
+        assert torch.equal(linear_qparams[0], exponential_qparams[0])
+        assert torch.equal(linear_qparams[1], exponential_qparams[1])
+
+        qdq_weights = []
+        for scales, zero_points in (linear_qparams, exponential_qparams):
+            with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+                qdq_weights.append(
+                    fake_quantize(
+                        observed,
+                        scales.unsqueeze(-1),
+                        zero_points.unsqueeze(-1),
+                        args,
+                    ).to(observed.dtype)
+                )
+        assert torch.equal(qdq_weights[0], qdq_weights[1])
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
