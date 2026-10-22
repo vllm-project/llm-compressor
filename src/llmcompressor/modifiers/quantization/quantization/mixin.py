@@ -280,13 +280,11 @@ class QuantizationMixin(HooksMixin):
         """
         if modules is not None:
             modules = list(modules)
-        targets = [
-            (name, module)
-            for name, module in match_named_modules(
-                model, self.resolved_targets, self.ignore
+        targets = list(
+            match_named_modules(
+                model, self.resolved_targets, self.ignore, modules=modules
             )
-            if modules is None or module in modules
-        ]
+        )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
         if warn_on_inference_mode:
@@ -319,9 +317,8 @@ class QuantizationMixin(HooksMixin):
         modules = [
             module
             for _, module in match_named_modules(
-                model, self.resolved_targets, self.ignore
+                model, self.resolved_targets, self.ignore, modules=modules
             )
-            if modules is None or module in modules
         ]
 
         # observer statistics are consumed when qparams are updated. Modules which

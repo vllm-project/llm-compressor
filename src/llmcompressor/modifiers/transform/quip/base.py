@@ -133,9 +133,6 @@ class QuIPModifier(Modifier):
         targets = self._get_targets(model, modules)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
-        if onloaded_modules is not None:
-            for factory in self._transform_factories.values():
-                factory.cache_device = torch.device("cpu")
         apply_transform_config(
             model,
             self.transform_config,
@@ -162,11 +159,12 @@ class QuIPModifier(Modifier):
         modules: list[torch.nn.Module] | None = None,
     ) -> NamedModules:
         return [
-            (name, module)
+            target
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
-            for name, module in match_named_modules(model, arg.targets, arg.ignore)
-            if modules is None or module in modules
+            for target in match_named_modules(
+                model, arg.targets, arg.ignore, modules=modules
+            )
         ]
 
     def _create_config(self) -> TransformConfig:

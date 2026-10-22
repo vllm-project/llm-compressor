@@ -223,9 +223,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         :param model: model to prepare for calibration
         """
         targets = list(
-            (name, module)
-            for name, module in match_named_modules(model, self.targets, self.ignore)
-            if modules is None or module in modules
+            match_named_modules(model, self.targets, self.ignore, modules=modules)
         )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
