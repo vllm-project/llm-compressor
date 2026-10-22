@@ -205,10 +205,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self._update_quantization_bookkeeping(**kwargs)
 
         for name, module in match_named_modules(
-            state.model, self.resolved_targets, self.ignore
+            state.model, self.resolved_targets, self.ignore, modules=modules
         ):
-            if modules is not None and module not in modules:
-                continue
             if getattr_chain(module, "quantization_scheme.weights", None) is None:
                 continue
             # Embeddings are not supported by the GPTQ layer compressor.
@@ -233,9 +231,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self._module_names.update(
             (module, name)
             for name, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
+                state.model, self.resolved_targets, self.ignore, modules=modules
             )
-            if modules is None or module in modules
         )
         self._update_quantization_bookkeeping(**kwargs)
 
