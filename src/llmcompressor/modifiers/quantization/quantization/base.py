@@ -121,5 +121,4 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     def on_finalize(self, state: State, **kwargs) -> bool:
         self.remove_hooks()
         self._initialized_modules.clear()
-        self._calibrated_modules.clear()
         return True
