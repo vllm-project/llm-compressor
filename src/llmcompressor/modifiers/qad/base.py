@@ -133,7 +133,6 @@ class QADModifier(Modifier):
     _cur_seq_target: torch.nn.Module | None = PrivateAttr(default=None)
     _cur_seq_target_output: torch.Tensor | None = PrivateAttr(default=None)
     _seq_target_patterns: list[str] = PrivateAttr(default_factory=list)
-    _hooked_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
     _seen_seq_targets: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
@@ -167,8 +166,6 @@ class QADModifier(Modifier):
         for name, seq_target in match_named_modules(
             state.model, self._seq_target_patterns, modules=modules
         ):
-            if seq_target in self._hooked_seq_targets:
-                continue
             self._seq_target_names[seq_target] = name or type(seq_target).__name__
             self.register_hook(
                 seq_target,
@@ -179,7 +176,6 @@ class QADModifier(Modifier):
             self.register_hook(
                 seq_target, self._output_capture_hook, "forward", with_kwargs=True
             )
-            self._hooked_seq_targets.add(seq_target)
 
     def _input_capture_hook(self, module, args, kwargs, *, state):
         if not _modules_to_quantize(module.modules()):
@@ -540,10 +536,6 @@ class QADModifier(Modifier):
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self.remove_hooks(modules=modules)
-        if modules is None:
-            self._hooked_seq_targets.clear()
-        else:
-            self._hooked_seq_targets.difference_update(modules)
         for cache in (self._input_caches, self._output_caches, self._predecessors):
             for module in list(cache):
                 if modules is None or module in modules:
@@ -571,7 +563,6 @@ class QADModifier(Modifier):
         self._predecessors.clear()
         self._cur_seq_target = None
         self._cur_seq_target_output = None
-        self._hooked_seq_targets.clear()
         self._seen_seq_targets.clear()
 
 

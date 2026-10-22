@@ -21,7 +21,6 @@ from compressed_tensors.utils import (
 from loguru import logger
 from pydantic import PrivateAttr, StrictInt, field_validator
 from torch import distributed as dist
-from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -142,9 +141,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     )
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
-    _gptq_hooks: dict[torch.nn.Module, RemovableHandle] = PrivateAttr(
-        default_factory=dict
-    )
     _has_gptq_modules: bool = PrivateAttr(default=False)
 
     @field_validator("batched_quantization")
@@ -210,11 +206,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
             if getattr_chain(module, "quantization_scheme.weights", None) is None:
                 continue
             # Embeddings are not supported by the GPTQ layer compressor.
-            if isinstance(module, torch.nn.Embedding) or module in self._gptq_hooks:
+            if isinstance(module, torch.nn.Embedding):
                 continue
-            self._gptq_hooks[module] = self.register_hook(
-                module, self.calibrate_module, "forward"
-            )
+            self.register_hook(module, self.calibrate_module, "forward")
             self._has_gptq_modules = True
 
     def on_sequential_epoch_initialize(
@@ -253,9 +247,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(self, state.model, modules=modules)
         self._update_quantization_bookkeeping(**kwargs)
         self.remove_hooks(modules=modules)
-        for module in list(self._gptq_hooks):
-            if modules is None or module in modules:
-                del self._gptq_hooks[module]
 
     def calibrate_module(
         self,
@@ -441,10 +432,8 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
         self.remove_hooks()
-        self._gptq_hooks.clear()
         self._module_names.clear()
         self._initialized_modules.clear()
-        self._calibrated_modules.clear()
         if not self.ended_:
             self.on_end(state, None)
 

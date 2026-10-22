@@ -773,7 +773,8 @@ def test_reap_initialization_zero_drop():
 
 
 @pytest.mark.unit
-def test_reap_full_lifecycle():
+@pytest.mark.parametrize("revisit_pruned_scope", [False, True])
+def test_reap_full_lifecycle(revisit_pruned_scope):
     """End-to-end test: initialize, calibrate, finalize, verify pruning.
 
     Uses SEQUENTIAL_EPOCH_END to trigger pruning decisions."""
@@ -814,6 +815,22 @@ def test_reap_full_lifecycle():
     # End calibration
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     assert modifier.ended_
+
+    if revisit_pruned_scope:
+        retained = modifier._retained_experts.copy()
+        scope = list(model.modules())
+        modifier.update_event(
+            state, Event(type_=EventType.CALIBRATION_START), modules=scope
+        )
+        with torch.no_grad():
+            model(x)
+        modifier.update_event(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=scope
+        )
+        modifier.update_event(
+            state, Event(type_=EventType.CALIBRATION_END), modules=scope
+        )
+        assert modifier._retained_experts == retained
 
     # Finalize
     modifier.finalize(state)

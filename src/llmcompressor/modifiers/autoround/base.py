@@ -257,8 +257,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self.start_calibration(state.model, modules=modules)
         for module in state.model.modules() if modules is None else modules:
             if self._is_decoding_layer(module):
-                if module._tmp_name in self._capture_hooks:
-                    continue
                 self._capture_hooks[module._tmp_name] = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
@@ -497,7 +495,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def on_finalize(self, state: State, **kwargs) -> bool:
         self.remove_hooks()
         self._initialized_modules.clear()
-        self._calibrated_modules.clear()
         self._capture_hooks.clear()
         self._all_module_input.clear()
         self._remove_temporary_names(state.model)
