@@ -348,7 +348,7 @@ class AWQModifier(Modifier):
                     continue
 
                 # Warn that mappings or quantization config are malformed for model
-                if not any_targeted or not balance_layers:
+                if (not any_targeted) or len(balance_layers) == 0:
                     skip_message = (
                         "no balance layers were found."
                         if len(balance_layers) == 0
@@ -405,17 +405,8 @@ class AWQModifier(Modifier):
             self._resolved_mappings = resolved_mappings
             return resolved_mappings
 
-        existing = {
-            (mapping.smooth_name, tuple(mapping.balance_names))
-            for mapping in self._resolved_mappings
-        }
-        new_mappings = [
-            mapping
-            for mapping in resolved_mappings
-            if (mapping.smooth_name, tuple(mapping.balance_names)) not in existing
-        ]
-        self._resolved_mappings.extend(new_mappings)
-        return new_mappings
+        self._resolved_mappings.extend(resolved_mappings)
+        return resolved_mappings
 
     def _setup_activation_cache_hooks(
         self, mappings: list[ResolvedMapping] | None = None
