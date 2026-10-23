@@ -235,6 +235,7 @@ class QuantizationMixin(HooksMixin):
             Modules already initialized by this modifier are skipped.
         """
         modules = list(model.modules() if modules is None else modules)
+        # maybe remove later, but needed because of persistent modules
         uninitialized_modules = [
             module for module in modules if module not in self._initialized_modules
         ]
