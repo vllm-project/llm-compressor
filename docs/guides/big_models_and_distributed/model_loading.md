@@ -57,8 +57,33 @@ with load_context():
     model = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto_offload")
 ```
 
+## Multi-Token Prediction (MTP) ##
+
+A checkpoint can contain MTP weights without those layers being loaded into the model. `has_mtp_in_checkpoint(model)` checks whether the config declares MTP layers. `hasattr(model, "mtp")` checks whether the model has an attached MTP module.
+
+### Loading and quantizing MTP
+
+1. `load_context()` defaults to `load_mtp=True`. During `from_pretrained()`, `load_with_mtp_model()` loads supported MTP layers with Transformers' `MtpModel` and attaches them as `model.mtp` before MoE conversion and offloading. Models whose config does not declare MTP load normally.
+2. `_finalize_mtp_weight_conversions()` preserves the mapping between MTP module names and checkpoint names after MoE conversion, so saving can restore the original checkpoint names.
+3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP must use a data-free scheme such as `FP8_DYNAMIC`; methods requiring calibration are rejected. The recipe then applies to matching backbone and MTP modules.
+4. `save_pretrained()` serializes loaded MTP with the rest of the model.
+
+See the [GLM-4.5-Air MTP example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/quantization_w8a8_fp8/glm4_5_air_mtp.py).
+
+Recipe targets select the loaded Hugging Face modules. Saving restores checkpoint names for weights and ignore entries, but leaves quantization targets unchanged. For example, a target such as `re:^mtp\.layers\.` can select MTP during quantization while the saved weights use `model.layers.N.*` or `model.mtp.layers.*`.
+
+If named targets no longer match after saving, update the targets in `config.json` to cover the checkpoint names and any prefix changes made by vLLM while preserving each module's scheme. Ensure backbone and MTP targets do not overlap when their schemes differ. The shared `FP8_DYNAMIC` scheme with `Linear` targets in the example does not require this correction. Automatic target remapping is deferred to [compressed-tensors #980](https://github.com/vllm-project/compressed-tensors/pull/980).
+
+### Preserving unloaded MTP
+
+Use `load_context(load_mtp=False)` to skip attaching MTP. With `load_mtp=True`, missing checkpoint patterns or a config rejected by Transformers' `get_mtp_config()` also leave MTP unloaded, with a warning. Errors during actual MTP weight loading still propagate. `oneshot()` does not load these layers later. Its `validate_model()` calls `validate_mtp_copy_source()` to check the source weights and warns that MTP will be copied unchanged. The recipe only affects loaded modules.
+
+The save wrapper also calls `validate_mtp_copy_source()` before writing any checkpoint files. This prevents a validation failure from leaving a partial checkpoint, including when calling `save_pretrained()` directly. After saving the backbone, it passes the validated source to `save_mtp_tensors()`, which copies the MTP weights unchanged and adds their module names to the exported quantization ignore list. If the config declares MTP but no weights are found, saving warns that there is nothing to copy.
+
+Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. To convert these checkpoints or quantize unsupported MTP layouts, use an explicit model-free workflow; see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/model_free_ptq/mtp_fp8_fallback.py), which works directly on checkpoint tensors. This fallback never runs model-free quantization automatically.
+
 ## Basic Pipeline ##
-It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxiliary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
+The basic pipeline calibrates the whole model without tracing. Use it only when the model and calibration memory, such as GPTQ hessians, fit in the available VRAM.
 
 In these cases, you can load the model directly onto your GPU devices, and call oneshot with the relevant argument.
 

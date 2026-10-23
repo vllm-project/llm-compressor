@@ -1566,7 +1566,9 @@ class HFTracer(Tracer):
                             to_delete.move_to_end(n)
                         to_delete[n] = None
                         to_visit += list(n.users.keys())
-
+                    # don't prune if the node actually flows to the output
+                    if any(n.op == "output" for n in to_delete):
+                        continue
                     for user in reversed(to_delete.keys()):
                         self.graph.erase_node(user)
 
