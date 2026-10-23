@@ -2,7 +2,7 @@
 
 This example quantizes Tencent's HY-V3 (Hy3) sparse MoE model to a mixed-precision format: NVFP4 for MoE expert weights and FP8-Block for attention weights. Due to the model's size, quantization requires multiple GPUs via DDP.
 
-The full example script can be found [here](../../../examples/quantization_w4a4_fp4/hy3_example.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w4a4_fp4/hy3_example.py).
 
 ### Code Walkthrough
 
