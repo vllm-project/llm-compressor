@@ -15,7 +15,7 @@ Area ownership is tracked at the file and directory level in the repository's [C
 
 ## Committers
 
-- **[@kylesayrs](https://github.com/kylesayrs)** — Quantization (GPTQ, SmoothQuant, AWQ), pruning (SparseGPT, Wanda, OBCQ), transform-based methods (SpinQuant, QuIP), and the sequential and data-free pipelines.
+- **[@kylesayrs](https://github.com/kylesayrs)** — Quantization (GPTQ, SmoothQuant, AWQ), pruning (REAP), transform-based methods (SpinQuant, QuIP), and the sequential and data-free pipelines.
 - **[@dsikka](https://github.com/dsikka)** — Modeling support (MoE and vision model patches), quantization modifiers, observers, transformers compression and data integration, and project release/CI management.
 - **[@brian-dellabetta](https://github.com/brian-dellabetta)** — AWQ and transform-based quantization (SpinQuant, QuIP), entrypoints, and lm-eval based accuracy validation.
 - **[@HDCharles](https://github.com/HDCharles)** — Quantization and transform modifiers (GPTQ, AWQ, SmoothQuant), observers, and dataset utilities.

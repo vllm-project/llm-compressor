@@ -88,7 +88,7 @@ class Oneshot:
               quantization configurations.
         2. **Oneshot Calibration**:
             - Optimizes the model using a global `CompressionSession` and applies
-              recipe-defined modifiers (e.g., `GPTQModifier`, `SparseGPTModifier`)
+              recipe-defined modifiers (e.g., `GPTQModifier`, `QuantizationModifier`)
         3. **Postprocessing**:
             - Saves the model, tokenizer/processor, and configuration to the specified
               `output_dir`.
