@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 
 import pytest
 import torch
@@ -817,7 +818,7 @@ def test_reap_full_lifecycle(revisit_pruned_scope):
     assert modifier.ended_
 
     if revisit_pruned_scope:
-        retained = modifier._retained_experts.copy()
+        report = deepcopy(modifier._report)
         scope = list(model.modules())
         modifier.update_event(
             state, Event(type_=EventType.CALIBRATION_START), modules=scope
@@ -830,7 +831,7 @@ def test_reap_full_lifecycle(revisit_pruned_scope):
         modifier.update_event(
             state, Event(type_=EventType.CALIBRATION_END), modules=scope
         )
-        assert modifier._retained_experts == retained
+        assert modifier._report == report
 
     # Finalize
     modifier.finalize(state)
@@ -858,7 +859,8 @@ def test_reap_full_lifecycle(revisit_pruned_scope):
 
 
 @pytest.mark.unit
-def test_reap_report_only_does_not_modify_model(tmp_path):
+@pytest.mark.parametrize("revisit_completed_scope", [False, True])
+def test_reap_report_only_does_not_modify_model(tmp_path, revisit_completed_scope):
     """With sparsity=0.0, saliency is reported but weights/config are untouched."""
     torch.manual_seed(42)
 
@@ -882,6 +884,21 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    if revisit_completed_scope:
+        report = deepcopy(modifier._report)
+        scope = list(model.modules())
+        modifier.update_event(
+            state, Event(type_=EventType.CALIBRATION_START), modules=scope
+        )
+        with torch.no_grad():
+            model(torch.randn(2, 8, config.hidden_size))
+        modifier.update_event(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=scope
+        )
+        modifier.update_event(
+            state, Event(type_=EventType.CALIBRATION_END), modules=scope
+        )
+        assert modifier._report == report
     modifier.finalize(state)
 
     # Model config and weights are unchanged

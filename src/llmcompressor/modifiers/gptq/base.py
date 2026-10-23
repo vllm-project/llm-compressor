@@ -209,8 +209,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 # but in the FUTURE this should be ignored by the user
                 if not isinstance(module, torch.nn.Embedding):
                     self.register_hook(module, self.calibrate_module, "forward")
-                    added_hook = True
-
                     self._has_gptq_modules = True
 
     def on_sequential_epoch_initialize(
