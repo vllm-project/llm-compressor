@@ -115,7 +115,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        self.end_calibration(state.model, modules=kwargs.get("modules"))
+        QuantizationMixin.end_calibration(
+            self, state.model, modules=kwargs.get("modules")
+        )
         self._update_quantization_bookkeeping(**kwargs)
 
     def estimate_sequential_memory(
@@ -134,8 +136,3 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             return 0, 0
 
         return 0, weight.numel() * torch.float32.itemsize
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        self.remove_hooks()
-        self._initialized_modules.clear()
-        return True
