@@ -91,7 +91,6 @@ class REAPPruningModifier(Modifier):
     )
     _cpu_pg: Any = PrivateAttr(default=None)
     _report: dict = PrivateAttr(default_factory=lambda: defaultdict(dict))
-    _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
@@ -223,7 +222,7 @@ class REAPPruningModifier(Modifier):
             )
 
         for layer_name in self._moe_attrs.moe_layer_names:
-            if layer_name in self._retained_experts:
+            if layer_name in self._report:
                 continue
             module = model.get_submodule(layer_name)
             if module_scope is not None and module not in module_scope:
@@ -307,11 +306,12 @@ class REAPPruningModifier(Modifier):
         for layer_name, tracker in trackers:
             tracker.reduce_saliency_stats(device, group=self._cpu_pg)
 
-            # record per-expert statistics for the report (source rank holds the
-            # globally reduced statistics)
+            # Mark the layer complete on every rank; only the source rank stores
+            # the globally reduced statistics for the report.
+            report = self._report[layer_name]
             if is_source_process():
-                self._report[layer_name]["count"] = tracker.count.tolist()
-                self._report[layer_name]["saliency"] = tracker.mean_saliency.tolist()
+                report["count"] = tracker.count.tolist()
+                report["saliency"] = tracker.mean_saliency.tolist()
 
             if self._n_experts_to_drop > 0:
                 if is_source_process():
@@ -326,9 +326,9 @@ class REAPPruningModifier(Modifier):
                 if is_distributed():
                     dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
 
-                assert (
-                    len(retained) == expected
-                ), f"Expected {expected} retained experts, got {len(retained)}"
+                assert len(retained) == expected, (
+                    f"Expected {expected} retained experts, got {len(retained)}"
+                )
 
                 retained = retained.tolist()
                 prune_moe_layer(model, layer_name, retained, self._moe_attrs)
