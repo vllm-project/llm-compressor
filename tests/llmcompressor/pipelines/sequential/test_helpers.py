@@ -14,6 +14,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     Subgraph,
     _resolve_sequential_targets,
     collect_subgraph_modules,
+    find_modules_outside_graph,
     find_modules_outside_subgraphs,
     find_target_nodes,
     get_sequential_ancestors,
@@ -651,3 +652,24 @@ def test_whisper_encoder_covered():
     }
     assert encoder_names <= set(collect_subgraph_modules(model, subgraphs))
     assert encoder_names <= set(subgraphs[0].submodule_dict(model))
+
+
+@pytest.mark.parametrize("targets_per_subgraph", [1, "auto"])
+def test_whole_model_target_is_one_untraced_subgraph(targets_per_subgraph):
+    """The root as the only target, as in the basic pipeline, runs untraced"""
+    model = torch.nn.Sequential(
+        torch.nn.Linear(4, 4), torch.nn.ReLU(), torch.nn.Linear(4, 2)
+    )
+    sample_input = {"input": torch.ones(1, 4)}
+
+    graph, targets = trace_graph(model, sample_input, [""], ignore=[])
+    assert targets == {model}
+    assert find_modules_outside_graph(model, graph) == {}
+
+    subgraphs = partition_subgraphs(model, graph, targets, targets_per_subgraph)
+    assert len(subgraphs) == 1
+    assert subgraphs[0].input_names == {"input"}
+    assert {"0", "1", "2"} <= set(subgraphs[0].submodule_dict(model))
+    assert torch.equal(
+        subgraphs[0].forward(model, **sample_input), model(**sample_input)
+    )

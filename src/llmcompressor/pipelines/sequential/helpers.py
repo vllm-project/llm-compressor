@@ -288,8 +288,12 @@ def trace_graph(
     targets = _resolve_sequential_targets(model, sequential_targets)
 
     if targets == {model}:
-        # FX traces the root's forward directly, without consulting is_leaf_module.
-        return [_create_whole_model_subgraph(set(sample_input))]
+        # FX traces the root's forward directly, without consulting is_leaf_module, so
+        # the root is left untraced and `partition_subgraphs` keeps it as one subgraph
+        whole_model = _create_whole_model_subgraph(set(sample_input))
+        graph = GraphModule(model, whole_model.graph)
+        graph.input_names = whole_model.input_names
+        return graph, targets
 
     ancestors = get_sequential_ancestors(model, targets)
 
@@ -381,6 +385,14 @@ def partition_subgraphs(
     :param dataset_args: with "auto", the arguments which set the memory budget
     :return: a list of Subgraphs in order of execution
     """
+    if targets == {model}:
+        # the root owns every module, see `trace_graph`
+        return [
+            Subgraph(
+                graph=graph.graph, input_names=graph.input_names, consumed_names=set()
+            )
+        ]
+
     target_nodes = find_target_nodes(graph, targets)
     num_target_nodes = len(target_nodes)
     if num_target_nodes != len(targets):
