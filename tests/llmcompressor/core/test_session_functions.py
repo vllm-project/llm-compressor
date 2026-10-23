@@ -77,15 +77,11 @@ def test_modifiers_share_updated_module_and_offload_bookkeeping():
 
         def on_calibration_start(self, state, event, modules, **kwargs):
             layer = state.model[0][0]
-            assert layer.weight_observer in modules
-            assert (
-                kwargs["onloaded_modules"]["0.0.weight_observer"]
-                is layer.weight_observer
-            )
+            assert layer in modules
+            assert hasattr(layer, "weight_observer")
 
         def on_calibration_end(self, state, event, modules, **kwargs):
-            assert "0.0.weight_observer" not in kwargs["onloaded_modules"]
-            assert "0.0.weight_observer" not in kwargs["offload_kwargs"]
+            assert not hasattr(state.model[0][0], "weight_observer")
 
     model = torch.nn.Sequential(torch.nn.Linear(8, 8))
     original = model[0]

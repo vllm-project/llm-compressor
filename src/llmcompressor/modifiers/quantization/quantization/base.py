@@ -70,7 +70,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             modules=kwargs.get("modules"),
             warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
         )
-        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_initialize(
         self,
@@ -80,7 +79,6 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         **kwargs,
     ):
         self.initialize_quantization(state.model, modules=modules)
-        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -119,4 +117,3 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         QuantizationMixin.end_calibration(
             self, state.model, modules=kwargs.get("modules")
         )
-        self._update_quantization_bookkeeping(**kwargs)

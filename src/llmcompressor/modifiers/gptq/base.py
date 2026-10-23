@@ -228,7 +228,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 state.model, self.resolved_targets, self.ignore, modules=modules
             )
         )
-        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
