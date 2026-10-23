@@ -66,7 +66,7 @@ Presets exist for every integer weight width from 2 to 8 bits (`W2A16` through `
 | Activations   | Quantized dynamically using per-group quantization (group_size=16)                           |
 | Scales        | Stored in FP8 format (`torch.float8_e4m3fn`)                                                 |
 | Calibration   | Requires a calibration dataset to calibrate activation global scales                         |
-| Use case      | Full FP4 weight and activation acceleration on NVIDIA Blackwell (SM100 and SM120). On older GPUs vLLM falls back to weight-only Marlin kernels with 16-bit activations. Use `NVFP4A16` for weight-only quantization, which needs no calibration data |
+| Use case      | Full FP4 weight and activation acceleration on NVIDIA Blackwell (SM100 and SM120). On older GPUs vLLM falls back to weight-only Marlin kernels with 16-bit activations. Use `NVFP4A16` for weight-only quantization, which needs no calibration data when using rount to nearest. |
 
 
 ### MXFP4
