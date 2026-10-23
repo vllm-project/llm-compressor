@@ -50,3 +50,28 @@ def test_submit_subgraph_staging_skips_shared_modules(monkeypatch):
 
     assert result is None
     assert calls == []
+
+
+def test_stage_subgraph_modules_flushes_distributed_writes_first(monkeypatch):
+    calls = []
+    group = object()
+
+    class FakeWriter:
+        def flush_distributed(self, passed_group):
+            assert passed_group is group
+            calls.append("flush")
+
+    monkeypatch.setattr(
+        pipeline,
+        "subgraph_stage_modules",
+        lambda modules, pin_memory=False: calls.append("stage"),
+    )
+
+    pipeline._stage_subgraph_modules(
+        {"next": torch.nn.Linear(2, 2)},
+        pin_memory=False,
+        async_writer=FakeWriter(),
+        distributed_group=group,
+    )
+
+    assert calls == ["flush", "stage"]
