@@ -9,6 +9,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 - [W4A16 and W8A16](#w4a16-and-w8a16)
 - [NVFP4](#nvfp4)
 - [MXFP4](#mxfp4)
+- [MXFP4xFP8](#mxfp4xfp8)
 - [MXFP6](#mxfp6)
 - [MXFP8](#mxfp8)
 
@@ -38,7 +39,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Scheme       | Description                                                                                  |
 |---------------|----------------------------------------------------------------------------------------------|
 | W8A8-INT8     | 8-bit integer (INT8) quantization for weights and activations, providing ~2× smaller weights with 8-bit arithmetic operations |
-| Weights       | Compressed using per-channel, per group |
+| Weights       | Compressed using per-channel scales (the `W8A8` preset); per-group weights are also supported |
 | Activations   | Quantized to 8-bit using dynamic or static methods; can also be asymmetric        |
 | Calibration   | Requires calibration dataset if using GPTQ/AWQ for weight quantization and for static activation quantization |
 | Use case      | Optimized for general performance and compression, especially for server, batch inference, and high-QPS or offline serving with vLLM |
@@ -54,6 +55,8 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Calibration   | Optimally compressed using non-RTN algorithms (GPTQ, AWQ) which require a dataset           |                                                 
 | Use case      | Maximum compression for latency-sensitive applications with limited memory; useful speedups in low-QPS regimes; recommended for any GPU |
 
+Presets exist for every integer weight width from 2 to 8 bits (`W2A16` through `W8A16`), plus `W4A16_ASYM` for asymmetric 4-bit weights.
+
 
 ### NVFP4
 | Feature       | Description                                                                                  |
@@ -63,7 +66,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Activations   | Quantized dynamically using per-group quantization (group_size=16)                           |
 | Scales        | Stored in FP8 format (`torch.float8_e4m3fn`)                                                 |
 | Calibration   | Requires a calibration dataset to calibrate activation global scales                         |
-| Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later                                          |
+| Use case      | Full FP4 weight and activation acceleration on NVIDIA Blackwell (SM100 and SM120). On older GPUs vLLM falls back to weight-only Marlin kernels with 16-bit activations. Use `NVFP4A16` for weight-only quantization, which needs no calibration data |
 
 
 ### MXFP4
@@ -74,7 +77,18 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Activations   | Quantized fully dynamically using per-group quantization (group_size=32)                     |
 | Scales        | Stored in E8M0 exponent format (`uint8`), extracting the power-of-2 exponent from each float scale value |
 | Calibration   | No calibration data required if using RTN                                                    |
-| Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later; cross-platform compatible via the OCP MX spec; can be used as an alternative to NVFP4 when calibration data is not available, though RTN accuracy may be lower |
+| Use case      | FP4 activations are only accelerated on NVIDIA Blackwell. Hopper runs MXFP4 MoE experts on native kernels with 16-bit activations, and other layers fall back to weight-only Marlin kernels on Ampere and newer. Cross-platform compatible via the OCP MX spec. An alternative to NVFP4 when calibration data is not available, though RTN accuracy may be lower. `MXFP4A16` is the weight-only variant |
+
+
+### MXFP4xFP8
+| Feature       | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| MXFP4xFP8     | Mixed-precision scheme pairing MXFP4 weights with FP8 activations                            |
+| Weights       | Same layout as MXFP4: per-group quantization (group_size=32) with E8M0 scales                |
+| Activations   | Quantized fully dynamically to FP8 (E4M3) using per-group quantization (group_size=128), the same activation format as `FP8_BLOCK` |
+| Scales        | Weight scales stored in E8M0 exponent format (`uint8`); activation scales are computed at inference time |
+| Calibration   | No calibration data required if using RTN                                                    |
+| Use case      | MXFP4 memory savings with FP8 activation accuracy, typically applied to MoE experts alongside `FP8_BLOCK` dense layers. Activation quantization happens at inference time, so the vLLM kernel decides the actual format. On Hopper, MoE experts use the declared FP8 activations. On datacenter Blackwell (SM100), vLLM prefers a FlashInfer kernel that quantizes expert activations to MXFP8 instead. Where no FP8-capable kernel exists, activations stay in 16-bit. Dense (non-MoE) layers on datacenter Blackwell currently run on an FP8 kernel that vLLM reports as slow, so plain MXFP4 may be faster for dense layers there. See the [Qwen3.6 MoE example](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/qwen3.6_moe_mxfp4xfp8.py) for usage |
 
 
 ### MXFP6
@@ -96,7 +110,7 @@ A full list of supported schemes can be found [here](https://github.com/vllm-pro
 | Activations   | Quantized fully dynamically using per-group quantization (group_size=32)                     |
 | Scales        | Stored in E8M0 exponent format (`uint8`), extracting the power-of-2 exponent from each float scale value |
 | Calibration   | No calibration data required if using RTN                                                    |
-| Use case      | Supported on NVIDIA Blackwell (SM100) GPUs or later; cross-platform compatible via the OCP MX spec |
+| Use case      | Full MXFP8 acceleration on NVIDIA Blackwell; on older GPUs vLLM falls back to weight-only Marlin kernels. Cross-platform compatible via the OCP MX spec. `MXFP8A16` is the weight-only variant |
 
 !!! warning
-    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due to lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.

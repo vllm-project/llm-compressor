@@ -64,7 +64,9 @@ LLM Compressor supports applying multiple formats in a given model.
 | **W8A8-INT8** | Weights and activations | 7.5 (Turing and up) | Balanced performance and compatibility |
 | **W8A8-FP8** | Weights and activations | 8.9 (Ada Lovelace and up) | High throughput on modern GPUs |
 | **MXFP8** | Weights and activations | 10.0 (Blackwell) | Microscale FP8 |
-| **NVFP4/MXFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
+| **NVFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
+| **MXFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression; MoE experts also run on 9.0 (Hopper) with 16-bit activations |
+| **MXFP4xFP8** | Weights and activations | 9.0 (Hopper and up) | MXFP4 weights with dynamic FP8 activations, typically for MoE experts |
 | **NVFP4A16/MXFP4A16/MXFP8A16** | Weights | 7.5 (Turing and up) | Weight-only microscale compression |
 | **W4AFP8** | Weights and activations  | 9.0 (Hopper and up) | Low-bit weights with dynamic FP8 activations |
 | **W4AINT8** | Weights and activations  | — (Arm CPU) | Low-bit weights with dynamic INT8 activations |
