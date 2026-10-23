@@ -163,6 +163,109 @@ def test_set_resolved_mappings():
 
 
 @pytest.mark.unit
+def test_set_resolved_mappings_is_scoped_to_onloaded_subgraph():
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(4, 4),
+                            "o_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+
+    resolved = awq._set_resolved_mappings(
+        model, modules=list(model.layers[0].modules())
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].smooth_name == "layers.0.v_proj"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("quantized", [False, True])
+@pytest.mark.parametrize("compatible", [False, True])
+def test_split_mapping_is_rejected_only_when_eligible(quantized, compatible):
+    model = torch.nn.ModuleDict(
+        {
+            "attn": torch.nn.ModuleDict(
+                {
+                    "v_proj": Linear(4, 4 if compatible else 2),
+                    "o_proj": Linear(4, 4),
+                }
+            )
+        }
+    )
+    if quantized:
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM"
+            ).resolve_quantization_config(),
+        )
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+
+    if quantized and compatible:
+        with pytest.raises(ValueError, match="AWQ mapping spans sequential subgraphs"):
+            awq._set_resolved_mappings(model, modules=[model.attn.v_proj])
+    else:
+        assert awq._set_resolved_mappings(model, modules=[model.attn.v_proj]) == []
+
+
+@pytest.mark.unit
+def test_awq_sees_quant_config_from_later_modifier_before_calibration():
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(4, 4),
+                            "o_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    from llmcompressor.core import CompressionSession, EventType
+
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+    quant = QuantizationModifier(scheme="W8A8")
+    session = CompressionSession()
+    session.initialize(model=model, recipe=[awq, quant])
+
+    modules = list(model.layers[0].modules())
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=modules)
+    assert hasattr(model.layers[0].o_proj, "quantization_scheme")
+    assert not awq._hooks
+    session.lifecycle.event(EventType.CALIBRATION_START, modules=modules)
+
+    assert not hasattr(model.layers[1].o_proj, "quantization_scheme")
+    assert (
+        model.layers[0].o_proj.quantization_scheme.weights.strategy
+        == QuantizationStrategy.CHANNEL
+    )
+
+    assert [mapping.smooth_name for mapping in awq._resolved_mappings] == [
+        "layers.0.v_proj"
+    ]
+    assert model.layers[1].v_proj._forward_hooks == {}
+
+
+@pytest.mark.unit
 def test_validate():
     AWQModifier(duo_scaling="both")
     with pytest.raises(ValidationError):

@@ -7,12 +7,15 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
+from collections.abc import Collection
+
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import (
     maybe_pad_tensor_for_block_quant,
     strategy_cdiv,
 )
+from compressed_tensors.utils import getattr_chain
 from torch.nn import Module
 
 from llmcompressor.observers.fused_mappings import get_fused_layers
@@ -20,6 +23,7 @@ from llmcompressor.observers.fused_mappings import get_fused_layers
 __all__ = [
     "flatten_for_calibration",
     "fuse_weight_observers",
+    "validate_fused_layer_scope",
     "ACTIVATION_OBS",
 ]
 
@@ -158,7 +162,43 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
+def _fused_layers_in_scope(
+    fused_layers: dict[str, Module], module_scope: set[Module]
+) -> bool:
+    group = set(fused_layers.values())
+    if group.isdisjoint(module_scope):
+        return False
+    if group.issubset(module_scope):
+        return True
+
+    if any(
+        layer in module_scope
+        and (
+            getattr_chain(layer, "quantization_scheme.weights.strategy", None)
+            == QuantizationStrategy.TENSOR_GROUP
+            or getattr_chain(layer, "weight_observer.args.strategy", None)
+            == QuantizationStrategy.TENSOR_GROUP
+        )
+        for layer in fused_layers.values()
+    ):
+        raise ValueError(
+            f"TENSOR_GROUP fused layers {tuple(fused_layers)} span multiple sequential "
+            "calibration subgraphs. Choose `sequential_targets` so all fused layers "
+            "are included in one subgraph (for example, target their common decoder "
+            "or expert module instead of individual Linear modules)."
+        )
+    return False
+
+
+def validate_fused_layer_scope(model: Module, modules: Collection[Module]):
+    """Validate TENSOR_GROUP scopes, including modifiers that do not use observers."""
+    module_scope = set(modules)
+    for submodule in model.modules():
+        for fused_layers in get_fused_layers(submodule):
+            _fused_layers_in_scope(fused_layers, module_scope)
+
+
+def fuse_weight_observers(model: Module, modules: Collection[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -169,22 +209,21 @@ def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
-    :param modules: optional subset of modules to search for fused layer groups
+    :param modules: optional active calibration scope. Only groups fully in scope are
+        fused; a partially scoped TENSOR_GROUP group raises before calibration starts.
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    allowed_modules = set(modules) if modules is not None else None
+    module_scope = None if modules is None else set(modules)
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
             layers_to_fuse = list(fused_layers.values())
-            # During layerwise calibration only fuse groups that are wholly
-            # owned by the active subgraph. In particular, do not use observers
-            # from modules that have not been decompressed and initialized yet.
-            if allowed_modules is not None and not set(layers_to_fuse).issubset(
-                allowed_modules
+            fusion_name_group = tuple(fused_layers.keys())
+
+            if module_scope is not None and not _fused_layers_in_scope(
+                fused_layers, module_scope
             ):
                 continue
-            fusion_name_group = tuple(fused_layers.keys())
 
             only_obs = True
             only_tensor_group = True

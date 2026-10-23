@@ -54,6 +54,7 @@ def test_start_calibration_warns_on_inference_mode_forward():
     handler_id = logger.add(logs.append, format="{message}", level="WARNING")
     try:
         modifier.on_initialize(state)
+        modifier.on_sequential_epoch_initialize(state, None)
         modifier.on_calibration_start(state, None)
     finally:
         logger.remove(handler_id)

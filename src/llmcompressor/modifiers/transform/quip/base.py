@@ -4,11 +4,12 @@ import torch
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
+    TransformFactory,
     TransformScheme,
     apply_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, match_named_modules
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -40,7 +41,7 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - on_calibration_start
+    - on_sequential_epoch_initialize
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
@@ -86,6 +87,9 @@ class QuIPModifier(Modifier):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
+    _transform_factories: dict[str, TransformFactory] = PrivateAttr(
+        default_factory=dict
+    )
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -102,24 +106,67 @@ class QuIPModifier(Modifier):
     def on_initialize(self, state: State, **kwargs) -> bool:
         if self.transform_config is None:
             self.transform_config = self._create_config()
+        self._transform_factories = {
+            name: TransformFactory.from_scheme(scheme, name=name)
+            for name, scheme in self.transform_config.config_groups.items()
+        }
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        model = state.model
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
+        self._apply_transform_scope(state.model, modules=modules, **kwargs)
 
-        # Untie embeddings if they will be targeted by transforms
-        if targets_embeddings(model, self._get_targets(model)):
+    def _apply_transform_scope(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+        onloaded_modules: dict[str, torch.nn.Module] | None = None,
+        offload_kwargs: dict[str, dict] | None = None,
+        **kwargs,
+    ):
+        targets = self._get_targets(model, modules)
+        if targets_embeddings(model, targets):
             untie_word_embeddings(model)
+        apply_transform_config(
+            model,
+            self.transform_config,
+            modules=modules,
+            factories=self._transform_factories,
+        )
 
-        apply_transform_config(model, self.transform_config)
+        # manage sequential pipeline offloading
+        if onloaded_modules is not None and offload_kwargs is not None:
+            for name, module in dict(targets).items():
+                for child_name, child in module.named_children():
+                    child_name = f"{name}.{child_name}" if name else child_name
+                    onloaded_modules[child_name] = child
+                    if name in offload_kwargs:
+                        offload_kwargs.setdefault(
+                            child_name, offload_kwargs[name].copy()
+                        )
 
-    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self._transform_factories.clear()
+        return True
+
+    def _get_targets(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ) -> NamedModules:
         return [
-            (name, module)
+            target
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
-            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+            for target in match_named_modules(
+                model, arg.targets, arg.ignore, modules=modules
+            )
         ]
 
     def _create_config(self) -> TransformConfig:

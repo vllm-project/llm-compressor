@@ -204,8 +204,13 @@ class REAPPruningModifier(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        model = state.model
+        modules = kwargs.get("modules")
+        self._register_reap_hooks(state.model, modules)
 
+    def _register_reap_hooks(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None
+    ):
+        module_scope = None if modules is None else set(modules)
         # Info if moe_calibrate_all_experts is enabled, which is not necessary for REAP
         if get_calibrate_all_experts_flag():
             logger.info(
@@ -217,7 +222,11 @@ class REAPPruningModifier(Modifier):
             )
 
         for layer_name in self._moe_attrs.moe_layer_names:
+            if layer_name in self._report:
+                continue
             module = model.get_submodule(layer_name)
+            if module_scope is not None and module not in module_scope:
+                continue
 
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(
                 self._moe_attrs.num_experts
@@ -245,7 +254,7 @@ class REAPPruningModifier(Modifier):
             )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        self.remove_hooks()
+        self.remove_hooks(modules=kwargs.get("modules"))
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """Finalize the model config to reflect the new number of experts."""
@@ -297,11 +306,12 @@ class REAPPruningModifier(Modifier):
         for layer_name, tracker in trackers:
             tracker.reduce_saliency_stats(device, group=self._cpu_pg)
 
-            # record per-expert statistics for the report (source rank holds the
-            # globally reduced statistics)
+            # Mark the layer complete on every rank; only the source rank stores
+            # the globally reduced statistics for the report.
+            report = self._report[layer_name]
             if is_source_process():
-                self._report[layer_name]["count"] = tracker.count.tolist()
-                self._report[layer_name]["saliency"] = tracker.mean_saliency.tolist()
+                report["count"] = tracker.count.tolist()
+                report["saliency"] = tracker.mean_saliency.tolist()
 
             if self._n_experts_to_drop > 0:
                 if is_source_process():

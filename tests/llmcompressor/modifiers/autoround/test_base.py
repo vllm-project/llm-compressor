@@ -10,9 +10,14 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from torch import nn
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.core import CompressionSession, Event, EventType, State
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.autoround.base import _wrap_decoding_layer
+from llmcompressor.pipelines import (
+    CalibrationPipeline,
+    IndependentPipeline,
+    SequentialPipeline,
+)
 from llmcompressor.utils.dev import skip_weights_download
 
 
@@ -73,11 +78,99 @@ def test_on_sequential_epoch_end_passes_all_modules():
     event = Event(type_=EventType.SEQUENTIAL_EPOCH_END)
     modules = [_FakeDecoderLayer(), nn.Linear(64, 64)]
 
-    with patch.object(AutoRoundModifier, "apply_autoround") as mock_apply, patch.object(
-        AutoRoundModifier, "post_autoround_cleanup"
+    with (
+        patch.object(AutoRoundModifier, "apply_autoround") as mock_apply,
+        patch.object(AutoRoundModifier, "post_autoround_cleanup"),
     ):
         modifier.on_sequential_epoch_end(state, event, modules=modules)
         mock_apply.assert_called_once_with(state, modules)
+
+
+def test_initialization_and_calibration_prepare_only_current_scope():
+    model = nn.Module()
+    model.layers = nn.ModuleList([_FakeDecoderLayer(), _FakeDecoderLayer()])
+    # Scope handling is independent of the toy model's width (64 < group_size).
+    modifier = AutoRoundModifier(scheme="W4A16", bypass_divisibility_checks=True)
+    state = State(model=model)
+    modifier.on_initialize(state, sequential_targets=["_FakeDecoderLayer"])
+    assert not hasattr(model.layers[0], "_tmp_name")
+    assert all(param.requires_grad for param in model.parameters())
+
+    modifier.on_sequential_epoch_initialize(
+        state,
+        Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE),
+        modules=list(model.layers[0].modules()),
+    )
+
+    assert hasattr(model.layers[0].q_proj, "quantization_scheme")
+    assert not hasattr(model.layers[1].q_proj, "quantization_scheme")
+    assert not modifier._capture_hooks
+    modifier.on_calibration_start(state, None, modules=list(model.layers[0].modules()))
+    assert model.layers[0]._tmp_name in modifier._capture_hooks
+    assert not hasattr(model.layers[1], "_tmp_name")
+    assert not model.layers[0].q_proj.weight.requires_grad
+    assert model.layers[1].q_proj.weight.requires_grad
+
+
+@pytest.mark.parametrize("pipeline", ["basic", "BASIC", "datafree"])
+def test_initialization_rejects_incompatible_pipeline_before_setup(pipeline):
+    model = nn.Sequential(_FakeDecoderLayer())
+    modifier = AutoRoundModifier(scheme="W4A16")
+    with pytest.raises(ValueError, match='requires pipeline="sequential"'):
+        CompressionSession().initialize(
+            model=model,
+            recipe=modifier,
+            pipeline=pipeline,
+            sequential_targets=["_FakeDecoderLayer"],
+        )
+    assert not modifier.initialized
+    assert not modifier._capture_hooks
+    assert not hasattr(model[0].q_proj, "quantization_scheme")
+
+
+@pytest.mark.parametrize(
+    "pipeline,expected",
+    [
+        (None, SequentialPipeline),
+        ("sequential", SequentialPipeline),
+        ("SEQUENTIAL", SequentialPipeline),
+        ("independent", IndependentPipeline),
+        ("INDEPENDENT", IndependentPipeline),
+    ],
+)
+def test_initialization_accepts_supported_pipeline(pipeline, expected):
+    model = nn.Sequential(_FakeDecoderLayer())
+    modifier = AutoRoundModifier(scheme="W4A16")
+    CompressionSession().initialize(
+        model=model,
+        recipe=modifier,
+        pipeline=pipeline,
+        sequential_targets=["_FakeDecoderLayer"],
+    )
+    assert modifier.initialized
+    assert isinstance(
+        CalibrationPipeline.from_modifiers([modifier], user=pipeline), expected
+    )
+    assert not modifier._capture_hooks
+    assert not hasattr(model[0].q_proj, "quantization_scheme")
+
+
+@pytest.mark.parametrize("split_group", [False, True])
+def test_nvfp4_scope_validation_without_observers(split_group):
+    model = nn.Sequential(_FakeDecoderLayer(), _FakeDecoderLayer())
+    modifier = AutoRoundModifier(scheme="NVFP4")
+    state = State(model=model)
+    modifier.on_initialize(state, sequential_targets=["_FakeDecoderLayer"])
+    modules = [model[0].q_proj] if split_group else list(model[0].modules())
+
+    if split_group:
+        with pytest.raises(ValueError, match="span multiple sequential calibration"):
+            modifier.on_sequential_epoch_initialize(state, None, modules=modules)
+    else:
+        modifier.on_sequential_epoch_initialize(state, None, modules=modules)
+        assert hasattr(model[0].q_proj, "quantization_scheme")
+        assert not hasattr(model[0].q_proj, "weight_observer")
+        assert not hasattr(model[1].q_proj, "quantization_scheme")
 
 
 @pytest.mark.parametrize(

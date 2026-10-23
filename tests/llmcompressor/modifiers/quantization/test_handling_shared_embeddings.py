@@ -52,6 +52,7 @@ def test_quantization_with_automatic_untie():
 
     # Initialize and start calibration (should automatically untie if needed)
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
@@ -101,6 +102,7 @@ def test_quantization_untie_only_when_targeted():
         baseline_output = model(**input_data)
 
     modifier.on_initialize(state)
+    modifier.on_sequential_epoch_initialize(state, None)
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():
@@ -151,6 +153,7 @@ def test_spinquant_with_tied_embeddings(rotations):
         baseline_output = model(**input_data)
 
     spinquant_modifier.on_initialize(state)
+    spinquant_modifier.on_sequential_epoch_initialize(state, None)
     spinquant_modifier.on_calibration_start(state, None)
 
     # Verify embeddings were untied by SpinQuant
@@ -216,6 +219,7 @@ def test_quip_with_tied_embeddings(rotations):
     ), "Embeddings should still be tied after on_initialize"
 
     # Start QuIP (should untie embeddings if lm_head is targeted)
+    quip_modifier.on_sequential_epoch_initialize(state, None)
     quip_modifier.on_calibration_start(state, None)
 
     # Verify embeddings were untied by QuIP during on_calibration_start
@@ -264,6 +268,7 @@ def test_quip_untie_only_when_targeted(rotations):
 
     # Initialize and start QuIP
     quip_modifier.on_initialize(state)
+    quip_modifier.on_sequential_epoch_initialize(state, None)
     quip_modifier.on_calibration_start(state, None)
 
     # Verify embeddings are still tied (since lm_head was ignored)

@@ -95,6 +95,10 @@ class CompressionSession:
         for each modifier in the session's lifecycle. This will also set the session's
         state to the initialized state.
 
+        Initialization prepares global configuration and metadata. Pipelines perform
+        model-local setup at calibration start, scoped to each onloaded subgraph
+        for the sequential pipeline. Training setup runs on the first start event.
+
         :param recipe: the recipe to use for the compression, can be a path to a
             recipe file, a raw recipe string, a recipe object, or a list
             of recipe objects.

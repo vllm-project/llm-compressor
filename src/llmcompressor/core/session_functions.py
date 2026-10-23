@@ -144,14 +144,39 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def calibration_start(cls, **kwargs) -> ModifiedState:
+    def calibration_start(
+        cls, modules: list["Module"] | None = None, **kwargs
+    ) -> ModifiedState:
         """
         Invoke a start event for the active session during calibration. This event
         should be called before calibration starts for one epoch
 
+        :param modules: optional list of modules already onloaded by the pipeline,
+            provided to modifiers for scope-local calibration setup.
+        :param kwargs: may include shared ``onloaded_modules`` and ``offload_kwargs``
+            dictionaries for modifiers to update when creating or removing children.
+
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
+        if modules is not None:
+            kwargs["modules"] = modules
         return cls.event(EventType.CALIBRATION_START, **kwargs)
+
+    @classmethod
+    def sequential_epoch_initialize(
+        cls, modules: list["Module"] | None = None, **kwargs
+    ) -> ModifiedState:
+        """
+        Initialize an onloaded scope before any modifier starts calibration.
+        Non-sequential pipelines initialize the whole model with modules=None.
+
+        :param modules: de-duplicated modules included in the onloaded subgraph
+        :param kwargs: additional kwargs to pass to the current session's event method
+            including shared ``onloaded_modules`` and ``offload_kwargs`` dictionaries.
+        """
+        return cls.event(
+            EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=modules, **kwargs
+        )
 
     @classmethod
     def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
@@ -165,14 +190,15 @@ class LifecycleCallbacks:
         return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
 
     @classmethod
-    def calibration_end(cls, **kwargs) -> ModifiedState:
+    def calibration_end(
+        cls, modules: list["Module"] | None = None, **kwargs
+    ) -> ModifiedState:
         """
-        Invoke an end event for the active session during calibration. This event
-        should be called after the model has been calibrated for one epoch
+        Finish calibration for a scope after its sequential epoch end event.
 
         see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
         """
-        return cls.event(EventType.CALIBRATION_END, **kwargs)
+        return cls.event(EventType.CALIBRATION_END, modules=modules, **kwargs)
 
 
 callbacks = LifecycleCallbacks

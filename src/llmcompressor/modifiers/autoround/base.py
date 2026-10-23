@@ -18,6 +18,7 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     enable_quantization,
 )
+from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import align_module_device, match_named_modules
 from loguru import logger
 from pydantic import PrivateAttr
@@ -133,7 +134,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     Lifecycle:
 
     - on_initialize
-        - apply config to model
+        - infer sequential target patterns
+    - on_sequential_epoch_initialize
+        - apply config to the current scope
+        - name modules and freeze their parameters
     - on_calibration_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
@@ -184,29 +188,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
-        Initialize the model state for quantization and calibration.
+        Prepare configuration for per-subgraph quantization and calibration.
 
         :param state: session state storing input model and calibration data
         """
-        # apply config to model and prepare calibration hooks.
-        # Wrap in disable_onloading to suppress DistributedCPUCache's
-        # per-param broadcast+barrier when creating quant params (scale,
-        # zero_point). With LLMCOMPRESSOR_GPUS_PER_GROUP > 1, modules have varying GPU
-        # execution devices, causing GPU→CPU copy timing to vary between
-        # ranks → broadcast deadlock. Quant params are deterministic —
-        # each rank computes identical values, no sync needed.
-        if QuantizationMixin.has_config(self):
-            from compressed_tensors.offload import disable_onloading
-
-            with disable_onloading():
-                QuantizationMixin.initialize_quantization(self, state.model)
-
-        # prepare module names
-        self._add_temporary_names(state.model)
-        # freeze all model parameters
-        for _, param in state.model.named_parameters():
-            param.requires_grad_(False)
-
+        pipeline = kwargs.get("pipeline")
+        if pipeline and standardize_lookup_name(pipeline) not in (
+            "sequential",
+            "independent",
+        ):
+            raise ValueError(
+                'AutoRoundModifier requires pipeline="sequential" or "independent"; '
+                f"got pipeline={pipeline!r}"
+            )
         self._sequential_targets = infer_sequential_targets(
             state.model, sequential_targets=kwargs.get("sequential_targets")
         )
@@ -218,21 +212,31 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
         return True
 
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
         """
-        Register activation calibration hooks and enable quantization as we calibrate
+        Set calibration status and enable quantization without attaching observers.
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.targets, self.ignore)
+        targets = list(
+            match_named_modules(model, self.targets, self.ignore, modules=modules)
+        )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
 
-        for _, module in match_named_modules(model, self.targets, self.ignore):
+        for _, module in targets:
             # skip register observers for auto-round
             apply_calibration_status(module)
 
-        model.apply(enable_quantization)  # quantize at the same time as calibrate
+        if modules is None:
+            model.apply(enable_quantization)
+        else:
+            for module in modules:
+                enable_quantization(module)
 
     def input_capture_hook(self, module, args, kwargs):
         name = module._tmp_name
@@ -249,15 +253,38 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        # register quantization calibration hooks
-        # assume quantization has been initialized by this modifier or one before it
-        self.start_calibration(state.model)
-        for _, module in state.model.named_modules():
+        modules = kwargs.get("modules")
+        self.start_calibration(state.model, modules=modules)
+        for module in state.model.modules() if modules is None else modules:
             if self._is_decoding_layer(module):
-                handle = self.register_hook(
+                self._capture_hooks[module._tmp_name] = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
-                self._capture_hooks[module._tmp_name] = handle
+
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
+        model = state.model
+        if QuantizationMixin.has_config(self):
+            from compressed_tensors.offload import disable_onloading
+
+            # Quant params are deterministic across ranks; avoid per-param
+            # broadcasts while registering them with DistributedCPUCache.
+            with disable_onloading():
+                self.initialize_quantization(model, modules=modules)
+
+        for name, module in match_named_modules(
+            model, self._sequential_targets, modules=modules
+        ):
+            module._tmp_name = name
+
+        for module in model.modules() if modules is None else modules:
+            for param in module.parameters(recurse=False):
+                param.requires_grad_(False)
 
     def on_sequential_epoch_end(
         self,
@@ -452,11 +479,24 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        QuantizationMixin.end_calibration(self, state.model)
-        self._remove_temporary_names(state.model)
-        self.remove_hooks()
+        modules = kwargs.get("modules")
+        QuantizationMixin.end_calibration(self, state.model, modules=modules)
+        self._remove_temporary_names(state.model, modules)
+        self.remove_hooks(modules=modules)
         self._q_input = None
+        self._capture_hooks = {
+            name: hook
+            for name, hook in self._capture_hooks.items()
+            if hook in self._hooks
+        }
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self.remove_hooks()
+        self._initialized_modules.clear()
         self._capture_hooks.clear()
+        self._all_module_input.clear()
+        self._remove_temporary_names(state.model)
+        return True
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
         unquantized_layers = []
@@ -516,12 +556,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     setattr(model, name, module.orig_layer)
         return model
 
-    def _add_temporary_names(self, model: torch.nn.Module):
-        for name, mod in model.named_modules():
-            mod._tmp_name = name
-
-    def _remove_temporary_names(self, model: torch.nn.Module):
-        for _, mod in model.named_modules():
+    def _remove_temporary_names(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
+        for mod in model.modules() if modules is None else modules:
             if hasattr(mod, "_tmp_name"):
                 del mod._tmp_name
 
