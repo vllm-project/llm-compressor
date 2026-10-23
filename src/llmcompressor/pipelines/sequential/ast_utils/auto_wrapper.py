@@ -160,6 +160,33 @@ class AutoWrapper(ast.NodeTransformer):
         """
         # check for variadic starred
         if any(isinstance(elem, ast.Starred) for elem in node.args):
+            if isinstance(node.func, ast.Attribute) and isinstance(
+                node.func.value, ast.Call
+            ):
+                # Keep a nested call (e.g. experts(x).view(*shape)) visible to FX.
+                # Wrapping the entire expression would hide all expert targets.
+                receiver = self.visit(node.func.value)
+                receiver_name = f"_autowrap_receiver_{self._wrapped_counter}"
+                while (
+                    receiver_name in self._local_names
+                    or receiver_name in self.namespace
+                ):
+                    receiver_name += "_"
+                method_call = ast.Call(
+                    func=ast.Attribute(
+                        value=ast.Name(id=receiver_name, ctx=ast.Load()),
+                        attr=node.func.attr,
+                        ctx=ast.Load(),
+                    ),
+                    args=node.args,
+                    keywords=node.keywords,
+                )
+                wrapped = self._wrap_expr(method_call)
+                self._wrapper_fn_defs[-1].args.args.insert(
+                    0, ast.arg(arg=receiver_name)
+                )
+                wrapped.args.insert(0, receiver)
+                return wrapped
             return self._wrap_if_possible(node)
 
         # attempt to evaluate caller and check against ignore list

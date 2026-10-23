@@ -399,8 +399,10 @@ class LinearExperts2D(torch.nn.ModuleList):
             expert_weights = top_k_weights[token_indices, top_k_pos, None]
             weighted_output = expert_output * expert_weights
 
-            # accumulate using index_add_ to match eager implementation exactly
-            final_hidden_states.index_add_(
+            # Make the dependency on each expert explicit to FX. An in-place
+            # update can be reordered after consumers or lost across offloaded
+            # sequential partitions, which hold separate copies of this tensor.
+            final_hidden_states = final_hidden_states.index_add(
                 0, token_indices, weighted_output.to(final_hidden_states.dtype)
             )
 
