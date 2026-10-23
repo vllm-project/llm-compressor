@@ -401,7 +401,7 @@ class AWQModifier(Modifier):
                     continue
 
                 # Warn that mappings or quantization config are malformed for model
-                if not any_targeted or not balance_layers:
+                if (not any_targeted) or len(balance_layers) == 0:
                     skip_message = (
                         "no balance layers were found."
                         if len(balance_layers) == 0
