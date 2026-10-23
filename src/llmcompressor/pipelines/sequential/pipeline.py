@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Iterator
 
 import torch
 import torch.distributed as dist
-from compressed_tensors.offload import AsyncDiskWriteback, set_onload_device
+from compressed_tensors.distributed import get_source_rank, is_distributed
+from compressed_tensors.offload import (
+    AsyncDiskWriteback,
+    disable_onloading,
+    set_onload_device,
+)
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -139,6 +144,7 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
+        streaming_writer = getattr(session.state, "streaming_checkpoint_writer", None)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -231,10 +237,8 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
-            # Keep disk serialization off the calibration thread. DiskCache copies
-            # each completed tensor to CPU before queueing it, so this worker only
-            # retains stable host snapshots. Register detachment after entering the
-            # context so model caches no longer retain the closed writer on exit.
+            # Keep disk serialization off the calibration thread. Both cache files
+            # and checkpoint shards go through this worker as stable CPU snapshots.
             distributed_writeback_group = None
             if dist.is_available() and dist.is_initialized():
                 if dist.get_world_size() > 1:
@@ -245,10 +249,15 @@ class SequentialPipeline(CalibrationPipeline):
                     stack.callback(
                         dist.destroy_process_group, distributed_writeback_group
                     )
-            async_writeback = AsyncDiskWriteback(
-                defer_errors=distributed_writeback_group is not None
-            )
-            stack.enter_context(async_writeback)
+            if streaming_writer is not None:
+                # Checkpoint shards and temporary cache files share one bounded
+                # writer, with the checkpoint sink choosing the shard destination.
+                async_writeback = streaming_writer.async_writer
+            else:
+                async_writeback = AsyncDiskWriteback(
+                    defer_errors=distributed_writeback_group is not None
+                )
+                stack.enter_context(async_writeback)
             stack.callback(_detach_async_writeback, model, async_writeback)
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
@@ -394,17 +403,59 @@ class SequentialPipeline(CalibrationPipeline):
                     subgraph_modules,
                     offload_kwargs,
                     async_writer=async_writeback,
+                    streaming_writer=streaming_writer,
                 )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
             # Finalization may read/update disk-backed parameters directly, so
-            # ensure the last subgraph's atomic writes are published first.
+            # submit the final partial checkpoint shard before running callbacks.
+            writeback_error = None
+            if streaming_writer is not None:
+                try:
+                    streaming_writer.wait_all()
+                except Exception as error:
+                    writeback_error = str(error)
+
             if distributed_writeback_group is not None:
-                async_writeback.flush_distributed(distributed_writeback_group)
-            else:
+                try:
+                    async_writeback.flush_distributed(distributed_writeback_group)
+                except Exception as error:
+                    if writeback_error is None:
+                        writeback_error = str(error)
+            elif streaming_writer is None:
                 async_writeback.flush()
+
+            if streaming_writer is not None:
+                if is_distributed():
+                    payload = [writeback_error]
+                    dist.broadcast_object_list(payload, src=get_source_rank())
+                    writeback_error = payload[0]
+                if writeback_error is not None:
+                    raise RuntimeError(
+                        f"Streaming checkpoint writeback failed: {writeback_error}"
+                    )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
+            if streaming_writer is not None:
+                # Check coverage without materializing disk-offloaded parameters.
+                writer_error = None
+                if streaming_writer.is_source:
+                    try:
+                        with disable_onloading():
+                            expected_tensor_names = set(
+                                model.state_dict(keep_vars=True)
+                            )
+                        streaming_writer.validate_coverage(expected_tensor_names)
+                    except Exception as error:
+                        writer_error = str(error)
+                if is_distributed():
+                    payload = [writer_error]
+                    dist.broadcast_object_list(payload, src=get_source_rank())
+                    writer_error = payload[0]
+                if writer_error is not None:
+                    raise RuntimeError(
+                        f"Streaming checkpoint preparation failed: {writer_error}"
+                    )
