@@ -131,11 +131,11 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        if self.mappings is None:
-            self.mappings = infer_mapping_from_model(state.model)
-        if self.norm_mappings is None:
-            self.norm_mappings = infer_norm_mapping_from_model(state.model)
         if self.transform_config is None:
+            # Preserve the original behavior of inferring both mappings here.
+            # TODO: Respect explicit mapping overrides in a separate change.
+            self.mappings = infer_mapping_from_model(state.model)
+            self.norm_mappings = infer_norm_mapping_from_model(state.model)
             head_dim = get_head_dim(state.model.config)
 
             config_groups = {}
@@ -192,6 +192,8 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             modules=modules,
             factories=self._transform_factories,
         )
+
+        # manage sequential pipeline offloading
         if onloaded_modules is not None and offload_kwargs is not None:
             for name, module in dict(targets).items():
                 for child_name, child in module.named_children():
