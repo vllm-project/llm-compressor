@@ -12,14 +12,18 @@ It is the single source of truth for submission, formatting, and attribution.
 Follow it if this skill or an existing entry differs; use its current template.
 
 1. Read the supplied evidence and search `docs/research/` for related experiments.
-   Create a new entry or update the entry requested by the user.
-2. For new entries, copy the index's template into
+   Update an existing entry for similar experiments by the same contributor;
+   otherwise, create a new entry.
+2. For new entries, copy the index's
+   [submission template](../../../docs/research/index.md#how-to-submit),
+   including its block-style YAML tags, into
    `docs/research/<short-title>-<username>.md`. Start the filename with the
    algorithm or scheme and end with the contributor's GitHub handle.
-3. Fill the template from the evidence. Use the experiment date, block-style
-   tags, and the index's byline and author-consent rules. State hardware and
-   calibration setup. Resolve missing information without inventing details;
-   distinguish unmeasured values from measured results. Negative results are valuable and should be included.
+3. Fill the template from the evidence. Use the experiment date and the index's
+   byline and author-consent rules. State hardware and calibration setup.
+   Resolve missing information without inventing details;
+   distinguish unmeasured values from measured results. Negative results are
+   valuable and should be included.
 4. Add reproduction details or source links when useful and available; these
    do not require additional experiments. For updates, retain original credits
    and experiment dates, explain corrections or new findings, and apply the
