@@ -6,7 +6,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
+import torch.distributed as dist
+from compressed_tensors.distributed import get_source_rank, is_distributed
+from compressed_tensors.offload import disable_onloading, set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -110,6 +112,7 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
+        streaming_writer = getattr(session.state, "streaming_checkpoint_writer", None)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -335,10 +338,35 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(
+                    subgraph_modules,
+                    offload_kwargs,
+                    streaming_writer=streaming_writer,
+                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
+            if streaming_writer is not None:
+                # Check coverage without materializing disk-offloaded parameters.
+                writer_error = None
+                if streaming_writer.is_source:
+                    try:
+                        with disable_onloading():
+                            expected_tensor_names = set(
+                                model.state_dict(keep_vars=True)
+                            )
+                        streaming_writer.validate_coverage(expected_tensor_names)
+                        streaming_writer.wait_all()
+                    except Exception as error:
+                        writer_error = str(error)
+                if is_distributed():
+                    payload = [writer_error]
+                    dist.broadcast_object_list(payload, src=get_source_rank())
+                    writer_error = payload[0]
+                if writer_error is not None:
+                    raise RuntimeError(
+                        f"Streaming checkpoint preparation failed: {writer_error}"
+                    )
