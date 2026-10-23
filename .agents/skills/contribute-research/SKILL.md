@@ -12,8 +12,8 @@ It is the single source of truth for submission, formatting, and attribution.
 Follow it if this skill, its template, or an existing entry differs.
 
 1. Read the supplied evidence and search `docs/research/` for related experiments.
-   Update an existing entry for similar experiments by the same contributor;
-   otherwise, create a new entry.
+   If the contributor has already posted an experiment and has related results
+   to add, update their existing post. Otherwise, create a new entry.
 2. For new entries, copy the Markdown block in the
    [entry template](templates/research-entry.md), keeping its block-style tags, into
    `docs/research/<short-title>-<username>.md`. Start the filename with the

@@ -30,8 +30,8 @@ Lead the filename with the algorithm or scheme so that related entries sit
 next to each other in the sidebar, and end it with your GitHub handle so that
 two people writing about the same combination do not collide.
 
-Update an existing entry for similar experiments by the same contributor.
-Otherwise, create a new entry and link related entries where useful.
+If you've already posted an experiment and have related results to add,
+please update your existing post.
 
 Coding agents can use the
 [`contribute-research` skill](https://github.com/vllm-project/llm-compressor/blob/main/.agents/skills/contribute-research/SKILL.md)

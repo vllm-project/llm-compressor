@@ -1,10 +1,9 @@
 # Research entry template
 
 Read [the research index](../../../../docs/research/index.md) first; it remains
-the source of truth. This scaffold follows the REAP entry's layout without its
-experiment-specific data. Copy the Markdown block, replace placeholders, and
-remove unused optional sections and columns. Use the index's examples for
-multiple authors and updated dates.
+the source of truth. Copy the Markdown block, replace placeholders, and remove
+unused optional sections and columns. Use the index's examples for multiple
+authors and updated dates.
 
 ```markdown
 ---
