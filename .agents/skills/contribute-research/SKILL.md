@@ -9,14 +9,13 @@ description: >-
 
 Read [docs/research/index.md](../../../docs/research/index.md) before editing.
 It is the single source of truth for submission, formatting, and attribution.
-Follow it if this skill or an existing entry differs; use its current template.
+Follow it if this skill, its template, or an existing entry differs.
 
 1. Read the supplied evidence and search `docs/research/` for related experiments.
    Update an existing entry for similar experiments by the same contributor;
    otherwise, create a new entry.
-2. For new entries, copy the index's
-   [submission template](../../../docs/research/index.md#how-to-submit),
-   including its block-style YAML tags, into
+2. For new entries, copy the Markdown block in the
+   [entry template](templates/research-entry.md), keeping its block-style tags, into
    `docs/research/<short-title>-<username>.md`. Start the filename with the
    algorithm or scheme and end with the contributor's GitHub handle.
 3. Fill the template from the evidence. Use the experiment date and the index's
