@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import torch
 from torch.nn.modules.linear import Identity
 from torch.quantization import QuantWrapper
