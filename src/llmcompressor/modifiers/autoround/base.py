@@ -260,7 +260,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 self._capture_hooks[module._tmp_name] = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
-        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_initialize(
         self,
@@ -286,7 +285,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         for module in model.modules() if modules is None else modules:
             for param in module.parameters(recurse=False):
                 param.requires_grad_(False)
-        self._update_quantization_bookkeeping(**kwargs)
 
     def on_sequential_epoch_end(
         self,
@@ -483,7 +481,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         """
         modules = kwargs.get("modules")
         QuantizationMixin.end_calibration(self, state.model, modules=modules)
-        self._update_quantization_bookkeeping(**kwargs)
         self._remove_temporary_names(state.model, modules)
         self.remove_hooks(modules=modules)
         self._q_input = None
