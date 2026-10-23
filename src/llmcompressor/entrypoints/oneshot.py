@@ -40,6 +40,7 @@ from llmcompressor.entrypoints.utils import (
     has_sequential_targets_across_moes,
     post_process,
     pre_process,
+    resolve_output_dir,
 )
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
@@ -49,6 +50,7 @@ from llmcompressor.pipelines.sequential.restructure import (
     RestructureHandler,
 )
 from llmcompressor.recipe import Recipe
+from llmcompressor.transformers.checkpoint import StreamingCheckpointWriter
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
@@ -227,6 +229,15 @@ class Oneshot:
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
+        self.streaming_checkpoint_writer: StreamingCheckpointWriter | None = None
+
+        if model_args.streaming_save:
+            if output_dir is None:
+                raise ValueError("streaming_save requires output_dir")
+            if not dataset_args.layerwise_compression:
+                raise ValueError("streaming_save requires layerwise_compression=True")
+            if not model_args.save_compressed:
+                raise ValueError("streaming_save requires save_compressed=True")
 
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
@@ -235,6 +246,11 @@ class Oneshot:
         self.model = self.model_args.model
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
+
+        if model_args.streaming_save and getattr(
+            self.model, "_hf_peft_config_loaded", False
+        ):
+            raise ValueError("streaming_save does not support PEFT adapter checkpoints")
 
         self.validate_model(self.model)
 
@@ -250,19 +266,29 @@ class Oneshot:
 
         """
 
-        calibration_dataloader = get_calibration_dataloader(
-            self.dataset_args, self.processor
-        )
-        self.apply_recipe_modifiers(
-            calibration_dataloader=calibration_dataloader,
-            recipe_stage=self.recipe_args.stage,
-        )
-        post_process(
-            model_args=self.model_args,
-            recipe_args=self.recipe_args,
-            output_dir=self.output_dir,
-        )
-        self._remove_log_handler()
+        try:
+            calibration_dataloader = get_calibration_dataloader(
+                self.dataset_args, self.processor
+            )
+            self.apply_recipe_modifiers(
+                calibration_dataloader=calibration_dataloader,
+                recipe_stage=self.recipe_args.stage,
+            )
+            post_process(
+                model_args=self.model_args,
+                recipe_args=self.recipe_args,
+                output_dir=self.output_dir,
+                streaming_checkpoint_writer=self.streaming_checkpoint_writer,
+            )
+            if self.streaming_checkpoint_writer is not None:
+                # The source rank closes during publish; other ranks only use the
+                # shared worker for their local offload-cache writes.
+                self.streaming_checkpoint_writer.close()
+            self._remove_log_handler()
+        except BaseException:
+            if self.streaming_checkpoint_writer is not None:
+                self.streaming_checkpoint_writer.abort()
+            raise
 
     def _remove_log_handler(self):
         """
@@ -294,6 +320,7 @@ class Oneshot:
 
         session = active_session()
         session.reset()
+        session.state.streaming_checkpoint_writer = None
 
         if (
             not self.dataset_args.lazy_linearization
@@ -353,6 +380,18 @@ class Oneshot:
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
+
+            if self.model_args.streaming_save:
+                if pipeline.__class__.__name__ != "SequentialPipeline":
+                    raise ValueError(
+                        "streaming_save requires the sequential calibration pipeline"
+                    )
+                save_dir = resolve_output_dir(self.output_dir, self.recipe_args)
+                assert save_dir is not None
+                self.streaming_checkpoint_writer = StreamingCheckpointWriter(save_dir)
+                session.state.streaming_checkpoint_writer = (
+                    self.streaming_checkpoint_writer
+                )
 
             pipeline(
                 self.model,
