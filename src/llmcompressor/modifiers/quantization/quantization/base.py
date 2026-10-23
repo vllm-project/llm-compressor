@@ -64,7 +64,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        QuantizatiomMixin.start_calibration(
+        QuantizationMixin.start_calibration(
             self,
             state.model,
             modules=kwargs.get("modules"),
@@ -116,5 +116,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        QuantizationMixin.end_calibration(self, state.model, modules=kwargs.get("modules"))
+        QuantizationMixin.end_calibration(
+            self, state.model, modules=kwargs.get("modules")
+        )
         self._update_quantization_bookkeeping(**kwargs)
