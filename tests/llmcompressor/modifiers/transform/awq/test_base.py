@@ -1132,6 +1132,10 @@ def test_fused_qkv_o_proj_mapping_is_rejected_for_gqa():
     "config, kv_dim, query_dim, expected",
     [
         (_TinyGQAConfig(), 4, 8, 2),
+        ({"num_key_value_heads": 2, "num_attention_heads": 4}, 4, 8, 2),
+        ({"head_dim": 2}, 4, 8, 2),
+        ({"head_dim": 0}, 4, 8, None),
+        ({"head_dim": -2}, 4, 8, None),
         (_TinyGQAConfig(head_dim=3), 4, 8, None),  # 4 != 2 kv heads * head size 3
         (_TinyGQAConfig(), 4, 6, None),  # 6 != 4 query heads * head size 2
         (None, 4, 8, None),
@@ -1160,10 +1164,17 @@ def test_get_head_dim(config, kv_dim, query_dim, expected):
 
 
 @pytest.mark.unit
-def test_get_head_dim_from_nested_text_config():
+@pytest.mark.parametrize("outer_dict", [False, True])
+@pytest.mark.parametrize("inner_dict", [False, True])
+def test_get_head_dim_from_nested_text_config(outer_dict, inner_dict):
     """Multimodal configs nest the attention sizes under text_config"""
     model = torch.nn.Module()
-    model.config = type("Config", (), {"text_config": _TinyGQAConfig()})()
+    text_config = vars(_TinyGQAConfig()) if inner_dict else _TinyGQAConfig()
+    model.config = (
+        {"text_config": text_config}
+        if outer_dict
+        else type("Config", (), {"text_config": text_config})()
+    )
     assert _get_head_dim(model, 4) == 2
 
 
@@ -1179,6 +1190,12 @@ def test_get_head_dim_from_nested_text_config():
         (4, 8, 3, False),
         (None, 8, 2, False),  # smooth layer is not a projection
         (4, None, 2, False),  # balance layer is not a projection
+        (0, 8, 2, False),
+        (-4, 8, 2, False),
+        (4, 8, 0, False),
+        (4, 8, -2, False),
+        (4, 0, 2, False),
+        (4, -8, 2, False),
     ],
 )
 def test_is_gqa_projection(kv_dim, hidden_dim, head_dim, expected):

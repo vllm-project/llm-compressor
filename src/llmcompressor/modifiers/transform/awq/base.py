@@ -314,14 +314,13 @@ class AWQModifier(Modifier):
                         f" for mapping: {mapping}"
                     )
                 smooth_layer = smooth_layers[0]
-                smooth_name = module_to_name.get(smooth_layer)
+                smooth_name = module_to_name[smooth_layer]
 
                 # [[b00, b01, b02...], [b10, b11, b12,...], ...] ↓
                 #                             [b00, b01, b02, ..., b10, b11, b12, ...]
                 balance_layers = tree_leaves(nested_balance_layers)
                 balance_names = [
-                    module_to_name.get(balance_layer)
-                    for balance_layer in balance_layers
+                    module_to_name[balance_layer] for balance_layer in balance_layers
                 ]
 
                 # Check if at least one layer is targeted for quantization
@@ -1096,12 +1095,17 @@ def _get_head_dim(
     if config is None:
         return None
 
-    # multimodal configs nest the text config which holds the attention sizes
-    text_config = getattr(config, "text_config", config)
+    def get_config_value(config, name, default=None):
+        if isinstance(config, dict):
+            return config.get(name, default)
+        return getattr(config, name, default)
 
-    num_key_value_heads = getattr(text_config, "num_key_value_heads", None)
-    num_attention_heads = getattr(text_config, "num_attention_heads", None)
-    head_dim = getattr(text_config, "head_dim", None)
+    # multimodal configs nest the text config which holds the attention sizes
+    text_config = get_config_value(config, "text_config", config)
+
+    num_key_value_heads = get_config_value(text_config, "num_key_value_heads")
+    num_attention_heads = get_config_value(text_config, "num_attention_heads")
+    head_dim = get_config_value(text_config, "head_dim")
 
     if head_dim is None:
         # the head size is not stated, recover it from the kv projection
@@ -1109,6 +1113,9 @@ def _get_head_dim(
             head_dim = kv_dim // num_key_value_heads
         else:
             return None
+
+    if head_dim <= 0:
+        return None
 
     if (
         kv_dim is not None
@@ -1148,6 +1155,8 @@ def _is_gqa_projection(
     :return: True if the layers are separated by a whole number of kv head repeats
     """
     if head_dim is None or kv_dim is None or hidden_dim is None:
+        return False
+    if head_dim <= 0 or kv_dim <= 0 or hidden_dim <= 0:
         return False
 
     # the head size has to align both sides of the projection, otherwise the
