@@ -43,11 +43,15 @@ from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
+    mtp_calibration_context,
     validate_mtp_copy_source,
 )
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
+
+# Modifiers whose calibration only needs MTP layers to run during forward passes
+MTP_CALIBRATION_MODIFIERS = ("QuantizationModifier", "GPTQModifier")
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
@@ -266,6 +270,7 @@ class Oneshot:
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
             stack.enter_context(norm_calibration_context(self.model))
+            stack.enter_context(mtp_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -323,6 +328,7 @@ class Oneshot:
                 if (
                     isinstance(modifier, QuantizationMixin)
                     and modifier.requires_calibration_data
+                    and type(modifier).__name__ not in MTP_CALIBRATION_MODIFIERS
                     and any(
                         name.startswith("mtp.")
                         for name, _ in match_named_modules(
@@ -330,11 +336,10 @@ class Oneshot:
                         )
                     )
                 ):
-                    # TODO: Support MTP forward execution and sequential offloading
-                    # during calibration before allowing data-dependent MTP schemes.
                     raise ValueError(
-                        "MTP calibration is not supported in oneshot; MTP targets "
-                        "currently support data-free schemes only."
+                        f"{type(modifier).__name__} does not support MTP "
+                        "calibration; MTP targets support data-free schemes or "
+                        f"{', '.join(MTP_CALIBRATION_MODIFIERS)}."
                     )
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory

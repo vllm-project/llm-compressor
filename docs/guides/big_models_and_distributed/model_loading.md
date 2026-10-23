@@ -65,7 +65,7 @@ A checkpoint can contain MTP weights without those layers being loaded into the 
 
 1. `load_context()` defaults to `load_mtp=True`. During `from_pretrained()`, `load_with_mtp_model()` loads supported MTP layers with Transformers' `MtpModel` and attaches them as `model.mtp` before MoE conversion and offloading. Models whose config does not declare MTP load normally.
 2. `_finalize_mtp_weight_conversions()` preserves the mapping between MTP module names and checkpoint names after MoE conversion, so saving can restore the original checkpoint names.
-3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP must use a data-free scheme such as `FP8_DYNAMIC`; methods requiring calibration are rejected. The recipe then applies to matching backbone and MTP modules.
+3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP can use a data-free scheme such as `FP8_DYNAMIC`, or calibrate with `QuantizationModifier` or `GPTQModifier`. During calibration, each MTP layer runs after the backbone on the calibration tokens shifted by its depth. Other calibration-dependent methods targeting MTP are rejected. The recipe then applies to matching backbone and MTP modules.
 4. `save_pretrained()` serializes loaded MTP with the rest of the model.
 
 See the [GLM-4.5-Air MTP example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/quantization_w8a8_fp8/glm4_5_air_mtp.py).
