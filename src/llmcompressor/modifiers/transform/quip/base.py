@@ -139,6 +139,8 @@ class QuIPModifier(Modifier):
             modules=modules,
             factories=self._transform_factories,
         )
+
+        # manage sequential pipeline offloading
         if onloaded_modules is not None and offload_kwargs is not None:
             for name, module in dict(targets).items():
                 for child_name, child in module.named_children():
