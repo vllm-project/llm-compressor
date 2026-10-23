@@ -14,7 +14,7 @@ Follow it if this skill or an existing entry differs; use its current template.
 1. Read the supplied evidence and search `docs/research/` for related experiments.
    Create a new entry or update the entry requested by the user.
 2. For new entries, copy the index's template into
-   `docs/research/<short-title>-<username>.md`. Lead the filename with the
+   `docs/research/<short-title>-<username>.md`. Start the filename with the
    algorithm or scheme and end with the contributor's GitHub handle.
 3. Fill the template from the evidence. Use the experiment date, block-style
    tags, and the index's byline and author-consent rules. State hardware and
