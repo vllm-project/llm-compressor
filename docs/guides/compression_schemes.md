@@ -85,10 +85,17 @@ Presets exist for every integer weight width from 2 to 8 bits (`W2A16` through `
 |---------------|----------------------------------------------------------------------------------------------|
 | MXFP4xFP8     | Mixed-precision scheme pairing MXFP4 weights with FP8 activations                            |
 | Weights       | Same layout as MXFP4: per-group quantization (group_size=32) with E8M0 scales                |
-| Activations   | Quantized fully dynamically to FP8 (E4M3) using per-group quantization (group_size=128), the same activation format as `FP8_BLOCK` |
+| Activations   | Quantized fully dynamically to FP8 (E4M3) using per-group quantization (group_size=128)      |
 | Scales        | Weight scales stored in E8M0 exponent format (`uint8`); activation scales are computed at inference time |
 | Calibration   | No calibration data required if using RTN                                                    |
-| Use case      | MXFP4 memory savings with FP8 activation accuracy, typically applied to MoE experts alongside `FP8_BLOCK` dense layers. Activation quantization happens at inference time, so the vLLM kernel decides the actual format. On Hopper, MoE experts use the declared FP8 activations. On datacenter Blackwell (SM100), vLLM prefers a FlashInfer kernel that quantizes expert activations to MXFP8 instead. Where no FP8-capable kernel exists, activations stay in 16-bit. Dense (non-MoE) layers on datacenter Blackwell currently run on an FP8 kernel that vLLM reports as slow, so plain MXFP4 may be faster for dense layers there. See the [Qwen3.6 MoE example](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/qwen3.6_moe_mxfp4xfp8.py) for usage |
+| Use case      | MXFP4 memory savings with FP8 activation accuracy, typically applied to MoE experts alongside `FP8` dense layers. See the [Qwen3.6 MoE example](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/qwen3.6_moe_mxfp4xfp8.py) for usage |
+
+!!! note
+    Activations are quantized at inference time, so the vLLM kernel decides the format that actually runs.
+
+    - **MoE experts**: Hopper uses the declared FP8 activations. Datacenter Blackwell (SM100) prefers a FlashInfer kernel that quantizes expert activations to MXFP8 instead.
+    - **Dense (non-MoE) layers**: when the Humming kernels are installed, as in a default vLLM install, these layers run with FP8 activations. On datacenter Blackwell that Humming FP8 kernel is currently slow. With Humming disabled (`VLLM_DISABLED_KERNELS=HummingMxFp4LinearKernel`), vLLM falls back to plain MXFP4 handling. On Blackwell that quantizes activations to FP4, which is faster but less accurate; on older GPUs it runs weight-only with 16-bit activations.
+    - **No FP8-capable kernel**: activations stay in 16-bit.
 
 
 ### MXFP6
