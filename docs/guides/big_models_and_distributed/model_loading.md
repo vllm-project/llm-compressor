@@ -83,7 +83,7 @@ The save wrapper also calls `validate_mtp_copy_source()` before writing any chec
 Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. To convert these checkpoints or quantize unsupported MTP layouts, use an explicit model-free workflow; see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/model_free_ptq/mtp_fp8_fallback.py), which works directly on checkpoint tensors. This fallback never runs model-free quantization automatically.
 
 ## Basic Pipeline ##
-It is recommended to only use the basic pipeline when your model is small enough to fit into the available VRAM, including any auxiliary memory requirements of algorithms such as GPTQ hessians. The basic pipeline can provide compression runtime speedups when compared to the sequential pipeline.
+The basic pipeline calibrates the whole model without tracing. Use it only when the model and calibration memory, such as GPTQ hessians, fit in the available VRAM.
 
 In these cases, you can load the model directly onto your GPU devices, and call oneshot with the relevant argument.
 

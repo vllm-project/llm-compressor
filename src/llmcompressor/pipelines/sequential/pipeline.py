@@ -62,14 +62,14 @@ def _submit_subgraph_staging(
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
-    input_names: list[str],
+    input_names: set[str],
     desc: str,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
     overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = activations.iter_prefetch(input_names)
+    batch_source = activations.iter_prefetch(list(input_names))
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -95,9 +95,10 @@ class SequentialPipeline(CalibrationPipeline):
         3. The intermediate activations between each subgraph are cached and offloaded
             to the cpu between each batch in order to save memory
 
-        This pipeline requires that the model be traceable with respect to data from the
-        data loader. This may be an issue for vision models with vision datasets, due
-        to specialized input processing in the model.
+        Unless the entire model is the sequential target, this pipeline requires that
+        the model be traceable with respect to data from the data loader. This may be
+        an issue for vision models with vision datasets, due to specialized input
+        processing in the model.
 
         In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A
         model can be made traceable by wrapping the untraceable functions (see
