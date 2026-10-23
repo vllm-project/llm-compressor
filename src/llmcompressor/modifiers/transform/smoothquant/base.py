@@ -182,7 +182,6 @@ class SmoothQuantModifier(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
-        self._apply_smoothing(state.model, modules=modules)
         self.remove_hooks(modules=modules)
 
     def estimate_sequential_memory(
