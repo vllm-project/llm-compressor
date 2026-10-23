@@ -13,8 +13,11 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.utils.match import match_name
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
+from datasets import Dataset
 from loguru import logger
 from safetensors.torch import load_file, save_file
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
 from transformers import (
     AutoModelForCausalLM,
     DeepseekV3ForCausalLM,
@@ -26,6 +29,7 @@ from transformers import (
     LlamaConfig,
     LlamaForCausalLM,
     PretrainedConfig,
+    PreTrainedTokenizerFast,
     Qwen3_5MoeConfig,
 )
 
@@ -571,11 +575,106 @@ def test_unexpected_mtp_load_error_is_not_reframed(tmp_path, error):
     assert InklingForCausalLM.from_pretrained == original_from_pretrained
 
 
-def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
+def _calibration_dataset(num_samples=4, seq_len=16):
+    generator = torch.Generator().manual_seed(0)
+    input_ids = torch.randint(0, 128, (num_samples, seq_len), generator=generator)
+    return Dataset.from_dict(
+        {
+            "input_ids": input_ids.tolist(),
+            "attention_mask": torch.ones_like(input_ids).tolist(),
+        }
+    )
+
+
+def _tokenizer():
+    vocab = {"<unk>": 0, "<s>": 1, "</s>": 2, "<pad>": 3}
+    vocab.update({f"token{i}": i for i in range(4, 128)})
+    return PreTrainedTokenizerFast(
+        tokenizer_object=Tokenizer(WordLevel(vocab, unk_token="<unk>")),
+        unk_token="<unk>",
+        bos_token="<s>",
+        eos_token="</s>",
+        pad_token="<pad>",
+    )
+
+
+def _loaded_mtp_model(tmp_path, layout):
+    if layout == "dedicated":
+        return _source_model(tmp_path, load_mtp=True)
+    source = _source_glm_model(tmp_path).name_or_path
+    with load_context(Glm4MoeForCausalLM):
+        return Glm4MoeForCausalLM.from_pretrained(source)
+
+
+@pytest.mark.parametrize("layout", ["dedicated", "trailing"])
+@pytest.mark.parametrize("pipeline", ["sequential", "basic"])
+def test_calibrated_mtp_target_runs_observers(tmp_path, layout, pipeline):
+    model = _loaded_mtp_model(tmp_path, layout)
+    calls = []
+    model.mtp.layers[0].eh_proj.register_forward_hook(lambda *_: calls.append(1))
+
+    recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\..*proj$"]})
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+        pipeline=pipeline,
+    )
+
+    assert calls
+    linears = {
+        name: module
+        for name, module in model.mtp.named_modules()
+        if isinstance(module, torch.nn.Linear) and name.endswith("proj")
+    }
+    assert linears
+    for name, module in linears.items():
+        scale = module.input_global_scale
+        assert torch.isfinite(scale).all() and (scale > 0).all(), name
+
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+    weights = get_weight_mappings(destination)
+    mtp_prefixes = ("model.mtp.", f"model.layers.{model.config.num_hidden_layers}.")
+    mtp_scales = [
+        name
+        for name in weights
+        if name.endswith(".input_global_scale") and name.startswith(mtp_prefixes)
+    ]
+    assert len(mtp_scales) == len(linears)
+    quant = json.loads((destination / "config.json").read_text())["quantization_config"]
+    assert not any(
+        name.removesuffix(".input_global_scale") in quant["ignore"]
+        for name in mtp_scales
+    )
+
+
+def test_mtp_calibration_does_not_change_backbone_outputs(tmp_path):
+    from llmcompressor.transformers.compression.mtp import mtp_calibration_context
+
     model = _source_model(tmp_path, load_mtp=True)
-    recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\."]})
-    with pytest.raises(ValueError, match="data-free schemes only"):
-        oneshot(model=model, recipe=recipe)
+    input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
+    with torch.no_grad():
+        expected = model(input_ids=input_ids).logits
+        with mtp_calibration_context(model):
+            actual = model(input_ids=input_ids).logits
+    torch.testing.assert_close(actual, expected)
+
+
+def test_unsupported_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
+    from llmcompressor.modifiers.autoround import AutoRoundModifier
+
+    model = _source_model(tmp_path, load_mtp=True)
+    recipe = AutoRoundModifier(scheme="W4A16", targets=[r"re:^mtp\.layers\."])
+    with pytest.raises(ValueError, match="AutoRoundModifier"):
+        oneshot(
+            model=model,
+            recipe=recipe,
+            processor=_tokenizer(),
+            dataset=_calibration_dataset(),
+        )
 
 
 def test_unloaded_mtp_warns_for_default_linear_targets(tmp_path):

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from functools import wraps
 
+import torch
 from compressed_tensors.quantization import QuantizationMetadata
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.mtp import save_mtp_tensors_to_checkpoint
@@ -18,9 +19,20 @@ from compressed_tensors.utils.safetensors_load import (
 from loguru import logger
 from safetensors import safe_open
 from transformers import AutoModelForCausalLM, PreTrainedModel
+from transformers.masking_utils import (
+    LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING,
+    create_causal_mask,
+)
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, cached_file
 
 FALLBACK_EXAMPLE = "examples/model_free_ptq/glm_5_3_mxfp4.py"
+
+# Same mapping as MtpModel.create_masks_for_mtp_layer
+_MTP_MASK_KWARGS = {
+    "full_attention": "attention_mask",
+    "sliding_attention": "attention_mask",
+    "linear_attention": "conv_mask",
+}
 
 
 def _mtp_patterns(model: PreTrainedModel) -> list[str]:
@@ -265,6 +277,102 @@ def _finalize_mtp_weight_conversions(model_cls: type[PreTrainedModel]):
 
     with patch_attr(model_cls, "from_pretrained", finalize_conversions):
         yield
+
+
+@contextmanager
+def mtp_calibration_context(model: PreTrainedModel):
+    """Run loaded MTP layers after the backbone so calibration observes them.
+
+    `MtpModel.forward` drafts tokens with argmax, which cannot be traced into
+    sequential subgraphs. Instead, each MTP layer is teacher-forced on the
+    calibration tokens: layer `i` sees the tokens shifted by `i + 1` and the
+    previous hidden states, starting from the backbone's last hidden states as
+    in generation. The hook also runs while tracing, so MTP layers get their own
+    subgraphs and are offloaded like backbone layers.
+    """
+    mtp = getattr(model, "mtp", None)
+    if mtp is None:
+        yield
+        return
+
+    def run_mtp(_decoder, _args, kwargs, outputs):
+        input_ids = kwargs.get("input_ids")
+        if input_ids is None:
+            raise ValueError("MTP calibration requires `input_ids`")
+        _mtp_teacher_forced_forward(
+            mtp,
+            input_ids,
+            kwargs.get("attention_mask"),
+            kwargs.get("position_ids"),
+            outputs.last_hidden_state,
+        )
+
+    handle = model.get_decoder().register_forward_hook(run_mtp, with_kwargs=True)
+    try:
+        yield
+    finally:
+        handle.remove()
+
+
+def _mtp_teacher_forced_forward(mtp, input_ids, attention_mask, position_ids, hidden):
+    if position_ids is None:
+        position_ids = torch.arange(input_ids.shape[1], device=input_ids.device)
+        position_ids = position_ids.unsqueeze(0)
+
+    for index, layer in enumerate(mtp.layers):
+        shift = index + 1
+        hidden = hidden[:, :-1]
+        layer_ids = input_ids[:, shift:]
+        layer_positions = position_ids[:, shift:]
+        layer_mask = attention_mask[:, shift:] if attention_mask is not None else None
+
+        inputs_embeds = mtp.embed_tokens(layer_ids)
+        position_embeddings = (
+            mtp.rotary_emb(inputs_embeds, position_ids=layer_positions)
+            if mtp.rotary_emb is not None
+            else None
+        )
+        layer_type = getattr(layer, "layer_type", None)
+        mask_function = LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.get(layer_type)
+        if isinstance(mask_function, dict):
+            patterns = list(mask_function)
+        else:
+            patterns = [layer_type if mask_function is not None else "full_attention"]
+        masks = {
+            _MTP_MASK_KWARGS[pattern]: _create_mtp_mask(
+                layer, pattern, inputs_embeds, layer_mask, layer_positions
+            )
+            for pattern in patterns
+        }
+
+        hidden = layer(
+            inputs_embeds,
+            hidden,
+            position_embeddings=position_embeddings,
+            position_ids=layer_positions,
+            past_key_values=None,
+            **masks,
+        )
+        if mtp.use_shared_post_norm:
+            hidden = mtp.shared_post_norm(hidden)
+
+
+@torch.fx.wrap
+def _create_mtp_mask(layer, pattern, inputs_embeds, attention_mask, position_ids):
+    # Takes the layer rather than its config: a module is traced as `get_attr`,
+    # while a config would be rebuilt from graph values in later subgraphs
+    mask_function = LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.get(
+        getattr(layer, "layer_type", None), create_causal_mask
+    )
+    if isinstance(mask_function, dict):
+        mask_function = mask_function[pattern]
+    return mask_function(
+        config=layer.config,
+        inputs_embeds=inputs_embeds,
+        attention_mask=attention_mask,
+        past_key_values=None,
+        position_ids=position_ids,
+    )
 
 
 def save_mtp_tensors(
