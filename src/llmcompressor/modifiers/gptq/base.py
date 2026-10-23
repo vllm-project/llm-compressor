@@ -198,18 +198,20 @@ class GPTQModifier(Modifier, QuantizationMixin):
             modules=modules,
             warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
         )
-        self._update_quantization_bookkeeping(**kwargs)
 
+        # register gptq hooks
         for name, module in match_named_modules(
             state.model, self.resolved_targets, self.ignore, modules=modules
         ):
-            if getattr_chain(module, "quantization_scheme.weights", None) is None:
-                continue
-            # Embeddings are not supported by the GPTQ layer compressor.
-            if isinstance(module, torch.nn.Embedding):
-                continue
-            self.register_hook(module, self.calibrate_module, "forward")
-            self._has_gptq_modules = True
+            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
+                # HACK: previously, embeddings were not quantized because they were not
+                # accessible by the layer compressor. For now, we manually ignore it,
+                # but in the FUTURE this should be ignored by the user
+                if not isinstance(module, torch.nn.Embedding):
+                    self.register_hook(module, self.calibrate_module, "forward")
+                    added_hook = True
+
+                    self._has_gptq_modules = True
 
     def on_sequential_epoch_initialize(
         self,
@@ -245,7 +247,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         modules = kwargs.get("modules")
         QuantizationMixin.end_calibration(self, state.model, modules=modules)
-        self._update_quantization_bookkeeping(**kwargs)
         self.remove_hooks(modules=modules)
 
     def calibrate_module(
@@ -431,7 +432,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "GPTQModifier was unable to find any modules to quantize. Please "
                 "check quantization `config_groups` and `targets` in recipe"
             )
-        self.remove_hooks()
         self._module_names.clear()
         self._initialized_modules.clear()
         if not self.ended_:

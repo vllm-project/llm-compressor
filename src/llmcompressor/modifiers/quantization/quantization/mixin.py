@@ -350,6 +350,7 @@ class QuantizationMixin(HooksMixin):
         """Track attention helpers and observer additions/removals in the scope."""
         if onloaded_modules is None or offload_kwargs is None:
             return
+
         child_attrs = [IMPL_ATTR, KV_CACHE_ATTR]
         child_attrs += [f"{base}_observer" for base in ACTIVATION_OBS + ("weight",)]
         for name, module in list(onloaded_modules.items()):
