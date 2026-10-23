@@ -97,6 +97,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
+    streaming_checkpoint_writer=None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -110,14 +111,17 @@ def post_process(
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
     if model_args is not None and output_dir is not None:
+        output_dir = resolve_output_dir(output_dir, recipe_args)
+        assert output_dir is not None
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
-            output_dir = os.path.join(output_dir, recipe_args.stage)
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
         # TODO: support general saving parameters, beyond save_compressed
         model_args.model.save_pretrained(
-            output_dir, save_compressed=model_args.save_compressed
+            output_dir,
+            save_compressed=model_args.save_compressed,
+            _streaming_checkpoint_writer=streaming_checkpoint_writer,
         )
 
         if model_args.processor is not None:
@@ -126,6 +130,16 @@ def post_process(
     # Reset the one-time-use session upon completion
     if recipe_args is not None and recipe_args.clear_sparse_session:
         reset_session()
+
+
+def resolve_output_dir(
+    output_dir: str | None, recipe_args: RecipeArguments | None = None
+) -> str | None:
+    if output_dir is not None and recipe_args is not None:
+        stage = getattr(recipe_args, "stage", None)
+        if stage is not None:
+            return os.path.join(output_dir, stage)
+    return output_dir
 
 
 def initialize_model_from_path(
