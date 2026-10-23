@@ -157,7 +157,9 @@ class MoNeSaliencyTracker:
         hidden_dim: int,
         group: "dist.ProcessGroup | None" = None,
     ):
-        """Reduce all accumulators to the source rank (rank 0)."""
+        """Reduce all accumulators to the source rank (rank 0). The token
+        count is all-reduced so that every rank holds the count summed across
+        ranks."""
         self._ensure_outputs(device, hidden_dim)
         self._ensure_routing(device)
         if not is_distributed():
@@ -181,16 +183,21 @@ class MoNeSaliencyTracker:
                 self.sum_sq_output,
                 self.output_count,
                 self.sum_gate,
-                token_count,
             )
         ]
+        pending.append(
+            dist.all_reduce(
+                token_count, op=dist.ReduceOp.SUM, async_op=True, group=group
+            )
+        )
         wait_for_comms(pending)
         self.token_count = int(token_count.item())
 
     @property
     def total_count(self) -> int:
-        """Total number of tokens seen by the routing hook (used to detect which
-        trackers actually collected calibration samples)."""
+        """Total number of tokens seen by the routing hook; after
+        :meth:`reduce_stats` this is the count summed across ranks, used to
+        detect which trackers actually collected calibration samples."""
         return self.token_count
 
     @property

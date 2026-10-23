@@ -265,12 +265,12 @@ class MoNePruningModifier(Modifier):
         n_dropped = self._n_experts_to_drop
         device = get_main_device()
 
-        # get trackers which collected samples; sort by layer name to ensure
-        # synchronization across ranks
+        # sort by layer name to keep the sequence of collectives identical
+        # across ranks; every rank reduces every tracked layer, contributing
+        # zeros where it saw no tokens
         trackers = [
             (layer_name, self._saliency_trackers[layer_name])
             for layer_name in sorted(self._saliency_trackers)
-            if self._saliency_trackers[layer_name].total_count > 0
         ]
 
         for layer_name, tracker in trackers:
@@ -280,6 +280,13 @@ class MoNePruningModifier(Modifier):
                 hidden_dim = router.weight.shape[1]
 
             tracker.reduce_stats(device, hidden_dim, group=self._cpu_pg)
+
+            # every rank holds the token count summed across ranks after the
+            # reduction, so all decide identically whether the layer
+            # collected any samples; layers with no samples anywhere keep
+            # their trackers in case data arrives in a later epoch
+            if tracker.total_count == 0:
+                continue
 
             # record per-expert statistics for the report (source rank holds the
             # globally reduced statistics)

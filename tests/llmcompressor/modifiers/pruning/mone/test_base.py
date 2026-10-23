@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from safetensors import safe_open
+from torch import distributed as dist
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.core import Event, EventType, State
@@ -19,6 +20,7 @@ from llmcompressor.modifiers.pruning.mone.utils import (
     collapse_moe_layer,
 )
 from llmcompressor.modifiers.pruning.reap.utils import get_moe_attrs
+from tests.testing_utils import torchrun
 
 # ---------------------------------------------------------------------------
 # Helpers: tiny synthetic MoE model with LinearExperts2D for testing
@@ -509,6 +511,54 @@ def test_mone_report_only_does_not_modify_model(tmp_path):
 
 
 @pytest.mark.unit
+def test_mone_layer_without_data_collapses_after_later_epoch(monkeypatch):
+    """A layer which saw no calibration tokens keeps its tracker (in case data
+    arrives in a later epoch) and is collapsed once it does."""
+    import llmcompressor.modifiers.pruning.mone.base as mone_base
+
+    # keep the test on CPU (the synthetic model and its data live on CPU)
+    monkeypatch.setattr(mone_base, "get_main_device", lambda: torch.device("cpu"))
+
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    modifier = MoNePruningModifier(sparsity=0.5)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    # first epoch end: no layer has seen any data yet, so nothing is
+    # finalized and the trackers are kept
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    assert len(modifier._saliency_trackers) == 2
+    for tracker in modifier._saliency_trackers.values():
+        assert tracker.total_count == 0
+    for layer in model.layers:
+        assert layer.experts.num_experts == 8
+
+    # second epoch: data arrives for every layer
+    with torch.no_grad():
+        for _ in range(5):
+            model(torch.randn(2, 8, config.hidden_size))
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    assert len(modifier._saliency_trackers) == 0
+
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    for layer in model.layers:
+        assert layer.experts.num_experts == 4
+        assert layer.experts.novices is not None
+        assert layer.experts.novices.shape == (4, config.hidden_size)
+
+
+@pytest.mark.unit
 def test_build_moe_num_experts_marks_dense_layers():
     config = FakeMoEConfig(num_experts=8, num_hidden_layers=4)
     model = FakeMoEModel(config)
@@ -639,3 +689,80 @@ def test_save_pretrained_writes_moe_sparsity_config_and_novices(tmp_path):
     assert any(k.endswith("experts.novices") for k in expert_keys)
     assert any(k.endswith("experts.gate_up_proj") for k in expert_keys)
     assert not any(".experts.0." in k for k in expert_keys)
+
+
+# ---------------------------------------------------------------------------
+# Tests: distributed (gloo) calibration with unevenly distributed data
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@torchrun(world_size=2, init_dist=False)
+def test_mone_distributed_uneven_data(monkeypatch):
+    """Layers must be reduced and collapsed identically on all ranks when
+    calibration data is unevenly distributed across ranks.
+
+    Every rank reduces every tracked layer (contributing zeros where it saw
+    no tokens) and the decision of which layers collected samples is made
+    from the token count summed across ranks. This covers both the case
+    where only the non-source rank saw data (deciding from the source rank's
+    local count alone would skip the layer everywhere) and the case where
+    only the source rank saw data (a rank without data must still join every
+    reduction rather than deadlocking it).
+    """
+    import llmcompressor.modifiers.pruning.mone.base as mone_base
+
+    # keep the test on CPU; only the gloo collectives are distributed
+    monkeypatch.setattr(mone_base, "get_main_device", lambda: torch.device("cpu"))
+
+    dist.init_process_group(backend="gloo", init_method="env://")
+    try:
+        rank = dist.get_rank()
+
+        for data_rank in (1, 0):
+            torch.manual_seed(42)
+            config = FakeMoEConfig(
+                num_experts=8,
+                hidden_size=16,
+                intermediate_size=32,
+                num_hidden_layers=2,
+            )
+            model = FakeMoEModel(config)
+            model.eval()
+
+            modifier = MoNePruningModifier(sparsity=0.5)
+            state = _make_state(model)
+
+            modifier.initialize(state)
+            modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+            # only data_rank processes calibration data
+            if rank == data_rank:
+                with torch.no_grad():
+                    for _ in range(5):
+                        model(torch.randn(2, 8, config.hidden_size))
+
+            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+            modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+            modifier.finalize(state)
+
+            # every layer was collapsed from the globally summed statistics
+            assert len(modifier._saliency_trackers) == 0
+            for layer in model.layers:
+                assert layer.experts.num_experts == 4
+                assert layer.experts.novices is not None
+                assert layer.experts.novices.shape == (4, config.hidden_size)
+
+            # ... identically on every rank (retained experts and novices are
+            # broadcast from the source rank)
+            novices = torch.stack(
+                [layer.experts.novices.data for layer in model.layers]
+            ).to(torch.float64)
+            gathered = [torch.empty_like(novices) for _ in range(dist.get_world_size())]
+            dist.all_gather(gathered, novices.contiguous())
+            for other in gathered:
+                torch.testing.assert_close(other, novices)
+
+        dist.barrier()
+    finally:
+        dist.destroy_process_group()
