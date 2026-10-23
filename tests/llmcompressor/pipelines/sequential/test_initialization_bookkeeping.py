@@ -25,7 +25,7 @@ from llmcompressor.pipelines.sequential import SequentialPipeline
         pytest.param(
             "cuda",
             marks=pytest.mark.skipif(
-                not torch.cuda.is_available(), reason="requires CUDA"
+                not torch.accelerator.is_available(), reason="requires CUDA"
             ),
         ),
     ],
