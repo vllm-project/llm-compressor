@@ -503,7 +503,27 @@ def test_handle_sequential_oom_mentions_calibration_levers():
     assert "Sequential pipeline ran out of memory" in message
     assert "`max_seq_length`" in message
     assert "`num_calibration_samples`" in message
-    assert "sequential_targets_per_subgraph='auto' chooses" in message
+
+
+@pytest.mark.parametrize("targets_per_subgraph,suggests_auto", [(1, False), (4, True)])
+def test_handle_sequential_oom_suggests_auto_only_with_several_targets(
+    targets_per_subgraph, suggests_auto
+):
+    @handle_sequential_oom
+    def pipeline(model, dataloader, dataset_args):
+        raise torch.OutOfMemoryError("CUDA out of memory")
+
+    dataset_args = DatasetArguments(
+        sequential_targets_per_subgraph=targets_per_subgraph
+    )
+    with pytest.raises(torch.OutOfMemoryError) as excinfo:
+        pipeline(None, None, dataset_args)
+
+    # "auto" never puts fewer than one target in a subgraph, so it cannot help at 1
+    message = str(excinfo.value)
+    assert ("sequential_targets_per_subgraph='auto' chooses" in message) == (
+        suggests_auto
+    )
 
 
 def test_handle_sequential_oom_with_auto_suggests_more_headroom():

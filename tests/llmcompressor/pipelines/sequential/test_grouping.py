@@ -140,6 +140,45 @@ def test_partition_by_memory_never_splits_more_than_one_target_each():
     assert all(len(target_nodes.intersection(p)) == 1 for p in partitions[1:])
 
 
+class NormAfterFirstLayer(torch.nn.Module):
+    """A costly non-target node between the first two target layers"""
+
+    def __init__(self):
+        super().__init__()
+        self.layers = torch.nn.ModuleList(torch.nn.Linear(4, 4) for _ in range(3))
+        self.norm = torch.nn.Linear(4, 4)
+
+    def forward(self, x):
+        x = self.norm(self.layers[0](x))
+        return self.layers[2](self.layers[1](x))
+
+
+def test_log_partitions_warns_about_subgraphs_over_budget():
+    model = NormAfterFirstLayer()
+    targets = set(model.layers)
+    graph_module = torch.fx.symbolic_trace(model)
+    costs = {"layers.0": 6, "norm": 5, "layers.1": 6, "layers.2": 6}
+    node_memory = {node: costs.get(node.target, 0) for node in graph_module.graph.nodes}
+
+    # the cut lands on the norm, and the next target always joins it: 5 + 6 > 10
+    partitions = topological_partition(graph_module, targets, "auto", node_memory, 10)
+    totals = [sum(node_memory[node] for node in partition) for partition in partitions]
+    assert totals == [0, 6, 11, 6]
+
+    messages = []
+    sink = logger.add(messages.append, level="WARNING", format="{message}")
+    try:
+        target_nodes = find_target_nodes(graph_module, targets)
+        grouping.log_partitions(partitions, target_nodes, node_memory, 10)
+    finally:
+        logger.remove(sink)
+
+    # subgraphs are numbered from 1, like the calibration progress bars
+    assert len(messages) == 1
+    assert "1 subgraphs need more than" in messages[0]
+    assert ": 3 (" in messages[0]
+
+
 def test_get_node_modules():
     model = FourLayers()
     graph_module = torch.fx.symbolic_trace(model)

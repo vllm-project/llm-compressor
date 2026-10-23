@@ -183,8 +183,9 @@ def log_partitions(
     max_memory: int,
 ):
     """
-    Log the number of targets in each subgraph, and warn about nodes which do not fit
-    in a subgraph even on their own
+    Log the number of targets in each subgraph, and warn about subgraphs which need
+    more memory than is available: a node which does not fit on its own, or a target
+    which joins a costly node that started its subgraph
 
     :param partitions: partitions produced by `topological_partition`
     :param target_nodes: nodes which call sequential targets
@@ -201,15 +202,16 @@ def log_partitions(
         f"sizes {sizes}"
     )
 
+    # numbered from 1, like the subgraphs in the calibration progress bars
     oversized = [
-        f"{node.name} ({memory / GiB:.2f} GiB)"
-        for node, memory in node_memory.items()
-        if memory > max_memory
+        f"{index + 1} ({memory / GiB:.2f} GiB)"
+        for index, partition in enumerate(partitions)
+        if (memory := sum(node_memory.get(node, 0) for node in partition)) > max_memory
     ]
     if len(oversized) > 0:
         logger.warning(
-            f"{len(oversized)} nodes need more than the {max_memory / GiB:.2f} GiB "
-            "available to a subgraph on their own, and may run out of memory: "
+            f"{len(oversized)} subgraphs need more than the {max_memory / GiB:.2f} GiB "
+            "available to a subgraph, and may run out of memory: "
             f"{', '.join(oversized[:10])}"
         )
 

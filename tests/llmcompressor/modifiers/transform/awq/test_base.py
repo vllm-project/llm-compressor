@@ -874,8 +874,12 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("offload_device", [None, torch.device("cpu")])
-def test_estimate_sequential_memory(offload_device):
+@pytest.mark.parametrize(
+    "offload_device,held",
+    [(None, True), (torch.device("cpu"), False), (torch.device("cuda"), True)],
+    ids=["no-offload", "cpu", "gpu"],
+)
+def test_estimate_sequential_memory(offload_device, held):
     awq = AWQModifier(
         mappings=[
             AWQMapping(
@@ -908,7 +912,8 @@ def test_estimate_sequential_memory(offload_device):
     awq._set_resolved_mappings(model)
 
     tokens, value_bytes = 10, 4  # float32
-    held_per_feature = tokens * value_bytes if offload_device is None else 0
+    # inputs cached on a gpu count against its memory, even when offloaded there
+    held_per_feature = tokens * value_bytes if held else 0
 
     # parent module: input and output widths are those of the balance layers
     qkv_weights = 3 * 8 * 8 * value_bytes

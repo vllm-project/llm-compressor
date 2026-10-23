@@ -847,17 +847,24 @@ def handle_sequential_oom(func):
             dataset_args = kwargs.get(
                 "dataset_args", args[2] if len(args) > 2 else None
             )
-            if getattr(dataset_args, "sequential_targets_per_subgraph", None) == "auto":
+            targets_per_subgraph = getattr(
+                dataset_args, "sequential_targets_per_subgraph", None
+            )
+            if targets_per_subgraph == "auto":
                 grouping_hint = (
                     "sequential_targets_per_subgraph='auto' estimates how many targets "
                     "fit in free memory; lowering `gpu_memory_utilization` leaves more "
                     "headroom for what the estimate misses. "
                 )
-            else:
+            elif isinstance(targets_per_subgraph, int) and targets_per_subgraph > 1:
                 grouping_hint = (
                     "sequential_targets_per_subgraph='auto' chooses as many targets "
                     "per subgraph as fit in free memory. "
                 )
+            else:
+                # "auto" never puts fewer than one target in a subgraph, so it cannot
+                # use less memory than one target per subgraph
+                grouping_hint = ""
 
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "

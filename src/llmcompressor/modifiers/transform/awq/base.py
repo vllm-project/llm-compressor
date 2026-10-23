@@ -153,6 +153,10 @@ class AWQModifier(Modifier):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
+    # Resolved mappings grouped by their parent module, for memory estimates
+    _mappings_by_parent: dict[Module, list[ResolvedMapping]] = PrivateAttr(
+        default_factory=dict
+    )
     # Cache list of forward input args for each parent module, one dict for each batch
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
@@ -265,15 +269,15 @@ class AWQModifier(Modifier):
     ) -> tuple[int, int]:
         """
         Estimate the inputs cached for a mapping parent until it is smoothed (held,
-        unless `offload_device` is set), and its outputs before and after quantization
-        and the balance weights copied while smoothing (scratch). Cached keyword
-        arguments such as position embeddings are not counted
+        unless `offload_device` is the cpu), and its outputs before and after
+        quantization and the balance weights copied while smoothing (scratch). Cached
+        keyword arguments such as position embeddings are not counted
 
         :param module: module belonging to the subgraph being calibrated
         :param num_tokens: number of calibration tokens, including padding
         :return: tuple of (held, scratch) bytes
         """
-        mappings = [m for m in self._resolved_mappings if m.parent is module]
+        mappings = self._mappings_by_parent.get(module, [])
         if len(mappings) == 0:
             return 0, 0
 
@@ -296,9 +300,13 @@ class AWQModifier(Modifier):
                 for m in mappings
             )
 
-        held = (
-            num_tokens * in_features * value_bytes if self.offload_device is None else 0
+        # cached inputs stay on the device unless they are offloaded to the cpu
+        offload_device = self.offload_device
+        offloaded_to_cpu = (
+            isinstance(offload_device, (str, torch.device))
+            and torch.device(offload_device).type == "cpu"
         )
+        held = 0 if offloaded_to_cpu else num_tokens * in_features * value_bytes
         scratch = 2 * num_tokens * out_features * value_bytes + weight_copies
 
         return held, scratch
@@ -318,6 +326,7 @@ class AWQModifier(Modifier):
         self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
+        self._mappings_by_parent.clear()
         self._error_metrics.clear()
 
         return True
@@ -428,6 +437,9 @@ class AWQModifier(Modifier):
             )
 
         self._resolved_mappings = resolved_mappings
+        self._mappings_by_parent = {}
+        for mapping in resolved_mappings:
+            self._mappings_by_parent.setdefault(mapping.parent, []).append(mapping)
         return
 
     def _setup_activation_cache_hooks(self) -> None:
