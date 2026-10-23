@@ -6,6 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+import torch.distributed as dist
 from compressed_tensors.offload import AsyncDiskWriteback, set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
@@ -46,17 +47,35 @@ def _submit_subgraph_staging(
     modules: dict[str, torch.nn.Module],
     current_modules: dict[str, torch.nn.Module],
     pin_memory: bool,
+    async_writer: AsyncDiskWriteback | None = None,
+    distributed_group=None,
 ) -> tuple[dict[str, torch.nn.Module], Future] | None:
     """Stage disjoint next-subgraph modules in the background."""
     if set(modules.values()) & set(current_modules.values()):
         return None
 
     future = executor.submit(
-        subgraph_stage_modules,
+        _stage_subgraph_modules,
         modules,
-        pin_memory=pin_memory,
+        pin_memory,
+        async_writer,
+        distributed_group,
     )
     return modules, future
+
+
+def _stage_subgraph_modules(
+    modules: dict[str, torch.nn.Module],
+    pin_memory: bool,
+    async_writer: AsyncDiskWriteback | None,
+    distributed_group,
+) -> None:
+    """Wait for shared disk writes before staging, then read the subgraph."""
+    if distributed_group is not None:
+        if async_writer is None:
+            raise ValueError("Distributed staging requires an async disk writer")
+        async_writer.flush_distributed(distributed_group)
+    subgraph_stage_modules(modules, pin_memory=pin_memory)
 
 
 def _detach_async_writeback(model: torch.nn.Module, writeback: AsyncDiskWriteback):
@@ -215,7 +234,19 @@ class SequentialPipeline(CalibrationPipeline):
             # each completed tensor to CPU before queueing it, so this worker only
             # retains stable host snapshots. Register detachment after entering the
             # context so model caches no longer retain the closed writer on exit.
-            async_writeback = AsyncDiskWriteback()
+            distributed_writeback_group = None
+            if dist.is_available() and dist.is_initialized():
+                if dist.get_world_size() > 1:
+                    # Staging runs in a worker thread while the main thread may
+                    # issue collectives on the default (often NCCL) group. Use a
+                    # separate Gloo group for write completion/error reporting.
+                    distributed_writeback_group = dist.new_group(backend="gloo")
+                    stack.callback(
+                        dist.destroy_process_group, distributed_writeback_group
+                    )
+            async_writeback = AsyncDiskWriteback(
+                defer_errors=distributed_writeback_group is not None
+            )
             stack.enter_context(async_writeback)
             stack.callback(_detach_async_writeback, model, async_writeback)
             # A single worker preserves staging order and bounds staged memory.
@@ -228,13 +259,18 @@ class SequentialPipeline(CalibrationPipeline):
                 next_subgraph_modules,
                 {},
                 stage_weights_in_pinned_memory,
+                async_writeback,
+                distributed_writeback_group,
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 if prefetched_staging is None:
                     subgraph_modules = subgraph.submodule_dict(model)
-                    subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                    _stage_subgraph_modules(
+                        subgraph_modules,
+                        stage_weights_in_pinned_memory,
+                        async_writeback,
+                        distributed_writeback_group,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -269,6 +305,8 @@ class SequentialPipeline(CalibrationPipeline):
                         next_subgraph_modules,
                         subgraph_modules,
                         stage_weights_in_pinned_memory,
+                        async_writeback,
+                        distributed_writeback_group,
                     )
 
                 #######################
@@ -362,7 +400,10 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Finalization may read/update disk-backed parameters directly, so
             # ensure the last subgraph's atomic writes are published first.
-            async_writeback.flush()
+            if distributed_writeback_group is not None:
+                async_writeback.flush_distributed(distributed_writeback_group)
+            else:
+                async_writeback.flush()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
