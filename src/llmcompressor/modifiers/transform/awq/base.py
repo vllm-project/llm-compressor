@@ -105,7 +105,6 @@ class AWQModifier(Modifier):
             - apply best scales to model weights
             - raise error if any unused activations remain
     - on_calibration_end
-        - re-run logic of sequential epoch end (in case of basic pipeline)
         - remove activation hooks
     - on_finalize
         - clear resolved mappings and captured activations
@@ -230,7 +229,6 @@ class AWQModifier(Modifier):
         No qparams are updated since this is just a transform.
         """
         modules = kwargs.get("modules")
-        self._apply_smoothing(state.model, modules=modules)
         self.remove_hooks(modules=modules)
         self._resolved_mappings = [
             mapping
@@ -325,13 +323,7 @@ class AWQModifier(Modifier):
                 if module_scope is not None:
                     mapping_modules = [smooth_layer, *balance_layers]
                     in_scope = [module in module_scope for module in mapping_modules]
-                    if any(in_scope) and not all(in_scope):
-                        raise ValueError(
-                            "AWQ mapping spans sequential subgraphs. Choose "
-                            "sequential targets that keep each smooth layer and its "
-                            "balance layers in the same subgraph."
-                        )
-                    if not all(in_scope):
+                    if not any(in_scope):
                         continue
 
                 # Check if at least one layer is targeted for quantization
@@ -369,6 +361,13 @@ class AWQModifier(Modifier):
                     )
 
                     continue
+
+                if module_scope is not None and not all(in_scope):
+                    raise ValueError(
+                        "AWQ mapping spans sequential subgraphs. Choose "
+                        "sequential targets that keep each smooth layer and its "
+                        "balance layers in the same subgraph."
+                    )
 
                 ancestor_name, ancestor = get_lowest_common_ancestor_with_avoid(
                     balance_names, model, torch.nn.ModuleList
@@ -533,30 +532,12 @@ class AWQModifier(Modifier):
             mapping
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_stats
-            and (
-                module_scope is None
-                or (
-                    mapping.smooth_layer in module_scope
-                    and all(layer in module_scope for layer in mapping.balance_layers)
-                )
-            )
+            and (module_scope is None or mapping.smooth_layer in module_scope)
         ]
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
             balance_layers = mapping.balance_layers
             parent_module = mapping.parent
-
-            if not any(
-                hasattr(layer, "quantization_scheme")
-                for layer in [smooth_layer, *balance_layers]
-            ):
-                logger.warning(
-                    "Skipping AWQ mapping for {} because no mapped layer is targeted "
-                    "for quantization",
-                    mapping.smooth_name,
-                )
-                del self._smooth_activation_stats[mapping.smooth_name]
-                continue
 
             # pin memory for faster onloading during grid search
             # pinned memory in cache is deleted before next mapping is pinned
