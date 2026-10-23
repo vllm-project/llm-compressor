@@ -54,8 +54,14 @@ def subgraph_stage_modules(
     modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     pin_memory: bool = False,
+    async_writer=None,
+    distributed_group=None,
 ) -> None:
     """Stage retained sources or previously materialized modules in CPU memory."""
+    if distributed_group is not None:
+        if async_writer is None:
+            raise ValueError("Distributed staging requires an async disk writer")
+        async_writer.flush_distributed(distributed_group)
     with disk_load_context():
         for module in _source_modules(modules, restructure_handler).values():
             cache = module._parameters
@@ -69,6 +75,8 @@ def _submit_subgraph_staging(
     current_modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     pin_memory: bool,
+    async_writer=None,
+    distributed_group=None,
 ) -> tuple[dict[str, Module], Future] | None:
     """Prefetch only when both live modules and retained sources are disjoint."""
     if set(modules.values()) & set(current_modules.values()):
@@ -83,6 +91,8 @@ def _submit_subgraph_staging(
         modules,
         restructure_handler,
         pin_memory=pin_memory,
+        async_writer=async_writer,
+        distributed_group=distributed_group,
     )
     return modules, future
 

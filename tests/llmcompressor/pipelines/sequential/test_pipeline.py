@@ -91,3 +91,26 @@ def test_submit_subgraph_staging_respects_source_tree_ownership(
     else:
         assert result is not None
         assert calls == [(({"0": model[0]}, handler), {"pin_memory": False})]
+def test_stage_subgraph_modules_flushes_distributed_writes_first(monkeypatch):
+    calls = []
+    group = object()
+
+    class FakeWriter:
+        def flush_distributed(self, passed_group):
+            assert passed_group is group
+            calls.append("flush")
+
+    monkeypatch.setattr(
+        pipeline,
+        "subgraph_stage_modules",
+        lambda modules, pin_memory=False: calls.append("stage"),
+    )
+
+    pipeline._stage_subgraph_modules(
+        {"next": torch.nn.Linear(2, 2)},
+        pin_memory=False,
+        async_writer=FakeWriter(),
+        distributed_group=group,
+    )
+
+    assert calls == ["flush", "stage"]
