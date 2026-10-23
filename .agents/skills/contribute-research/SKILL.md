@@ -19,7 +19,7 @@ Follow it if this skill or an existing entry differs; use its current template.
 3. Fill the template from the evidence. Use the experiment date, block-style
    tags, and the index's byline and author-consent rules. State hardware and
    calibration setup. Resolve missing information without inventing details;
-   distinguish unmeasured values from measured results. Negative results belong.
+   distinguish unmeasured values from measured results. Negative results are valuable and should be included.
 4. Add reproduction details or source links when useful and available; these
    do not require additional experiments. For updates, retain original credits
    and experiment dates, explain corrections or new findings, and apply the
