@@ -20,7 +20,7 @@ def apply_pad_mask_to_batch(batch: dict[str, torch.Tensor]) -> dict[str, torch.T
     """
     Apply a mask to the input ids of a batch. This is used to zero out
     padding tokens so they do not contribute to the hessian calculation in the
-    GPTQ and SparseGPT algorithms
+    GPTQ algorithm
 
     Assumes that `attention_mask` only contains zeros and ones
 

@@ -71,8 +71,8 @@ The oneshot calibration lifecycle consists of three steps:
         quantization configurations.
 2. **Oneshot Calibration**:
     - Compresses the model based on the recipe (instructions for optimizing the model). The 
-        recipe defines the `Modifiers` (e.g., `GPTQModifier`, `SparseGPTModifier`) to apply, which
-        contain logic how to quantize or sparsify a model. 
+        recipe defines the `Modifiers` (e.g., `GPTQModifier`, `QuantizationModifier`) to apply, which
+        contain logic how to quantize a model. 
 3. **Postprocessing**:
     - Saves the model, tokenizer/processor, and configuration to the specified
         `output_dir`.

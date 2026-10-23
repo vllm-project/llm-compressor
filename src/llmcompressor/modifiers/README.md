@@ -6,25 +6,12 @@ are relevant only during training. Below is a summary of the key modifiers avail
 
 ## Pruning Modifiers
 
-Modifiers that introduce sparsity into a model
+Modifiers that prune a model
 
-### [SparseGPT](./pruning/sparsegpt/base.py)
-One-shot algorithm that uses calibration data to introduce unstructured or structured 
-sparsity into weights. Implementation based on [SparseGPT: Massive Language Models Can Be Accurately Pruned in One-Shot](https://arxiv.org/abs/2301.00774). A small amount of calibration data is used 
-to calculate a Hessian for each layers input activations, this Hessian is then used to 
-solve a regression problem that minimizes the error introduced by a target sparsity. This algorithm 
-has a good amount of memory overhead introduced by storing the Hessians.
-
-### [WANDA](./pruning/wanda/base.py)
-One-shot algorithm that uses calibration data to introduce unstructured or structured sparsity. Implementation is
-based on [A Simple and Effective Pruning Approach for Large Language Models](https://arxiv.org/pdf/2306.11695).
-Calibration data is used to calculate the magnitude of input activations for each layer, and weights 
-are pruned based on this magnitude combined with their distance from 0. This requires less 
-memory overhead and computation than SparseGPT, but reduces accuracy in many cases.
-
-### [Magnitude Pruning](./pruning/magnitude/base.py)
-Naive one-shot pruning algorithm that does not require any calibration data. Weights are 
-pruned based solely on their distance from 0 up to the target sparsity.
+### [REAP](./pruning/reap/base.py)
+One-shot algorithm for Mixture-of-Experts models that uses calibration data to score
+experts by router-weighted activation saliency, then structurally removes the
+least-salient experts from each MoE layer.
 
 ## Quantization Modifiers
 
@@ -40,7 +27,7 @@ suitable for FP8 quantization. A variety of quantization schemes are supported v
 ### [GPTQ](./gptq/base.py)
 One-shot algorithm that uses calibration data to select the ideal bin for weight quantization. 
 This algorithm is applied on top of the basic quantization algorithm, and affects weights only.
-The implementation is based on [GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers](https://arxiv.org/pdf/2210.17323). The algorithm is very similar to SparseGPT: A small amount of calibration data is used 
+The implementation is based on [GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers](https://arxiv.org/pdf/2210.17323). The algorithm works as follows: A small amount of calibration data is used 
 to calculate a Hessian for each layers input activations, this Hessian is then used to 
 solve a regression problem that minimizes the error introduced by a given quantization configuration. This algorithm 
 has a good amount of memory overhead introduced by storing the Hessians.
@@ -60,9 +47,3 @@ easier to quantize. The implementation is based on [SmoothQuant: Accurate and Ef
 Very similar to `SmoothQuantModifier`, but applies smoothing on an inverse log scale 
 rather than the linear smoothing done by SmoothQuant. The implementation is based on 
 [FPTQ: Fine-grained Post-Training Quantization for Large Language Models](https://arxiv.org/pdf/2308.15987)
-
-### [Constant Pruning](./pruning/constant/base.py)
-One-shot pruning algorithms often introduce accuracy degradation that can be recovered with finetuning. This 
-modifier ensures that the sparsity mask of the model is maintained during finetuning, allowing a sparse 
-model to recover accuracy while maintaining its sparsity structure. It is intended to be used after a pruning modifier
-such as `SparseGPT` or `WANDA` has already been applied.

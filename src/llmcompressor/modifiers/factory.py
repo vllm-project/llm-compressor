@@ -84,8 +84,6 @@ class ModifierFactory:
         deprecated_package_prefixes = [
             "llmcompressor.modifiers.awq",
             "llmcompressor.modifiers.smoothquant",
-            "llmcompressor.modifiers.obcq",
-            "llmcompressor.modifiers.obcq.sgpt_base",
             "llmcompressor.modifiers.quantization.gptq",
             "llmcompressor.modifiers.quantization.gptq.base",
             "llmcompressor.modifiers.quantization.gptq.gptq_quantize",
