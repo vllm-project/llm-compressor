@@ -194,6 +194,36 @@ def test_set_resolved_mappings_is_scoped_to_onloaded_subgraph():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("quantized", [False, True])
+@pytest.mark.parametrize("compatible", [False, True])
+def test_split_mapping_is_rejected_only_when_eligible(quantized, compatible):
+    model = torch.nn.ModuleDict(
+        {
+            "attn": torch.nn.ModuleDict(
+                {
+                    "v_proj": Linear(4, 4 if compatible else 2),
+                    "o_proj": Linear(4, 4),
+                }
+            )
+        }
+    )
+    if quantized:
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM"
+            ).resolve_quantization_config(),
+        )
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+
+    if quantized and compatible:
+        with pytest.raises(ValueError, match="AWQ mapping spans sequential subgraphs"):
+            awq._set_resolved_mappings(model, modules=[model.attn.v_proj])
+    else:
+        assert awq._set_resolved_mappings(model, modules=[model.attn.v_proj]) == []
+
+
+@pytest.mark.unit
 def test_awq_sees_quant_config_from_later_modifier_before_calibration():
     model = torch.nn.ModuleDict(
         {

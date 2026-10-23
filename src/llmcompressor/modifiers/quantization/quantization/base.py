@@ -64,7 +64,8 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self.start_calibration(
+        QuantizationMixin.start_calibration(
+            self,
             state.model,
             modules=kwargs.get("modules"),
             warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
