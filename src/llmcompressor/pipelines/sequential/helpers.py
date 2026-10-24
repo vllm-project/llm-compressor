@@ -479,6 +479,7 @@ def topological_partition(
     }
     partition_index = 0  # global counter
     targets_seen = 0  # number of targets encountered so far
+    output_node = None
 
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
@@ -489,6 +490,14 @@ def topological_partition(
     )
     while len(queue) > 0:
         node = queue.popleft()
+
+        # The output node can become ready before computations whose results the
+        # model does not return, such as hooks that only calibrate. A partition
+        # holding it returns only the model outputs, so later partitions would
+        # lose their inputs. Assign it after every other node.
+        if node.op == "output":
+            output_node = node
+            continue
 
         is_target = node in target_nodes
         if is_target:
@@ -517,6 +526,10 @@ def topological_partition(
             remaining_indegrees[user] -= 1
             if remaining_indegrees[user] == 0:
                 queue.append(user)
+
+    if output_node is not None:
+        partitions[partition_index].append(output_node)
+        node_to_partition[output_node] = partition_index
 
     # an ideal implementation would involve implicitly consolidating partition indices
     # so that each node is assigned to the maximum partition possible (in order to delay
