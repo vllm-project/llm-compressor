@@ -147,14 +147,22 @@ def compute_heuristic_alphas(
 _EXPERT_RE = re.compile(r"^(.+\.experts)\.\d+\.(.+)$")
 
 
-def _collapse_expert_patterns(layer_list: list[str]) -> list[str]:
-    """Collapse individual MoE expert layers into wildcard regex patterns."""
+def _collapse_expert_patterns(
+    layer_list: list[str], mixed_experts: set[tuple[str, str]]
+) -> list[str]:
+    """
+    Collapse individual MoE expert layers into wildcard regex patterns.
+
+    Expert layers listed in ``mixed_experts`` were assigned different schemes
+    across experts, so a wildcard would also match experts of other groups.
+    These layers are targeted individually instead.
+    """
     expert_groups: dict[str, set[str]] = defaultdict(set)
     non_expert = []
 
     for layer in layer_list:
         m = _EXPERT_RE.match(layer)
-        if m:
+        if m and m.groups() not in mixed_experts:
             expert_groups[m.group(1)].add(m.group(2))
         else:
             non_expert.append(f"re:^{re.escape(layer)}$")
@@ -178,8 +186,12 @@ def generate_config_groups(
 ) -> Dict[str, QuantizationScheme]:
     """Convert ILP assignments into config groups with targets and formats."""
     scheme_to_layers: dict[str, list[str]] = defaultdict(list)
+    expert_schemes: dict[tuple[str, str], set[str]] = defaultdict(set)
     for layer, scheme_name in ilp_solution.items():
         scheme_to_layers[scheme_name].append(layer)
+        if m := _EXPERT_RE.match(layer):
+            expert_schemes[m.groups()].add(scheme_name)
+    mixed_experts = {key for key, schemes in expert_schemes.items() if len(schemes) > 1}
 
     config_groups = {}
     quantized_groups = [
@@ -194,7 +206,9 @@ def generate_config_groups(
             continue
 
         scheme_dict = base_scheme.model_dump()
-        scheme_dict["targets"] = _collapse_expert_patterns(sorted(layer_list))
+        scheme_dict["targets"] = _collapse_expert_patterns(
+            sorted(layer_list), mixed_experts
+        )
 
         if base_scheme.format is None:
             dummy = torch.nn.Linear(64, 64, bias=False)
