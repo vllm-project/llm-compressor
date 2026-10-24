@@ -250,7 +250,7 @@ output = model.generate("My name is")
 
 - If you have any questions or requests open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we will add an example or documentation.
 - We appreciate contributions to the code, examples, integrations, and documentation as well as bug reports and feature requests! [Learn how here](CONTRIBUTING.md).
-- Browse community experiments and share your compression results in the [Open Research Hub](docs/research/index.md). All results are welcome.
+- Browse community experiments and share your compression results in the [Open Research Hub](https://docs.vllm.ai/projects/llm-compressor/en/latest/research/). All results are welcome.
 
 ## Citation
 
