@@ -125,6 +125,36 @@ def test_recipe_can_be_created_from_modifier_instances():
         assert actual_modifier.model_dump() == expected_modifier.model_dump()
 
 
+def test_recipe_from_modifiers_copies_the_given_modifiers():
+    # the caller's modifiers are never used by a run directly, so that they
+    # stay reusable across several runs
+    modifier = SparseGPTModifier(sparsity=0.5, group="pruning")
+
+    recipe = Recipe.from_modifiers(modifier, modifier_group_name="dummy")
+
+    assert len(recipe.modifiers) == 1
+    assert recipe.modifiers[0] is not modifier
+    assert isinstance(recipe.modifiers[0], SparseGPTModifier)
+    assert recipe.modifiers[0].model_dump() == modifier.model_dump()
+
+
+def test_recipe_create_instance_copies_a_recipe():
+    modifier = QuantizationModifier(
+        targets="Linear", scheme="FP8_DYNAMIC", ignore=["lm_head"]
+    )
+    recipe = Recipe.create_instance([modifier], modifier_group_name="dummy")
+    recipe.args = {"some_arg": 1}
+
+    copied = Recipe.create_instance(recipe)
+
+    assert copied is not recipe
+    assert copied.stage == recipe.stage
+    assert copied.args == recipe.args
+    assert copied.args is not recipe.args
+    assert copied.modifiers[0] is not recipe.modifiers[0]
+    assert copied.modifiers[0].model_dump() == recipe.modifiers[0].model_dump()
+
+
 @pytest.mark.parametrize(
     "modifiers,is_valid",
     [
