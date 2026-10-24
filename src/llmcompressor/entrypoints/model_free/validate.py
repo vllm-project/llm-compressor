@@ -64,15 +64,6 @@ def _validate_scheme(scheme: QuantizationScheme):
             "Model Free PTQ cannot calibrate activations. Please use `oneshot` instead."
         )
 
-    # Remove after https://github.com/vllm-project/compressed-tensors/pull/489
-    if scheme.weights.observer in ("minmax", "mse"):
-        new_observer = f"static_{scheme.weights.observer}"
-        logger.warning(
-            f"Scheme uses {scheme.weights.observer} weight observer. "
-            f"Using {new_observer} instead"
-        )
-        scheme.weights.observer = new_observer
-
     if len(scheme.targets) == 0:
         scheme.targets.append("Linear")
 
