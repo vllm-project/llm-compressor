@@ -103,6 +103,22 @@ class DummyModelWithBranch(torch.nn.Module):
         return self.layer3(merged)
 
 
+class DummyModelWithUnusedBranch(torch.nn.Module):
+    """The side branch only runs for its effects, like a calibration hook"""
+
+    def __init__(self):
+        super().__init__()
+        self.layer1 = torch.nn.Linear(10, 10)
+        self.side1 = torch.nn.Linear(10, 10)
+        self.side2 = torch.nn.Linear(10, 10)
+        self.head = torch.nn.Linear(10, 10)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        self.side2(torch.relu(self.side1(x)))
+        return self.head(x)
+
+
 def _multiple_layer_targets(model: DummyModelMultipleSequentialLayers):
     return {
         model.layer1,
@@ -178,6 +194,27 @@ def test_partition_graph_branch_forward_equivalence():
     expected = model(sample_input)
     namespace = run_subgraphs(model, subgraphs, {"x": sample_input})
     assert torch.allclose(namespace["layer3"], expected)
+
+
+def test_partition_graph_unused_branch_forward_equivalence():
+    model = DummyModelWithUnusedBranch()
+
+    targets = {model.layer1, model.side1, model.side2}
+    graph_module = torch.fx.symbolic_trace(model)
+    partitions = topological_partition(graph_module, targets)
+    subgraphs = partition_graph(model, partitions)
+    trace_consumed_names(subgraphs)
+
+    # the output node is ready before side2, but must not end a partition early
+    assert [node.op for node in partitions[-1]][-1] == "output"
+    assert all(
+        node.op != "output" for partition in partitions[:-1] for node in partition
+    )
+
+    sample_input = torch.randn(2, 10)
+    expected = model(sample_input)
+    namespace = run_subgraphs(model, subgraphs, {"x": sample_input})
+    assert torch.allclose(namespace["head"], expected)
 
 
 def test_trace_consumed_names_last_use():

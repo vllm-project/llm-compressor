@@ -50,9 +50,6 @@ from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
 
-# Modifiers whose calibration only needs MTP layers to run during forward passes
-MTP_CALIBRATION_MODIFIERS = ("QuantizationModifier", "GPTQModifier")
-
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
 
@@ -270,7 +267,8 @@ class Oneshot:
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
             stack.enter_context(norm_calibration_context(self.model))
-            stack.enter_context(mtp_calibration_context(self.model))
+            if self._calibrates_mtp(recipe_stage):
+                stack.enter_context(mtp_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -307,6 +305,29 @@ class Oneshot:
 
         session.finalize()
 
+    def _calibrates_mtp(self, recipe_stage: str | None) -> bool:
+        """
+        Whether loaded MTP layers must run during calibration: a modifier needs
+        calibration data and targets MTP. Modifiers without quantization targets
+        may still match MTP modules, so they are assumed to need it.
+        """
+        if not hasattr(self.model, "mtp") or not self.recipe:
+            return False
+        recipe = Recipe.create_instance(self.recipe, target_stage=recipe_stage)
+        for modifier in recipe.modifiers:
+            if not modifier.requires_calibration_data:
+                continue
+            if not isinstance(modifier, QuantizationMixin):
+                return True
+            if any(
+                name.startswith("mtp.")
+                for name, _ in match_named_modules(
+                    self.model, modifier.resolved_targets, modifier.ignore
+                )
+            ):
+                return True
+        return False
+
     def validate_model(self, model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
@@ -320,27 +341,6 @@ class Oneshot:
                 "unchanged when saving. Use load_context(load_mtp=True) "
                 "to quantize them when supported by Transformers."
             )
-        if hasattr(model, "mtp") and self.recipe:
-            recipe = Recipe.create_instance(
-                self.recipe, target_stage=self.recipe_args.stage
-            )
-            for modifier in recipe.modifiers:
-                if (
-                    isinstance(modifier, QuantizationMixin)
-                    and modifier.requires_calibration_data
-                    and type(modifier).__name__ not in MTP_CALIBRATION_MODIFIERS
-                    and any(
-                        name.startswith("mtp.")
-                        for name, _ in match_named_modules(
-                            model, modifier.resolved_targets, modifier.ignore
-                        )
-                    )
-                ):
-                    raise ValueError(
-                        f"{type(modifier).__name__} does not support MTP "
-                        "calibration; MTP targets support data-free schemes or "
-                        f"{', '.join(MTP_CALIBRATION_MODIFIERS)}."
-                    )
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(

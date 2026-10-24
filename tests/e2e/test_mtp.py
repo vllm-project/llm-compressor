@@ -62,6 +62,49 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
     _run_mtp_vllm(tmp_path)
 
 
+@requires_gpu(1)
+@requires_cadence("nightly")
+@pytest.mark.parametrize("method", ["gptq", "autoround"])
+def test_calibrated_mtp_vllm(tmp_path, method):
+    """MTP calibrated during oneshot loads and drafts tokens in vLLM"""
+    pytest.importorskip("vllm")
+    from llmcompressor.modifiers.autoround import AutoRoundModifier
+    from llmcompressor.modifiers.gptq import GPTQModifier
+
+    model_id = "nm-testing/GLM-4.5-Air-0.72B-MTP"
+    revision = "f6bc34dce3f6447db3a93a843d4bb659cd1f95e0"
+    with load_context(Glm4MoeForCausalLM, load_mtp=True):
+        model = Glm4MoeForCausalLM.from_pretrained(
+            model_id, revision=revision, dtype=torch.bfloat16, device_map="cpu"
+        )
+    set_onload_device(model, "cuda")
+    # vLLM builds `eh_proj` as an unquantized nn.Linear
+    kwargs = {"scheme": "W4A16", "ignore": ["lm_head", r"re:.*\.eh_proj$"]}
+    if method == "gptq":
+        recipe = GPTQModifier(**kwargs)
+    else:
+        recipe = AutoRoundModifier(**kwargs, iters=10)
+    processor = AutoProcessor.from_pretrained(model_id, revision=revision)
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=processor,
+        dataset="open_platypus",
+        num_calibration_samples=16,
+        max_seq_length=256,
+    )
+    model.save_pretrained(tmp_path)
+    processor.save_pretrained(tmp_path)
+    mtp_prefix = f"model.layers.{model.config.num_hidden_layers}."
+    assert any(
+        name.startswith(mtp_prefix) and name.endswith(".weight_packed")
+        for name in get_weight_mappings(tmp_path)
+    )
+    reset_session()
+    del model
+    _run_mtp_vllm(tmp_path)
+
+
 def _run_mtp_vllm(model_path, **kwargs):
     llm_kwargs = {
         "model": str(model_path),
