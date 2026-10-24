@@ -137,6 +137,14 @@ class AWQModifier(Modifier):
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
         Defaults to 20
+    :param grouped_query_smoothing: whether to smooth value projections which feed an
+        output projection consuming repeated copies of them (grouped query attention).
+        The smoothing factors are averaged over the repeat groups of the kv heads and
+        expanded back to the query dimension, which assumes the layout produced by
+        `repeat_kv` (each kv head repeated contiguously). Defaults to False, because
+        the end to end benefit of smoothing these additional mappings is not
+        established yet: in local tests it improved the quantization error of the
+        mapping itself, but not the perplexity of the quantized model
     """
 
     requires_calibration_data: bool = True
@@ -149,6 +157,7 @@ class AWQModifier(Modifier):
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
     n_grid: int = 20
+    grouped_query_smoothing: bool = False
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -305,14 +314,13 @@ class AWQModifier(Modifier):
                         f" for mapping: {mapping}"
                     )
                 smooth_layer = smooth_layers[0]
-                smooth_name = module_to_name.get(smooth_layer)
+                smooth_name = module_to_name[smooth_layer]
 
                 # [[b00, b01, b02...], [b10, b11, b12,...], ...] ↓
                 #                             [b00, b01, b02, ..., b10, b11, b12, ...]
                 balance_layers = tree_leaves(nested_balance_layers)
                 balance_names = [
-                    module_to_name.get(balance_layer)
-                    for balance_layer in balance_layers
+                    module_to_name[balance_layer] for balance_layer in balance_layers
                 ]
 
                 # Check if at least one layer is targeted for quantization
@@ -323,8 +331,40 @@ class AWQModifier(Modifier):
                     ]
                 )
 
+                # grouped query attention needs the head size to reconstruct the
+                # repeat groups of the kv heads, see `_compress_scales_for_gqa`.
+                # `head_dim` is only carried along when the smoothing of this mapping
+                # actually runs in the kv dimension
+                balance_in_features = (
+                    getattr(balance_layers[0], "in_features", None)
+                    if balance_layers
+                    else None
+                )
+                head_dim = _get_head_dim(
+                    model,
+                    getattr(smooth_layer, "out_features", None),
+                    balance_in_features,
+                )
+                if not _is_gqa_projection(
+                    getattr(smooth_layer, "out_features", None),
+                    balance_in_features,
+                    head_dim,
+                ):
+                    head_dim = None
+                elif not self.grouped_query_smoothing:
+                    logger.debug(
+                        f"Skipping {smooth_name} for mapping {mapping} because its "
+                        "balance layers consume repeated copies of it, which is only "
+                        "smoothed when AWQModifier.grouped_query_smoothing is enabled."
+                    )
+                    head_dim = None
+
                 all_compatible = _check_layers_are_compatible(
-                    smooth_layer, smooth_name, balance_layers, balance_names
+                    smooth_layer,
+                    smooth_name,
+                    balance_layers,
+                    balance_names,
+                    head_dim,
                 )
 
                 # Incompatibility occurs frequently depending on model size
@@ -375,12 +415,26 @@ class AWQModifier(Modifier):
                         parent=ancestor,
                         parent_name=ancestor_name,
                         activation_hook_target=activation_hook_target,
+                        head_dim=head_dim,
                     )
                 )
         if num_incompatible > 0:
             logger.warning(
                 f"{num_incompatible} mappings were skipped due to incompatible shapes. "
                 + "Set logging to DEBUG to view full list."
+            )
+
+        grouped_query_mappings = [
+            mapping for mapping in resolved_mappings if mapping.head_dim is not None
+        ]
+        if grouped_query_mappings:
+            count = len(grouped_query_mappings)
+            logger.info(
+                f"Smoothed {count} v_proj -> o_proj mappings over grouped query "
+                "attention repeat groups, which assumes the layout produced by "
+                "`repeat_kv` (each kv head repeated contiguously). Disable "
+                "AWQModifier.grouped_query_smoothing for models which lay out their "
+                "query heads differently."
             )
 
         self._resolved_mappings = resolved_mappings
@@ -551,11 +605,21 @@ class AWQModifier(Modifier):
                 ):
                     scales = best_scales.to(module.weight.device)
                     if module in balance_layers:
+                        balance_scales = scales
+                        if (
+                            mapping.head_dim is not None
+                            and module.in_features > scales.size(0)
+                        ):
+                            # o_proj consumes repeated copies of each kv head, so the
+                            # kv dimension scales have to be expanded to query dim
+                            balance_scales = _expand_scales_for_gqa(
+                                scales, module.in_features, mapping.head_dim
+                            )
                         update_offload_parameter(
                             module,
                             "weight",
                             orig_layer_weights[module].to(module.weight.device)
-                            * scales.view(1, -1),
+                            * balance_scales.view(1, -1),
                         )
                     elif module == smooth_layer:
                         if module.weight.ndim == 1:
@@ -641,6 +705,25 @@ class AWQModifier(Modifier):
         if self.duo_scaling:
             w_mean = self._compute_layer_means(mapping.balance_layers).to(device)
 
+        # The cached statistics belong to the input of the balance layer, which for
+        # grouped query attention spans the whole query dimension, while the scales
+        # are applied to the kv dimension of the smooth layer. Reducing the
+        # statistics to the kv dimension first keeps the grid search inside the
+        # space of scales which are actually representable by the smooth layer.
+        gqa_expand_dim = None
+        kv_dim = getattr(mapping.smooth_layer, "out_features", None)
+        hidden_dim = getattr(mapping.balance_layers[0], "in_features", None)
+        if (
+            mapping.head_dim is not None
+            and kv_dim is not None
+            and hidden_dim is not None
+            and hidden_dim > kv_dim
+        ):
+            gqa_expand_dim = hidden_dim
+            x_mean = _compress_scales_for_gqa(x_mean, kv_dim, mapping.head_dim)
+            if self.duo_scaling:
+                w_mean = _compress_scales_for_gqa(w_mean, kv_dim, mapping.head_dim)
+
         # Where appropriate, replace observers with memoryless_minmax
         # for duration of grid search
         balance_layers_to_patch = [
@@ -678,7 +761,14 @@ class AWQModifier(Modifier):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                _scalesview = scales.view(1, -1).to(device)
+                if gqa_expand_dim is None:
+                    _scalesview = scales.view(1, -1).to(device)
+                else:
+                    _scalesview = (
+                        _expand_scales_for_gqa(scales, gqa_expand_dim, mapping.head_dim)
+                        .view(1, -1)
+                        .to(device)
+                    )
 
                 # (W * s)
                 for balance_layer in balance_layers_to_patch:
@@ -980,35 +1070,188 @@ class AWQModifier(Modifier):
         return v
 
 
+def _get_head_dim(
+    model: Module, kv_dim: int | None = None, query_dim: int | None = None
+) -> int | None:
+    """
+    Get the size of a single attention head of a model, for a kv projection producing
+    `kv_dim` features and an output projection consuming `query_dim` features.
+
+    It is not derived from `hidden_size // num_attention_heads`, which does not hold for
+    all architectures (e.g. Qwen3 uses a head size which is not
+    `hidden_size // num_attention_heads`). When the config does not state the head size
+    explicitly it is recovered from the width of the kv projection.
+
+    The head size is only returned when it describes both ends of the projection, so
+    that shapes which cannot be traced back to the repeat groups of the kv heads are
+    left alone by the caller.
+
+    :param model: model to read the config from
+    :param kv_dim: number of output features of the kv projection, if known
+    :param query_dim: number of input features of the output projection, if known
+    :return: head size, or None if it cannot be determined
+    """
+    config = getattr(model, "config", None)
+    if config is None:
+        return None
+
+    def get_config_value(config, name, default=None):
+        if isinstance(config, dict):
+            return config.get(name, default)
+        return getattr(config, name, default)
+
+    # multimodal configs nest the text config which holds the attention sizes
+    text_config = get_config_value(config, "text_config", config)
+
+    num_key_value_heads = get_config_value(text_config, "num_key_value_heads")
+    num_attention_heads = get_config_value(text_config, "num_attention_heads")
+    head_dim = get_config_value(text_config, "head_dim")
+
+    if head_dim is None:
+        # the head size is not stated, recover it from the kv projection
+        if kv_dim and num_key_value_heads and kv_dim % num_key_value_heads == 0:
+            head_dim = kv_dim // num_key_value_heads
+        else:
+            return None
+
+    if head_dim <= 0:
+        return None
+
+    if (
+        kv_dim is not None
+        and num_key_value_heads
+        and kv_dim != num_key_value_heads * head_dim
+    ):
+        # the head size does not describe the projection it is used for, so the repeat
+        # groups cannot be reconstructed from it
+        return None
+
+    if (
+        query_dim is not None
+        and num_attention_heads
+        and query_dim != num_attention_heads * head_dim
+    ):
+        # same on the query side, some other layout consumes the output projection
+        return None
+
+    return head_dim
+
+
+def _is_gqa_projection(
+    kv_dim: int | None, hidden_dim: int | None, head_dim: int | None
+) -> bool:
+    """
+    Check whether a smooth layer of size `kv_dim` can be smoothed against a balance
+    layer of size `hidden_dim` despite the sizes not matching, i.e. whether the
+    balance layer consumes multiple contiguous copies of the smooth layer output.
+
+    Grouped query attention repeats each kv head to match the number of query heads
+    (`repeat_kv`), so the input of `o_proj` receives `hidden_dim // kv_dim` copies
+    of the `v_proj` output back to back, `head_dim` channels at a time.
+
+    :param kv_dim: number of output features of the kv projection
+    :param hidden_dim: number of input features of the balance layer
+    :param head_dim: attention head size, if known
+    :return: True if the layers are separated by a whole number of kv head repeats
+    """
+    if head_dim is None or kv_dim is None or hidden_dim is None:
+        return False
+    if head_dim <= 0 or kv_dim <= 0 or hidden_dim <= 0:
+        return False
+
+    # the head size has to align both sides of the projection, otherwise the
+    # boundaries of the repeat groups cannot be recovered from the shapes alone
+    return (
+        hidden_dim > kv_dim
+        and hidden_dim % kv_dim == 0
+        and kv_dim % head_dim == 0
+        and hidden_dim % head_dim == 0
+    )
+
+
+def _compress_scales_for_gqa(
+    scales: torch.Tensor, kv_dim: int, head_dim: int
+) -> torch.Tensor:
+    """
+    Average per-channel statistics or scales over the kv heads they are repeated
+    from, reducing their length from the query dimension to `kv_dim`.
+    Inverse of `_expand_scales_for_gqa`.
+
+    :param scales: tensor of length `kv_dim * num_repeats`, ordered as after
+        `repeat_kv`
+    :param kv_dim: length of the kv dimension
+    :param head_dim: attention head size
+    """
+    num_repeats = scales.size(0) // kv_dim
+    num_kv_heads = kv_dim // head_dim
+    return scales.reshape(num_kv_heads, num_repeats, head_dim).mean(dim=1).reshape(-1)
+
+
+def _expand_scales_for_gqa(
+    scales: torch.Tensor, query_dim: int, head_dim: int
+) -> torch.Tensor:
+    """
+    Repeat one value per kv channel over the query channels it is repeated into,
+    expanding the length of `scales` to `query_dim`.
+    Inverse of `_compress_scales_for_gqa`.
+
+    :param scales: tensor of length `query_dim // num_repeats`, one value per channel
+        of the kv dimension
+    :param query_dim: length of the query dimension, ordered as after `repeat_kv`
+    :param head_dim: attention head size
+    """
+    num_kv_heads = scales.size(0) // head_dim
+    num_repeats = query_dim // scales.size(0)
+    return (
+        scales.reshape(num_kv_heads, head_dim)
+        .repeat_interleave(num_repeats, dim=0)
+        .reshape(-1)
+    )
+
+
 def _check_layers_are_compatible(
     smooth_layer: Module,
     smooth_name: str,
     balance_layers: list[Module],
     balance_names: list[str],
+    head_dim: int | None = None,
 ):
     """
     returns True if they are all compatible
     returns False if any smooth & balance layers are incompatible
     """
+    # the grouped query attention path assumes that every balance layer consumes the
+    # repeated output of the smooth layer, so it only applies to mappings which
+    # balance value projections against output projections
+    output_projections_only = all(
+        balance_name.endswith(".o_proj") for balance_name in balance_names
+    )
+
     for balance_layer, balance_name in zip(balance_layers, balance_names):
-        # exclude v_proj->o_proj mappings whose shapes are incompatible
-        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
-        if (
+        if not (
             isinstance(smooth_layer, torch.nn.Linear)
             and isinstance(balance_layer, torch.nn.Linear)
             and balance_name.endswith(".o_proj")
-            and (
-                (
-                    smooth_name.endswith(".v_proj")
-                    and smooth_layer.out_features != balance_layer.in_features
-                )
-                or (
-                    smooth_name.endswith(".qkv_proj")
-                    and smooth_layer.out_features != 3 * balance_layer.in_features
-                )
-            )
         ):
+            continue
+
+        # exclude v_proj->o_proj mappings whose shapes are incompatible
+        # https://github.com/mit-han-lab/llm-awq/pull/67#issuecomment-1681632777
+        if smooth_name.endswith(".v_proj"):
+            if smooth_layer.out_features == balance_layer.in_features:
+                continue
+            # grouped query attention makes the shapes differ by construction, but
+            # the repeat groups can be recovered, so smoothing is still possible
+            if output_projections_only and _is_gqa_projection(
+                smooth_layer.out_features, balance_layer.in_features, head_dim
+            ):
+                continue
             return False
+
+        # NOTE: fused qkv_proj is not supported for grouped query attention yet
+        elif smooth_name.endswith(".qkv_proj"):
+            if smooth_layer.out_features != 3 * balance_layer.in_features:
+                return False
     return True
 
 
