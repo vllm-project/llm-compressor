@@ -45,6 +45,38 @@ def test_serialization(recipe_str):
     assert expected_dict == actual_dict
 
 
+def _group_weights(actorder):
+    weights = dict(
+        num_bits=4, type="int", symmetric=True, strategy="group", group_size=128
+    )
+    if actorder != "N/A":
+        weights["actorder"] = actorder
+    return dict(group_0=dict(targets=["Linear"], weights=weights))
+
+
+@pytest.mark.parametrize(
+    "modifier_kwargs",
+    [
+        dict(scheme="W4A16"),
+        dict(scheme="W4A16", actorder=None),
+        dict(scheme="W4A16", actorder="weight"),
+        dict(config_groups=_group_weights("N/A")),
+        dict(config_groups=_group_weights("weight")),
+        dict(config_groups=_group_weights("static"), actorder="static"),
+    ],
+)
+def test_serialization_keeps_gptq_actorder(modifier_kwargs):
+    modifier = GPTQModifier(targets="Linear", ignore=["lm_head"], **modifier_kwargs)
+    serialized = Recipe.from_modifiers(modifier).yaml()
+    reloaded = Recipe.create_instance(serialized).modifiers[0]
+
+    expected = modifier.resolve_quantization_config().config_groups
+    actual = reloaded.resolve_quantization_config().config_groups
+    assert expected.keys() == actual.keys()
+    for name in expected:
+        assert actual[name].weights.actorder == expected[name].weights.actorder
+
+
 def test_recipe_creates_correct_modifier():
     start = 1
     end = 10
