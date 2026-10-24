@@ -48,8 +48,8 @@ def load_context(
 
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     :param load_mtp: Load Transformers-supported MTP layers before MoE conversion
-        and distributed offloading. Defaults to True. MTP layers can be calibrated
-        with QuantizationModifier and GPTQModifier.
+        and distributed offloading. Defaults to True. Loaded MTP layers run during
+        calibration when the recipe calibrates them.
     """
     from llmcompressor.modeling.moe.linearize import load_quantizable_moe
     from llmcompressor.transformers.compression.mtp import (
