@@ -1,6 +1,8 @@
 import datetime
 import json
 import os
+import shutil
+import tempfile
 import weakref
 from contextlib import contextmanager
 from functools import wraps
@@ -118,6 +120,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             quantization_format: str | None = None,
             save_compressed: bool = True,
+            _streaming_checkpoint_writer=None,
             **kwargs,
         ):
             """
@@ -149,7 +152,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
-            if save_compressed:
+            if save_compressed and _streaming_checkpoint_writer is None:
                 compressor.compress_model(model, skip_compressed=True)
 
             # Re-tie input and output embeddings before offload conversion so a
@@ -160,13 +163,70 @@ def modify_save_pretrained(model: PreTrainedModel):
             # tied-parameter bookkeeping consistent.
             _retie_embeddings(model)
 
-            # convert to accelerate offloaded for optimal saving with transformers
-            to_accelerate(model)
+            # Normal saving lets Transformers read CT offload files and rewrite
+            # them into model shards. Streaming saving already wrote those tensors
+            # into final shards as the subgraphs were offloaded.
+            if _streaming_checkpoint_writer is None:
+                to_accelerate(model)
 
             with suspend_distributed_timeout():
                 if is_source_process():
-                    # save the complete model, including loaded MTP layers
-                    original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
+                    if _streaming_checkpoint_writer is None:
+                        # save the complete model, including loaded MTP layers
+                        original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
+                    else:
+                        if not save_compressed:
+                            raise ValueError(
+                                "Streaming checkpoint saving requires "
+                                "save_compressed=True"
+                            )
+                        if kwargs.get("push_to_hub"):
+                            raise ValueError(
+                                "Streaming checkpoint saving does not support "
+                                "push_to_hub"
+                            )
+                        if kwargs.get("state_dict") is not None:
+                            raise ValueError(
+                                "Streaming checkpoint saving does not accept "
+                                "state_dict"
+                            )
+                        if kwargs.get("variant") is not None:
+                            raise ValueError(
+                                "Streaming checkpoint saving does not support "
+                                "variant"
+                            )
+                        if kwargs.get("save_original_format") is True:
+                            raise ValueError(
+                                "Streaming checkpoint saving writes the model's "
+                                "current state-dict format and does not support "
+                                "save_original_format=True"
+                            )
+
+                        # Let Transformers save config, generation config, remote
+                        # model code, and adapter metadata in an isolated directory.
+                        # A supplied empty state dict prevents it from reading the
+                        # disk offload cache and writing model tensors a second time.
+                        with tempfile.TemporaryDirectory(
+                            prefix=".streaming-save-", dir=save_dir
+                        ) as metadata_dir:
+                            metadata_kwargs = kwargs.copy()
+                            metadata_kwargs["state_dict"] = {}
+                            metadata_kwargs["save_original_format"] = False
+                            original_save_fn.__get__(model, model_class)(
+                                metadata_dir, **metadata_kwargs
+                            )
+                            for metadata_path in os.scandir(metadata_dir):
+                                if not metadata_path.is_file():
+                                    continue
+                                filename = metadata_path.name
+                                if filename.endswith(
+                                    (".safetensors", ".bin", ".pt", ".index.json")
+                                ):
+                                    continue
+                                shutil.copy2(
+                                    metadata_path.path,
+                                    os.path.join(save_dir, filename),
+                                )
 
                     # resave the config with original structure for vLLM
                     resave_config(model.config, save_dir)
@@ -180,6 +240,11 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
 
+                    if _streaming_checkpoint_writer is not None:
+                        # Publish the backbone index before optional MTP copying,
+                        # whose helper adds its separate shard to the index.
+                        _streaming_checkpoint_writer.publish()
+
                     if source_mtp is not None:
                         logger.info(
                             "Use load_context(load_mtp=True) to quantize MTP "
@@ -188,7 +253,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                         save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
 
             # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+            if _streaming_checkpoint_writer is None:
+                from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
