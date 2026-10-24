@@ -23,8 +23,10 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 from tests.llmcompressor.transformers.compression.test_mtp_upstream import (
+    _calibration_dataset,
     _source_glm_model,
     _source_model,
+    _tokenizer,
 )
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -102,6 +104,65 @@ def test_mtp_two_rank_quantization():
         for name in mtp_scales:
             scale = load_file(mapping[name])[name]
             assert torch.isfinite(scale).all() and (scale > 0).all()
+
+        dist.barrier()
+        if dist.get_rank() == 0:
+            shutil.rmtree(root)
+        dist.barrier()
+    dist.destroy_process_group()
+
+
+@pytest.mark.multi_gpu
+@requires_gpu(2)
+@torchrun(world_size=2, init_dist=True)
+def test_mtp_two_rank_calibration_syncs_observers():
+    for model_cls in (InklingForCausalLM, Glm4MoeForCausalLM):
+        root = [tempfile.mkdtemp(prefix="mtp-ddp-") if dist.get_rank() == 0 else None]
+        dist.broadcast_object_list(root, src=0)
+        root = Path(root[0])
+        if dist.get_rank() == 0:
+            with as_single_threaded():
+                if model_cls is InklingForCausalLM:
+                    source = _source_model(root)
+                else:
+                    source = _source_glm_model(root, model_cls)
+            del source
+        dist.barrier()
+
+        with load_context(model_cls, load_mtp=True):
+            model = model_cls.from_pretrained(
+                root / "source", device_map="cpu", local_files_only=True
+            )
+        set_onload_device(model, torch.device("cuda", dist.get_rank()))
+        # Each rank calibrates on its own half of the samples, so the static
+        # activation scales only agree if MTP observers are synchronized
+        oneshot(
+            model=model,
+            recipe=QuantizationModifier(
+                scheme={"NVFP4": [r"re:^mtp\.layers\..*proj$"]}
+            ),
+            processor=_tokenizer(),
+            dataset=_calibration_dataset(num_samples=8),
+            num_calibration_samples=8,
+        )
+        scales = {
+            f"{name}.{param}": getattr(module, param).detach().to("cuda")
+            for name, module in model.mtp.named_modules()
+            if hasattr(module, "quantization_scheme")
+            for param in ("input_global_scale", "weight_global_scale")
+        }
+        assert any(name.endswith("eh_proj.input_global_scale") for name in scales)
+        for name, scale in scales.items():
+            assert torch.isfinite(scale).all() and (scale > 0).all(), name
+            gathered = [torch.empty_like(scale) for _ in range(2)]
+            dist.all_gather(gathered, scale)
+            torch.testing.assert_close(
+                gathered[0],
+                gathered[1],
+                rtol=0,
+                atol=0,
+                msg=f"{model_cls.__name__}: {name}",
+            )
 
         dist.barrier()
         if dist.get_rank() == 0:

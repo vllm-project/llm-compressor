@@ -287,11 +287,12 @@ def mtp_calibration_context(model: PreTrainedModel):
     sequential subgraphs. Instead, each MTP layer is teacher-forced on the
     calibration tokens: layer `i` sees the tokens shifted by `i + 1` and the
     previous hidden states, starting from the backbone's last hidden states as
-    in generation. The hook also runs while tracing, so MTP layers get their own
-    subgraphs and are offloaded like backbone layers.
+    in generation. The hook also runs while tracing, and each MTP layer is a
+    sequential target, so it is calibrated and offloaded as one subgraph
+    together with its projection.
     """
     mtp = getattr(model, "mtp", None)
-    if mtp is None:
+    if mtp is None or len(mtp.layers) == 0:
         yield
         return
 
@@ -299,55 +300,70 @@ def mtp_calibration_context(model: PreTrainedModel):
         input_ids = kwargs.get("input_ids")
         if input_ids is None:
             raise ValueError("MTP calibration requires `input_ids`")
+        last_hidden_state = (
+            outputs.last_hidden_state
+            if hasattr(outputs, "last_hidden_state")
+            else outputs[0]
+        )
         _mtp_teacher_forced_forward(
             mtp,
             input_ids,
             kwargs.get("attention_mask"),
             kwargs.get("position_ids"),
-            outputs.last_hidden_state,
+            last_hidden_state,
         )
 
-    handle = model.get_decoder().register_forward_hook(run_mtp, with_kwargs=True)
-    try:
-        yield
-    finally:
-        handle.remove()
+    no_split_modules = list(model._no_split_modules or [])
+    mtp_layer_cls = type(mtp.layers[0]).__name__
+    if no_split_modules and mtp_layer_cls not in no_split_modules:
+        no_split_modules.append(mtp_layer_cls)
+
+    with patch_attr(model, "_no_split_modules", no_split_modules):
+        handle = model.get_decoder().register_forward_hook(run_mtp, with_kwargs=True)
+        try:
+            yield
+        finally:
+            handle.remove()
 
 
 def _mtp_teacher_forced_forward(mtp, input_ids, attention_mask, position_ids, hidden):
     if position_ids is None:
         position_ids = torch.arange(input_ids.shape[1], device=input_ids.device)
-        position_ids = position_ids.unsqueeze(0)
+        position_ids = position_ids.unsqueeze(0).expand(input_ids.shape[0], -1)
 
     for index, layer in enumerate(mtp.layers):
         shift = index + 1
         hidden = hidden[:, :-1]
         layer_ids = input_ids[:, shift:]
         layer_positions = position_ids[:, shift:]
-        layer_mask = attention_mask[:, shift:] if attention_mask is not None else None
+        layer_mask = None
+        if attention_mask is not None:
+            # Valid only when both the embedded token and the token behind the
+            # previous hidden state are, so padding is never paired with a token
+            layer_mask = attention_mask[:, shift:] * attention_mask[:, :-shift]
 
         inputs_embeds = mtp.embed_tokens(layer_ids)
-        position_embeddings = (
-            mtp.rotary_emb(inputs_embeds, position_ids=layer_positions)
-            if mtp.rotary_emb is not None
-            else None
-        )
-        layer_type = getattr(layer, "layer_type", None)
-        mask_function = LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.get(layer_type)
-        if isinstance(mask_function, dict):
-            patterns = list(mask_function)
-        else:
-            patterns = [layer_type if mask_function is not None else "full_attention"]
+        position_embeddings = None
+        if mtp.rotary_emb is not None:
+            # Same per-layer RoPE selection as MtpModel.forward_layer
+            rope_kwargs = {}
+            if getattr(mtp, "has_per_layer_rope", False):
+                rope_kwargs["layer_type"] = mtp.config.layer_types[index]
+            position_embeddings = mtp.rotary_emb(
+                inputs_embeds, position_ids=layer_positions, **rope_kwargs
+            )
         masks = {
             _MTP_MASK_KWARGS[pattern]: _create_mtp_mask(
-                layer, pattern, inputs_embeds, layer_mask, layer_positions
+                mtp, index, pattern, inputs_embeds, layer_mask, layer_positions
             )
-            for pattern in patterns
+            for pattern in _mtp_mask_patterns(mtp, index)
         }
 
+        # Only the embeddings are positional: AutoRound caches the remaining
+        # positional inputs once rather than per sample
         hidden = layer(
             inputs_embeds,
-            hidden,
+            previous_hidden_state=hidden,
             position_embeddings=position_embeddings,
             position_ids=layer_positions,
             past_key_values=None,
@@ -357,17 +373,39 @@ def _mtp_teacher_forced_forward(mtp, input_ids, attention_mask, position_ids, hi
             hidden = mtp.shared_post_norm(hidden)
 
 
+def _mtp_layer_type(mtp, index: int) -> str | None:
+    # Same selection as MtpModel.create_masks_for_mtp_layer. MtpLayer has no
+    # `layer_type`; the attribute is only read for older Transformers.
+    layer_types = getattr(mtp.config, "layer_types", None)
+    if layer_types is not None:
+        return layer_types[index]
+    return getattr(mtp.layers[index], "layer_type", None)
+
+
+def _mtp_mask_patterns(mtp, index: int) -> list[str]:
+    layer_type = _mtp_layer_type(mtp, index)
+    mask_function = LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.get(layer_type)
+    if mask_function is None:
+        return ["full_attention"]
+    if isinstance(mask_function, dict):
+        return list(mask_function)
+    return [layer_type]
+
+
 @torch.fx.wrap
-def _create_mtp_mask(layer, pattern, inputs_embeds, attention_mask, position_ids):
-    # Takes the layer rather than its config: a module is traced as `get_attr`,
+def _create_mtp_mask(mtp, index, pattern, inputs_embeds, attention_mask, position_ids):
+    # Takes the MTP model rather than a config: a module is traced as `get_attr`,
     # while a config would be rebuilt from graph values in later subgraphs
+    config = mtp.config
+    if getattr(config, "is_heterogeneous", False):
+        config = config.per_layer_config[index]
     mask_function = LAYER_PATTERN_TO_MASK_FUNCTION_MAPPING.get(
-        getattr(layer, "layer_type", None), create_causal_mask
+        _mtp_layer_type(mtp, index), create_causal_mask
     )
     if isinstance(mask_function, dict):
         mask_function = mask_function[pattern]
     return mask_function(
-        config=layer.config,
+        config=config,
         inputs_embeds=inputs_embeds,
         attention_mask=attention_mask,
         past_key_values=None,
