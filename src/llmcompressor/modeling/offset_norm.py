@@ -20,6 +20,12 @@ import contextlib
 from abc import ABC, abstractmethod
 
 import torch
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    offload_module,
+    update_offload_parameter,
+)
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from transformers import PreTrainedModel
@@ -66,9 +72,6 @@ class CalibrationOffsetNorm(NormCalibrationModule):
     """
     Replaces offset-norm modules (``output * (1 + weight)``) with standard-norm
     equivalents (``output * weight``) during calibration.
-
-    On enter: ``self.weight = 1 + original.weight``
-    On restore: ``original.weight = self.weight - 1``
     """
 
     is_permanent = False
@@ -77,9 +80,9 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         super().__init__()
         self.eps = original.eps
         self._orig_dtype = original.weight.dtype
-        self.weight = torch.nn.Parameter(
-            (1.0 + original.weight.data.float()).to(original.weight.dtype)
-        )
+        offset = original.weight.detach().to(self._orig_dtype).clone()
+        self._original_offset = offset
+        self.weight = torch.nn.Parameter((1.0 + offset.float()).to(self._orig_dtype))
 
     def _norm(self, x: torch.Tensor) -> torch.Tensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -90,7 +93,15 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         return output.type_as(x)
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
-        original.weight.data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
+        live = self.weight.detach()
+        offset = self._original_offset.to(device=live.device, dtype=self._orig_dtype)
+        initial = (1.0 + offset.float()).to(dtype=self._orig_dtype)
+        restored = torch.where(
+            live == initial,
+            offset,
+            (live.float() - 1.0).to(self._orig_dtype),
+        )
+        update_offload_parameter(original, "weight", restored)
         return original
 
 
@@ -119,35 +130,67 @@ def norm_calibration_context(model: PreTrainedModel):
 
     replaced = {}
 
-    # Step 1: Collect all offset-norm modules that need replacement
-    logger.debug("Entering norm calibration context")
-    modules_to_replace = []
-    for name, module in model.named_modules():
-        class_name = module.__class__.__name__
-        if _is_registered(class_name, NormCalibrationModule):
-            modules_to_replace.append((name, module, class_name))
-
-    # Step 2: Replace modules
-    if modules_to_replace:
-        logger.info(f"Found {len(modules_to_replace)} offset-norm modules to convert")
-        for name, module, class_name in modules_to_replace:
-            replacement = NormCalibrationModule.load_from_registry(
-                class_name,
-                original=module,
-                config=model.config,
-            )
-            model.set_submodule(name, replacement)
-            replaced[name] = (module, replacement)
-
     try:
+        # Step 1: Collect all offset-norm modules that need replacement
+        logger.debug("Entering norm calibration context")
+        modules_to_replace = []
+        for name, module in model.named_modules():
+            class_name = module.__class__.__name__
+            if _is_registered(class_name, NormCalibrationModule):
+                modules_to_replace.append((name, module, class_name))
+
+        # Step 2: Replace modules
+        if modules_to_replace:
+            logger.info(
+                f"Found {len(modules_to_replace)} offset-norm modules to convert"
+            )
+            for name, module, class_name in modules_to_replace:
+                offload_kwargs = (
+                    get_cache_init_kwargs(module)
+                    if isinstance(module._parameters, OffloadCache)
+                    else None
+                )
+                replacement = NormCalibrationModule.load_from_registry(
+                    class_name,
+                    original=module,
+                    config=model.config,
+                )
+                model.set_submodule(name, replacement)
+                replaced[name] = (module, replacement)
+                if offload_kwargs is not None:
+                    offload_module(replacement, **offload_kwargs)
         yield
     finally:
         # Step 3: Restore original modules with updated weights
         if replaced:
             logger.info(f"Restoring {len(replaced)} norm modules to offset convention")
+        failures = []
         for name, (original, replacement) in replaced.items():
-            restored = replacement.restore(original)
-            model.set_submodule(name, restored)
+            try:
+                model.set_submodule(name, replacement.restore(original))
+            except Exception as exc:
+                failures.append(exc)
+                try:
+                    if model.get_submodule(name) is replacement:
+                        model.set_submodule(name, original)
+                except Exception as unmount_exc:
+                    failures.append(unmount_exc)
+            if model.get_submodule(name) is replacement:
+                continue
+            try:
+                _release_offload(replacement)
+            except Exception as release_exc:
+                failures.append(release_exc)
+        if failures:
+            raise failures[0]
+
+
+def _release_offload(module: torch.nn.Module) -> None:
+    for cache in (module._parameters, module._buffers):
+        if not isinstance(cache, OffloadCache):
+            continue
+        for key in list(cache):
+            del cache[key]
 
 
 def _is_registered(name: str, subclass: RegistryMixin):
