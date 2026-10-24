@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 import torch
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from compressed_tensors.utils import patch_attr
 from loguru import logger
@@ -182,7 +183,10 @@ def disable_lm_head(model: torch.nn.Module):
         return
 
     else:
-        dummy_weight = lm_head.weight.to("meta")
+        # only the weight's shape is needed, so read the offloaded weight rather than
+        # onloading all of it to the execution device
+        with disable_onloading():
+            dummy_weight = lm_head.weight.to("meta")
 
         def dummy_forward(self, input: torch.Tensor) -> torch.Tensor:
             return input.to("meta") @ dummy_weight.T

@@ -92,16 +92,21 @@ def fake_pipeline():
     messages = []
     sink = logger.add(messages.append, level="METRIC", format="{message}")
 
-    yield model, messages
+    # the fake subgraphs replace tracing, and own no modules
+    with (
+        patch(f"{_PIPELINE}.trace_graph", return_value=(None, set())),
+        patch(f"{_PIPELINE}.find_modules_outside_graph", return_value={}),
+    ):
+        yield model, messages
 
     logger.remove(sink)
     session.finalize()
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-@patch(f"{_PIPELINE}.trace_subgraphs")
+@patch(f"{_PIPELINE}.partition_subgraphs")
 def test_enabled_propagate_true(
-    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+    mock_partition, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
 ):
     """
     SQNR = 10 * log10(signal_power / noise_power)
@@ -110,7 +115,7 @@ def test_enabled_propagate_true(
     signal_power = 1^2 + 2^2 + 3^2 + 4^2 = 30
     noise_power  = 0.1^2 + 0.1^2 + 0.05^2 + 0.05^2 = 0.025
     """
-    mock_trace.return_value = fake_subgraphs
+    mock_partition.return_value = fake_subgraphs
     model, messages = fake_pipeline
 
     SequentialPipeline()(
@@ -125,13 +130,13 @@ def test_enabled_propagate_true(
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-@patch(f"{_PIPELINE}.trace_subgraphs")
+@patch(f"{_PIPELINE}.partition_subgraphs")
 def test_enabled_propagate_false(
-    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+    mock_partition, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
 ):
     """Same SQNR as test_enabled_propagate_true, via the decoupled
     code path (zero-copy transfer + SQNR)."""
-    mock_trace.return_value = fake_subgraphs
+    mock_partition.return_value = fake_subgraphs
     model, messages = fake_pipeline
 
     SequentialPipeline()(
@@ -146,12 +151,12 @@ def test_enabled_propagate_false(
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-@patch(f"{_PIPELINE}.trace_subgraphs")
+@patch(f"{_PIPELINE}.partition_subgraphs")
 def test_disabled_propagate_true(
-    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+    mock_partition, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
 ):
     """No SQNR when disabled, propagate_error=True."""
-    mock_trace.return_value = fake_subgraphs
+    mock_partition.return_value = fake_subgraphs
     model, messages = fake_pipeline
 
     SequentialPipeline()(
@@ -164,12 +169,12 @@ def test_disabled_propagate_true(
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-@patch(f"{_PIPELINE}.trace_subgraphs")
+@patch(f"{_PIPELINE}.partition_subgraphs")
 def test_disabled_propagate_false(
-    mock_trace, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
+    mock_partition, mock_targets, fake_pipeline, fake_subgraphs, fake_dataloader
 ):
     """No SQNR when disabled, propagate_error=False."""
-    mock_trace.return_value = fake_subgraphs
+    mock_partition.return_value = fake_subgraphs
     model, messages = fake_pipeline
 
     SequentialPipeline()(

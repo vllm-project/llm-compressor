@@ -24,13 +24,20 @@ from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.pipelines.sequential.grouping import (
+    log_partitions,
+    plan_subgraph_memory,
+)
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
 from llmcompressor.utils.helpers import calibration_forward_context
 
 from .ast_helpers import append_autowrap_source_on_fail, autowrap_forwards
 
 if TYPE_CHECKING:
-    pass
+    from torch.utils.data import DataLoader
+
+    from llmcompressor.args.dataset_arguments import DatasetArguments
+    from llmcompressor.modifiers import Modifier
 
 __all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
 
@@ -67,12 +74,7 @@ class Subgraph:
         ordered_names: list[str] = []
         seen_modules: set[Module] = set()
 
-        targets: list[str] = []
-        for node in self.graph.nodes:
-            if node.op == "call_module":
-                targets.append(node.target)
-            targets.extend(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
-
+        targets = [root for node in self.graph.nodes for root in get_node_roots(node)]
         for target in targets:
             module = model.get_submodule(target)
             named_modules = module.named_modules() if recurse else [("", module)]
@@ -178,6 +180,16 @@ def compress_subgraph_modules(modules: list[Module]) -> None:
             compress_module(module)
 
 
+def find_modules_outside_graph(model: Module, graph: GraphModule) -> dict[str, Module]:
+    """
+    Return modules that no node of a traced graph calls. These are the same modules as
+    `find_modules_outside_subgraphs` returns for any partition of the graph, so they
+    can be found before the graph is partitioned
+    """
+    whole_graph = Subgraph(graph=graph.graph, input_names=set(), consumed_names=set())
+    return find_modules_outside_subgraphs(model, [whole_graph])
+
+
 def _resolve_sequential_targets(
     model: PreTrainedModel, sequential_targets: list[str]
 ) -> set[Module]:
@@ -245,11 +257,43 @@ def trace_subgraphs(
     :param eager_attention: whether to force eager attention while tracing
     :return: a list of Subgraphs in order of execution
     """
+    graph, targets = trace_graph(
+        model, sample_input, sequential_targets, ignore, eager_attention
+    )
+    return partition_subgraphs(model, graph, targets, targets_per_subgraph)
+
+
+def trace_graph(
+    model: PreTrainedModel,
+    sample_input: dict[str, Any],
+    sequential_targets: list[str],
+    ignore: list[str],
+    eager_attention: bool = False,
+) -> tuple[GraphModule, set[Module]]:
+    """
+    Trace a model into a graph in which each sequential target is a leaf node.
+    Tracing is the expensive step, so the returned graph can be partitioned more than
+    once, for example with different numbers of targets per subgraph
+
+    :param model: model being traced
+    :param sample_input: inputs whose values will change during execution but whose
+        __len__, __bool__, and __contains__ values are assumed constant across batches
+    :param sequential_targets: list of patterns matching sequential targets. Detected
+        attention modules are also used as targets when not contained by a requested
+        target.
+    :param ignore: function and method names to skip during tracing
+    :param eager_attention: whether to force eager attention while tracing
+    :return: the traced graph and the set of sequential target modules
+    """
     targets = _resolve_sequential_targets(model, sequential_targets)
 
     if targets == {model}:
-        # FX traces the root's forward directly, without consulting is_leaf_module.
-        return [_create_whole_model_subgraph(set(sample_input))]
+        # FX traces the root's forward directly, without consulting is_leaf_module, so
+        # the root is left untraced and `partition_subgraphs` keeps it as one subgraph
+        whole_model = _create_whole_model_subgraph(set(sample_input))
+        graph = GraphModule(model, whole_model.graph)
+        graph.input_names = whole_model.input_names
+        return graph, targets
 
     ancestors = get_sequential_ancestors(model, targets)
 
@@ -299,25 +343,12 @@ def trace_subgraphs(
     graph.class_for_deserialization = model.__class__
     graph.device = model.device
 
-    # perform subgraph partition
-    partitions = topological_partition(graph, targets, targets_per_subgraph)
-    subgraphs = partition_graph(model, partitions)
-    trace_consumed_names(subgraphs)
-
-    # As currently implemented, `topological_partition` generates an extra subgraph at
-    # the beginning which does not contain a target. This adds a little more runtime,
-    # and could be folded into the first subgraph in the future
-    if len(subgraphs) != len(targets) + 1:
-        logger.warning(
-            f"Expected {len(targets)} subgraphs, but only traced {len(subgraphs)}. "
-            "This is likely due to having wrapped code which calls sequential targets"
-        )
-
     # Modules with parameters which are neither ancestors nor owned by a subgraph were
-    # not seen during tracing (e.g. a wrapped function failed to execute on meta)
+    # not seen during tracing (e.g. a wrapped function failed to execute on meta).
+    # Every partition of the graph owns the same modules, so this is checked here
     unowned = [
         name
-        for name, module in find_modules_outside_subgraphs(model, subgraphs).items()
+        for name, module in find_modules_outside_graph(model, graph).items()
         if module not in ancestors and module._parameters
     ]
     if unowned:
@@ -327,7 +358,109 @@ def trace_subgraphs(
             log_once=True,
         )
 
+    return graph, targets
+
+
+def partition_subgraphs(
+    model: Module,
+    graph: GraphModule,
+    targets: set[Module],
+    targets_per_subgraph: int | str = 1,
+    dataloader: "DataLoader | None" = None,
+    modifiers: list["Modifier"] | None = None,
+    dataset_args: "DatasetArguments | None" = None,
+) -> list[Subgraph]:
+    """
+    Partition a traced graph into subgraphs, where each sequential target belongs to
+    exactly one subgraph and where executing each subgraph in order is equivalent to
+    executing the original model
+
+    :param model: model which owns the produced Subgraphs
+    :param graph: graph produced by `trace_graph`
+    :param targets: sequential target modules produced by `trace_graph`
+    :param targets_per_subgraph: number of targets to include per subgraph, or "auto"
+        to group as many consecutive targets as fit in device memory
+    :param dataloader: with "auto", the calibration data
+    :param modifiers: with "auto", the modifiers which will calibrate the subgraphs
+    :param dataset_args: with "auto", the arguments which set the memory budget
+    :return: a list of Subgraphs in order of execution
+    """
+    if targets == {model}:
+        # the root owns every module, see `trace_graph`
+        return [
+            Subgraph(
+                graph=graph.graph, input_names=graph.input_names, consumed_names=set()
+            )
+        ]
+
+    target_nodes = find_target_nodes(graph, targets)
+    num_target_nodes = len(target_nodes)
+    if num_target_nodes != len(targets):
+        logger.warning(
+            f"Expected {len(targets)} sequential targets in the traced graph, but "
+            f"found {num_target_nodes}. This is likely due to having wrapped code "
+            "which calls sequential targets"
+        )
+
+    node_memory, max_memory = None, None
+    if targets_per_subgraph == "auto":
+        if dataloader is None or modifiers is None or dataset_args is None:
+            raise ValueError(
+                'sequential_targets_per_subgraph="auto" requires the dataloader, '
+                "modifiers and dataset arguments to estimate memory"
+            )
+
+        node_modules = {
+            node: get_node_modules(model, node) for node in graph.graph.nodes
+        }
+        plan = plan_subgraph_memory(
+            model, node_modules, dataloader, modifiers, dataset_args
+        )
+        if plan is None:
+            targets_per_subgraph = 1
+        else:
+            node_memory, max_memory = plan
+
+    # As currently implemented, `topological_partition` generates an extra subgraph at
+    # the beginning which does not contain a target. This adds a little more runtime,
+    # and could be folded into the first subgraph in the future
+    partitions = topological_partition(
+        graph, targets, targets_per_subgraph, node_memory, max_memory
+    )
+    if node_memory is not None:
+        log_partitions(partitions, target_nodes, node_memory, max_memory)
+
+    subgraphs = partition_graph(model, partitions)
+    trace_consumed_names(subgraphs)
+
     return subgraphs
+
+
+def get_node_roots(node: Node) -> list[str]:
+    """
+    :param node: node of a traced graph
+    :return: names of the module a node calls and of the modules recorded as run
+        inside it (see `INVOKED_SUBMODULES_META_KEY`), not including their descendants
+    """
+    roots = [node.target] if node.op == "call_module" else []
+    return roots + list(node.meta.get(INVOKED_SUBMODULES_META_KEY, ()))
+
+
+def get_node_modules(model: Module, node: Node) -> list[str]:
+    """
+    Get the modules a node onloads when its subgraph runs: its roots (see
+    `get_node_roots`) and their submodules
+
+    :param model: model which owns the graph
+    :param node: node of the traced graph
+    :return: module names
+    """
+    names = []
+    for root in get_node_roots(node):
+        for relative_name, _ in model.get_submodule(root).named_modules():
+            names.append(f"{root}.{relative_name}" if relative_name else root)
+
+    return names
 
 
 class SequentialTracer(HFTracer):
@@ -450,7 +583,11 @@ def find_target_nodes(graph: GraphModule, targets: set[Module]) -> set[Node]:
 
 
 def topological_partition(
-    graph: GraphModule, targets: set[Module], targets_per_subgraph: int = 1
+    graph: GraphModule,
+    targets: set[Module],
+    targets_per_subgraph: int | str = 1,
+    node_memory: dict[Node, int] | None = None,
+    max_memory: int | None = None,
 ) -> list[list[Node]]:
     """
     Partition the graph into partitions such that each `target` belongs to exactly one
@@ -459,14 +596,24 @@ def topological_partition(
 
     :param graph: graph being partitioned
     :param targets: target modules which will be assigned to disjoint partitions
-    :param targets_per_subgraph: number of targets to include per subgraph
+    :param targets_per_subgraph: number of targets to include per subgraph, or "auto"
+        to fill each partition until its nodes' memory would exceed `max_memory`. A
+        partition is only cut once it holds a target, so only the nodes before the
+        first target or after the last one can end up in a partition without one
+    :param node_memory: with "auto", the memory each node onloads and holds
+    :param max_memory: with "auto", the memory available to each partition
     :return: list of partitions, where each partition is a list of nodes belonging to
         that partition
     """
     assert graph_is_well_formed(graph.graph)
     target_nodes = find_target_nodes(graph, targets)
 
-    if targets_per_subgraph <= 0:
+    use_memory = targets_per_subgraph == "auto"
+    if use_memory and (node_memory is None or max_memory is None):
+        raise ValueError(
+            'targets_per_subgraph="auto" requires node_memory and max_memory'
+        )
+    if not use_memory and targets_per_subgraph <= 0:
         raise ValueError(
             "targets_per_subgraph is required to be greater than or equal to one"
         )
@@ -479,6 +626,7 @@ def topological_partition(
     }
     partition_index = 0  # global counter
     targets_seen = 0  # number of targets encountered so far
+    partition_memory = 0  # memory of the partition being filled, with "auto"
 
     # start with graph input nodes,
     # but delay the `get_attr` nodes as long as possible
@@ -491,21 +639,32 @@ def topological_partition(
         node = queue.popleft()
 
         is_target = node in target_nodes
-        if is_target:
-            # put all nodes prior to first target into separate subgraph
-            is_head = partition_index == 0 and len(partitions[partition_index]) > 0
+        cost = node_memory.get(node, 0) if use_memory else 0
 
+        # put all nodes prior to first target into separate subgraph
+        is_head = is_target and partition_index == 0 and len(partitions[0]) > 0
+
+        if use_memory:
+            # finish creating subgraph when this node would not fit in memory, once
+            # the subgraph holds a target. Nodes which onload nothing stay in the
+            # subgraph of the node before them
+            is_complete = (
+                cost > 0 and targets_seen > 0 and partition_memory + cost > max_memory
+            )
+        else:
             # finish creating subgraph when number of targets has been seen
-            is_complete = targets_seen >= targets_per_subgraph
+            is_complete = is_target and targets_seen >= targets_per_subgraph
 
-            if is_head or is_complete:
-                partition_index += 1
-                partitions.append([])
-                targets_seen = 0
+        if is_head or is_complete:
+            partition_index += 1
+            partitions.append([])
+            targets_seen = 0
+            partition_memory = 0
 
         # assign to partition
         partitions[partition_index].append(node)
         node_to_partition[node] = partition_index
+        partition_memory += cost
 
         # increment after assignment so is_complete fires after the target is placed
         if is_target:
@@ -685,6 +844,28 @@ def handle_sequential_oom(func):
         try:
             return func(*args, **kwargs)
         except torch.OutOfMemoryError as e:
+            dataset_args = kwargs.get(
+                "dataset_args", args[2] if len(args) > 2 else None
+            )
+            targets_per_subgraph = getattr(
+                dataset_args, "sequential_targets_per_subgraph", None
+            )
+            if targets_per_subgraph == "auto":
+                grouping_hint = (
+                    "sequential_targets_per_subgraph='auto' estimates how many targets "
+                    "fit in free memory; lowering `gpu_memory_utilization` leaves more "
+                    "headroom for what the estimate misses. "
+                )
+            elif isinstance(targets_per_subgraph, int) and targets_per_subgraph > 1:
+                grouping_hint = (
+                    "sequential_targets_per_subgraph='auto' chooses as many targets "
+                    "per subgraph as fit in free memory. "
+                )
+            else:
+                # "auto" never puts fewer than one target in a subgraph, so it cannot
+                # use less memory than one target per subgraph
+                grouping_hint = ""
+
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "
                 "Please consider choosing a smaller module for `sequential_targets`, "
@@ -693,7 +874,8 @@ def handle_sequential_oom(func):
                 "use the attention module and individual expert class instead, "
                 "ex. sequential_targets=['AttentionClass', 'ExpertClass'] with "
                 "sequential_targets_per_subgraph set to batch multiple experts per "
-                "subgraph and reduce memory overhead. Choosing a smaller "
+                "subgraph and reduce memory overhead. "
+                f"{grouping_hint}Choosing a smaller "
                 "calibration dataset can also help: reduce `max_seq_length` "
                 "(when unset, calibration samples are not truncated, so a few "
                 "long samples can dominate memory) or `num_calibration_samples` "

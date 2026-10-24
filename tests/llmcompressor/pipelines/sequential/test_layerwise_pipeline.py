@@ -82,14 +82,13 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         pipeline_module, "DisableQuantization", lambda model: contextlib.nullcontext()
     )
     monkeypatch.setattr(pipeline_module, "infer_sequential_targets", lambda *args: [])
+    monkeypatch.setattr(pipeline_module, "trace_graph", lambda *args: (None, set()))
     monkeypatch.setattr(
         pipeline_module,
-        "trace_subgraphs",
+        "partition_subgraphs",
         lambda *args: [_FakeSubgraph(module, events)],
     )
-    monkeypatch.setattr(
-        pipeline_module, "find_modules_outside_subgraphs", lambda *args: {}
-    )
+    monkeypatch.setattr(pipeline_module, "find_modules_outside_graph", lambda *args: {})
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_stage_modules",
