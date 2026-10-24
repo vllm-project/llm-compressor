@@ -11,6 +11,7 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
+from compressed_tensors.quantization import QuantizationConfig
 from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
@@ -145,10 +146,19 @@ def modify_save_pretrained(model: PreTrainedModel):
             if not save_compressed and quantization_format is None:
                 quantization_format = CompressionFormat.dense.value
 
-            # compress model using compressor
+            # Use `ModelCompressor` to construct a quantization config
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
+
+            # Add expert sparsity to quantization config
+            if hasattr(model, "_moe_sparsity_config"):
+                compressor.quantization_config = _apply_expert_sparsity(
+                    model, compressor.quantization_config
+                )
+
+            # TODO: remove use of `ModelCompressor` and instead rely on
+            # modifiers and pipelines to perform layerwise compression
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
@@ -260,6 +270,22 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
 
     recipe_path = os.path.join(save_directory, RECIPE_FILE_NAME)
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
+
+
+def _apply_expert_sparsity(
+    model: PreTrainedModel, quant_config: QuantizationConfig | None
+):
+    """
+    Pick up `model._moe_sparsity_config` which may be applied by a modifier, see
+    `MoNePruningModifier.on_finalize`.
+
+    This lifecycle is hacky and should be replaced in the future
+    """
+    if quant_config is None:
+        quant_config = QuantizationConfig(config_groups={})
+
+    quant_config.moe_sparsity_config = model._moe_sparsity_config
+    return quant_config
 
 
 def resave_config(config: PretrainedConfig, save_dir: str):
