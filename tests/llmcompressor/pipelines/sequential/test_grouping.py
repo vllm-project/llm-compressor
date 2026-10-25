@@ -9,7 +9,12 @@ from datasets import Dataset
 from loguru import logger
 from tokenizers import Tokenizer, models
 from torch.utils.data import DataLoader, IterableDataset, RandomSampler
-from transformers import AutoModelForCausalLM, LlamaConfig, PreTrainedTokenizerFast
+from transformers import (
+    AutoModelForCausalLM,
+    LlamaConfig,
+    PreTrainedModel,
+    PreTrainedTokenizerFast,
+)
 
 from llmcompressor import oneshot
 from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -330,7 +335,7 @@ def test_get_activation_width():
     assert get_activation_width(model, set(model)) is None
 
 
-def test_get_activation_width_of_a_transformers_model():
+def _tiny_llama():
     config = LlamaConfig(
         vocab_size=128,
         hidden_size=128,
@@ -339,10 +344,24 @@ def test_get_activation_width_of_a_transformers_model():
         num_attention_heads=4,
         num_key_value_heads=2,
     )
-    model = AutoModelForCausalLM.from_config(config)
+    return AutoModelForCausalLM.from_config(config)
+
+
+def test_get_activation_width_of_a_transformers_model():
+    model = _tiny_llama()
 
     assert get_activation_width(model, set(model.model.layers)) == 128
     assert get_activation_width(model, {model.model.layers[0].mlp.down_proj}) == 256
+
+
+def test_get_activation_width_without_no_split_modules():
+    model = _tiny_llama()
+    for module in model.modules():
+        if isinstance(module, PreTrainedModel):
+            module._no_split_modules = None  # the transformers default
+
+    # without named decoder layers, targets are treated as smaller ones
+    assert get_activation_width(model, set(model.model.layers)) == 256
 
 
 def test_estimate_activation_memory():

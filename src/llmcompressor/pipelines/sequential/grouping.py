@@ -384,9 +384,11 @@ def get_activation_width(
 
 def _are_decoder_layers(model: Module, targets: set[Module]) -> bool:
     """Whether every target is a decoder layer, as named by `_no_split_modules`"""
+    # models which name no decoder layers, without `_no_split_modules` or with None
+    # (the transformers default), are treated as having smaller targets
     try:
         no_split_modules = get_no_split_params(model)
-    except AttributeError:
+    except (AttributeError, TypeError):
         return False
 
     # a list or set of class names, or a string when the model names none
