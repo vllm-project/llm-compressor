@@ -238,14 +238,18 @@ def test_estimate_sequential_memory(batched_quantization):
     assert modifier.estimate_sequential_memory(model[2], 64) == (0, 0)  # not targeted
 
 
-def test_estimate_sequential_memory_unknown_for_non_2d_weights():
+def test_estimate_sequential_memory_non_2d_weights():
     model = torch.nn.Sequential(torch.nn.Linear(256, 128))
-    modifier = GPTQModifier(targets="Linear", scheme="W4A16")
+    modifier = GPTQModifier(targets="Linear", scheme="W4A16", block_size=128)
     modifier.initialize(State(model=model))
 
-    # e.g. a convolution's weight: only 2D weights are estimated
-    model[0].weight = torch.nn.Parameter(torch.zeros(128, 256, 1, 1))
-    assert modifier.estimate_sequential_memory(model[0], num_tokens=64) is None
+    # e.g. a convolution's weight is estimated rather than disabling "auto": the
+    # Hessian GPTQ allocates from the second dimension (see `make_empty_hessian`),
+    # and the quantization peak of the weight flattened to [128, 64 * 3 * 3]
+    model[0].weight = torch.nn.Parameter(torch.zeros(128, 64, 3, 3))
+    held, scratch = modifier.estimate_sequential_memory(model[0], num_tokens=64)
+    assert held == 64 * 64 * 4
+    assert scratch == (3 * 576 * 576 + 2 * 128 * 576) * 4
 
 
 def test_estimate_sequential_memory_quantization_modifier():

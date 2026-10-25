@@ -414,7 +414,7 @@ def partition_subgraphs(
             node: get_node_modules(model, node) for node in graph.graph.nodes
         }
         plan = plan_subgraph_memory(
-            model, node_modules, dataloader, modifiers, dataset_args
+            model, node_modules, dataloader, modifiers, dataset_args, targets
         )
         if plan is None:
             targets_per_subgraph = 1

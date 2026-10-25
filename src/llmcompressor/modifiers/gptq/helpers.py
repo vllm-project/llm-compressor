@@ -226,9 +226,11 @@ def quantization_peak_bytes(module: torch.nn.Module, block_size: int) -> int:
     which is the largest of the quantization and activation ordering phases.
 
     Only the weight shape is read. Call under ``disable_onloading()`` to avoid
-    onloading offloaded weights.
+    onloading offloaded weights. Weights which are not 2D are counted as
+    [rows, everything else].
     """
-    out_features, in_features = module.weight.shape
+    out_features = module.weight.shape[0]
+    in_features = module.weight.numel() // out_features
     weight_size = out_features * in_features
     hessian_size = in_features * in_features
     block_matrix_size = out_features * block_size

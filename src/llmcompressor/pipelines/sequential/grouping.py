@@ -14,8 +14,10 @@ from compressed_tensors.offload.dist_utils import is_distributed
 from loguru import logger
 from torch.fx import Node
 from torch.nn import Module
+from torch.utils.data import IterableDataset
 
 from llmcompressor.utils.dev import get_main_device
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
@@ -28,9 +30,17 @@ __all__ = ["plan_subgraph_memory", "log_partitions"]
 GiB = 1024**3
 
 # bytes of activations per token per hidden unit of one batch, from peaks measured on
-# Qwen3-8B with SDPA at 2048 tokens: ~0.8 GiB at batch size 1 (estimated 0.78 GiB)
-# and 2.8-4.9 GiB at batch size 8 (estimated 6.25 GiB)
+# Qwen3-8B decoder layers with SDPA at 2048 tokens: ~0.8 GiB at batch size 1
+# (estimated 0.78 GiB) and 2.8-4.9 GiB at batch size 8 (estimated 6.25 GiB)
 ACTIVATION_BYTES = 100
+
+# config fields with the width of intermediates wider than the hidden states
+INTERMEDIATE_SIZE_KEYS = (
+    "intermediate_size",
+    "moe_intermediate_size",
+    "shared_expert_intermediate_size",
+    "ffn_dim",
+)
 
 # module name -> (onloaded weight and held modifier bytes, modifier scratch bytes)
 ModuleCosts = dict[str, tuple[int, int]]
@@ -45,6 +55,7 @@ def plan_subgraph_memory(
     dataloader: "DataLoader",
     modifiers: list["Modifier"],
     dataset_args: "DatasetArguments",
+    targets: set[Module] | None = None,
 ) -> tuple[dict[Node, int], int] | None:
     """
     Estimate the memory each node onloads and holds until its subgraph is compressed,
@@ -62,6 +73,8 @@ def plan_subgraph_memory(
     :param modifiers: modifiers which will calibrate the subgraphs
     :param dataset_args: arguments which set the budget and where activations are
         cached
+    :param targets: sequential target modules, which set how wide the activations of
+        a subgraph are (see `get_activation_width`)
     :return: map of node to bytes, and the bytes available to the nodes of a subgraph,
         or None to fall back to one target per subgraph
     """
@@ -91,7 +104,9 @@ def plan_subgraph_memory(
     budget = get_memory_budget(device, gpu_memory_utilization)
     shapes = get_input_shapes(dataloader)
     if budget is not None and shapes is not None:
-        budget -= estimate_cached_activations(model, shapes, dataset_args, device)
+        budget -= estimate_cached_activations(
+            model, shapes, dataset_args, device, targets
+        )
     if is_distributed():
         budget, shapes = reduce_across_ranks(budget, shapes, device)
 
@@ -102,12 +117,13 @@ def plan_subgraph_memory(
         )
         return None
 
-    activation_memory = estimate_activation_memory(model, shapes)
+    activation_memory = estimate_activation_memory(model, shapes, targets)
     if activation_memory is None:
         logger.warning(
             'sequential_targets_per_subgraph="auto" cannot estimate activation memory '
-            "without `input_ids` in every batch and a `hidden_size` in the model "
-            "config. Falling back to one target per subgraph"
+            "without `input_ids` in every batch, a `hidden_size` in the model config, "
+            "and calibration data which can be read twice (not a streamed dataset). "
+            "Falling back to one target per subgraph"
         )
         return None
 
@@ -274,23 +290,26 @@ def get_onload_bytes(module: Module) -> int:
     )
 
 
-def estimate_activation_memory(model: Module, shapes: InputShapes | None) -> int | None:
+def estimate_activation_memory(
+    model: Module, shapes: InputShapes | None, targets: set[Module] | None = None
+) -> int | None:
     """
     Estimate the activation memory of a subgraph as
-    max_batch_size * max_seq_len * hidden_size * ACTIVATION_BYTES, since subgraphs
-    run one batch at a time
+    max_batch_size * max_seq_len * width * ACTIVATION_BYTES, since subgraphs run one
+    batch at a time
 
     :param model: model being calibrated
     :param shapes: input shapes of the calibration data
+    :param targets: sequential target modules, see `get_activation_width`
     :return: bytes, or None if there are no input shapes or the model config has no
         `hidden_size`
     """
-    hidden_size = get_hidden_size(model)
-    if shapes is None or hidden_size is None:
+    width = get_activation_width(model, targets)
+    if shapes is None or width is None:
         return None
 
     max_batch_size, max_seq_len, _ = shapes
-    return max_batch_size * max_seq_len * hidden_size * ACTIVATION_BYTES
+    return max_batch_size * max_seq_len * width * ACTIVATION_BYTES
 
 
 def estimate_cached_activations(
@@ -298,31 +317,32 @@ def estimate_cached_activations(
     shapes: InputShapes,
     dataset_args: "DatasetArguments",
     device: torch.device,
+    targets: set[Module] | None = None,
 ) -> int:
     """
     Estimate the calibration activations which the pipeline caches on `device` between
-    subgraphs: the hidden states of every token, kept twice when the sequential error
-    is logged. Other cached values are not counted, such as position embeddings,
-    attention masks, or intermediates wider than the hidden states when targets are
-    smaller than decoder layers
+    subgraphs: the activations of every token at the width of `get_activation_width`,
+    kept twice when the sequential error is logged. Other cached values are not
+    counted, such as position embeddings or attention masks
 
     :param model: model being calibrated
     :param shapes: input shapes of the calibration data
     :param dataset_args: arguments which set where activations are cached
     :param device: device which subgraphs are onloaded to
+    :param targets: sequential target modules, see `get_activation_width`
     :return: bytes, or 0 if activations are cached on another device or the model
         config has no `hidden_size`
     """
     offload_device = torch.device(dataset_args.sequential_offload_device)
-    hidden_size = get_hidden_size(model)
-    if not _is_same_accelerator(offload_device, device) or hidden_size is None:
+    width = get_activation_width(model, targets)
+    if not _is_same_accelerator(offload_device, device) or width is None:
         return 0
 
     with disable_onloading():
         parameter = next(model.parameters(), None)
     value_bytes = 2 if parameter is None else parameter.element_size()
     copies = 2 if dataset_args.log_sequential_error else 1
-    return copies * shapes[2] * hidden_size * value_bytes
+    return copies * shapes[2] * width * value_bytes
 
 
 def get_hidden_size(model: Module) -> int | None:
@@ -330,38 +350,108 @@ def get_hidden_size(model: Module) -> int | None:
     :param model: model being calibrated
     :return: the hidden size of the (text) model, or None if the config has none
     """
+    hidden_size = getattr(_get_text_config(model), "hidden_size", None)
+    return hidden_size if isinstance(hidden_size, int) else None
+
+
+def get_activation_width(
+    model: Module, targets: set[Module] | None = None
+) -> int | None:
+    """
+    Get the width per token of the activations a subgraph holds. `ACTIVATION_BYTES`
+    is measured for whole decoder layers, whose subgraphs start and end on the hidden
+    states. Smaller targets can start or end a subgraph on a wider intermediate, so
+    they are sized by the widest intermediate in the config instead
+
+    :param model: model being calibrated
+    :param targets: sequential target modules, or None if unknown
+    :return: width, or None if the config has no `hidden_size`
+    """
+    hidden_size = get_hidden_size(model)
+    if hidden_size is None:
+        return None
+    if targets is not None and _are_decoder_layers(model, targets):
+        return hidden_size
+
+    config = _get_text_config(model)
+    widths = [hidden_size]
+    for key in INTERMEDIATE_SIZE_KEYS:
+        value = getattr(config, key, None)
+        values = value if isinstance(value, (list, tuple)) else [value]
+        widths.extend(width for width in values if isinstance(width, int))
+    return max(widths)
+
+
+def _are_decoder_layers(model: Module, targets: set[Module]) -> bool:
+    """Whether every target is a decoder layer, as named by `_no_split_modules`"""
+    try:
+        no_split_modules = get_no_split_params(model)
+    except AttributeError:
+        return False
+
+    # a list or set of class names, or a string when the model names none
+    if isinstance(no_split_modules, str):
+        return False
+    return all(type(target).__name__ in no_split_modules for target in targets)
+
+
+def _get_text_config(model: Module) -> Any:
     config = getattr(model, "config", None)
     if hasattr(config, "get_text_config"):
         config = config.get_text_config()
-    hidden_size = getattr(config, "hidden_size", None)
-    return hidden_size if isinstance(hidden_size, int) else None
+    return config
 
 
 def get_input_shapes(dataloader: "DataLoader") -> InputShapes | None:
     """
-    Read the shapes of the calibration batches from the dataloader, without running
-    the model
+    Read the shapes of the calibration batches with an extra pass over the
+    dataloader, without running the model. Streamed (iterable) datasets are not read,
+    since a second pass may yield other batches, or none
 
     :param dataloader: calibration data
     :return: largest batch size, longest sequence and number of tokens including
-        padding of the batches' `input_ids`, or None if a batch has no 2D `input_ids`
+        padding of the batches' `input_ids`, or None if the dataset is streamed or a
+        batch has no 2D `input_ids`
     """
+    if isinstance(getattr(dataloader, "dataset", None), IterableDataset):
+        return None
+
     max_batch_size, max_seq_len, num_tokens = 0, 0, 0
 
-    # shuffling samplers draw from the global random state on every pass, so it is
-    # restored afterwards: the next pass then calibrates on these same batches
-    with torch.random.fork_rng(devices=[]):
-        for batch in dataloader:
-            input_ids = batch.get("input_ids") if hasattr(batch, "get") else None
-            if not isinstance(input_ids, torch.Tensor) or input_ids.dim() != 2:
-                return None
+    # shuffling draws from the global random state, or from the dataloader's own
+    # generator, on every pass. Both are restored afterwards, so that calibration
+    # then reads these same batches in the same order
+    generators = _get_dataloader_generators(dataloader)
+    generator_states = [generator.get_state() for generator in generators]
+    try:
+        with torch.random.fork_rng(devices=[]):
+            for batch in dataloader:
+                input_ids = batch.get("input_ids") if hasattr(batch, "get") else None
+                if not isinstance(input_ids, torch.Tensor) or input_ids.dim() != 2:
+                    return None
 
-            batch_size, seq_len = input_ids.shape
-            max_batch_size = max(max_batch_size, batch_size)
-            max_seq_len = max(max_seq_len, seq_len)
-            num_tokens += batch_size * seq_len
+                batch_size, seq_len = input_ids.shape
+                max_batch_size = max(max_batch_size, batch_size)
+                max_seq_len = max(max_seq_len, seq_len)
+                num_tokens += batch_size * seq_len
+    finally:
+        for generator, state in zip(generators, generator_states):
+            generator.set_state(state)
 
     return max_batch_size, max_seq_len, num_tokens
+
+
+def _get_dataloader_generators(dataloader: "DataLoader") -> list[torch.Generator]:
+    """Generators other than the global one which a dataloader draws from per pass"""
+    sampler = getattr(dataloader, "sampler", None)
+    batch_sampler = getattr(dataloader, "batch_sampler", None)
+    candidates = [
+        getattr(dataloader, "generator", None),
+        getattr(sampler, "generator", None),
+        getattr(getattr(batch_sampler, "sampler", None), "generator", None),
+    ]
+    unique = {id(g): g for g in candidates if isinstance(g, torch.Generator)}
+    return list(unique.values())
 
 
 def get_memory_budget(

@@ -244,20 +244,20 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     def estimate_sequential_memory(
         self, module: torch.nn.Module, num_tokens: int
-    ) -> tuple[int, int] | None:
+    ) -> tuple[int, int]:
         """
         Estimate the Hessian held for a module until its subgraph is compressed, and
         the temporary memory needed to compress it
 
         :param module: module belonging to the subgraph being calibrated
         :param num_tokens: number of calibration tokens, unused
-        :return: tuple of (held, scratch) bytes, or None for weights which are not 2D
+        :return: tuple of (held, scratch) bytes
         """
         if not self._is_calibrated(module):
             return 0, 0
-        if module.weight.ndim != 2:
-            return None
 
+        # the Hessian is allocated from the weight's second dimension whatever its
+        # shape, see `make_empty_hessian`
         num_columns = module.weight.shape[1]
         held = num_columns * num_columns * GPTQ_PRECISION.itemsize
 

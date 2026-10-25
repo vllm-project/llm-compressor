@@ -8,12 +8,13 @@ from compressed_tensors.offload import offload_module
 from datasets import Dataset
 from loguru import logger
 from tokenizers import Tokenizer, models
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader, IterableDataset, RandomSampler
 from transformers import AutoModelForCausalLM, LlamaConfig, PreTrainedTokenizerFast
 
 from llmcompressor import oneshot
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import active_session
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
@@ -22,6 +23,7 @@ from llmcompressor.pipelines.sequential import grouping, helpers
 from llmcompressor.pipelines.sequential.grouping import (
     ACTIVATION_BYTES,
     estimate_activation_memory,
+    get_activation_width,
     get_input_shapes,
     get_memory_budget,
     get_module_costs,
@@ -265,6 +267,82 @@ def test_get_input_shapes_reads_the_batches_calibrated_on():
     shapes = get_input_shapes(dataloader)
     lengths = [batch["input_ids"].shape[1] for batch in dataloader]
     assert shapes == (1, max(lengths), sum(lengths))
+
+
+def test_get_input_shapes_keeps_a_dataloaders_own_shuffle():
+    samples = _batches(*[(1, length) for length in range(1, 9)])
+
+    def shuffled():
+        generator = torch.Generator().manual_seed(0)
+        return DataLoader(samples, batch_size=None, shuffle=True, generator=generator)
+
+    # the dataloader's own generator is restored, not only the global one
+    expected = [batch["input_ids"].shape[1] for batch in shuffled()]
+    dataloader = shuffled()
+    get_input_shapes(dataloader)
+    assert [batch["input_ids"].shape[1] for batch in dataloader] == expected
+
+
+class OnePassDataset(IterableDataset):
+    """Yields its samples once, like a stream"""
+
+    def __init__(self, samples):
+        self.samples = iter(samples)
+
+    def __iter__(self):
+        return self.samples
+
+
+def test_get_input_shapes_skips_streamed_datasets():
+    dataloader = DataLoader(OnePassDataset(_batches((1, 8), (1, 8))), batch_size=None)
+
+    # a second pass over a stream may yield other batches, or none, so it is not read
+    assert get_input_shapes(dataloader) is None
+    assert len(list(dataloader)) == 2
+
+
+class Block(torch.nn.Module):
+    """A decoder layer, as named by its model's `_no_split_modules`"""
+
+    def __init__(self):
+        super().__init__()
+        self.mlp = torch.nn.Linear(4, 4)
+
+
+def test_get_activation_width():
+    model = torch.nn.Sequential(Block(), Block())
+    model._no_split_modules = ["Block"]
+    model.config = SimpleNamespace(
+        hidden_size=16, intermediate_size=48, moe_intermediate_size=[8, 64]
+    )
+
+    # decoder layers start and end their subgraphs on the hidden states
+    assert get_activation_width(model, set(model)) == 16
+    model._no_split_modules = {"Block"}  # some transformers versions return a set
+    assert get_activation_width(model, set(model)) == 16
+    # smaller targets can cut through the widest intermediate in the config
+    assert get_activation_width(model, {model[0].mlp}) == 64
+    assert get_activation_width(model, None) == 64
+    expected = 3 * 7 * 64 * ACTIVATION_BYTES
+    assert estimate_activation_memory(model, (3, 7, 29), {model[0].mlp}) == expected
+
+    model.config = SimpleNamespace()
+    assert get_activation_width(model, set(model)) is None
+
+
+def test_get_activation_width_of_a_transformers_model():
+    config = LlamaConfig(
+        vocab_size=128,
+        hidden_size=128,
+        intermediate_size=256,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+    )
+    model = AutoModelForCausalLM.from_config(config)
+
+    assert get_activation_width(model, set(model.model.layers)) == 128
+    assert get_activation_width(model, {model.model.layers[0].mlp.down_proj}) == 256
 
 
 def test_estimate_activation_memory():
@@ -568,8 +646,12 @@ parametrize_auto_recipes = pytest.mark.parametrize(
                 targets="Linear", scheme="W4A16_ASYM", ignore=["lm_head"]
             ),
         ],
+        lambda: [
+            SmoothQuantModifier(smoothing_strength=0.8),
+            GPTQModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
+        ],
     ],
-    ids=["gptq", "awq"],
+    ids=["gptq", "awq", "smoothquant"],
 )
 
 
@@ -611,18 +693,26 @@ def test_oneshot_auto_matches_fixed_grouping(tmp_path, monkeypatch, recipe):
         assert torch.equal(weight, fixed_weights[name]), name
 
 
+class UnestimatedModifier(Modifier):
+    """Needs calibration data, but does not estimate its memory"""
+
+    requires_calibration_data: bool = True
+
+    def on_initialize(self, state, **kwargs):
+        return True
+
+
 @requires_gpu
 def test_oneshot_auto_falls_back_for_unknown_memory(tmp_path):
     recipe = [
-        SmoothQuantModifier(smoothing_strength=0.8),
+        UnestimatedModifier(),
         QuantizationModifier(targets="Linear", scheme="W8A8", ignore=["lm_head"]),
     ]
     messages, _ = _run_oneshot(tmp_path, recipe)
 
-    # SmoothQuant does not estimate its memory, which may grow with the number of
-    # targets per subgraph
+    # memory which is not estimated may grow with the number of targets per subgraph
     assert any(
-        "SmoothQuantModifier" in message and "Falling back" in message
+        "UnestimatedModifier" in message and "Falling back" in message
         for message in messages
     )
     assert not any("subgraphs of sizes" in message for message in messages)
