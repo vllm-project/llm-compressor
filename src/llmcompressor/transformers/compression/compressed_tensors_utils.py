@@ -294,6 +294,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
             config_path = hf_hub_download(
                 repo_id=name_or_path,
                 filename="config.json",
+                revision=getattr(config, "_commit_hash", None),
                 cache_dir=None,
                 force_download=False,
                 user_agent=http_user_agent(),
