@@ -117,11 +117,11 @@ def _prepare(kind="rtn", dtype=torch.float32, model_class=BranchModel, **qad_kwa
     qad = QADModifier(**qad_kwargs)
     quant.on_initialize(state)
     qad.on_initialize(state)
-    start = Event(type_=EventType.CALIBRATION_START)
-    quant.on_sequential_epoch_initialize(state, start)
-    quant.on_calibration_start(state, start)
-    qad.on_sequential_epoch_initialize(state, start)
-    qad.on_calibration_start(state, start)
+    start = Event(type_=EventType.SEQUENTIAL_EPOCH_START)
+    quant._prepare_sequential_epoch(state, start)
+    qad._prepare_sequential_epoch(state, start)
+    quant.on_sequential_epoch_start(state, start)
+    qad.on_sequential_epoch_start(state, start)
     return model, reference, batches, state, quant, qad
 
 
@@ -200,7 +200,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         assert all(p.grad is None for p in model.parameters())
         if kind == "gptq":
             assert not quant._hessians and not quant._num_samples
-    qad.on_calibration_end(state, None)
+    qad._cleanup_sequential_epoch(state, None)
     assert not qad._hooks
 
 
@@ -407,8 +407,8 @@ def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
     state = State(model=BranchModel())
     qad.on_initialize(state)
     with pytest.raises(ValueError, match="after a weight quantization"):
-        qad.on_sequential_epoch_initialize(state, None)
-        qad.on_calibration_start(state, None)
+        qad._prepare_sequential_epoch(state, None)
+        qad.on_sequential_epoch_start(state, None)
     with pytest.raises(ValidationError):
         QADModifier(teacher_mode="full")
 
@@ -566,7 +566,7 @@ def test_chain_caches_only_last_teacher_and_trains_every_target():
     # 5 training batches per epoch; 1 is held out for validation
     assert _logged_updates(logs) == {"first..second": 10}
     assert len(norms) == 10 and all(norm > 0 for norm in norms)
-    qad.on_calibration_end(state, None)
+    qad._cleanup_sequential_epoch(state, None)
 
 
 def test_unchained_subgraph_targets_rejected():

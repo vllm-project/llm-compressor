@@ -41,8 +41,8 @@ def test_sequential_epoch_end_only_observes_passed_modules():
     modifier = QuantizationModifier(targets="Linear", scheme="FP8")
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_sequential_epoch_initialize(state, None)
-    modifier.on_calibration_start(state, None)
+    modifier._prepare_sequential_epoch(state, None)
+    modifier.on_sequential_epoch_start(state, None)
 
     # Wrap update_statistics_from_observed to track which observers are called
     with (
@@ -87,8 +87,8 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_sequential_epoch_initialize(state, None)
-    modifier.on_calibration_start(state, None)
+    modifier._prepare_sequential_epoch(state, None)
+    modifier.on_sequential_epoch_start(state, None)
 
     # Patch get_qparams and sync_activation_stats to track calls
     with (
@@ -166,8 +166,8 @@ def test_nested_parent_modules_produce_valid_global_scale():
     modifier = QuantizationModifier(targets="Linear", scheme="NVFP4")
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_sequential_epoch_initialize(state, None)
-    modifier.on_calibration_start(state, None)
+    modifier._prepare_sequential_epoch(state, None)
+    modifier.on_sequential_epoch_start(state, None)
 
     for child in (model[0].q_proj, model[0].k_proj, model[0].v_proj):
         child.weight_observer(child.weight)
@@ -196,20 +196,19 @@ def test_session_initialization_defers_quantization_until_scope_is_onloaded():
     assert getattr(model[0], "quantization_scheme", None) is None
     assert getattr(model[1], "quantization_scheme", None) is None
 
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[0]])
-    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[0]])
 
     assert model[0].quantization_scheme is not None
     assert hasattr(model[0], "weight_observer")
     assert getattr(model[1], "quantization_scheme", None) is None
 
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[1]])
-    assert model[1].quantization_scheme is not None
     assert not hasattr(model[1], "weight_observer")
-    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[1]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[1]])
+    assert model[1].quantization_scheme is not None
     assert hasattr(model[1], "weight_observer")
 
-    session.lifecycle.event(EventType.CALIBRATION_END)
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_END, modules=[model[0]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_END, modules=[model[1]])
 
 
 def test_overlapping_initialization_preserves_existing_quantization():
@@ -232,7 +231,7 @@ def test_overlapping_initialization_preserves_existing_quantization():
     assert not model[1].quantization_enabled
 
 
-def test_basic_scope_initializes_before_calibration_start():
+def test_whole_model_scope_prepares_quantization_and_observers():
     model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
     modifier = QuantizationModifier(targets="Linear", scheme="W8A8")
     session = CompressionSession()
@@ -241,17 +240,15 @@ def test_basic_scope_initializes_before_calibration_start():
     assert getattr(model[0], "quantization_scheme", None) is None
     assert getattr(model[1], "quantization_scheme", None) is None
 
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE)
-    assert model[0].quantization_scheme is not None
     assert not hasattr(model[0], "weight_observer")
-    session.lifecycle.event(EventType.CALIBRATION_START)
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START)
 
     assert model[0].quantization_scheme is not None
     assert model[1].quantization_scheme is not None
     assert hasattr(model[0], "weight_observer")
     assert hasattr(model[1], "weight_observer")
 
-    session.lifecycle.event(EventType.CALIBRATION_END)
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_END)
 
 
 def test_session_always_defers_model_setup_for_mixed_recipes():
@@ -271,11 +268,10 @@ def test_session_always_defers_model_setup_for_mixed_recipes():
     assert not hasattr(model[0], "quantization_scheme")
     assert not hasattr(model[1], "quantization_scheme")
 
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[0]])
-    session.lifecycle.event(EventType.CALIBRATION_START, modules=[model[0]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[0]])
     assert model[0].quantization_scheme is not None
     assert not hasattr(model[1], "quantization_scheme")
-    session.lifecycle.event(EventType.CALIBRATION_END)
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_END, modules=[model[0]])
 
 
 def test_tensor_group_quantization_supports_lazy_initialization():
@@ -284,17 +280,16 @@ def test_tensor_group_quantization_supports_lazy_initialization():
     session = CompressionSession()
     session.initialize(model=model, recipe=modifier)
 
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[])
-    session.lifecycle.event(EventType.CALIBRATION_START, modules=[])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[])
     session.lifecycle.event(
-        EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=list(model[0].modules())
-    )
-    session.lifecycle.event(
-        EventType.CALIBRATION_START, modules=list(model[0].modules())
+        EventType.SEQUENTIAL_EPOCH_START, modules=list(model[0].modules())
     )
     assert hasattr(model[0].q_proj, "weight_observer")
     assert not hasattr(model[1].q_proj, "quantization_scheme")
-    session.lifecycle.event(EventType.CALIBRATION_END)
+    session.lifecycle.event(
+        EventType.SEQUENTIAL_EPOCH_END, modules=list(model[0].modules())
+    )
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_END, modules=[])
 
 
 def test_lazy_tensor_group_calibration_rejects_split_fused_layers():
@@ -305,7 +300,7 @@ def test_lazy_tensor_group_calibration_rejects_split_fused_layers():
 
     q_proj = model[0].q_proj
     with pytest.raises(ValueError, match="span multiple sequential calibration"):
-        modifier.on_sequential_epoch_initialize(state, None, modules=[q_proj])
+        modifier._prepare_sequential_epoch(state, None, modules=[q_proj])
 
 
 def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
@@ -323,13 +318,13 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     with patch(
         "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
     ) as fuse_weight_observers:
-        modifier.on_sequential_epoch_initialize(
+        modifier._prepare_sequential_epoch(
             state,
-            Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE),
+            Event(type_=EventType.SEQUENTIAL_EPOCH_START),
             modules=modules,
         )
         assert not hasattr(model[0], "weight_observer")
-        modifier.on_calibration_start(state, None, modules=modules)
+        modifier.on_sequential_epoch_start(state, None, modules=modules)
 
     fuse_weight_observers.assert_called_once_with(model, modules=modules)
 
@@ -343,7 +338,7 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
         modules=list(model[0].modules()),
     )
     assert hasattr(model[0], "weight_observer")
-    modifier.on_calibration_end(state, None, modules=list(model[0].modules()))
+    modifier._cleanup_sequential_epoch(state, None, modules=list(model[0].modules()))
 
     assert model[0].quantization_status == QuantizationStatus.FROZEN
     assert not hasattr(model[0], "weight_observer")

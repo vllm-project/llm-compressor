@@ -20,13 +20,14 @@ class Modifier(ModifierInterface, HooksMixin):
     Lifecycle:
     1. initialize
     2. on_event ->
-        * on_sequential_epoch_initialize for SEQUENTIAL_EPOCH_INITIALIZE
-        * on_calibration_start for CALIBRATION_START
+        * on_sequential_epoch_start for SEQUENTIAL_EPOCH_START
         * on_start if self.start <= event.current_index
         * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
         * on_end if self.end >= event.current_index
-        * on_calibration_end if event.type_ == EventType.CALIBRATION_END
-    5. finalize
+    3. finalize
+
+    The lifecycle prepares every modifier before dispatching the sequential start
+    event, and cleans up after every modifier has handled the sequential end event.
 
     Subclasses that need calibration data must override
     ``requires_calibration_data`` to return ``True``. This is used by the
@@ -54,7 +55,7 @@ class Modifier(ModifierInterface, HooksMixin):
     finalized_: bool = False
     started_: bool = False
     ended_: bool = False
-    _active_calibration_scopes: int = PrivateAttr(default=0)
+    _active_sequential_scopes: int = PrivateAttr(default=0)
 
     @property
     def initialized(self) -> bool:
@@ -131,27 +132,17 @@ class Modifier(ModifierInterface, HooksMixin):
 
         ## calibration lifecycle ##
 
-        if event.type_ == EventType.CALIBRATION_START:
-            self.on_calibration_start(state, event, **kwargs)
-            self._active_calibration_scopes += 1
+        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
+            self.on_sequential_epoch_start(state, event, **kwargs)
+            self._active_sequential_scopes += 1
             self.started_ = True
             self.ended_ = False
             return
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_INITIALIZE:
-            self.on_sequential_epoch_initialize(state, event, **kwargs)
-            return
-
         if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
             self.on_sequential_epoch_end(state, event, **kwargs)
-            return
-
-        if event.type_ == EventType.CALIBRATION_END:
-            self.on_calibration_end(state, event, **kwargs)
-            self._active_calibration_scopes = max(
-                0, self._active_calibration_scopes - 1
-            )
-            self.ended_ = self._active_calibration_scopes == 0
+            self._active_sequential_scopes = max(0, self._active_sequential_scopes - 1)
+            self.ended_ = self._active_sequential_scopes == 0
             return
 
         ## training lifecycle ##
@@ -206,7 +197,7 @@ class Modifier(ModifierInterface, HooksMixin):
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Prepare global configuration and metadata. Model-local setup belongs in
-        on_sequential_epoch_initialize, or on_start for training.
+        _prepare_sequential_epoch, or on_start for training.
 
         :param state: The current state of the model
         :param kwargs: Additional arguments for initializing the modifier
@@ -275,7 +266,7 @@ class Modifier(ModifierInterface, HooksMixin):
 
     ## Calibration lifecycle events ##
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         """
         Set up observers and hooks for the current calibration scope, after all
         modifiers have initialized that scope.
@@ -286,7 +277,7 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_sequential_epoch_initialize(
+    def _prepare_sequential_epoch(
         self,
         state: State,
         event: Event,
@@ -295,7 +286,7 @@ class Modifier(ModifierInterface, HooksMixin):
     ):
         """
         Initialize model state after onloading/decompression, before any modifier's
-        calibration-start callback. modules=None initializes the whole model.
+        start callback. modules=None initializes the whole model.
 
         :param state: The current state of the model
         :param event: The event that triggered scope initialization
@@ -320,9 +311,11 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         """
-        on_calibration_end is called at the end of a calibration epoch.
+        Release this scope's observers, hooks, and caches after every modifier has
+        handled the sequential end event. Later modifiers may still need observers
+        while processing that event.
 
         :param state: The current state of the model
         :param event: The event that triggered the calibration epoch end

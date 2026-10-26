@@ -6,10 +6,12 @@ from compressed_tensors.offload import OffloadCache
 from compressed_tensors.offload.module import offload_module
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.transform.factory.base import TransformBase
+from compressed_tensors.utils.internal import InternalModule
 from transformers import LlamaConfig, LlamaForCausalLM
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.core import EventType, State, create_session
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
@@ -50,15 +52,19 @@ def test_initialization_tracks_and_offloads_transform_children(
         )
     ).eval()
     batches = [{"input_ids": torch.randint(0, 64, (1, 4))}]
-    kwargs = {"rotations": ["R3", "R4"]} if modifier_cls is SpinQuantModifier else {}
+    kwargs = (
+        {"rotations": ["R1", "R2", "R3", "R4"]}
+        if modifier_cls is SpinQuantModifier
+        else {"ignore": []}
+    )
     # Apply the same transforms eagerly to check that scoped placement preserves
     # their values, including the paired attention transforms.
     eager = deepcopy(model)
     eager_modifier = modifier_cls(**kwargs)
     eager_state = State(model=eager)
     eager_modifier.initialize(eager_state)
-    eager_modifier.on_sequential_epoch_initialize(eager_state, None)
-    eager_modifier.on_calibration_start(eager_state, None)
+    eager_modifier._prepare_sequential_epoch(eager_state, None)
+    eager_modifier.on_sequential_epoch_start(eager_state, None)
     with torch.no_grad():
         expected = eager(**batches[0]).logits
 
@@ -101,6 +107,103 @@ def test_initialization_tracks_and_offloads_transform_children(
         torch.testing.assert_close(model(**batches[0]).logits.cpu(), expected)
 
 
+@pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+def test_offload_discovers_internal_children_with_fixed_scopes(
+    offload_device, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.sequential.pipeline.get_main_device",
+        lambda: torch.device("cpu"),
+    )
+
+    class Auxiliary(InternalModule):
+        def __init__(self):
+            super().__init__()
+            self.register_buffer("value", torch.ones(4))
+            self.inner = torch.nn.Identity()
+            self.inner.register_buffer("value", torch.zeros(4))
+            self.temporary = torch.nn.Identity()
+
+    class AddChildren(Modifier):
+        def on_initialize(self, state, **kwargs):
+            return True
+
+        def _prepare_sequential_epoch(self, state, event, modules, **kwargs):
+            backbone = state.model.model
+            if backbone in modules:
+                backbone.auxiliary = Auxiliary()
+            mlp = backbone.layers[0].mlp
+            if mlp.down_proj in modules:
+                mlp.down_proj.auxiliary = Auxiliary()
+
+        def on_sequential_epoch_start(self, state, event, modules, **kwargs):
+            backbone = state.model.model
+            if backbone in modules:
+                assert backbone.layers[0] not in modules
+            for parent in (backbone, backbone.layers[0].mlp.down_proj):
+                if parent in modules:
+                    assert parent.auxiliary not in modules
+
+        def on_sequential_epoch_end(self, state, event, modules, **kwargs):
+            backbone = state.model.model
+            for parent in (backbone, backbone.layers[0].mlp.down_proj):
+                if parent in modules:
+                    del parent.auxiliary.temporary
+
+    model = LlamaForCausalLM(
+        LlamaConfig(
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            vocab_size=64,
+        )
+    ).eval()
+    offload_args = {"onload_device": "cpu", "offload_device": offload_device}
+    if offload_device == "disk":
+        offload_args["offload_dir"] = str(tmp_path)
+    for module in model.modules():
+        offload_module(module, **offload_args)
+
+    quant = QuantizationModifier(
+        config_groups={
+            "weights": {
+                "targets": ["Linear"],
+                "weights": {"num_bits": 8, "strategy": "channel"},
+            }
+        }
+    )
+    batches = [{"input_ids": torch.randint(0, 64, (1, 4))}]
+    with create_session() as session:
+        session.initialize(
+            model=model, recipe=[AddChildren(), quant], calib_data=batches
+        )
+        SequentialPipeline()(
+            model,
+            batches,
+            DatasetArguments(
+                sequential_targets=["LlamaDecoderLayer"], layerwise_compression=True
+            ),
+        )
+        session.finalize()
+
+    for parent in (model.model, model.model.layers[0].mlp.down_proj):
+        assert not hasattr(parent.auxiliary, "temporary")
+        for module in parent.auxiliary.modules():
+            assert isinstance(module._parameters, OffloadCache)
+            assert str(module._parameters.offload_device) == offload_device
+            with OffloadCache.disable_onloading():
+                assert module.value.device.type == (
+                    "meta" if offload_device == "disk" else "cpu"
+                )
+    assert (
+        model.model.layers[0].mlp.down_proj.quantization_status
+        == QuantizationStatus.COMPRESSED
+    )
+    assert not hasattr(model.model.layers[0].mlp.down_proj, "weight_observer")
+
+
 @pytest.mark.parametrize("modifier_cls", [QuantizationModifier, GPTQModifier])
 def test_scope_cleanup_preserves_persistent_calibration(modifier_cls):
     torch.manual_seed(13)
@@ -122,27 +225,22 @@ def test_scope_cleanup_preserves_persistent_calibration(modifier_cls):
     with create_session() as session:
         session.initialize(model=model, recipe=modifier)
         event = session.lifecycle.event
-        event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[persistent])
         assert not hasattr(persistent, "weight_observer")
-        event(EventType.CALIBRATION_START, modules=[persistent])
+        event(EventType.SEQUENTIAL_EPOCH_START, modules=[persistent])
         observer = persistent.input_observer
 
         # A scope with no targets must not finish persistent calibration or fail GPTQ.
-        event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[])
-        event(EventType.CALIBRATION_START, modules=[])
+        event(EventType.SEQUENTIAL_EPOCH_START, modules=[])
         event(EventType.SEQUENTIAL_EPOCH_END, modules=[])
-        event(EventType.CALIBRATION_END, modules=[])
         assert not modifier.ended_
 
         for layer in (model[1], model[2], model[1]):
-            event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[layer])
             assert not hasattr(layer, "weight_observer")
             assert not layer._forward_hooks
-            event(EventType.CALIBRATION_START, modules=[layer])
+            event(EventType.SEQUENTIAL_EPOCH_START, modules=[layer])
             with torch.no_grad():
                 layer(persistent(torch.randn(16, 8)))
             event(EventType.SEQUENTIAL_EPOCH_END, modules=[layer])
-            event(EventType.CALIBRATION_END, modules=[layer])
 
             assert layer.quantization_status == QuantizationStatus.FROZEN
             assert not hasattr(layer, "weight_observer")
@@ -157,7 +255,6 @@ def test_scope_cleanup_preserves_persistent_calibration(modifier_cls):
                 assert layer not in modifier._hessians
 
         event(EventType.SEQUENTIAL_EPOCH_END, modules=[persistent])
-        event(EventType.CALIBRATION_END, modules=[persistent])
         assert modifier.ended_
         assert not modifier._hooks
         assert not modifier._hook_owners

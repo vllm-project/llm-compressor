@@ -63,13 +63,13 @@ class QuantizationMixin(HooksMixin):
 
     Lifecycle:
 
-    - on_sequential_epoch_initialize: QuantizationMixin.initialize_quantization
+    - _prepare_sequential_epoch: QuantizationMixin.initialize_quantization
         - Attach schemes to modules
-    - on_calibration_start: QuantizationMixin.start_calibration
+    - on_sequential_epoch_start: QuantizationMixin.start_calibration
         - Attach observers to modules
         - Attach calibration hooks
         - Apply calibration status
-    - on_calibration_end: QuantizationMixin.end_calibration
+    - _cleanup_sequential_epoch: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
         - Keep quantization enabled for future steps

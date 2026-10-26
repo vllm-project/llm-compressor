@@ -17,7 +17,7 @@ def test_sequential_epoch_end_passes_modules(monkeypatch):
     assert seen["kwargs"] == {"modules": modules, "extra_kwarg": True}
 
 
-def test_sequential_epoch_initialize_passes_modules(monkeypatch):
+def test_sequential_epoch_start_passes_modules(monkeypatch):
     modules = [object()]
     seen = {}
 
@@ -27,14 +27,13 @@ def test_sequential_epoch_initialize_passes_modules(monkeypatch):
 
     monkeypatch.setattr(LifecycleCallbacks, "event", classmethod(fake_event))
 
-    LifecycleCallbacks.sequential_epoch_initialize(modules, extra_kwarg=True)
+    LifecycleCallbacks.sequential_epoch_start(modules, extra_kwarg=True)
 
-    assert seen["event_type"] == EventType.SEQUENTIAL_EPOCH_INITIALIZE
+    assert seen["event_type"] == EventType.SEQUENTIAL_EPOCH_START
     assert seen["kwargs"] == {"modules": modules, "extra_kwarg": True}
 
 
-def test_calibration_start_passes_optional_module_scope(monkeypatch):
-    modules = [object()]
+def test_sequential_epoch_start_supports_whole_model_scope(monkeypatch):
     seen = {}
 
     def fake_event(cls, event_type, **kwargs):
@@ -43,61 +42,52 @@ def test_calibration_start_passes_optional_module_scope(monkeypatch):
 
     monkeypatch.setattr(LifecycleCallbacks, "event", classmethod(fake_event))
 
-    LifecycleCallbacks.calibration_start(modules=modules)
+    LifecycleCallbacks.sequential_epoch_start()
 
-    assert seen["event_type"] == EventType.CALIBRATION_START
-    assert seen["kwargs"] == {"modules": modules}
+    assert seen["event_type"] == EventType.SEQUENTIAL_EPOCH_START
+    assert seen["kwargs"] == {"modules": None}
 
 
-def test_modifiers_share_updated_module_and_offload_bookkeeping():
+def test_modifiers_keep_original_scope_and_defer_observer_cleanup():
     import torch
 
     from llmcompressor.core import create_session
     from llmcompressor.modifiers import Modifier
     from llmcompressor.modifiers.quantization import QuantizationModifier
-
-    class ReplaceChildren(Modifier):
-        def on_initialize(self, state, **kwargs):
-            return True
-
-        def on_sequential_epoch_initialize(self, state, event, modules, **kwargs):
-            state.model[0] = torch.nn.Sequential(torch.nn.Linear(8, 8))
-            kwargs["onloaded_modules"]["0"] = state.model[0]
-            kwargs["onloaded_modules"]["0.0"] = state.model[0][0]
-            kwargs["offload_kwargs"]["0.0"] = kwargs["offload_kwargs"]["0"].copy()
+    from llmcompressor.modifiers.transform import QuIPModifier
 
     class CheckScope(Modifier):
         def on_initialize(self, state, **kwargs):
             return True
 
-        def on_sequential_epoch_initialize(self, state, event, modules, **kwargs):
-            layer = state.model[0][0]
-            assert layer in modules
+        def _prepare_sequential_epoch(self, state, event, modules, **kwargs):
+            layer = state.model[0]
+            assert modules == scope
+            assert hasattr(layer, "v_input")
+            assert layer.v_input not in modules
             assert not hasattr(layer, "weight_observer")
 
-        def on_calibration_start(self, state, event, modules, **kwargs):
-            layer = state.model[0][0]
-            assert layer in modules
+        def on_sequential_epoch_start(self, state, event, modules, **kwargs):
+            layer = state.model[0]
+            assert modules == scope
             assert hasattr(layer, "weight_observer")
 
-        def on_calibration_end(self, state, event, modules, **kwargs):
-            assert not hasattr(state.model[0][0], "weight_observer")
+        def _cleanup_sequential_epoch(self, state, event, modules, **kwargs):
+            assert modules == scope
+            assert not hasattr(state.model[0], "weight_observer")
 
-    model = torch.nn.Sequential(torch.nn.Linear(8, 8))
-    original = model[0]
-    onloaded_modules = {"0": original}
-    offload_kwargs = {
-        "0": {
-            "onload_device": "cpu",
-            "offload_device": "disk",
-            "offload_dir": "/tmp/example",
-        }
-    }
+        def on_sequential_epoch_end(self, state, event, modules, **kwargs):
+            # A later modifier such as QAD must still be able to re-observe weights.
+            assert modules == scope
+            assert hasattr(state.model[0], "weight_observer")
+
+    model = torch.nn.Sequential(torch.nn.Linear(8, 8), torch.nn.Linear(8, 8))
+    scope = [model[0]]
     with create_session() as session:
         session.initialize(
             model=model,
             recipe=[
-                ReplaceChildren(),
+                QuIPModifier(transform_type="hadamard"),
                 QuantizationModifier(
                     config_groups={
                         "weights": {
@@ -111,18 +101,8 @@ def test_modifiers_share_updated_module_and_offload_bookkeeping():
         )
         # Exercise per-subgraph observer cleanup as well as creation.
         session.state.layerwise_decompression = True
-        LifecycleCallbacks.sequential_epoch_initialize(
-            [original], onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
-        )
-        LifecycleCallbacks.calibration_start(
-            onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
-        )
-        assert original not in onloaded_modules.values()
-        assert offload_kwargs["0.0"]["offload_device"] == "disk"
-        LifecycleCallbacks.sequential_epoch_end(
-            [original], onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
-        )
-        LifecycleCallbacks.calibration_end(
-            onloaded_modules=onloaded_modules, offload_kwargs=offload_kwargs
-        )
+        LifecycleCallbacks.sequential_epoch_start(scope)
+        assert not hasattr(model[1], "quantization_scheme")
+        assert not hasattr(model[1], "v_input")
+        LifecycleCallbacks.sequential_epoch_end(scope)
         session.finalize()
