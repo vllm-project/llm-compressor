@@ -141,54 +141,70 @@ def modify_save_pretrained(model: PreTrainedModel):
             if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
                 source_mtp = validate_mtp_copy_source(model)
 
-            # without this, quantization format will be inferred from the model
-            if not save_compressed and quantization_format is None:
-                quantization_format = CompressionFormat.dense.value
-
-            # compress model using compressor
-            compressor = ModelCompressor.from_pretrained_model(
-                model, quantization_format=quantization_format
+            # A frozen save forces the dense format only for that checkpoint.
+            # Restore the live schemes afterwards, including failed saves, so a
+            # later compressed save infers the format from the model again.
+            scheme_formats = (
+                [
+                    (module.quantization_scheme, module.quantization_scheme.format)
+                    for module in model.modules()
+                    if getattr(module, "quantization_scheme", None) is not None
+                ]
+                if not save_compressed
+                else []
             )
-            if save_compressed:
-                compressor.compress_model(model, skip_compressed=True)
+            try:
+                # without this, quantization format will be inferred from the model
+                if not save_compressed and quantization_format is None:
+                    quantization_format = CompressionFormat.dense.value
 
-            # Re-tie input and output embeddings before offload conversion so a
-            # shared table is written once. Offloading splits a tied weight into
-            # separate params, and quantized embeddings are untied during
-            # calibration; either way identical tensors would otherwise be saved
-            # twice. Doing this before `to_accelerate` keeps accelerate's
-            # tied-parameter bookkeeping consistent.
-            _retie_embeddings(model)
+                # compress model using compressor
+                compressor = ModelCompressor.from_pretrained_model(
+                    model, quantization_format=quantization_format
+                )
+                if save_compressed:
+                    compressor.compress_model(model, skip_compressed=True)
 
-            # convert to accelerate offloaded for optimal saving with transformers
-            to_accelerate(model)
+                # Re-tie input and output embeddings before offload conversion so a
+                # shared table is written once. Offloading splits a tied weight into
+                # separate params, and quantized embeddings are untied during
+                # calibration; either way identical tensors would otherwise be saved
+                # twice. Doing this before `to_accelerate` keeps accelerate's
+                # tied-parameter bookkeeping consistent.
+                _retie_embeddings(model)
 
-            with suspend_distributed_timeout():
-                if is_source_process():
-                    # save the complete model, including loaded MTP layers
-                    original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
+                # convert to accelerate offloaded for optimal saving with transformers
+                to_accelerate(model)
 
-                    # resave the config with original structure for vLLM
-                    resave_config(model.config, save_dir)
+                with suspend_distributed_timeout():
+                    if is_source_process():
+                        # save the complete model, including loaded MTP layers
+                        original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
 
-                    # update config to reflect quantization
-                    compressor.update_config(save_dir)
+                        # resave the config with original structure for vLLM
+                        resave_config(model.config, save_dir)
 
-                    # update existing recipe
-                    update_and_save_recipe(model.name_or_path, save_dir)
+                        # update config to reflect quantization
+                        compressor.update_config(save_dir)
 
-                    # copy python files from cache dir to save_path if any
-                    copy_python_files_from_model_cache(model, save_dir)
+                        # update existing recipe
+                        update_and_save_recipe(model.name_or_path, save_dir)
 
-                    if source_mtp is not None:
-                        logger.info(
-                            "Use load_context(load_mtp=True) to quantize MTP "
-                            "when supported by Transformers."
-                        )
-                        save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
+                        # copy python files from cache dir to save_path if any
+                        copy_python_files_from_model_cache(model, save_dir)
 
-            # convert back from accelerate to restore model to original form
-            from_accelerate(model)
+                        if source_mtp is not None:
+                            logger.info(
+                                "Use load_context(load_mtp=True) to quantize MTP "
+                                "when supported by Transformers."
+                            )
+                            save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
+
+                # convert back from accelerate to restore model to original form
+                from_accelerate(model)
+            finally:
+                for scheme, scheme_format in scheme_formats:
+                    scheme.format = scheme_format
 
         save_pretrained_wrapper._overridden = True
         return save_pretrained_wrapper
