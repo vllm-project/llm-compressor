@@ -2,7 +2,7 @@
 
 This example quantizes THUDM's GLM-5.2 mixed dense/MoE model to a mixed-precision format: NVFP4 for MoE expert weights and FP8-Block for attention and shared expert weights. Due to the model's size, quantization requires multiple GPUs via DDP.
 
-The full example script can be found [here](../../../examples/quantizing_moe/glm5_example.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/glm5_example.py).
 
 ### Code Walkthrough
 

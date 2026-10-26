@@ -452,7 +452,7 @@ def oneshot(
         should be left tied if possible. False means always untie.
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
-    :param save_compressed: Whether to compress sparse models during save.
+    :param save_compressed: Whether to compress quantized weights during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
 

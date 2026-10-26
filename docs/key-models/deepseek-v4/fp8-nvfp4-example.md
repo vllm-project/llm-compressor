@@ -2,7 +2,7 @@
 
 This example quantizes DeepSeek-V4-Flash to a mixed-precision format: NVFP4 for MoE expert weights and FP8-Block for attention projection weights.
 
-The full example script can be found [here](../../../examples/quantizing_moe/deepseek_v4_example.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/deepseek_v4_example.py).
 
 ### Code Walkthrough
 
