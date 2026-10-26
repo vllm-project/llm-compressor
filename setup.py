@@ -110,40 +110,40 @@ setup(
         "src", include=["llmcompressor", "llmcompressor.*"], exclude=["*.__pycache__.*"]
     ),
     install_requires=[
-        ("loguru>=0.7.2,<=0.7.3" if BUILD_TYPE == "release" else "loguru>=0.7.2"),
-        ("pyyaml>=6.0.1,<=6.0.3" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
+        ("loguru>=0.7.2" if BUILD_TYPE == "release" else "loguru>=0.7.2"),
+        ("pyyaml>=6.0.1" if BUILD_TYPE == "release" else "pyyaml>=6.0.1"),
         # librosa 0.11.0 supports numpy 2.x
         # https://librosa.org/doc/0.11.0/changelog.html
         ("numpy>=2.0.0,<=2.4.6" if BUILD_TYPE == "release" else "numpy>=2.0.0"),
         (
-            "requests>=2.32.2,<2.35.0"
+            "requests>=2.32.2"
             if BUILD_TYPE == "release"
             else "requests>=2.32.2"
         ),
-        ("tqdm>=4.66.3,<=4.68.2" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
+        ("tqdm>=4.66.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.12.0" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
             "transformers>=5.9.0,<=5.10.1"
             if BUILD_TYPE == "release"
             else "transformers>=5.9.0"
         ),
-        ("datasets>=4.8.4,<5.1.0" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
+        ("datasets>=4.8.4" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
         (
-            "auto-round>=0.10.2,<=0.13.0"
+            "auto-round>=0.10.2,<=0.15.1"
             if BUILD_TYPE == "release"
             else "auto-round>=0.10.2"
         ),
         (
-            "accelerate>=1.6.0,<=1.15.0"
+            "accelerate>=1.6.0"
             if BUILD_TYPE == "release"
             else "accelerate>=1.6.0"
         ),
         (
-            "nvidia-ml-py>=12.560.30,<=13.610.43"
+            "nvidia-ml-py>=12.560.30"
             if BUILD_TYPE == "release"
             else "nvidia-ml-py>=12.560.30"
         ),
-        ("pillow>=10.4.0,<13.0.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
+        ("pillow>=10.4.0" if BUILD_TYPE == "release" else "pillow>=10.4.0"),
         (
             "compressed-tensors==0.17.1"
             if BUILD_TYPE == "release"
