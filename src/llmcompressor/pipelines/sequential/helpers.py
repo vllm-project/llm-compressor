@@ -1,4 +1,5 @@
 import contextlib
+import enum
 import inspect
 from collections import UserDict, deque
 from dataclasses import dataclass
@@ -388,6 +389,11 @@ class SequentialTracer(HFTracer):
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
+
+        # special extension allows enums in the config values to be traced, such as
+        # `quantization_status: <QuantizationStatus.COMPRESSED: 'compressed'>`
+        elif isinstance(a, enum.Enum):
+            return self.create_node("call_function", getattr, (a.__class__, a.name))
 
         # special extension for supporting `UserDict`s (Gemma4 uses this)
         elif isinstance(a, UserDict):
