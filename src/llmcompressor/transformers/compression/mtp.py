@@ -20,7 +20,7 @@ from safetensors import safe_open
 from transformers import AutoModelForCausalLM, PreTrainedModel
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME, SAFE_WEIGHTS_NAME, cached_file
 
-FALLBACK_EXAMPLE = "examples/model_free_ptq/mtp_fp8_fallback.py"
+FALLBACK_EXAMPLE = "examples/model_free_ptq/glm_5_3_mxfp4.py"
 
 
 def _mtp_patterns(model: PreTrainedModel) -> list[str]:
