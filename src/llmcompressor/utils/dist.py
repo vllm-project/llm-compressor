@@ -16,6 +16,34 @@ from compressed_tensors.utils.helpers import deprecated
 T = TypeVar("T", bound=Hashable)
 
 
+def new_device_process_group(device: torch.device) -> "dist.ProcessGroup":
+    """
+    Create a process group whose collectives run on tensors on ``device``.
+
+    The backend is matched to the device -- ``nccl`` for cuda, ``xccl`` for
+    xpu and ``gloo`` otherwise -- so statistics accumulated on an accelerator
+    can be reduced there directly, rather than on host copies. Gpu-backed
+    backends require this matching (they reject cpu tensors) and only support
+    ``torch.float32``, not ``torch.float64``.
+
+    Must be called by every rank in the world. Use the returned group in
+    place of the default process group to keep these collectives isolated
+    from any other communication.
+
+    :param device: device the collective tensors live on (e.g. from
+        ``get_main_device()``, which is rank-aware)
+    :return: the new process group
+    """
+    if device.type == "cuda":
+        backend = "nccl"
+    elif device.type == "xpu":
+        backend = "xccl"
+    else:
+        backend = "gloo"
+
+    return dist.new_group(backend=backend)
+
+
 @deprecated("compressed_tensors.distributed.assign::greedy_bin_packing")
 def greedy_bin_packing(*args, **kwargs) -> tuple[list[T], list[list[T]], dict[T, int]]:
     """Distribute items across bins using a greedy bin-packing heuristic.

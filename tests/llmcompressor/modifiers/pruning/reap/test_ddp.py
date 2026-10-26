@@ -108,6 +108,10 @@ def test_reap_ddp_qwen3():
                 torch.testing.assert_close(
                     torch.tensor(ref_layer, dtype=torch.float64),
                     torch.tensor(ddp_layer, dtype=torch.float64),
+                    # statistics are accumulated in float32, so the single-gpu
+                    # and ddp runs sum the same contributions in a different
+                    # order; allow small differences
+                    rtol=1e-5,
                     msg=lambda m, i=layer_idx: (
                         f"Saliency scores differ between single-GPU and DDP "
                         f"at layer {i}.\n{m}"
