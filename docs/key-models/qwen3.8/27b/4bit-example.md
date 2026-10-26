@@ -159,7 +159,6 @@ oneshot(
     splits="train[:512]",
     max_seq_length=4096,
     num_calibration_samples=512,
-    moe_calibrate_all_experts=True,
 )
 ```
 
