@@ -39,8 +39,6 @@
 
 ---
 
-📊 Help us improve by taking our [1-minute user survey](https://red.ht/llm-compressor-user-survey)
-
 💬 Join us on the [vLLM Community Slack](https://inviter.co/vllm-slack) and share your questions, thoughts, or ideas in:
 
 - `#sig-quantization`
