@@ -189,7 +189,19 @@ class Recipe(BaseModel):
                     if group_key.endswith("_modifiers") and isinstance(group_val, dict):
                         inferred_group = group_key.replace("_modifiers", "")
                         for mod_type, mod_args in group_val.items():
-                            group = mod_args.get("group", inferred_group)
+                            # a modifier without any arguments is written with an
+                            # empty value, which parses to None
+                            if mod_args is not None and not isinstance(mod_args, dict):
+                                raise ValueError(
+                                    f"Arguments for modifier '{mod_type}' must be a "
+                                    f"dictionary, but got "
+                                    f"{type(mod_args).__name__}: {mod_args}"
+                                )
+                            mod_args = dict(mod_args or {})
+
+                            # `group` is passed explicitly below, so it must not
+                            # be passed a second time through the arguments
+                            group = mod_args.pop("group", inferred_group)
                             modifier = ModifierFactory.create(
                                 mod_type,
                                 group=group,
