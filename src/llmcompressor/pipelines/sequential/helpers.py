@@ -1,4 +1,5 @@
 import contextlib
+import enum
 import inspect
 from collections import UserDict, deque
 from dataclasses import dataclass
@@ -388,6 +389,14 @@ class SequentialTracer(HFTracer):
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
+
+        # special extension for enums: torch.fx prints constants nested inside
+        # dicts and lists with repr(), and an enum repr (e.g.
+        # ``<QuantizationStatus.COMPRESSED: 'compressed'>``) is not valid python,
+        # which makes GraphModule compilation fail with a SyntaxError. Trace the
+        # enum's value instead, which is always a plain literal
+        elif isinstance(a, enum.Enum):
+            return self.create_arg(a.value)
 
         # special extension for supporting `UserDict`s (Gemma4 uses this)
         elif isinstance(a, UserDict):
