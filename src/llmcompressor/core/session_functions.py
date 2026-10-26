@@ -144,61 +144,31 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def calibration_start(
+    def sequential_epoch_start(
         cls, modules: list["Module"] | None = None, **kwargs
     ) -> ModifiedState:
         """
-        Invoke a start event for the active session during calibration. This event
-        should be called before calibration starts for one epoch
+        Prepare an onloaded scope and start its calibration. All modifiers prepare
+        the scope before any modifier installs calibration hooks.
 
         :param modules: optional list of modules already onloaded by the pipeline,
-            provided to modifiers for scope-local calibration setup.
-        :param kwargs: may include shared ``onloaded_modules`` and ``offload_kwargs``
-            dictionaries for modifiers to update when creating or removing children.
-
-        see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
+            or None to prepare the whole model.
+        :param kwargs: additional kwargs to pass to the current session's event method
         """
-        if modules is not None:
-            kwargs["modules"] = modules
-        return cls.event(EventType.CALIBRATION_START, **kwargs)
+        return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
 
     @classmethod
-    def sequential_epoch_initialize(
+    def sequential_epoch_end(
         cls, modules: list["Module"] | None = None, **kwargs
     ) -> ModifiedState:
         """
-        Initialize an onloaded scope before any modifier starts calibration.
-        Non-sequential pipelines initialize the whole model with modules=None.
+        Finish processing a scope, then clean up its observers and hooks after all
+        modifiers have completed their work.
 
-        :param modules: de-duplicated modules included in the onloaded subgraph
+        :param modules: modules in the completed scope, or None for the whole model
         :param kwargs: additional kwargs to pass to the current session's event method
-            including shared ``onloaded_modules`` and ``offload_kwargs`` dictionaries.
-        """
-        return cls.event(
-            EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=modules, **kwargs
-        )
-
-    @classmethod
-    def sequential_epoch_end(cls, modules: list["Module"], **kwargs) -> ModifiedState:
-        """
-        Invoke a sequential epoch end event for the active session. This event should be
-        called after one sequential layer has been calibrated/trained for one epoch
-
-        This is called after a sequential layer has been calibrated with one batch, see
-        `src/llmcompressor/pipelines/sequential/pipeline.py` for usage example
         """
         return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
-
-    @classmethod
-    def calibration_end(
-        cls, modules: list["Module"] | None = None, **kwargs
-    ) -> ModifiedState:
-        """
-        Finish calibration for a scope after its sequential epoch end event.
-
-        see `src/llmcompressor/pipelines/basic/pipeline.py` for usage example
-        """
-        return cls.event(EventType.CALIBRATION_END, modules=modules, **kwargs)
 
 
 callbacks = LifecycleCallbacks

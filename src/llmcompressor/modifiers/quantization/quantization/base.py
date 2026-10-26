@@ -63,7 +63,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             )
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         QuantizationMixin.start_calibration(
             self,
             state.model,
@@ -71,7 +71,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
         )
 
-    def on_sequential_epoch_initialize(
+    def _prepare_sequential_epoch(
         self,
         state: State,
         event: Event,
@@ -113,7 +113,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             update_qparams(rank_to_modules[rank], "weight")
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         QuantizationMixin.end_calibration(
             self, state.model, modules=kwargs.get("modules")
         )

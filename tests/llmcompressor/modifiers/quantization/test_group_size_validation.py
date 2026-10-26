@@ -106,8 +106,8 @@ def test_initialize_quantization_raises_early_for_indivisible():
     modifier.on_initialize(state)
     assert not hasattr(model.linear, "quantization_scheme")
     with torch.no_grad(), pytest.raises(ValueError) as exc_info:
-        modifier.on_sequential_epoch_initialize(state, None)
-        modifier.on_calibration_start(state, None)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
     msg = str(exc_info.value)
     assert "columns" in msg.lower() and "group_size" in msg.lower()
     assert "ignore" in msg.lower()
@@ -128,8 +128,8 @@ def test_initialize_quantization_succeeds_when_indivisible_ignored():
 
     with torch.no_grad():
         modifier.on_initialize(state)
-        modifier.on_sequential_epoch_initialize(state, None)
-        modifier.on_calibration_start(state, None)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
 
 
 def test_initialize_quantization_succeeds_when_bypass_divisibility_checks():
@@ -143,8 +143,8 @@ def test_initialize_quantization_succeeds_when_bypass_divisibility_checks():
 
     with torch.no_grad():
         modifier.on_initialize(state)
-        modifier.on_sequential_epoch_initialize(state, None)
-        modifier.on_calibration_start(state, None)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
 
 
 def test_initialize_quantization_succeeds_when_all_divisible():
@@ -156,8 +156,8 @@ def test_initialize_quantization_succeeds_when_all_divisible():
 
     with torch.no_grad():
         modifier.on_initialize(state)
-        modifier.on_sequential_epoch_initialize(state, None)
-        modifier.on_calibration_start(state, None)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
 
 
 def test_layer_narrower_than_group_size_is_indivisible():
@@ -182,6 +182,6 @@ def test_initialize_quantization_raises_early_for_layer_narrower_than_group():
 
     modifier.on_initialize(state)
     with torch.no_grad(), pytest.raises(ValueError) as exc_info:
-        modifier.on_sequential_epoch_initialize(state, None)
-        modifier.on_calibration_start(state, None)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
     assert "columns=48" in str(exc_info.value)

@@ -78,15 +78,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - on_sequential_epoch_initialize
+    - _prepare_sequential_epoch
         - apply config to the current scope
         - resolve module names
-    - on_calibration_start
+    - on_sequential_epoch_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
     - on_sequential_epoch_end
         - quantize_weight
-    - on_calibration_end
+    - _cleanup_sequential_epoch
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -190,7 +190,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """Model setup and module-name resolution happen as scopes are onloaded."""
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         QuantizationMixin.start_calibration(
             self,
@@ -211,7 +211,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                     self.register_hook(module, self.calibrate_module, "forward")
                     self._has_gptq_modules = True
 
-    def on_sequential_epoch_initialize(
+    def _prepare_sequential_epoch(
         self,
         state: State,
         event: Event,
@@ -238,7 +238,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
         self.compress_modules(modules)
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """

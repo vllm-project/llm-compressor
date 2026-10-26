@@ -80,26 +80,25 @@ def test_calibration_hooks_follow_scope_initialization():
     assert getattr(model[1], "quantization_scheme", None) is None
 
     # Sequential calibration starts with only persistent modules onloaded.
-    modifier.on_sequential_epoch_initialize(
-        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    modifier._prepare_sequential_epoch(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[]
     )
-    modifier.on_calibration_start(
-        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    modifier.on_sequential_epoch_start(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[]
     )
-    modifier.initialized_ = True
-    event = Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE)
-    modifier.update_event(state, event, modules=[model[0]])
+    event = Event(type_=EventType.SEQUENTIAL_EPOCH_START)
+    modifier._prepare_sequential_epoch(state, event, modules=[model[0]])
 
     assert model[0].quantization_scheme is not None
     assert getattr(model[1], "quantization_scheme", None) is None
     assert not model[0]._forward_hooks
-    modifier.on_calibration_start(state, None, modules=[model[0]])
+    modifier.on_sequential_epoch_start(state, None, modules=[model[0]])
     assert len(model[0]._forward_hooks) == 1
     assert len(model[1]._forward_hooks) == 0
 
     # A shared module appearing in more than one traced scope must not accumulate
     # duplicate Hessian hooks.
-    modifier.update_event(state, event, modules=[model[0]])
+    modifier._prepare_sequential_epoch(state, event, modules=[model[0]])
     assert len(model[0]._forward_hooks) == 1
     modifier.remove_hooks()
 
@@ -116,22 +115,22 @@ def test_gptq_resolves_replaced_modules_as_subgraphs_load():
     old_module = model[0]
     model[0] = nn.Linear(8, 8)
 
-    modifier.on_sequential_epoch_initialize(
-        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    modifier._prepare_sequential_epoch(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[]
     )
-    modifier.on_calibration_start(
-        state, Event(type_=EventType.CALIBRATION_START), modules=[]
+    modifier.on_sequential_epoch_start(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[]
     )
     assert not hasattr(model[0], "quantization_scheme")
     assert not hasattr(model[1], "quantization_scheme")
     assert len(model[0]._forward_hooks) == 0
     assert len(model[1]._forward_hooks) == 0
 
-    modifier.on_sequential_epoch_initialize(
-        state, Event(type_=EventType.SEQUENTIAL_EPOCH_INITIALIZE), modules=[model[0]]
+    modifier._prepare_sequential_epoch(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[model[0]]
     )
     assert not model[0]._forward_hooks
-    modifier.on_calibration_start(state, None, modules=[model[0]])
+    modifier.on_sequential_epoch_start(state, None, modules=[model[0]])
 
     assert len(model[0]._forward_hooks) == 1
     assert len(model[1]._forward_hooks) == 0

@@ -92,7 +92,7 @@ class AWQModifier(Modifier):
 
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - on_calibration_start
+    - on_sequential_epoch_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
@@ -104,7 +104,7 @@ class AWQModifier(Modifier):
             - find best smoothing scale for each smoothing layer via grid search
             - apply best scales to model weights
             - raise error if any unused activations remain
-    - on_calibration_end
+    - _cleanup_sequential_epoch
         - remove activation hooks
     - on_finalize
         - clear resolved mappings and captured activations
@@ -193,7 +193,7 @@ class AWQModifier(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         """
         Resolve mappings and install hooks after every modifier initializes the scope.
         """
@@ -223,7 +223,7 @@ class AWQModifier(Modifier):
     ):
         self._apply_smoothing(state.model, modules=modules)
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks.
         No qparams are updated since this is just a transform.

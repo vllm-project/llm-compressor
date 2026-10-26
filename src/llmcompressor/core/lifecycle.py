@@ -200,14 +200,22 @@ class CompressionLifecycle:
 
         event = Event(type_=event_type)
         mod_data = []
-        for mod in self.recipe.modifiers:
-            if (onloaded_modules := kwargs.get("onloaded_modules")) is not None:
-                # Earlier modifiers may add or replace modules in the active scope.
-                kwargs["modules"] = list(dict.fromkeys(onloaded_modules.values()))
-            data = mod.update_event(state=self.state, event=event, **kwargs)
-            logger.debug("Updated event with modifier: {}", mod)
-            if data is not None:
-                mod_data.append(data)
+        callbacks = ["update_event"]
+        if event_type == EventType.SEQUENTIAL_EPOCH_START:
+            # AWQ may precede the quantizer that installs the schemes it needs.
+            callbacks.insert(0, "_prepare_sequential_epoch")
+        elif event_type == EventType.SEQUENTIAL_EPOCH_END:
+            # QAD needs the preceding quantizer's observers until its work finishes.
+            callbacks.append("_cleanup_sequential_epoch")
+            if kwargs.get("modules") is None:
+                kwargs["modules"] = list(self.state.model.modules())
+
+        for callback in callbacks:
+            for mod in self.recipe.modifiers:
+                data = getattr(mod, callback)(state=self.state, event=event, **kwargs)
+                logger.debug("Handled {} with modifier: {}", callback, mod)
+                if data is not None:
+                    mod_data.append(data)
 
         assert (
             event is not None

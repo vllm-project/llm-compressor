@@ -57,7 +57,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_sequential_epoch_initialize
+    - _prepare_sequential_epoch
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
@@ -161,23 +161,14 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     @torch.no_grad()
-    def on_sequential_epoch_initialize(
+    def _prepare_sequential_epoch(
         self,
         state: State,
         event: Event,
         modules: list[torch.nn.Module] | None = None,
         **kwargs,
     ):
-        self._apply_transform_scope(state.model, modules=modules, **kwargs)
-
-    def _apply_transform_scope(
-        self,
-        model: PreTrainedModel,
-        modules: list[torch.nn.Module] | None = None,
-        onloaded_modules: dict[str, torch.nn.Module] | None = None,
-        offload_kwargs: dict[str, dict] | None = None,
-        **kwargs,
-    ):
+        model = state.model
         targets = self._get_targets(model, modules)
         if targets_embeddings(model, targets):
             # Untying may update a tied output head outside this scope, so do it before
@@ -192,17 +183,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             modules=modules,
             factories=self._transform_factories,
         )
-
-        # manage sequential pipeline offloading
-        if onloaded_modules is not None and offload_kwargs is not None:
-            for name, module in dict(targets).items():
-                for child_name, child in module.named_children():
-                    child_name = f"{name}.{child_name}" if name else child_name
-                    onloaded_modules[child_name] = child
-                    if name in offload_kwargs:
-                        offload_kwargs.setdefault(
-                            child_name, offload_kwargs[name].copy()
-                        )
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         self._transform_factories.clear()

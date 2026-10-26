@@ -41,7 +41,7 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - on_sequential_epoch_initialize
+    - _prepare_sequential_epoch
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
@@ -113,23 +113,14 @@ class QuIPModifier(Modifier):
 
         return True
 
-    def on_sequential_epoch_initialize(
+    def _prepare_sequential_epoch(
         self,
         state: State,
         event: Event,
         modules: list[torch.nn.Module] | None = None,
         **kwargs,
     ):
-        self._apply_transform_scope(state.model, modules=modules, **kwargs)
-
-    def _apply_transform_scope(
-        self,
-        model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None = None,
-        onloaded_modules: dict[str, torch.nn.Module] | None = None,
-        offload_kwargs: dict[str, dict] | None = None,
-        **kwargs,
-    ):
+        model = state.model
         targets = self._get_targets(model, modules)
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
@@ -139,17 +130,6 @@ class QuIPModifier(Modifier):
             modules=modules,
             factories=self._transform_factories,
         )
-
-        # manage sequential pipeline offloading
-        if onloaded_modules is not None and offload_kwargs is not None:
-            for name, module in dict(targets).items():
-                for child_name, child in module.named_children():
-                    child_name = f"{name}.{child_name}" if name else child_name
-                    onloaded_modules[child_name] = child
-                    if name in offload_kwargs:
-                        offload_kwargs.setdefault(
-                            child_name, offload_kwargs[name].copy()
-                        )
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         self._transform_factories.clear()

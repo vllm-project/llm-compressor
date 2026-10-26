@@ -151,7 +151,7 @@ class QADModifier(Modifier):
         )
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         if modules is None and not _modules_to_quantize(state.model.modules()):
             raise ValueError(
@@ -533,7 +533,7 @@ class QADModifier(Modifier):
             )
             update_offload_parameter(module, "weight", weight)
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self.remove_hooks(modules=modules)
         for cache in (self._input_caches, self._output_caches, self._predecessors):

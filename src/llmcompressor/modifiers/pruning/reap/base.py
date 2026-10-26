@@ -203,7 +203,7 @@ class REAPPruningModifier(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self._register_reap_hooks(state.model, modules)
 
@@ -253,7 +253,7 @@ class REAPPruningModifier(Modifier):
                 experts, partial(self._experts_block_hook, layer_name), "forward"
             )
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         self.remove_hooks(modules=kwargs.get("modules"))
 
     def on_finalize(self, state: State, **kwargs) -> bool:

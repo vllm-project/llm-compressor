@@ -135,15 +135,15 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     - on_initialize
         - infer sequential target patterns
-    - on_sequential_epoch_initialize
+    - _prepare_sequential_epoch
         - apply config to the current scope
         - name modules and freeze their parameters
-    - on_calibration_start
+    - on_sequential_epoch_start
         - add input capture hooks to decoding layers
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
-    - on_calibration_end
+    - _cleanup_sequential_epoch
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -252,7 +252,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         )
         self._all_module_input.setdefault(name, []).append((cpu_args, cpu_kwargs))
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self.start_calibration(state.model, modules=modules)
         for module in state.model.modules() if modules is None else modules:
@@ -261,7 +261,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
 
-    def on_sequential_epoch_initialize(
+    def _prepare_sequential_epoch(
         self,
         state: State,
         event: Event,
@@ -475,7 +475,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if device_module is not None and hasattr(device_module, "empty_cache"):
                 device_module.empty_cache()
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
