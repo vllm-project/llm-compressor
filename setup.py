@@ -124,16 +124,8 @@ setup(
             else "transformers>=5.15.0"
         ),
         ("datasets>=4.8.4" if BUILD_TYPE == "release" else "datasets>=4.8.4"),
-        (
-            "auto-round>=0.15.1"
-            if BUILD_TYPE == "release"
-            else "auto-round>=0.15.1"
-        ),
-        (
-            "accelerate>=1.15.0"
-            if BUILD_TYPE == "release"
-            else "accelerate>=1.15.0"
-        ),
+        ("auto-round>=0.15.1" if BUILD_TYPE == "release" else "auto-round>=0.15.1"),
+        ("accelerate>=1.15.0" if BUILD_TYPE == "release" else "accelerate>=1.15.0"),
         (
             "nvidia-ml-py>=12.560.30"
             if BUILD_TYPE == "release"
