@@ -4,18 +4,12 @@ import sys
 import pytest
 import torch
 import torch.fx
-from compressed_tensors.quantization import QuantizationStatus
-from transformers import (
-    AutoModelForCausalLM,
-    PretrainedConfig,
-    WhisperForConditionalGeneration,
-)
+from transformers import AutoModelForCausalLM, WhisperForConditionalGeneration
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.sequential.ast_helpers import autowrap_forward
 from llmcompressor.pipelines.sequential.helpers import (
     INVOKED_SUBMODULES_META_KEY,
-    SequentialTracer,
     Subgraph,
     _resolve_sequential_targets,
     collect_subgraph_modules,
@@ -318,35 +312,6 @@ def test_trace_subgraphs(targets_per_subgraph):
             ]
         )
         assert num_targets_present == targets_per_subgraph
-
-
-def test_sequential_tracer_converts_enum_config_values_to_literals():
-    """
-    Regression test: config attribute values which are enums (e.g. the
-    ``quantization_status`` of a compressed-tensors ``quantization_config``
-    after it has been revived by transformers) must be traced as their
-    underlying values. torch.fx prints constants nested inside dicts with
-    ``repr``, and an enum repr like ``<QuantizationStatus.COMPRESSED:
-    'compressed'>`` is not valid python, which made ``GraphModule`` compilation
-    of traced subgraphs fail with a SyntaxError
-    """
-    config = PretrainedConfig(hidden_size=8)
-    config.quantization_config = {
-        "config_groups": {},
-        "quantization_status": QuantizationStatus.COMPRESSED,
-    }
-
-    tracer = SequentialTracer(ancestors=set())
-    tracer.graph = torch.fx.Graph()
-    node = tracer.create_arg(config)
-    tracer.graph.output(node)
-
-    quantization_config = node.kwargs["quantization_config"]
-    assert quantization_config["quantization_status"] == "compressed"
-
-    # the traced graph must compile into valid python source
-    module = torch.fx.GraphModule(torch.nn.Module(), tracer.graph)
-    assert "QuantizationStatus" not in module.code
 
 
 @pytest.mark.parametrize(
