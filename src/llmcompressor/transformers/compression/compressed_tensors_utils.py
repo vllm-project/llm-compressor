@@ -149,6 +149,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                     (module.quantization_scheme, module.quantization_scheme.format)
                     for module in model.modules()
                     if getattr(module, "quantization_scheme", None) is not None
+                    and hasattr(module.quantization_scheme, "format")
                 ]
                 if not save_compressed
                 else []
