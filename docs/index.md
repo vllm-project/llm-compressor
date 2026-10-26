@@ -27,13 +27,13 @@ Review the [LLM Compressor v0.15.0 release notes](https://github.com/vllm-projec
 
 - **Block-wise QAD**: The new `QADModifier` runs quantization-aware distillation after a weight-quantization modifier in the same recipe. It caches calibration inputs and the unquantized subgraph output as the teacher, then trains the quantized weights through compressed-tensors fake quantization, without loading a separate teacher model.
 
-- **Layerwise compression and sequential offloading**: The sequential pipeline can decompress and compress one layer at a time, avoiding upfront whole-model conversion for large checkpoints. Onload/offload is managed manually with optional CPU staging and pinned memory.
+- **Layerwise compression and sequential offloading**: The sequential pipeline can decompress and compress one layer at a time, avoiding upfront whole-model conversion for large checkpoints. Onload/offload is managed manually with optional CPU staging and pinned memory via `stage_weights_in_pinned_memory=True`.
 
-- **REAP reports and non-uniform pruning**: REAP now writes per-expert saliency reports, supports calibration-only report generation with `sparsity=0.0`, and accepts per-layer non-uniform expert sparsity. `n_routed_experts` is now recorded in config names, and GPT-OSS is skipped.
+- **REAP reports and non-uniform pruning**: REAP now writes per-expert saliency reports, supports calibration-only report generation with `sparsity=0.0`, and accepts per-layer non-uniform expert sparsity. `n_routed_experts` is now recorded in config names.
 
 - **MoNe expert pruning**: MoNe collapses low-saliency experts into constant "novice" vectors instead of removing them, keeping the router at full width while reducing expert compute.
 
-- **Faster observers for E8M0 formats**: The MSE and iMatrix observers gained exponential grid search and magnitude normalization for E8M0 scales, and the iMatrix observer now shares the MSE Triton kernel, with roughly 1.2-3.4x end-to-end speedups on tested models.
+- **Faster observers for MXFP4 formats**: The MSE and iMatrix observers gained exponential grid search and magnitude normalization for MXFP4 scales, and the iMatrix observer now shares the MSE Triton kernel, with roughly 1.2-3.4x end-to-end speedups on tested models.
 
 - **MFPTQ SpinQuant rotations**: `SpinQuantConverter` applies offline R1/R2 Hadamard rotations directly to safetensors before model-free quantization, and `model_free_ptq` now accepts converter chains.
 
