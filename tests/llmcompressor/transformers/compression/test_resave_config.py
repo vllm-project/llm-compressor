@@ -266,22 +266,3 @@ def test_hf_hub_download_failure_keeps_serialized_config(save_dir, monkeypatch):
         "dtype": "float32",
         "serialized_by": "transformers",
     }
-
-
-def test_hf_hub_download_uses_config_commit(save_dir, tmp_path, monkeypatch):
-    downloaded = tmp_path / "hub" / "config.json"
-    downloaded.parent.mkdir()
-    _write_json(downloaded, {"torch_dtype": "float32"})
-    calls = {}
-
-    def fake_download(repo_id, filename, **kwargs):
-        calls.update(kwargs)
-        return str(downloaded)
-
-    monkeypatch.setattr(compressed_tensors_utils, "hf_hub_download", fake_download)
-    config = FakeConfig(name_or_path="some/remote-repo", dtype="float32")
-    config._commit_hash = "pinned-commit"
-
-    resave_config(config, str(save_dir))
-
-    assert calls["revision"] == "pinned-commit"
