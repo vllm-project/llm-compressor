@@ -16,7 +16,6 @@
 /src/llmcompressor/pytorch/ @kylesayrs @Roderick-Wu @GOavi101
 /src/llmcompressor/pytorch/model_load/ @kylesayrs @HDCharles @GOavi101 @Roderick-Wu
 /src/llmcompressor/pytorch/utils/ @kylesayrs @HDCharles @GOavi101 @Roderick-Wu
-/src/llmcompressor/pytorch/utils/sparsification_info/ @kylesayrs @GOavi101 @Roderick-Wu
 /src/llmcompressor/recipe/ @kylesayrs @dsikka @GOavi101 @Roderick-Wu
 /src/llmcompressor/utils/ @kylesayrs @HDCharles @yiliu30 @GOavi101 @Roderick-Wu
 /src/llmcompressor/utils/pytorch/ @kylesayrs @HDCharles @yiliu30 @GOavi101 @Roderick-Wu

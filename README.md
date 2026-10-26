@@ -61,6 +61,8 @@ Since the v0.13.0 release, a number of meaningful improvements have landed:
 
 The Red Hat AI team has been using LLM Compressor to produce a fresh batch of production-ready quantized checkpoints:
 
+* **GLM-5.3 MXFP4xFP8**: A mixed-precision quantized checkpoint for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) that assigns MXFP4 or FP8 precision per layer, averaging ~4.5 bits per parameter. Routed experts and dense MLPs use MXFP4 weights with per-group FP8 dynamic activations, while attention, shared experts, and the multi-token prediction layer remain FP8 block-wise. This reduces the checkpoint from ~1507 GB to ~415 GB (~72% smaller), and the checkpoint is optimized for Hopper GPUs and supported in vLLM v0.32+.
+  - [RedHatAI/GLM-5.3-MXFP4xFP8](https://huggingface.co/RedHatAI/GLM-5.3-MXFP4xFP8)
 * **Nemotron 3.5 Super VL FP8 Checkpoint**: An FP8 quantized checkpoint for [Nemotron 3.5 Super VL](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16). Weights, activations and MTP layers are all quantized to FP8. See the model card for full agentic metrics and performance benchmarks:
   - [RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8](https://huggingface.co/RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8)
 * **GLM-5.3 FP4 Checkpoints**: NVFP4 and MXFP4 quantized checkpoints for [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3). The linear operators within the transformer blocks are quantized to FP4, while the MoE router, embeddings, DSA indexer, and output head are kept in their original precision to maintain accuracy recovery.
@@ -98,9 +100,6 @@ The Red Hat AI team has been using LLM Compressor to produce a fresh batch of pr
   - [RedHatAI/Kimi-K3-NVFP4](https://huggingface.co/RedHatAI/Kimi-K3-NVFP4)
   - [RedHatAI/Kimi-K3-FP8-BLOCK](https://huggingface.co/RedHatAI/Kimi-K3-FP8-BLOCK)
   - [Kimi-K3 Quantization Example](examples/quantizing_moe/kimi_k3_example.py)
-* **Hy3 NVFP4+FP8**: A quantized checkpoint for [Hy3](https://huggingface.co/tencent/Hy3) combining NVFP4 quantization of the MoE layers with FP8 quantization of the attention layers, significantly reducing VRAM requirements while maintaining accuracy recovery.
-  - [RedHatAI/Hy3-NVFP4-FP8](https://huggingface.co/RedHatAI/Hy3-NVFP4-FP8)
-  - [Hy3 Quantization Example](examples/quantization_w4a4_fp4/hy3_example.py)
 
 
 ### Supported Precisions and Types
@@ -251,7 +250,7 @@ output = model.generate("My name is")
 
 - If you have any questions or requests open an [issue](https://github.com/vllm-project/llm-compressor/issues) and we will add an example or documentation.
 - We appreciate contributions to the code, examples, integrations, and documentation as well as bug reports and feature requests! [Learn how here](CONTRIBUTING.md).
-- Browse community experiments and share your compression results in the [Open Research Hub](docs/research/index.md). All results are welcome.
+- Browse community experiments and share your compression results in the [Open Research Hub](https://docs.vllm.ai/projects/llm-compressor/en/latest/research/). All results are welcome.
 
 ## Citation
 
