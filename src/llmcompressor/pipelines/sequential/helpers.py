@@ -10,6 +10,7 @@ import torch
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import disable_onloading
+from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
 from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
@@ -160,8 +161,15 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
 
 
 def decompress_subgraph_modules(modules: list[Module]) -> None:
-    """Decompress quantized modules owned by one subgraph."""
-    compressed_modules = [module for module in modules if is_module_quantized(module)]
+    """Decompress compressed quantized modules owned by one subgraph."""
+    # Standard oneshot loading may already have decompressed the checkpoint.
+    compressed_modules = [
+        module
+        for module in modules
+        if is_module_quantized(module)
+        and getattr(module, "quantization_status", None)
+        == QuantizationStatus.COMPRESSED
+    ]
     for module in tqdm(compressed_modules, desc="Decompressing modules"):
         decompress_module(module, leave_decompressed=False)
 

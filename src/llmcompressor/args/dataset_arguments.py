@@ -323,7 +323,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": "When True, each layer is decompressed before calibrating in "
             "the sequential pipeline. Use when loading a pre-compressed model "
-            "that needs recalibration. Default False."
+            "that needs recalibration. Default True."
         },
     )
     layerwise_compression: bool = field(
@@ -331,7 +331,7 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": "When True, each layer is compressed after propagation in the "
             "sequential pipeline. Reduces peak memory by keeping only the "
-            "active layer decompressed. Default False."
+            "active layer decompressed. Default True."
         },
     )
 
