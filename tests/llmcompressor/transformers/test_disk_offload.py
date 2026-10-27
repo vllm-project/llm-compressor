@@ -136,6 +136,7 @@ class TestDiskOffloadQuantization:
             recipe=recipe,
             num_calibration_samples=NUM_CALIBRATION_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
+            layerwise_compression=False,
         )
 
         after = _get_weight_snapshot(offloaded_model)
