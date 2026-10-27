@@ -84,7 +84,6 @@ def test_nvfp4_save_reload(kind, device, dtype, tmp_path):
             max_seq_length=16,
             batch_size=1,
             shuffle_calibration_samples=False,
-            layerwise_decompression=False,
         )
     assert _logged_updates(logs) == {"model.layers.0": 4, "model.layers.1": 4}
     model.save_pretrained(

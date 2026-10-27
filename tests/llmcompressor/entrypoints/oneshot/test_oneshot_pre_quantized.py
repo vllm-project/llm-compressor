@@ -31,7 +31,7 @@ def test_oneshot_warns_pre_quantized_smoke_model():
 
     # TODO: inspect bad interaction between ct decompress and `skip_weights_download`
     # for now, actually load the model weights in this test
-    oneshot(model=CT_MODEL, recipe=[], layerwise_decompression=False)
+    oneshot(model=CT_MODEL, recipe=[])
 
     assert any("already quantized" in log for log in logs)
     logger.remove(handler_id)
@@ -76,6 +76,7 @@ def test_oneshot_stacks(tmp_path):
                 ignore=["lm_head"],
                 scheme="W8A8",
             ),
+            layerwise_decompression=True,
         )
         model.save_pretrained(outdir2, save_original_format=False)
 

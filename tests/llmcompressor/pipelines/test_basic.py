@@ -150,7 +150,6 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                     candidate,
                     dataloader,
                     DatasetArguments(
-                        layerwise_decompression=False,
                         layerwise_compression=False,
                     ),
                 )
