@@ -8,10 +8,15 @@ from functools import wraps
 import torch
 import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from compressed_tensors.compressors import decompress_module
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.distributed import is_source_process
+from compressed_tensors.distributed import (
+    is_distributed,
+    is_source_process,
+    replace_module_parallel,
+)
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.quantization import QuantizationConfig
+from compressed_tensors.quantization import QuantizationConfig, QuantizationStatus
 from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
@@ -91,6 +96,36 @@ def _retie_embeddings(model: PreTrainedModel):
     logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
+def _decompress_compressed_weights(
+    model: torch.nn.Module, compressor: ModelCompressor
+) -> None:
+    """Restore packed weight modules before saving a dense checkpoint."""
+    from_accelerate(model)
+    modules = [
+        module
+        for module in model.modules()
+        if getattr(module, "quantization_status", None)
+        == QuantizationStatus.COMPRESSED
+        and getattr(getattr(module, "quantization_scheme", None), "weights", None)
+        is not None
+    ]
+
+    if modules:
+        if is_distributed():
+            replace_module_parallel(
+                modules, decompress_module, desc="Decompressing modules"
+            )
+        else:
+            for module in modules:
+                decompress_module(module)
+
+    if compressor.quantization_config is not None:
+        compressor.quantization_config.quantization_status = (
+            QuantizationStatus.DECOMPRESSED
+        )
+    compressor.remove_decompression_hook(model)
+
+
 def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
@@ -161,6 +196,11 @@ def modify_save_pretrained(model: PreTrainedModel):
             # modifiers and pipelines to perform layerwise compression
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
+            else:
+                # Layerwise compression leaves the model packed in memory. A dense
+                # save must restore those weights before serializing them, or the
+                # checkpoint contains packed keys with a dense format in its config.
+                _decompress_compressed_weights(model, compressor)
 
             # Re-tie input and output embeddings before offload conversion so a
             # shared table is written once. Offloading splits a tied weight into
