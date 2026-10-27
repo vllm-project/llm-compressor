@@ -1,6 +1,6 @@
-"""Quantize DeepSeek V3's backbone to FP8 and its MTP decoder to INT4.
+"""Quantize DeepSeek V3's backbone to NVFP4 and its MTP decoder to FP8.
 
-Both modifiers are data-free, so no calibration dataset is needed.
+NVFP4 requires backbone calibration; FP8_DYNAMIC keeps MTP quantization data-free.
 """
 
 import json
@@ -16,7 +16,7 @@ from llmcompressor.utils import load_context
 
 # Use the BF16 conversion, which includes MTP, instead of the original FP8 source.
 MODEL_ID = "RedHatAI/DeepSeek-V3-BF16"
-SAVE_DIR = "DeepSeek-V3-FP8-Dynamic-INT4-MTP"
+SAVE_DIR = "DeepSeek-V3-NVFP4-FP8-Dynamic-MTP"
 
 with load_context(DeepseekV3ForCausalLM, load_mtp=True):
     model = DeepseekV3ForCausalLM.from_pretrained(
@@ -33,13 +33,17 @@ set_onload_device(model, "cuda")
 recipe = [
     QuantizationModifier(
         group="backbone",
-        scheme="FP8_DYNAMIC",
+        scheme="NVFP4",
         targets=[r"re:^model\.layers\."],
-        ignore=[r"re:.*\.mlp\.gate$"],
+        ignore=[
+            r"re:.*\.mlp\.gate$",
+            # vLLM uses BF16 copies of this projection for MLA decoding.
+            r"re:^model\.layers\.\d+\.self_attn\.kv_b_proj$",
+        ],
     ),
     QuantizationModifier(
         group="mtp",
-        scheme="W4A16",
+        scheme="FP8_DYNAMIC",
         targets=[r"re:^mtp\.layers\."],
         # vLLM uses an unquantized Linear for the MTP input projection.
         ignore=[r"re:.*\.mlp\.gate$", r"re:.*\.eh_proj$"],
@@ -49,12 +53,21 @@ oneshot(
     model=model,
     processor=AutoTokenizer.from_pretrained(MODEL_ID),
     recipe=recipe,
+    dataset="perfectblend",
+    splits="train[:512]",
+    num_calibration_samples=512,
+    max_seq_length=2048,
+    # Calibrate NVFP4 first, then observe MTP weights without a forward pass.
+    pipeline="independent",
+    # Calibrate one decoder layer at a time, including all of its experts.
+    # Treat MTP as a leaf so backbone calibration does not trace its forward.
+    sequential_targets=["DeepseekV3DecoderLayer", "MtpModel"],
     output_dir=SAVE_DIR,
 )
 
 # MTP loads under mtp.layers.0, but saves as model.layers.61. Saving remaps
 # weights and ignores; scheme targets still need checkpoint names. Exclude
-# that final layer from the FP8 target so the two schemes remain disjoint.
+# that final layer from the NVFP4 target so the two schemes remain disjoint.
 mtp_layer = model.config.num_hidden_layers
 target_map = {
     r"re:^model\.layers\.": rf"re:^model\.layers\.(?!{mtp_layer}\.)",
