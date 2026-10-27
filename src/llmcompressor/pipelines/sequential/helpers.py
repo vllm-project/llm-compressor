@@ -12,6 +12,7 @@ from compressed_tensors.distributed import is_distributed, replace_module_parall
 from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -161,8 +162,11 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
 
 def _has_weight_quantization(module: Module) -> bool:
     """Check for weight quantization while tolerating removed metadata."""
+    if not is_module_quantized(module):
+        return False
+
     scheme = getattr(module, "quantization_scheme", None)
-    return getattr(scheme, "weights", None) is not None
+    return scheme is None or getattr(scheme, "weights", None) is not None
 
 
 def decompress_subgraph_modules(modules: list[Module]) -> None:

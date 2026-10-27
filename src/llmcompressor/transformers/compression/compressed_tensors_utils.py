@@ -183,6 +183,7 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # update config to reflect quantization
                     compressor.update_config(save_dir)
+                    _ensure_kv_cache_config_group(save_dir)
 
                     # update existing recipe
                     update_and_save_recipe(model.name_or_path, save_dir)
@@ -206,6 +207,26 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+
+
+def _ensure_kv_cache_config_group(save_dir: str) -> None:
+    """Add an empty group for Transformers' KV-cache-only config lookup."""
+    config_path = os.path.join(save_dir, "config.json")
+    with open(config_path) as config_file:
+        config = json.load(config_file)
+
+    quantization_config = config.get("quantization_config", {})
+    if (
+        quantization_config.get("kv_cache_scheme") is None
+        or quantization_config.get("config_groups")
+    ):
+        return
+
+    # Transformers currently resolves an experts scheme from config_groups even when
+    # the checkpoint only quantizes the KV cache. An empty target list is a no-op.
+    quantization_config["config_groups"] = {"kv_cache_only": {"targets": []}}
+    with open(config_path, "w") as config_file:
+        json.dump(config, config_file, indent=2, sort_keys=True)
 
 
 @deprecated("ModelCompressor.from_pretrained_model")
