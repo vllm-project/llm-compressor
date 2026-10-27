@@ -76,7 +76,6 @@ def test_oneshot_stacks(tmp_path):
                 ignore=["lm_head"],
                 scheme="W8A8",
             ),
-            layerwise_decompression=True,
         )
         model.save_pretrained(outdir2, save_original_format=False)
 
