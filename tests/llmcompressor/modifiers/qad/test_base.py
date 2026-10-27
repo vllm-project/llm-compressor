@@ -500,6 +500,7 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
             model=model,
             recipe=[quantizer, qad],
             pipeline="sequential",
+            layerwise_compression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
