@@ -218,7 +218,7 @@ class TestREAPSaliencyTracker:
         context._CALIBRATE_ALL_EXPERTS = False
 
         try:
-            tracker = REAPSaliencyTracker(num_experts=4)
+            tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
             # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
             topk_indices = torch.tensor([[0, 1], [0, 2]])
             topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
@@ -255,7 +255,7 @@ class TestREAPSaliencyTracker:
         context._CALIBRATE_ALL_EXPERTS = True
 
         try:
-            tracker = REAPSaliencyTracker(num_experts=4)
+            tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
             # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
             topk_indices = torch.tensor([[0, 1], [0, 2]])
             topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
@@ -304,7 +304,7 @@ class TestREAPSaliencyTracker:
         try:
             # Test 1: calibrate_all_experts=False (sparse norms)
             context._CALIBRATE_ALL_EXPERTS = False
-            tracker = REAPSaliencyTracker(num_experts=2)
+            tracker = REAPSaliencyTracker(num_experts=2, device=torch.device("cpu"))
             idx = torch.tensor([[0]])
             tracker.update(idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])})
             tracker.update(idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])})
@@ -314,7 +314,7 @@ class TestREAPSaliencyTracker:
 
             # Test 2: calibrate_all_experts=True (dense norms)
             context._CALIBRATE_ALL_EXPERTS = True
-            tracker2 = REAPSaliencyTracker(num_experts=2)
+            tracker2 = REAPSaliencyTracker(num_experts=2, device=torch.device("cpu"))
             idx = torch.tensor([[0]])  # token 0 routes to expert 0
             # Dense norms: all experts have norms for all tokens
             tracker2.update(
@@ -442,7 +442,7 @@ class TestREAPSaliencyTracker:
 
     def test_compute_retained_global(self):
         # 8 experts, drop 3 globally
-        tracker = REAPSaliencyTracker(num_experts=8)
+        tracker = REAPSaliencyTracker(num_experts=8, device=torch.device("cpu"))
         tracker.sum_saliency = torch.tensor(
             [0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.9, 0.4], dtype=torch.float32
         )
@@ -459,7 +459,7 @@ class TestREAPSaliencyTracker:
 
     def test_compute_retained_per_group(self):
         # 8 experts, 2 groups of 4; drop 2 total -> 1 per group
-        tracker = REAPSaliencyTracker(num_experts=8)
+        tracker = REAPSaliencyTracker(num_experts=8, device=torch.device("cpu"))
         tracker.sum_saliency = torch.tensor(
             [0.1, 0.9, 0.8, 0.7, 0.6, 0.2, 0.5, 0.4], dtype=torch.float32
         )
@@ -1025,7 +1025,7 @@ def test_reap_layer_without_data_prunes_after_later_epoch():
 
 @pytest.mark.unit
 @torchrun(world_size=2, init_dist=False)
-def test_reap_distributed_uneven_data(monkeypatch):
+def test_reap_distributed_uneven_data():
     """Layers must be reduced and pruned identically on all ranks when
     calibration data is unevenly distributed across ranks.
 
@@ -1037,11 +1037,6 @@ def test_reap_distributed_uneven_data(monkeypatch):
     only the source rank saw data (a rank without data must still join every
     reduction rather than deadlocking it).
     """
-    import llmcompressor.modifiers.pruning.reap.base as reap_base
-
-    # keep the test on CPU; only the gloo collectives are distributed
-    monkeypatch.setattr(reap_base, "get_main_device", lambda: torch.device("cpu"))
-
     dist.init_process_group(backend="gloo", init_method="env://")
     try:
         rank = dist.get_rank()
@@ -1098,9 +1093,10 @@ def test_reap_distributed_uneven_data(monkeypatch):
 @requires_gpu
 @torchrun(world_size=1, init_dist=True)
 def test_reap_distributed_nccl_reduces_on_gpu():
-    """The saliency reduction runs on the gpu (float32) through an
+    """The saliency reduction runs on the gpu (float32) over the default
     nccl-backed process group, rather than on host copies."""
     device = torch.device("cuda", dist.get_rank())
+    assert dist.get_backend() == "nccl"
 
     torch.manual_seed(42)
     config = FakeMoEConfig(
@@ -1113,9 +1109,6 @@ def test_reap_distributed_nccl_reduces_on_gpu():
     state = _make_state(model)
 
     modifier.initialize(state)
-    assert modifier._device == device
-    assert dist.get_backend(modifier._device_pg) == "nccl"
-
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
 
     with torch.no_grad():

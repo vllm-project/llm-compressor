@@ -141,7 +141,9 @@ class TestMoNeSaliencyTracker:
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
-            tracker = MoNeSaliencyTracker(num_experts=4)
+            tracker = MoNeSaliencyTracker(
+                num_experts=4, hidden_dim=2, device=torch.device("cpu")
+            )
 
             # routing over two tokens: expert 0 and 1 are always selected
             tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]]))
@@ -191,7 +193,9 @@ class TestMoNeSaliencyTracker:
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
-            tracker = MoNeSaliencyTracker(num_experts=4)
+            tracker = MoNeSaliencyTracker(
+                num_experts=4, hidden_dim=2, device=torch.device("cpu")
+            )
             # expert 1 gets two tokens across two batches, expert 3 one token
             topk_indices = torch.tensor([[1, 3]])
             tracker.update_outputs(
@@ -216,7 +220,9 @@ class TestMoNeSaliencyTracker:
             context._CALIBRATE_ALL_EXPERTS = original_state
 
     def test_compute_novices_ordering_matches_dropped(self):
-        tracker = MoNeSaliencyTracker(num_experts=4)
+        tracker = MoNeSaliencyTracker(
+            num_experts=4, hidden_dim=1, device=torch.device("cpu")
+        )
         tracker.sum_output = torch.tensor(
             [[0.0], [10.0], [20.0], [30.0]], dtype=torch.float32
         )
@@ -693,7 +699,7 @@ def test_save_pretrained_writes_moe_sparsity_config_and_novices(tmp_path):
 
 @pytest.mark.unit
 @torchrun(world_size=2, init_dist=False)
-def test_mone_distributed_uneven_data(monkeypatch):
+def test_mone_distributed_uneven_data():
     """Layers must be reduced and collapsed identically on all ranks when
     calibration data is unevenly distributed across ranks.
 
@@ -705,11 +711,6 @@ def test_mone_distributed_uneven_data(monkeypatch):
     only the source rank saw data (a rank without data must still join every
     reduction rather than deadlocking it).
     """
-    import llmcompressor.modifiers.pruning.mone.base as mone_base
-
-    # keep the test on CPU; only the gloo collectives are distributed
-    monkeypatch.setattr(mone_base, "get_main_device", lambda: torch.device("cpu"))
-
     dist.init_process_group(backend="gloo", init_method="env://")
     try:
         rank = dist.get_rank()
@@ -767,9 +768,10 @@ def test_mone_distributed_uneven_data(monkeypatch):
 @requires_gpu
 @torchrun(world_size=1, init_dist=True)
 def test_mone_distributed_nccl_reduces_on_gpu():
-    """The saliency reduction runs on the gpu (float32) through an
+    """The saliency reduction runs on the gpu (float32) over the default
     nccl-backed process group, rather than on host copies."""
     device = torch.device("cuda", dist.get_rank())
+    assert dist.get_backend() == "nccl"
 
     torch.manual_seed(42)
     config = FakeMoEConfig(
@@ -782,9 +784,6 @@ def test_mone_distributed_nccl_reduces_on_gpu():
     state = _make_state(model)
 
     modifier.initialize(state)
-    assert modifier._device == device
-    assert dist.get_backend(modifier._device_pg) == "nccl"
-
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
 
     with torch.no_grad():

@@ -16,6 +16,7 @@ from compressed_tensors.distributed import (
     is_distributed,
     is_source_process,
 )
+from compressed_tensors.offload import get_execution_device
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 from torch import distributed as dist
@@ -31,8 +32,6 @@ from llmcompressor.modifiers.pruning.reap.utils import (
     prune_moe_layer,
     update_model_config,
 )
-from llmcompressor.utils.dev import get_main_device
-from llmcompressor.utils.dist import new_device_process_group
 
 __all__ = ["REAPPruningModifier"]
 
@@ -90,8 +89,6 @@ class REAPPruningModifier(Modifier):
     _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
-    _device: torch.device | None = PrivateAttr(default=None)
-    _device_pg: Any = PrivateAttr(default=None)
     _report: dict = PrivateAttr(default_factory=lambda: defaultdict(dict))
 
     @model_validator(mode="after")
@@ -122,12 +119,6 @@ class REAPPruningModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
-        # saliency statistics are reduced on the accelerator in float32, over
-        # a dedicated process group matched to it (nccl / xccl / gloo)
-        self._device = get_main_device()
-        self._device_pg = (
-            new_device_process_group(self._device) if is_distributed() else None
-        )
         self._moe_attrs = get_moe_attrs(model, self.ignore)
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
@@ -225,15 +216,19 @@ class REAPPruningModifier(Modifier):
 
         for layer_name in self._moe_attrs.moe_layer_names:
             module = model.get_submodule(layer_name)
+            experts = getattr(module, self._moe_attrs.experts_attr)
 
+            # accumulators are zero-initialized up front on the layer's
+            # execution device, in float32: they never move devices (they are
+            # reduced in place over the default process group) and a layer
+            # which has not seen tokens yet still contributes zeros
             self._saliency_trackers[layer_name] = REAPSaliencyTracker(
-                self._moe_attrs.num_experts
+                self._moe_attrs.num_experts, get_execution_device(experts)
             )
             self._norm_buffers[layer_name] = {}
 
             # One hook per expert to record its per-token output norm and
             # store in the layer's norm buffer
-            experts = getattr(module, self._moe_attrs.experts_attr)
             expert_list = [
                 expert for expert in experts.children() if isinstance(expert, ExpertMLP)
             ]  # Filter out the activation function submodule
@@ -276,9 +271,6 @@ class REAPPruningModifier(Modifier):
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
-        if is_distributed():
-            dist.destroy_process_group(group=self._device_pg)
-            self._device_pg = None
 
         return True
 
@@ -294,7 +286,7 @@ class REAPPruningModifier(Modifier):
 
         # sort by layer name to keep the sequence of collectives identical
         # across ranks; every rank reduces every tracked layer, contributing
-        # zeros where it saw no tokens
+        # its zero-initialized accumulators where it saw no tokens
         trackers = [
             (layer_name, self._saliency_trackers[layer_name])
             for layer_name in sorted(self._saliency_trackers)
@@ -302,7 +294,7 @@ class REAPPruningModifier(Modifier):
 
         pruned_layers = 0
         for layer_name, tracker in trackers:
-            tracker.reduce_saliency_stats(self._device, group=self._device_pg)
+            tracker.reduce_saliency_stats()
 
             # every rank holds the total count summed across ranks after the
             # reduction, so all decide identically whether the layer
@@ -326,13 +318,11 @@ class REAPPruningModifier(Modifier):
                     )
                 else:
                     retained = torch.empty(
-                        expected, dtype=torch.int, device=self._device
+                        expected, dtype=torch.int, device=tracker.device
                     )
 
                 if is_distributed():
-                    dist.broadcast(
-                        retained, src=get_source_rank(), group=self._device_pg
-                    )
+                    dist.broadcast(retained, src=get_source_rank())
 
                 assert (
                     len(retained) == expected
