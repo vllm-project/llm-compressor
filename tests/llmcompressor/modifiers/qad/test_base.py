@@ -481,6 +481,7 @@ def test_oneshot_qad_with_and_without_error_propagation(propagate_error, tmp_pat
             recipe=[_quantizer("rtn"), qad],
             pipeline="sequential",
             propagate_error=propagate_error,
+            layerwise_decompression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
@@ -499,7 +500,10 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
     quantizer = QuantizationModifier(targets="Linear", scheme="NVFP4A16")
     with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
-            model=model, recipe=[quantizer, qad], pipeline="sequential"
+            model=model,
+            recipe=[quantizer, qad],
+            pipeline="sequential",
+            layerwise_decompression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
