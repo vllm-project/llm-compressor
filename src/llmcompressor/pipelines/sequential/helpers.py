@@ -12,7 +12,6 @@ from compressed_tensors.distributed import is_distributed, replace_module_parall
 from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
-from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -160,14 +159,19 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
     return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
 
 
+def _has_weight_quantization(module: Module) -> bool:
+    """Check for weight quantization while tolerating removed metadata."""
+    scheme = getattr(module, "quantization_scheme", None)
+    return getattr(scheme, "weights", None) is not None
+
+
 def decompress_subgraph_modules(modules: list[Module]) -> None:
     """Decompress compressed quantized modules owned by one subgraph."""
     # Standard oneshot loading may already have decompressed the checkpoint.
     compressed_modules = [
         module
         for module in modules
-        if is_module_quantized(module)
-        and module.quantization_scheme.weights is not None
+        if _has_weight_quantization(module)
         and getattr(module, "quantization_status", None)
         == QuantizationStatus.COMPRESSED
     ]
@@ -180,10 +184,7 @@ def compress_subgraph_modules(modules: list[Module]) -> None:
     # Activation-only schemes, such as KV-cache quantization, have no weight state
     # for the module compressor to pack.
     quantized_modules = [
-        module
-        for module in modules
-        if is_module_quantized(module)
-        and module.quantization_scheme.weights is not None
+        module for module in modules if _has_weight_quantization(module)
     ]
     if is_distributed():
         replace_module_parallel(
