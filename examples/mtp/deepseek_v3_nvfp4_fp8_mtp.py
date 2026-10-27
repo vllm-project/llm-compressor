@@ -55,8 +55,9 @@ oneshot(
     max_seq_length=2048,
     # Calibrate NVFP4 first, then observe MTP weights without a forward pass.
     pipeline="independent",
+    # Calibrate one decoder layer at a time, including all of its experts.
     # Treat MTP as a leaf so backbone calibration does not trace its forward.
-    sequential_targets=["DeepseekV3Attention", "DeepseekV3MLP", "MtpModel"],
+    sequential_targets=["DeepseekV3DecoderLayer", "MtpModel"],
     output_dir=SAVE_DIR,
 )
 
