@@ -27,6 +27,7 @@ from compressed_tensors.distributed import (
     is_distributed,
     is_source_process,
 )
+from compressed_tensors.offload import get_execution_device
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 from torch import distributed as dist
@@ -44,7 +45,6 @@ from llmcompressor.modifiers.pruning.reap.utils import (
     MoeModelAttrs,
     get_moe_attrs,
 )
-from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["MoNePruningModifier"]
 
@@ -103,7 +103,6 @@ class MoNePruningModifier(Modifier):
     _output_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
-    _cpu_pg: Any = PrivateAttr(default=None)
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
     _report: dict = PrivateAttr(default_factory=lambda: defaultdict(dict))
 
@@ -135,7 +134,6 @@ class MoNePruningModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model = state.model
-        self._cpu_pg = dist.new_group(backend="gloo") if is_distributed() else None
         self._moe_attrs = get_moe_attrs(model, self.ignore)
         self._n_experts_to_drop = int(self._moe_attrs.num_experts * self.sparsity)
 
@@ -187,15 +185,24 @@ class MoNePruningModifier(Modifier):
 
         for layer_name in self._moe_attrs.moe_layer_names:
             module = model.get_submodule(layer_name)
+            experts = getattr(module, self._moe_attrs.experts_attr)
+            router = getattr(module, self._moe_attrs.router_attr)
 
+            # accumulators are zero-initialized up front on the layer's
+            # execution device, in float32: they never move devices (they are
+            # reduced in place over the default process group) and a layer
+            # which has not seen tokens yet still contributes zeros
+            with align_module_device(router):
+                hidden_dim = router.weight.shape[1]
             self._saliency_trackers[layer_name] = MoNeSaliencyTracker(
-                self._moe_attrs.num_experts
+                self._moe_attrs.num_experts,
+                hidden_dim,
+                get_execution_device(experts),
             )
             self._output_buffers[layer_name] = {}
 
             # One hook per expert to record its per-token output (for the novice
             # mean and the output-fluctuation term), stored in the layer's buffers.
-            experts = getattr(module, self._moe_attrs.experts_attr)
             expert_list = [
                 expert for expert in experts.children() if isinstance(expert, ExpertMLP)
             ]
@@ -247,9 +254,6 @@ class MoNePruningModifier(Modifier):
 
         self._saliency_trackers.clear()
         self._output_buffers.clear()
-        if is_distributed():
-            dist.destroy_process_group(group=self._cpu_pg)
-            self._cpu_pg = None
 
         return True
 
@@ -263,23 +267,17 @@ class MoNePruningModifier(Modifier):
         model = state.model
         expected = self._moe_attrs.num_experts - self._n_experts_to_drop
         n_dropped = self._n_experts_to_drop
-        device = get_main_device()
 
         # sort by layer name to keep the sequence of collectives identical
         # across ranks; every rank reduces every tracked layer, contributing
-        # zeros where it saw no tokens
+        # its zero-initialized accumulators where it saw no tokens
         trackers = [
             (layer_name, self._saliency_trackers[layer_name])
             for layer_name in sorted(self._saliency_trackers)
         ]
 
         for layer_name, tracker in trackers:
-            moe_block = model.get_submodule(layer_name)
-            router = getattr(moe_block, self._moe_attrs.router_attr)
-            with align_module_device(router):
-                hidden_dim = router.weight.shape[1]
-
-            tracker.reduce_stats(device, hidden_dim, group=self._cpu_pg)
+            tracker.reduce_stats()
 
             # every rank holds the token count summed across ranks after the
             # reduction, so all decide identically whether the layer
@@ -298,10 +296,12 @@ class MoNePruningModifier(Modifier):
                 if is_source_process():
                     retained = tracker.compute_retained_experts(self._n_experts_to_drop)
                 else:
-                    retained = torch.empty(expected, dtype=torch.int, device="cpu")
+                    retained = torch.empty(
+                        expected, dtype=torch.int, device=tracker.device
+                    )
 
                 if is_distributed():
-                    dist.broadcast(retained, src=get_source_rank(), group=self._cpu_pg)
+                    dist.broadcast(retained, src=get_source_rank())
 
                 assert (
                     len(retained) == expected
@@ -316,11 +316,14 @@ class MoNePruningModifier(Modifier):
                     novices = tracker.compute_novices(dropped)
                 else:
                     novices = torch.empty(
-                        n_dropped, hidden_dim, dtype=torch.float64, device="cpu"
+                        n_dropped,
+                        tracker.hidden_dim,
+                        dtype=torch.float32,
+                        device=tracker.device,
                     )
 
                 if is_distributed():
-                    dist.broadcast(novices, src=get_source_rank(), group=self._cpu_pg)
+                    dist.broadcast(novices, src=get_source_rank())
 
                 self._retained_experts[layer_name] = retained
                 collapse_moe_layer(
