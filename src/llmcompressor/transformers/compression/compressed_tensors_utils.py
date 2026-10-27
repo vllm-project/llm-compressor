@@ -118,6 +118,12 @@ def _decompress_compressed_weights(
             for module in modules:
                 decompress_module(module)
 
+        # ``weight_shape`` is packing metadata. The decompressor needs it to
+        # reconstruct the dense weight, but it is not part of a dense checkpoint.
+        for module in modules:
+            if hasattr(module, "weight_shape"):
+                delattr(module, "weight_shape")
+
     if compressor.quantization_config is not None:
         compressor.quantization_config.quantization_status = (
             QuantizationStatus.DECOMPRESSED
@@ -176,13 +182,24 @@ def modify_save_pretrained(model: PreTrainedModel):
             if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
                 source_mtp = validate_mtp_copy_source(model)
 
+            # A dense save cannot use a packed compression format.
+            if not save_compressed and quantization_format not in (
+                None,
+                CompressionFormat.dense.value,
+            ):
+                raise ValueError(
+                    "A quantization format can only be applied when saving the "
+                    "model compressed"
+                )
+
             # without this, quantization format will be inferred from the model
-            if not save_compressed and quantization_format is None:
+            if not save_compressed:
                 quantization_format = CompressionFormat.dense.value
 
             # Use `ModelCompressor` to construct a quantization config
             compressor = ModelCompressor.from_pretrained_model(
-                model, quantization_format=quantization_format
+                model,
+                quantization_format=(quantization_format if save_compressed else None),
             )
 
             # Add expert sparsity to quantization config
@@ -200,6 +217,8 @@ def modify_save_pretrained(model: PreTrainedModel):
                 # save must restore those weights before serializing them, or the
                 # checkpoint contains packed keys with a dense format in its config.
                 _decompress_compressed_weights(model, compressor)
+                if compressor.quantization_config is not None:
+                    compressor.quantization_config.format = CompressionFormat.dense
 
             # Re-tie input and output embeddings before offload conversion so a
             # shared table is written once. Offloading splits a tied weight into

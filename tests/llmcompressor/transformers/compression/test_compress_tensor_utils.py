@@ -7,6 +7,7 @@ import torch
 import torch.distributed as dist
 from accelerate import dispatch_model
 from accelerate.accelerator import get_state_dict_offloaded_model
+from compressed_tensors import ModelCompressor
 from compressed_tensors.compressors.format import infer_model_format
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.quantization import (
@@ -15,9 +16,10 @@ from compressed_tensors.quantization import (
     quantize,
 )
 from torch import nn
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, LlamaConfig, LlamaForCausalLM
 
 from llmcompressor import oneshot
+from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
     suspend_distributed_timeout,
@@ -121,6 +123,41 @@ def _saved_weight_keys(save_path):
 
     with safe_open(os.path.join(save_path, "model.safetensors"), framework="pt") as f:
         return set(f.keys())
+
+
+def test_dense_save_removes_packed_weight_metadata(tmp_path):
+    """Dense saves should not retain tensors used only by packed weights."""
+    source = tmp_path / "source"
+    source.mkdir()
+    model = LlamaForCausalLM(
+        LlamaConfig(
+            vocab_size=128,
+            hidden_size=128,
+            intermediate_size=256,
+            num_hidden_layers=1,
+            num_attention_heads=4,
+            num_key_value_heads=4,
+            max_position_embeddings=64,
+        )
+    ).eval()
+    model.config.save_pretrained(source)
+    model.config.name_or_path = str(source)
+    model.name_or_path = str(source)
+
+    oneshot(
+        model=model,
+        recipe=QuantizationModifier(scheme="W4A16", ignore=["lm_head"]),
+    )
+    ModelCompressor.from_pretrained_model(model).compress_model(model)
+
+    save_path = tmp_path / "dense"
+    model.save_pretrained(save_path, save_compressed=False)
+
+    saved_keys = _saved_weight_keys(save_path)
+    assert "model.layers.0.self_attn.q_proj.weight" in saved_keys
+    assert not any(
+        key.endswith(("weight_packed", "weight_shape")) for key in saved_keys
+    )
 
 
 @pytest.mark.parametrize("offload", [False, True])
