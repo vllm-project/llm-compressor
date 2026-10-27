@@ -146,7 +146,14 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                         candidate(**tensors_to_device(batch, device))
                 LifecycleCallbacks.sequential_subgraph_end(list(candidate.modules()))
             else:
-                BasicPipeline()(candidate, dataloader, DatasetArguments())
+                BasicPipeline()(
+                    candidate,
+                    dataloader,
+                    DatasetArguments(
+                        layerwise_decompression=False,
+                        layerwise_compression=False,
+                    ),
+                )
             session.finalize()
 
     expected = reference.state_dict()
