@@ -15,10 +15,11 @@ Area ownership is tracked at the file and directory level in the repository's [C
 
 ## Committers
 
-- **[@kylesayrs](https://github.com/kylesayrs)** — Quantization (GPTQ, SmoothQuant, AWQ), pruning (SparseGPT, Wanda, OBCQ), transform-based methods (SpinQuant, QuIP), and the sequential and data-free pipelines.
+- **[@kylesayrs](https://github.com/kylesayrs)** — Quantization (GPTQ, SmoothQuant, AWQ), pruning (REAP), transform-based methods (SpinQuant, QuIP), and the sequential and data-free pipelines.
 - **[@dsikka](https://github.com/dsikka)** — Modeling support (MoE and vision model patches), quantization modifiers, observers, transformers compression and data integration, and project release/CI management.
 - **[@brian-dellabetta](https://github.com/brian-dellabetta)** — AWQ and transform-based quantization (SpinQuant, QuIP), entrypoints, and lm-eval based accuracy validation.
 - **[@HDCharles](https://github.com/HDCharles)** — Quantization and transform modifiers (GPTQ, AWQ, SmoothQuant), observers, and dataset utilities.
 - **[@yiliu30](https://github.com/yiliu30)** — AutoRound quantization, including the `AutoRoundModifier` and its calibration and transformers integration.
+- **[@GOavi101](https://github.com/GOavi101)** — Modeling support (MoE repacking and DeepSeek V3.2 patches), observers, recipe handling, and PyTorch model loading and sparsification utilities.
 
 New committers are added as they demonstrate sustained, high-quality contributions and take on ownership of a part of the codebase. If you're interested in becoming more involved, start by contributing code, reviews, and issue triage in the areas you care about — see the [Contributing Guide](https://github.com/vllm-project/llm-compressor/blob/main/CONTRIBUTING.md) to get started.

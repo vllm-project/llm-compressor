@@ -7,8 +7,11 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
+from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
@@ -16,6 +19,7 @@ from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
+from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
@@ -79,7 +83,9 @@ class Subgraph:
 
                 qualified_name = target
                 if relative_name:
-                    qualified_name = f"{target}.{relative_name}"
+                    qualified_name = (
+                        f"{target}.{relative_name}" if target else relative_name
+                    )
                 ordered_names.append(qualified_name)
                 seen_modules.add(submodule)
 
@@ -138,11 +144,49 @@ def find_modules_outside_subgraphs(
     }
 
 
+def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
+    """Build an untraced subgraph for a model with consistent batch input names."""
+
+    def _forward_whole_model(model: Module, inputs: dict[str, Any]):
+        return model(**inputs)
+
+    graph = Graph()
+    root = graph.placeholder("self")
+    inputs = graph.placeholder("**kwargs")
+    output = graph.call_function(_forward_whole_model, args=(root, inputs))
+    output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
+    graph.output(output)
+    return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
+
+
+def decompress_subgraph_modules(modules: list[Module]) -> None:
+    """Decompress quantized modules owned by one subgraph."""
+    compressed_modules = [module for module in modules if is_module_quantized(module)]
+    for module in tqdm(compressed_modules, desc="Decompressing modules"):
+        decompress_module(module, leave_decompressed=False)
+
+
+def compress_subgraph_modules(modules: list[Module]) -> None:
+    """Compress quantized modules owned by one subgraph."""
+    quantized_modules = [module for module in modules if is_module_quantized(module)]
+    if is_distributed():
+        replace_module_parallel(
+            quantized_modules, compress_module, desc="Compressing modules"
+        )
+    else:
+        for module in tqdm(quantized_modules, desc="Compressing modules"):
+            compress_module(module)
+
+
 def _resolve_sequential_targets(
     model: PreTrainedModel, sequential_targets: list[str]
 ) -> set[Module]:
     """Combine requested targets with attention boundaries and remove nested ones."""
     orig_targets = {m for _, m in list(match_named_modules(model, sequential_targets))}
+
+    # The root owns every module, including attention boundaries.
+    if model in orig_targets:
+        return {model}
 
     # Add attention modules as targets (we don't want to trace inside attention)
     attention_targets = {
@@ -202,6 +246,11 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     targets = _resolve_sequential_targets(model, sequential_targets)
+
+    if targets == {model}:
+        # FX traces the root's forward directly, without consulting is_leaf_module.
+        return [_create_whole_model_subgraph(set(sample_input))]
+
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments
@@ -217,6 +266,7 @@ def trace_subgraphs(
         # Attention uses the model's configured implementation unless
         # `eager_attention` is enabled.
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
+        stack.enter_context(patch_attr(torch.compiler, "_is_exporting_flag", True))
 
         # autowrap forwards
         stack.enter_context(autowrap_forwards(ancestors, ignore))

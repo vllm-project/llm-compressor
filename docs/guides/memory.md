@@ -1,10 +1,10 @@
 # Memory requirements for LLM Compressor
 
-When compressing a model you should be aware that the memory requirements are dependent on model size and the algorithm used, such as GPTQ/SparseGPT.  
+When compressing a model you should be aware that the memory requirements are dependent on model size and the algorithm used, such as GPTQ.  
 
 This section will go through how to calculate the CPU and GPU memory requirements for each algorithm using several popular models, an 8B, a 684B, and a model with vision capabilities, as examples. 
 
-The GPTQ/SparseGPT requires a large amount of auxiliary memory. GPTQ/SparseGPT allocates an auxiliary hessian matrix for any layers that are onloaded to the GPU. This is because the hessian matrices have to be almost as large as the weights they are trying to represent. 
+GPTQ requires a large amount of auxiliary memory. GPTQ allocates an auxiliary hessian matrix for any layers that are onloaded to the GPU. This is because the hessian matrices have to be almost as large as the weights they are trying to represent. 
 
 Also, larger models, like DeepSeek R1 use a large amount of CPU memory, and models with large vision towers, such as command A, may use large amounts of GPU memory. 
 
@@ -38,9 +38,9 @@ If we ignore these scales and zero points from our calculation, we can estimate 
 | **DeepSeek-R1-0528-BF16** | mem(684B params) ~= 1368Gb | mem(1 Layer) ~= 22.4Gb|
 | **Qwen2.5-VL-7B-Instruct** | mem(7B params) ~= 14Gb | max(mem(1 Text Layer)~= 0.4B, mem(Vision tower)~=1.3B) ~= 1.3Gb |
 
-## GPT Quantization(GPTQ)/ Sparse GPT 
+## GPT Quantization(GPTQ)
 
-The GPTQ/ SparseGPT algorithms differ from the RTN in that they must also allocate an auxiliary hessian matrices for any layers that are onloaded to the GPU. 
+The GPTQ algorithm differs from the RTN in that it must also allocate an auxiliary hessian matrix for any layers that are onloaded to the GPU. 
 
 This hessian matrix is used to increase the accuracy recovery of the algorithm, and is approximately the same size as the original weights.
 

@@ -14,10 +14,15 @@ The scheme you choose determines both the compression ratio and the hardware req
 | **W8A8-INT8** | 8-bit integer | Weights and activations | Turing | 7.5 | High throughput on older hardware |
 | **W8A8-FP8** | 8-bit floating point | Weights and activations | Lovelace | 8.9 | High throughput on modern GPUs |
 | **NVFP4** | 4-bit NVIDIA floating point | Weights and activations | Blackwell (SM100) | 10.0 | Maximum compression on latest hardware |
-| **MXFP4** | 4-bit MX floating point | Weights and activations | Blackwell (SM100) | 10.0 | Maximum compression; cross-platform compatible via OCP MX spec |
+| **MXFP4** | 4-bit MX floating point | Weights and activations | Blackwell (SM100) | 10.0 | Maximum compression; cross-platform compatible via OCP MX spec; MoE experts also run natively on Hopper with 16-bit activations |
+| **MXFP4xFP8** | 4-bit MX floating point weights, FP8 activations | Weights and activations | Hopper | 9.0 | MXFP4 memory savings with FP8 activations, typically for MoE experts |
 | **MXFP8** | 8-bit MX floating point | Weights and activations | Blackwell (SM100) | 10.0 | High accuracy MX format; cross-platform compatible via OCP MX spec |
 | **W4AFP8** | 4-bit weights, FP8 activations | Weights and activations | Hopper | 9.0 | Low-bit weights with FP8 activations |
 | **W4AINT8** | 4-bit weights, INT8 activations | Weights and activations | Arm | - | Low-bit weights with INT8 activations |
+
+The compute capability column is where vLLM accelerates both weights and activations.
+NVFP4, MXFP4 and MXFP8 checkpoints also load on older GPUs (Ampere and newer).
+There vLLM uses weight-only Marlin kernels and keeps activations in 16-bit, so you get the memory savings without the activation speedup.
 
 !!! tip
     For more information, see [Compression schemes](../guides/compression_schemes.md).
@@ -27,7 +32,7 @@ The scheme you choose determines both the compression ratio and the hardware req
 Your GPU architecture determines what compression schemes can be hardware-accelerated. For example:
 
 ### NVIDIA Blackwell
-- **Minimum compute capability**: 10.0
+- **Minimum compute capability**: 10.0 (datacenter, SM100) or 12.0 (consumer, SM120)
 - **Recommended**: NVFP4 or MXFP4 for maximum compression
 - **Alternative**: MXFP8 or FP8 for balanced compression and speed
 
@@ -35,6 +40,7 @@ Your GPU architecture determines what compression schemes can be hardware-accele
 - **Minimum compute capability**: 9.0
 - **Recommended**: W8A8-FP8 for maximum throughput
 - **Alternative**: W4AFP8 for mixed-precision with good accuracy
+- **MoE models**: MXFP4xFP8 on the experts with FP8_BLOCK on dense layers, for 4-bit expert weights with FP8 activations
 
 ### NVIDIA Ampere
 - **Minimum compute capability**: 8.0
@@ -52,25 +58,27 @@ FP8 (8-bit floating point) provides an excellent balance between compression and
 FP8 can be applied using any quantization algorithm (RTN, AWQ, GPTQ), allowing you to choose the accuracy-performance tradeoff that best fits your use case.
 
 - **W8A8-FP8**: FP8 format with per-channel or per-tensor weight scales and dynamic per-token activation quantization
-- **MXFP8**: Microscaling FP8 format using per-group quantization (group_size=32) with E8M0 scales; fully dynamic activations with no calibration data required; supported on Blackwell (SM100) GPUs
+- **MXFP8**: Microscaling FP8 format using per-group quantization (group_size=32) with E8M0 scales; fully dynamic activations with no calibration data required; accelerated on Blackwell (SM100) GPUs, weight-only on older GPUs
 
 See [FP8 weight and activation quantization](https://github.com/vllm-project/llm-compressor/tree/main/examples/quantization_w8a8_fp8) for more information.
 
-## FP4 quantization (NVFP4/MXFP4)
+## FP4 quantization (NVFP4/MXFP4/MXFP4xFP8)
 
-4-bit floating point formats provide maximum compression on Blackwell GPUs, with 4x reduction compared to FP16.
+4-bit floating point formats provide maximum compression, with roughly 4x weight reduction compared to FP16.
+FP4 activations are only accelerated on Blackwell GPUs; on older GPUs vLLM runs these checkpoints with weight-only kernels.
 FP4 can sometimes provide good results with RTN algorithms for fast quantization, but potentially improved recovery can be gained using GPTQ or AWQ.
 
 - **NVFP4**: NVIDIA's native 4-bit format with two-level micro-block scaling; requires calibration data for activation global scales
 - **MXFP4**: Microscaling FP4 format for cross-platform compatibility; per-group quantization (group_size=32) with E8M0 scales; no calibration data required if using RTN
+- **MXFP4xFP8**: MXFP4 weights with dynamic FP8 activations (group_size=128); no calibration data required; MoE experts use FP8 activations on Hopper, while vLLM on datacenter Blackwell (SM100) runs them with MXFP8 activations
 
 ## Compression Formats
 
 Each quantization scheme corresponds to a particular compressor, which dictates
 how the weights, scales, zero-points and other parameters are saved to disk after being compressed.
-These compressors live in the [compressed-tensors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/compressors) project where a list of [available compressors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/config/base.py#L26) can be found. The table summarizies the common compression schemes and their corresponding compressed-tensors compressor.
+These compressors live in the [compressed-tensors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/compressors) project where a list of [available compressors](https://github.com/vllm-project/compressed-tensors/tree/main/src/compressed_tensors/config/base.py#L26) can be found. The table summarizes the common compression schemes and their corresponding compressed-tensors compressor.
 
-For models with multiple precisions (e.g FP4 and FP8), multiple compressors may be applied to groups of layers. These models have a global mixed-precision format indicated in their
+For models with multiple precisions (e.g. FP4 and FP8), multiple compressors may be applied to groups of layers. These models have a global mixed-precision format indicated in their
 config.json while a local format is indicated for each group of targeted layers.
 
 
@@ -82,8 +90,11 @@ config.json while a local format is indicated for each group of targeted layers.
 | NVFP4 - float  | nvfp4_pack_quantized   |
 | MXFP4A16 - float | mxfp4_pack_quantized |
 | MXFP4 - float  | mxfp4_pack_quantized   |
-| MXFP8A16 - float | mxfp8_pack_quantized |
-| MXFP8 - float  | mxfp8_pack_quantized   |
+| MXFP4xFP8 - float | mxfp4_pack_quantized |
+| MXFP6A16 - float | mxfp6_pack_quantized |
+| MXFP6A8 - float  | mxfp6_pack_quantized |
+| MXFP8A16 - float | mxfp8_quantized     |
+| MXFP8 - float  | mxfp8_quantized        |
 | W4A16 - int   | pack_quantized          |
 | W4AFP8 - int   | pack_quantized         |
 | W4AInt8 - int   | pack_quantized        |
@@ -91,7 +102,7 @@ config.json while a local format is indicated for each group of targeted layers.
 | W8A16 - float | naive_quantized         |
 
 !!! warning
-    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
+    Sparse compression (including 2of4 sparsity) is no longer supported by LLM Compressor due to lack of hardware support and user interest. Please see https://github.com/vllm-project/vllm/pull/36799 for more information.
 
 ## Next steps
 

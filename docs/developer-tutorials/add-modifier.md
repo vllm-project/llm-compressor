@@ -117,7 +117,7 @@ class MyModifier(Modifier):
 | `on_end` | When `end >= event.current_index` (training lifecycle, auto-dispatched) | No |
 
 > **Note on calibration vs training lifecycle:** The base `Modifier` class now provides first-class support for both calibration and training lifecycles:
-> - **Calibration lifecycle** (`on_calibration_start`, `on_sequential_epoch_end`, `on_calibration_end`): These hooks are automatically dispatched when the corresponding event types are fired by the calibration pipeline. All compression modifiers (GPTQ, AWQ, SmoothQuant, SparseGPT, etc.) use these hooks.
+> - **Calibration lifecycle** (`on_calibration_start`, `on_sequential_epoch_end`, `on_calibration_end`): These hooks are automatically dispatched when the corresponding event types are fired by the calibration pipeline. All compression modifiers (GPTQ, AWQ, SmoothQuant, REAP, etc.) use these hooks.
 > - **Training lifecycle** (`on_start`, `on_update`, `on_end`): These hooks are auto-dispatched based on the `start` and `end` parameters. They are primarily used for training scenarios with explicit step ranges (e.g., dynamic pruning schedules).
 > - `on_event`: Called on every event before any lifecycle dispatch. Use this for cross-cutting behavior or custom event types.
 >
@@ -264,6 +264,6 @@ weight_clamp_stage:
 - **Only override what you need.** The default implementations of all lifecycle hooks except `on_initialize` are no-ops or return `True` — you do not need to call `super()` for these.
 - **Use `match_named_modules`** (from `compressed_tensors.utils`) to filter modules by type name or path pattern, consistent with how other modifiers handle `targets` and `ignore`.
 - **Keep `on_initialize` lightweight.** Expensive operations (e.g., full-model passes) should be deferred to calibration lifecycle hooks or `on_finalize`.
-- **`on_update` is rarely needed.** Only override it if you need a per-batch callback while the modifier is active — e.g., `MagnitudeModifier` uses it to update sparsity each batch. Compression modifiers (GPTQ, AWQ, SmoothQuant, etc.) do not use it.
+- **`on_update` is rarely needed.** Only override it if you need a per-batch callback while the modifier is active. Compression modifiers (GPTQ, AWQ, SmoothQuant, etc.) do not use it.
 - **Modifiers never fire events — the pipeline does.** All lifecycle events (`CALIBRATION_START`, `SEQUENTIAL_EPOCH_END`, `CALIBRATION_END`) are fired by the calibration pipeline. Your modifier only reacts to them by implementing the corresponding hooks. The base `Modifier` class automatically routes these events to the appropriate lifecycle methods.
-- **All calibration pipelines fire `SEQUENTIAL_EPOCH_END`.** The sequential pipeline fires it between layer groups (scoped to each group), while the basic and data-free pipelines fire it once for the entire model. Modifiers like GPTQ, SparseGPT, and QuantizationModifier use this event to trigger compression and qparam computation.
+- **All calibration pipelines fire `SEQUENTIAL_EPOCH_END`.** The sequential pipeline fires it between layer groups (scoped to each group), while the basic and data-free pipelines fire it once for the entire model. Modifiers like GPTQ, REAP, and QuantizationModifier use this event to trigger compression and qparam computation.

@@ -69,10 +69,24 @@ class _SlidingAttention(nn.Module):
         self.v_proj = None
 
 
+class _Attention(nn.Module):
+    def __init__(self, hidden_size):
+        super().__init__()
+        self.q_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.k_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.v_proj = nn.Linear(hidden_size, hidden_size, bias=False)
+
+
 class _DecoderLayer(nn.Module):
     def __init__(self, hidden_size, num_heads):
         super().__init__()
         self.self_attn = _SlidingAttention(hidden_size, num_heads)
+
+
+class _FullDecoderLayer(nn.Module):
+    def __init__(self, hidden_size):
+        super().__init__()
+        self.self_attn = _Attention(hidden_size)
 
 
 class _ToyGemma4(nn.Module):
@@ -80,6 +94,14 @@ class _ToyGemma4(nn.Module):
         super().__init__()
         self.layers = nn.ModuleList(
             [_DecoderLayer(hidden_size, num_heads) for _ in range(num_layers)]
+        )
+
+
+class _ToyAttentionModel(nn.Module):
+    def __init__(self, hidden_size=64, num_layers=2):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [_FullDecoderLayer(hidden_size) for _ in range(num_layers)]
         )
 
 
@@ -117,3 +139,19 @@ def test_fuse_weight_observers_with_none_v_proj():
         k_obs = layer.self_attn.k_proj.weight_observer
         assert q_obs.fusion_handler.is_fused, "q_proj observer should be fused"
         assert k_obs.fusion_handler.is_fused, "k_proj observer should be fused"
+
+
+def test_fuse_weight_observers_can_scope_to_subgraph_modules():
+    model = _ToyAttentionModel()
+    scoped_attn = model.layers[0].self_attn
+    unrelated_attn = model.layers[1].self_attn
+
+    for layer in (scoped_attn.q_proj, scoped_attn.k_proj, scoped_attn.v_proj):
+        _attach_tensor_group_scheme(layer)
+    _attach_tensor_group_scheme(unrelated_attn.q_proj)
+
+    fuse_weight_observers(model, modules=list(scoped_attn.modules()))
+
+    for layer in (scoped_attn.q_proj, scoped_attn.k_proj, scoped_attn.v_proj):
+        assert layer.weight_observer.fusion_handler.is_fused
+    assert not unrelated_attn.q_proj.weight_observer.fusion_handler.is_fused

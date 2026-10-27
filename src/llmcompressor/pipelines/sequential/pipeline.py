@@ -25,6 +25,8 @@ from llmcompressor.pipelines.sequential.error_logging import (
     process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
+    compress_subgraph_modules,
+    decompress_subgraph_modules,
     find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
@@ -60,14 +62,14 @@ def _submit_subgraph_staging(
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
-    input_names: list[str],
+    input_names: set[str],
     desc: str,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
     overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = activations.iter_prefetch(input_names)
+    batch_source = activations.iter_prefetch(list(input_names))
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -93,9 +95,10 @@ class SequentialPipeline(CalibrationPipeline):
         3. The intermediate activations between each subgraph are cached and offloaded
             to the cpu between each batch in order to save memory
 
-        This pipeline requires that the model be traceable with respect to data from the
-        data loader. This may be an issue for vision models with vision datasets, due
-        to specialized input processing in the model.
+        Unless the entire model is the sequential target, this pipeline requires that
+        the model be traceable with respect to data from the data loader. This may be
+        an issue for vision models with vision datasets, due to specialized input
+        processing in the model.
 
         In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A
         model can be made traceable by wrapping the untraceable functions (see
@@ -106,14 +109,6 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataset_args: dataset arguments relevant to pipelines
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
-
-        if getattr(dataset_args, "sequential_prefetch", False):
-            warnings.warn(
-                "sequential_prefetch is deprecated and has no effect because "
-                "activation prefetching is always enabled.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
 
         session = active_session()
 
@@ -147,6 +142,12 @@ class SequentialPipeline(CalibrationPipeline):
         num_subgraphs = len(subgraphs)
         persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
         if persistent_modules:
+            warnings.warn(
+                "Found persistent modules outside of subgraphs. "
+                "This feature will be deprecated in a future release.",
+                FutureWarning,
+                stacklevel=2,
+            )
             subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
@@ -259,6 +260,14 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                modules = subgraph.submodules(model)
+
+                # Decompress and initialize only this subgraph after onloading it.
+                if dataset_args.layerwise_decompression:
+                    decompress_subgraph_modules(modules)
+                    for modifier in modifiers:
+                        if hasattr(modifier, "start_layerwise_calibration"):
+                            modifier.start_layerwise_calibration(model, modules)
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -287,7 +296,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(subgraph.submodules(model))
+                LifecycleCallbacks.sequential_epoch_end(modules)
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
@@ -323,6 +332,10 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
+                # Repack weights before offloading the subgraph's tensors.
+                if dataset_args.layerwise_compression:
+                    compress_subgraph_modules(modules)
+
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####

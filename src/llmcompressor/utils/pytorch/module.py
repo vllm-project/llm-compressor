@@ -2,113 +2,19 @@
 Utility / helper functions
 """
 
-import warnings
-
 import torch
 from compressed_tensors.quantization.utils import is_module_quantized
-from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from torch.nn import Module
 from transformers import PreTrainedModel
 
-from llmcompressor.core import ModelParameterizedLayer
-
 __all__ = [
-    "expand_special_targets",
-    "build_parameterized_layers",
     "qat_active",
     "get_no_split_params",
     "infer_sequential_targets",
 ]
 
 ALL_TARGET = "__ALL__"
-ALL_PRUNABLE_TARGET = "__ALL_PRUNABLE__"
-ALL_QUANTIZABLE_TARGET = "__ALL_QUANTIZABLE__"
-
-
-def expand_special_targets(targets: str | list[str]) -> list[str]:
-    """
-    Expand special target constants to explicit class names with backward compatibility.
-
-    Special constants like __ALL_PRUNABLE__ and __ALL_QUANTIZABLE__ are deprecated
-    in favor of explicit class name lists. This function provides backward compatibility
-    by expanding these constants while issuing deprecation warnings.
-
-    :param targets: Target strings which may include special constants
-    :return: List of expanded target strings
-    :raises ValueError: If __ALL__ constant is used (no longer supported)
-    """
-    if isinstance(targets, str):
-        targets = [targets]
-
-    expanded = []
-    for target in targets:
-        if target == ALL_PRUNABLE_TARGET:
-            warnings.warn(
-                f"{ALL_PRUNABLE_TARGET} is deprecated. "
-                "Use explicit targets: ['Linear', 'Conv1d', 'Conv2d', 'Conv3d']",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-            expanded.extend(["Linear", "Conv1d", "Conv2d", "Conv3d"])
-        elif target == ALL_QUANTIZABLE_TARGET:
-            warnings.warn(
-                f"{ALL_QUANTIZABLE_TARGET} is deprecated. "
-                "Use explicit targets: ['Linear', 'Conv2d', 'Conv3d']",
-                DeprecationWarning,
-                stacklevel=3,
-            )
-            expanded.extend(["Linear", "Conv2d", "Conv3d"])
-        elif target == ALL_TARGET:
-            raise ValueError(
-                f"{ALL_TARGET} is no longer supported. "
-                "Use explicit layer types or patterns instead."
-            )
-        else:
-            expanded.append(target)
-
-    return expanded
-
-
-def build_parameterized_layers(
-    model: Module,
-    targets: str | list[str],
-    param_name: str = "weight",
-) -> dict[str, ModelParameterizedLayer]:
-    """
-    Build ModelParameterizedLayer objects for modules matching the given targets.
-
-    This function replaces get_layers_params() by using compressed-tensors'
-    match_named_modules() to find matching modules and their parameters,
-    then constructing ModelParameterizedLayer objects.
-
-    :param model: The model to search for matching modules
-    :param targets: Target patterns to match (supports class names, regex with "re:",
-                    and special constants for backward compatibility)
-    :param param_name: Name of the parameter to extract from each layer
-        (default: "weight")
-    :return: Dictionary mapping layer names to ModelParameterizedLayer objects
-    """
-    # Expand special constants if present
-    targets = expand_special_targets(targets)
-
-    parameterized_layers = {}
-    for layer_name, module in match_named_modules(model, targets):
-        # Get the parameter from the module
-        param = getattr(module, param_name, None)
-        if param is None:
-            continue
-
-        # Avoid duplicate entries (same layer can be matched multiple times)
-        if layer_name not in parameterized_layers:
-            parameterized_layers[layer_name] = ModelParameterizedLayer(
-                layer_name=layer_name,
-                layer=module,
-                param_name=f"{layer_name}.{param_name}",
-                param=param,
-            )
-
-    return parameterized_layers
 
 
 def qat_active(module: Module) -> bool:
