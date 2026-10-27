@@ -97,30 +97,26 @@ def test_get_layers_indivisible_by_group_size_finds_layer():
 
 
 def test_initialize_quantization_raises_early_for_indivisible():
-    """Modifier raises at on_initialize with clear message and layer names."""
+    """Group size is validated when the pipeline initializes a calibration scope."""
     model = _FlatModel(200, 64)  # weight.shape[-1]=200, 200 % 128 != 0
     state = State()
     state.update(model=model, device="cpu")
     modifier = QuantizationModifier(scheme="W4A16", targets=["Linear"])
 
-    with torch.no_grad():
-        try:
-            with pytest.raises(ValueError) as exc_info:
-                modifier.on_initialize(state)
-        except Exception:
-            pytest.skip(
-                "no indivisible layers targeted (CT may not attach to simple models)"
-            )
-            return
-        msg = str(exc_info.value)
-        assert "columns" in msg.lower() and "group_size" in msg.lower()
-        assert "ignore" in msg.lower()
-        assert "bypass_divisibility_checks" in msg
-        assert "200" in msg and "128" in msg
+    modifier.on_initialize(state)
+    assert not hasattr(model.linear, "quantization_scheme")
+    with torch.no_grad(), pytest.raises(ValueError) as exc_info:
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
+    msg = str(exc_info.value)
+    assert "columns" in msg.lower() and "group_size" in msg.lower()
+    assert "ignore" in msg.lower()
+    assert "bypass_divisibility_checks" in msg
+    assert "200" in msg and "128" in msg
 
 
 def test_initialize_quantization_succeeds_when_indivisible_ignored():
-    """When indivisible layer is in ignore list, on_initialize does not raise."""
+    """Ignored layers do not fail calibration setup."""
     model = _FlatModel(
         200, 64
     )  # columns=200 indivisible by 128, but we ignore the layer
@@ -132,10 +128,12 @@ def test_initialize_quantization_succeeds_when_indivisible_ignored():
 
     with torch.no_grad():
         modifier.on_initialize(state)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
 
 
 def test_initialize_quantization_succeeds_when_bypass_divisibility_checks():
-    """bypass_divisibility_checks=True: on_initialize does not raise for indivisible."""
+    """bypass_divisibility_checks=True permits indivisible layers at setup."""
     model = _FlatModel(200, 64)  # columns=200 indivisible by 128
     state = State()
     state.update(model=model, device="cpu")
@@ -145,6 +143,8 @@ def test_initialize_quantization_succeeds_when_bypass_divisibility_checks():
 
     with torch.no_grad():
         modifier.on_initialize(state)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
 
 
 def test_initialize_quantization_succeeds_when_all_divisible():
@@ -156,6 +156,8 @@ def test_initialize_quantization_succeeds_when_all_divisible():
 
     with torch.no_grad():
         modifier.on_initialize(state)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
 
 
 def test_layer_narrower_than_group_size_is_indivisible():
@@ -172,12 +174,14 @@ def test_layer_narrower_than_group_size_is_indivisible():
 
 
 def test_initialize_quantization_raises_early_for_layer_narrower_than_group():
-    """Modifier raises at on_initialize for a layer with columns < group_size."""
+    """Calibration setup rejects a layer with columns < group_size."""
     model = _FlatModel(48, 64)  # weight.shape[-1]=48 < 128
     state = State()
     state.update(model=model, device="cpu")
     modifier = QuantizationModifier(scheme="W4A16", targets=["Linear"])
 
+    modifier.on_initialize(state)
     with torch.no_grad(), pytest.raises(ValueError) as exc_info:
-        modifier.on_initialize(state)
+        modifier._prepare_sequential_epoch(state, None)
+        modifier.on_sequential_epoch_start(state, None)
     assert "columns=48" in str(exc_info.value)

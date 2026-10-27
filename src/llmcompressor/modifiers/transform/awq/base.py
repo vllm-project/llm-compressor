@@ -90,10 +90,9 @@ class AWQModifier(Modifier):
 
     Lifecycle:
 
-    - (quantization config applied by subsequent QuantizationMixin's on_initialize)
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - on_calibration_start
+    - on_sequential_epoch_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
@@ -105,8 +104,7 @@ class AWQModifier(Modifier):
             - find best smoothing scale for each smoothing layer via grid search
             - apply best scales to model weights
             - raise error if any unused activations remain
-    - on_calibration_end
-        - re-run logic of sequential epoch end (in case of basic pipeline)
+    - _cleanup_sequential_epoch
         - remove activation hooks
     - on_finalize
         - clear resolved mappings and captured activations
@@ -195,22 +193,16 @@ class AWQModifier(Modifier):
 
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
         """
-        Start AWQ on the given state. This runs after quantization mixin has been
-        initialized (i.e. after quantization config has been applied)
-
-        - resolve mappings
-        - validate mappings and quant scheme
-        - setup activation cache hooks
-
-        :param state: state to run AWQ on
-        :return: True on a successful run, False otherwise
+        Resolve mappings and install hooks after every modifier initializes the scope.
         """
 
-        self._set_resolved_mappings(state.model)
-
-        # Check for unsupported token masking with MoE up_proj -> down_proj mappings
+        modules = kwargs.get("modules")
+        resolved = self._set_resolved_mappings(
+            state.model,
+            modules=modules,
+        )
         if state.loss_masks is not None and self._has_moe_up_down_proj_mapping():
             raise ValueError(
                 "Token masking (use_loss_mask=True) is not supported with "
@@ -220,44 +212,29 @@ class AWQModifier(Modifier):
                 "disable token masking or exclude the up_proj -> down_proj mapping "
                 "for MoE layers from the AWQ configuration."
             )
+        if not resolved:
+            return
 
-        # Validate that duo_scaling is only used with per-channel quantization
-        if self.duo_scaling is not False:
+        self._validate_duo_scaling(resolved)
+        self._setup_activation_cache_hooks(resolved)
 
-            def _validate_balance_layer(name, module):
-                if (
-                    hasattr(module, "quantization_scheme")
-                    and hasattr(module.quantization_scheme, "weights")
-                    and module.quantization_scheme.weights.strategy
-                    == QuantizationStrategy.TENSOR
-                ):
-                    raise ValueError(
-                        "duo_scaling is only supported with per-channel quantization "
-                        "strategies (group or channel), but found TENSOR strategy on "
-                        f"layer {name}. Please set duo_scaling=False or use a "
-                        "per-channel quantization strategy."
-                    )
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[Module], **kwargs
+    ):
+        self._apply_smoothing(state.model, modules=modules)
 
-            for mapping in self._resolved_mappings:
-                for balance_name, balance_layer in zip(
-                    mapping.balance_names, mapping.balance_layers
-                ):
-                    _validate_balance_layer(balance_name, balance_layer)
-
-        self._setup_activation_cache_hooks()
-
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        self._apply_smoothing(state.model)
-
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks.
         No qparams are updated since this is just a transform.
         """
-        self._assert_all_activations_consumed()
-
-        # remove activation hooks
-        self.remove_hooks()
+        modules = kwargs.get("modules")
+        self.remove_hooks(modules=modules)
+        self._resolved_mappings = [
+            mapping
+            for mapping in self._resolved_mappings
+            if modules is not None and mapping.smooth_layer not in modules
+        ]
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -269,6 +246,8 @@ class AWQModifier(Modifier):
         if not self.ended_:
             self.on_end(state, None)
 
+        self._assert_all_activations_consumed()
+        self.remove_hooks()
         self._log_error_metrics()
 
         self._parent_args_cache.clear()
@@ -278,7 +257,32 @@ class AWQModifier(Modifier):
 
         return True
 
-    def _set_resolved_mappings(self, model: Module) -> None:
+    def _validate_duo_scaling(self, mappings: list[ResolvedMapping]) -> None:
+        if self.duo_scaling is False:
+            return
+
+        for mapping in mappings:
+            for balance_name, balance_layer in zip(
+                mapping.balance_names, mapping.balance_layers
+            ):
+                if (
+                    hasattr(balance_layer, "quantization_scheme")
+                    and hasattr(balance_layer.quantization_scheme, "weights")
+                    and balance_layer.quantization_scheme.weights.strategy
+                    == QuantizationStrategy.TENSOR
+                ):
+                    raise ValueError(
+                        "duo_scaling is only supported with per-channel quantization "
+                        "strategies (group or channel), but found TENSOR strategy on "
+                        f"layer {balance_name}. Please set duo_scaling=False or use a "
+                        "per-channel quantization strategy."
+                    )
+
+    def _set_resolved_mappings(
+        self,
+        model: Module,
+        modules: list[Module] | None = None,
+    ) -> list[ResolvedMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
         into ResolvedMapping objects, resolving regular expressions.
@@ -292,6 +296,7 @@ class AWQModifier(Modifier):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
+        module_scope = None if modules is None else set(modules)
 
         num_incompatible = 0
         for mapping in self.mappings:
@@ -314,6 +319,12 @@ class AWQModifier(Modifier):
                     module_to_name.get(balance_layer)
                     for balance_layer in balance_layers
                 ]
+
+                if module_scope is not None:
+                    mapping_modules = [smooth_layer, *balance_layers]
+                    in_scope = [module in module_scope for module in mapping_modules]
+                    if not any(in_scope):
+                        continue
 
                 # Check if at least one layer is targeted for quantization
                 any_targeted = hasattr(smooth_layer, "quantization_scheme") or any(
@@ -351,6 +362,13 @@ class AWQModifier(Modifier):
 
                     continue
 
+                if module_scope is not None and not all(in_scope):
+                    raise ValueError(
+                        "AWQ mapping spans sequential subgraphs. Choose "
+                        "sequential targets that keep each smooth layer and its "
+                        "balance layers in the same subgraph."
+                    )
+
                 ancestor_name, ancestor = get_lowest_common_ancestor_with_avoid(
                     balance_names, model, torch.nn.ModuleList
                 )
@@ -383,10 +401,16 @@ class AWQModifier(Modifier):
                 + "Set logging to DEBUG to view full list."
             )
 
-        self._resolved_mappings = resolved_mappings
-        return
+        if modules is None:
+            self._resolved_mappings = resolved_mappings
+            return resolved_mappings
 
-    def _setup_activation_cache_hooks(self) -> None:
+        self._resolved_mappings.extend(resolved_mappings)
+        return resolved_mappings
+
+    def _setup_activation_cache_hooks(
+        self, mappings: list[ResolvedMapping] | None = None
+    ) -> None:
         """
         Attach a forward hook to each activation we want to smooth. This allows us to
         calculate the dynamic range during calibration
@@ -449,7 +473,7 @@ class AWQModifier(Modifier):
 
             return cache_smooth_activations_hook
 
-        for mapping in self._resolved_mappings:
+        for mapping in mappings if mappings is not None else self._resolved_mappings:
             # parent kwargs needed for future forward passes
             # same parent may appear multiple times in resolved mappings
             if mapping.parent not in self._parent_args_cache:
@@ -461,6 +485,7 @@ class AWQModifier(Modifier):
                     mapping.parent,
                     cache_parent_kwargs_hook,
                     "forward_pre",
+                    owner=mapping.smooth_layer,
                     with_kwargs=True,
                 )
 
@@ -477,10 +502,13 @@ class AWQModifier(Modifier):
                 layer_to_hook,
                 create_cache_smooth_activations_hook_fn(mapping.smooth_name),
                 "forward",
+                owner=mapping.smooth_layer,
             )
 
     @torch.no_grad()
-    def _apply_smoothing(self, model: Module) -> None:
+    def _apply_smoothing(
+        self, model: Module, modules: list[Module] | None = None
+    ) -> None:
         """
         Calculate the best scaling factors for each layer to smooth activations and
         apply the scaling factors to the weights of the next layer to offset the
@@ -490,10 +518,12 @@ class AWQModifier(Modifier):
         """
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being updated
+        module_scope = None if modules is None else set(modules)
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_stats
+            and (module_scope is None or mapping.smooth_layer in module_scope)
         ]
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer
@@ -590,7 +620,18 @@ class AWQModifier(Modifier):
                 del self._parent_args_cache[parent_module]
                 del orig_layer_weights
 
-        self._assert_all_activations_consumed()
+        if modules is None:
+            self._assert_all_activations_consumed()
+        else:
+            unconsumed = [
+                mapping.smooth_name
+                for mapping in mappings_to_smooth
+                if mapping.smooth_name in self._smooth_activation_stats
+            ]
+            if unconsumed:
+                raise RuntimeError(
+                    f"Some cached activations were not used: {unconsumed}"
+                )
 
     @torch.no_grad()
     def _run_samples(self, module: Module) -> list[torch.Tensor]:

@@ -136,15 +136,15 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
             )
             dataloader = DataLoader(samples, batch_size=None)
             if candidate is reference:
-                LifecycleCallbacks.calibration_start()
-                with calibration_forward_context(candidate), DisableQuantization(
-                    candidate
+                LifecycleCallbacks.sequential_epoch_start()
+                with (
+                    calibration_forward_context(candidate),
+                    DisableQuantization(candidate),
                 ):
                     for batch_index, batch in enumerate(dataloader):
                         session.state.current_batch_idx = batch_index
                         candidate(**tensors_to_device(batch, device))
                 LifecycleCallbacks.sequential_epoch_end(list(candidate.modules()))
-                LifecycleCallbacks.calibration_end()
             else:
                 BasicPipeline()(candidate, dataloader, DatasetArguments())
             session.finalize()

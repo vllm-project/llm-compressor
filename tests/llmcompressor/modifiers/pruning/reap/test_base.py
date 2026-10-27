@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 
 import pytest
 import torch
@@ -374,7 +375,7 @@ class TestREAPSaliencyTracker:
 
             modifier_sparse.initialize(state_sparse)
             modifier_sparse.update_event(
-                state_sparse, Event(type_=EventType.CALIBRATION_START)
+                state_sparse, Event(type_=EventType.SEQUENTIAL_EPOCH_START)
             )
 
             # Run forward passes
@@ -398,7 +399,7 @@ class TestREAPSaliencyTracker:
 
             modifier_dense.initialize(state_dense)
             modifier_dense.update_event(
-                state_dense, Event(type_=EventType.CALIBRATION_START)
+                state_dense, Event(type_=EventType.SEQUENTIAL_EPOCH_START)
             )
 
             # Run forward passes (same data due to same seed)
@@ -773,7 +774,8 @@ def test_reap_initialization_zero_drop():
 
 
 @pytest.mark.unit
-def test_reap_full_lifecycle():
+@pytest.mark.parametrize("revisit_pruned_scope", [False, True])
+def test_reap_full_lifecycle(revisit_pruned_scope):
     """End-to-end test: initialize, calibrate, finalize, verify pruning.
 
     Uses SEQUENTIAL_EPOCH_END to trigger pruning decisions."""
@@ -794,7 +796,7 @@ def test_reap_full_lifecycle():
     assert modifier._n_experts_to_drop == 4
 
     # Start calibration
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_START))
     assert modifier.started_
     assert len(modifier._saliency_trackers) == 2
 
@@ -812,8 +814,26 @@ def test_reap_full_lifecycle():
     assert len(modifier._norm_buffers) == 0
 
     # End calibration
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier._cleanup_sequential_epoch(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_END)
+    )
     assert modifier.ended_
+
+    if revisit_pruned_scope:
+        report = deepcopy(modifier._report)
+        scope = list(model.modules())
+        modifier.update_event(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=scope
+        )
+        with torch.no_grad():
+            model(x)
+        modifier.update_event(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=scope
+        )
+        modifier._cleanup_sequential_epoch(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=scope
+        )
+        assert modifier._report == report
 
     # Finalize
     modifier.finalize(state)
@@ -841,7 +861,8 @@ def test_reap_full_lifecycle():
 
 
 @pytest.mark.unit
-def test_reap_report_only_does_not_modify_model(tmp_path):
+@pytest.mark.parametrize("revisit_completed_scope", [False, True])
+def test_reap_report_only_does_not_modify_model(tmp_path, revisit_completed_scope):
     """With sparsity=0.0, saliency is reported but weights/config are untouched."""
     torch.manual_seed(42)
 
@@ -856,7 +877,7 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
     state = _make_state(model)
 
     modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_START))
 
     with torch.no_grad():
         for _ in range(5):
@@ -864,7 +885,24 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
             model(x)
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier._cleanup_sequential_epoch(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_END)
+    )
+    if revisit_completed_scope:
+        report = deepcopy(modifier._report)
+        scope = list(model.modules())
+        modifier.update_event(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=scope
+        )
+        with torch.no_grad():
+            model(torch.randn(2, 8, config.hidden_size))
+        modifier.update_event(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=scope
+        )
+        modifier._cleanup_sequential_epoch(
+            state, Event(type_=EventType.SEQUENTIAL_EPOCH_END), modules=scope
+        )
+        assert modifier._report == report
     modifier.finalize(state)
 
     # Model config and weights are unchanged
@@ -951,7 +989,7 @@ def test_reap_forward_pass_after_pruning():
     state = _make_state(model)
 
     modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_START))
 
     # Calibration passes
     with torch.no_grad():
@@ -960,7 +998,9 @@ def test_reap_forward_pass_after_pruning():
             model(x)
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier._cleanup_sequential_epoch(
+        state, Event(type_=EventType.SEQUENTIAL_EPOCH_END)
+    )
     modifier.finalize(state)
 
     # Multiple forward passes after pruning should all work

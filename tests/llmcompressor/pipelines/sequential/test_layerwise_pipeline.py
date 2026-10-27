@@ -42,8 +42,8 @@ class _FakeModifier:
     def __init__(self, events):
         self.events = events
 
-    def start_layerwise_calibration(self, model, modules):
-        self.events.append(("start_layerwise_calibration", modules))
+    def on_sequential_epoch_start(self, modules):
+        self.events.append(("sequential_epoch_start", modules))
 
 
 def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
@@ -52,6 +52,16 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
     module = model[0]
     events = []
+    scopes = []
+
+    def onload(modules):
+        scopes.append(modules)
+        events.append("onload")
+        return {}
+
+    def offload(modules, offload_kwargs):
+        assert modules is scopes[-1]
+        events.append("offload")
 
     modifier = _FakeModifier(events)
     session = SimpleNamespace(
@@ -98,12 +108,12 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_onload_modules",
-        lambda modules: events.append("onload") or {},
+        onload,
     )
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_offload_modules",
-        lambda modules, offload_kwargs: events.append("offload"),
+        offload,
     )
     monkeypatch.setattr(
         pipeline_module.IntermediatesCache,
@@ -112,18 +122,13 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     )
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,
-        "calibration_start",
-        lambda: events.append("calibration_start"),
+        "sequential_epoch_start",
+        lambda modules, **kwargs: modifier.on_sequential_epoch_start(modules),
     )
     monkeypatch.setattr(
         pipeline_module.LifecycleCallbacks,
         "sequential_epoch_end",
-        lambda modules: events.append(("sequential_epoch_end", modules)),
-    )
-    monkeypatch.setattr(
-        pipeline_module.LifecycleCallbacks,
-        "calibration_end",
-        lambda: events.append("calibration_end"),
+        lambda modules, **kwargs: events.append(("sequential_epoch_end", modules)),
     )
     monkeypatch.setattr(
         helpers_module,
@@ -147,13 +152,13 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     SequentialPipeline.__call__(model, [{}], dataset_args)
 
     assert events == [
-        "calibration_start",
+        ("sequential_epoch_start", []),
         "onload",
         ("decompress_module", module, False),
-        ("start_layerwise_calibration", [module]),
+        ("sequential_epoch_start", [module]),
         "forward",
         ("sequential_epoch_end", [module]),
         ("compress_module", module),
         "offload",
-        "calibration_end",
+        ("sequential_epoch_end", []),
     ]
