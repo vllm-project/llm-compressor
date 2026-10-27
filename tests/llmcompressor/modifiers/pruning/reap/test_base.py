@@ -4,6 +4,7 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import distributed as dist
 from transformers.configuration_utils import PretrainedConfig
 
 from llmcompressor.core import Event, EventType, State
@@ -16,6 +17,7 @@ from llmcompressor.modifiers.pruning.reap.utils import (
     prune_moe_layer,
     update_model_config,
 )
+from tests.testing_utils import requires_gpu, torchrun
 
 # ---------------------------------------------------------------------------
 # Helpers: tiny synthetic MoE model with LinearExperts2D for testing
@@ -216,7 +218,7 @@ class TestREAPSaliencyTracker:
         context._CALIBRATE_ALL_EXPERTS = False
 
         try:
-            tracker = REAPSaliencyTracker(num_experts=4)
+            tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
             # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
             topk_indices = torch.tensor([[0, 1], [0, 2]])
             topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
@@ -253,7 +255,7 @@ class TestREAPSaliencyTracker:
         context._CALIBRATE_ALL_EXPERTS = True
 
         try:
-            tracker = REAPSaliencyTracker(num_experts=4)
+            tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
             # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
             topk_indices = torch.tensor([[0, 1], [0, 2]])
             topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
@@ -302,7 +304,7 @@ class TestREAPSaliencyTracker:
         try:
             # Test 1: calibrate_all_experts=False (sparse norms)
             context._CALIBRATE_ALL_EXPERTS = False
-            tracker = REAPSaliencyTracker(num_experts=2)
+            tracker = REAPSaliencyTracker(num_experts=2, device=torch.device("cpu"))
             idx = torch.tensor([[0]])
             tracker.update(idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])})
             tracker.update(idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])})
@@ -312,7 +314,7 @@ class TestREAPSaliencyTracker:
 
             # Test 2: calibrate_all_experts=True (dense norms)
             context._CALIBRATE_ALL_EXPERTS = True
-            tracker2 = REAPSaliencyTracker(num_experts=2)
+            tracker2 = REAPSaliencyTracker(num_experts=2, device=torch.device("cpu"))
             idx = torch.tensor([[0]])  # token 0 routes to expert 0
             # Dense norms: all experts have norms for all tokens
             tracker2.update(
@@ -421,12 +423,13 @@ class TestREAPSaliencyTracker:
                 zip(mean_saliency_sparse, mean_saliency_dense)
             ):
                 assert sparse.shape == dense.shape == torch.Size([8])
-                # Check that all expert saliencies match (within floating
-                # point precision). Small numerical differences can
-                # accumulate across multiple forward passes
+                # Check that all expert saliencies match. Statistics are
+                # accumulated in float32 and the sparse / dense paths sum the
+                # same contributions in a different order, so allow small
+                # differences
                 for expert_idx in range(8):
                     assert sparse[expert_idx].item() == pytest.approx(
-                        dense[expert_idx].item(), rel=1e-7, abs=1e-9
+                        dense[expert_idx].item(), rel=1e-5, abs=1e-6
                     ), (
                         f"Layer {layer_idx}, Expert {expert_idx}: "
                         f"sparse={sparse[expert_idx].item()}, "
@@ -439,11 +442,11 @@ class TestREAPSaliencyTracker:
 
     def test_compute_retained_global(self):
         # 8 experts, drop 3 globally
-        tracker = REAPSaliencyTracker(num_experts=8)
+        tracker = REAPSaliencyTracker(num_experts=8, device=torch.device("cpu"))
         tracker.sum_saliency = torch.tensor(
-            [0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.9, 0.4], dtype=torch.float64
+            [0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.9, 0.4], dtype=torch.float32
         )
-        tracker.count = torch.ones(8, dtype=torch.float64)
+        tracker.count = torch.ones(8, dtype=torch.float32)
 
         config = FakeMoEConfig(num_experts=8)
         moe_attrs = get_moe_attrs(FakeMoEModel(config), ignore=[])
@@ -456,11 +459,11 @@ class TestREAPSaliencyTracker:
 
     def test_compute_retained_per_group(self):
         # 8 experts, 2 groups of 4; drop 2 total -> 1 per group
-        tracker = REAPSaliencyTracker(num_experts=8)
+        tracker = REAPSaliencyTracker(num_experts=8, device=torch.device("cpu"))
         tracker.sum_saliency = torch.tensor(
-            [0.1, 0.9, 0.8, 0.7, 0.6, 0.2, 0.5, 0.4], dtype=torch.float64
+            [0.1, 0.9, 0.8, 0.7, 0.6, 0.2, 0.5, 0.4], dtype=torch.float32
         )
-        tracker.count = torch.ones(8, dtype=torch.float64)
+        tracker.count = torch.ones(8, dtype=torch.float32)
 
         # Create a mock moe_attrs with group info
         config = FakeMoEConfig(num_experts=8)
@@ -971,3 +974,154 @@ def test_reap_forward_pass_after_pruning():
             assert out.shape == (2, 4, config.hidden_size)
             assert not torch.isnan(out).any()
             assert not torch.isinf(out).any()
+
+
+@pytest.mark.unit
+def test_reap_layer_without_data_prunes_after_later_epoch():
+    """A layer which saw no calibration tokens keeps its tracker (in case data
+    arrives in a later epoch) and is pruned once it does."""
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    modifier = REAPPruningModifier(sparsity=0.5)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    # first epoch end: no layer has seen any data yet, so nothing is
+    # finalized and the trackers are kept
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    assert len(modifier._saliency_trackers) == 2
+    for tracker in modifier._saliency_trackers.values():
+        assert tracker.total_count == 0
+    for layer in model.layers:
+        assert layer.experts.num_experts == 8
+
+    # second epoch: data arrives for every layer
+    with torch.no_grad():
+        for _ in range(5):
+            model(torch.randn(2, 8, config.hidden_size))
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    assert len(modifier._saliency_trackers) == 0
+
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    for layer in model.layers:
+        assert layer.experts.num_experts == 4
+        assert layer.gate.weight.shape[0] == 4
+
+
+# ---------------------------------------------------------------------------
+# Tests: distributed calibration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@torchrun(world_size=2, init_dist=False)
+def test_reap_distributed_uneven_data():
+    """Layers must be reduced and pruned identically on all ranks when
+    calibration data is unevenly distributed across ranks.
+
+    Every rank reduces every tracked layer (contributing zeros where it saw
+    no tokens) and the decision of which layers collected samples is made
+    from the total count summed across ranks. This covers both the case
+    where only the non-source rank saw data (deciding from the source rank's
+    local count alone would skip the layer everywhere) and the case where
+    only the source rank saw data (a rank without data must still join every
+    reduction rather than deadlocking it).
+    """
+    dist.init_process_group(backend="gloo", init_method="env://")
+    try:
+        rank = dist.get_rank()
+
+        for data_rank in (1, 0):
+            torch.manual_seed(42)
+            config = FakeMoEConfig(
+                num_experts=8,
+                hidden_size=16,
+                intermediate_size=32,
+                num_hidden_layers=2,
+            )
+            model = FakeMoEModel(config)
+            model.eval()
+
+            modifier = REAPPruningModifier(sparsity=0.5)
+            state = _make_state(model)
+
+            modifier.initialize(state)
+            modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+            # only data_rank processes calibration data
+            if rank == data_rank:
+                with torch.no_grad():
+                    for _ in range(5):
+                        model(torch.randn(2, 8, config.hidden_size))
+
+            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+            modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+            modifier.finalize(state)
+
+            # every layer was pruned from the globally summed statistics
+            assert len(modifier._saliency_trackers) == 0
+            for layer in model.layers:
+                assert layer.experts.num_experts == 4
+                assert layer.gate.weight.shape[0] == 4
+
+            # ... identically on every rank (retained experts are broadcast
+            # from the source rank)
+            gate = torch.stack([layer.gate.weight.data for layer in model.layers]).to(
+                torch.float64
+            )
+            gathered = [torch.empty_like(gate) for _ in range(dist.get_world_size())]
+            dist.all_gather(gathered, gate.contiguous())
+            for other in gathered:
+                torch.testing.assert_close(other, gate)
+
+        dist.barrier()
+    finally:
+        dist.destroy_process_group()
+
+
+@pytest.mark.unit
+@requires_gpu
+@torchrun(world_size=1, init_dist=True)
+def test_reap_distributed_nccl_reduces_on_gpu():
+    """The saliency reduction runs on the gpu (float32) over the default
+    nccl-backed process group, rather than on host copies."""
+    device = torch.device("cuda", dist.get_rank())
+    assert dist.get_backend() == "nccl"
+
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config).to(device)
+    model.eval()
+
+    modifier = REAPPruningModifier(sparsity=0.5)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with torch.no_grad():
+        for _ in range(5):
+            model(torch.randn(2, 8, config.hidden_size, device=device))
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    # every layer pruned, with the router shrunk on the gpu
+    assert len(modifier._saliency_trackers) == 0
+    for layer in model.layers:
+        assert layer.experts.num_experts == 4
+        assert layer.gate.weight.shape[0] == 4
+        assert layer.gate.weight.device == device
