@@ -6,6 +6,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors import ModelCompressor
 from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
@@ -341,5 +342,15 @@ class SequentialPipeline(CalibrationPipeline):
                 #### END OF ONLOAD ####
                 #######################
 
-            # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
+
+        if dataset_args.layerwise_compression and any(
+            getattr(getattr(module, "quantization_scheme", None), "weights", None)
+            is not None
+            for module in model.modules()
+        ):
+            # Modules outside the traced subgraphs may still have quantized weights.
+            # Pack those too, then restore the normal lazy-decompression behavior so
+            # the returned model can be used for inference.
+            compressor = ModelCompressor.from_pretrained_model(model)
+            compressor.compress_model(model, skip_compressed=True)
