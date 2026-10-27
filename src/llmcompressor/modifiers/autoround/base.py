@@ -582,23 +582,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # Update offload parameters and remove temporary attributes
         autoround_targets = self._match_autoround_targets(model)
         for name, module in model.named_modules():
-            # AutoRound may move a layer's weight while tuning it. The original
-            # LLMC qparams can then be on a different device from the weight,
-            # which breaks compression/QDQ operations that use them together.
-            if isinstance(module._parameters, OffloadCache):
-                module_device = (
-                    torch.device(module._parameters.onload_device)
-                    if "weight" in module._parameters
-                    else None
-                )
-            else:
-                weight = module._parameters.get("weight")
-                module_device = (
-                    weight.device if isinstance(weight, torch.Tensor) else None
-                )
-            if module_device is not None and module_device.type == "meta":
-                module_device = None
-
             # Apply AutoRound's quantization decision only to its target modules.
             is_autoround_target = module in autoround_targets
             if is_autoround_target:
@@ -636,15 +619,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                         ar_value = (
                             FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX * get_reciprocal(ar_value)
                         )
-                    # Use LLMC qparams for shape/dtype and colocate with the weight.
+                    # Align shape, dtype and device with LLMC registered qparams
                     llmc_value = llmc_registered_qparams[name][llmc_param_name]
                     ar_value = (
                         ar_value.to(llmc_value.dtype)
-                        .to(
-                            module_device
-                            if module_device is not None
-                            else llmc_value.device
-                        )
+                        .to(llmc_value.device)
                         .reshape(llmc_value.shape)
                     )
                     # Register to LLMC
@@ -656,11 +635,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             if name in llmc_registered_qparams:
                 for qparam_name in llmc_registered_qparams[name]:
                     if not hasattr(module, qparam_name):
-                        qparam = llmc_registered_qparams[name][qparam_name]
-                        if module_device is not None:
-                            qparam = qparam.to(module_device)
                         param_value = torch.nn.Parameter(
-                            qparam,
+                            llmc_registered_qparams[name][qparam_name],
                             requires_grad=False,
                         )
                         module.register_parameter(qparam_name, param_value)

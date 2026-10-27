@@ -68,14 +68,18 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Then, according to the module's quantization scheme, observers and calibration
         hooks are added. These hooks are disabled until the modifier starts.
 
-        Skipped when layerwise_decompression is enabled because modules are still
-        compressed; per-layer setup happens in start_layerwise_calibration instead.
+        Skipped for data-dependent schemes when layerwise_decompression is enabled
+        because modules are still compressed; per-layer setup happens in
+        start_layerwise_calibration instead.
         """
         if not QuantizationMixin.has_config(self):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        if not getattr(state, "layerwise_decompression", False):
+        if not (
+            getattr(state, "layerwise_decompression", False)
+            and self.requires_calibration_data
+        ):
             QuantizationMixin.initialize_quantization(self, state.model)
 
         return True
@@ -84,10 +88,14 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         Begin calibrating activations.
 
-        Skipped when layerwise_decompression is enabled; per-layer calibration
-        setup is handled by start_layerwise_calibration in the pipeline.
+        Skipped for data-dependent schemes when layerwise_decompression is enabled;
+        per-layer calibration setup is handled by start_layerwise_calibration in the
+        pipeline.
         """
-        if not getattr(state, "layerwise_decompression", False):
+        if not (
+            getattr(state, "layerwise_decompression", False)
+            and self.requires_calibration_data
+        ):
             QuantizationMixin.start_calibration(self, state.model)
 
     def on_sequential_epoch_end(
