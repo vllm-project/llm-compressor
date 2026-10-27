@@ -133,9 +133,9 @@ setup(
         ),
         ("pillow>=12.0.0" if BUILD_TYPE == "release" else "pillow>=12.0.0"),
         (
-            "compressed-tensors==0.19.0"
+            "compressed-tensors==0.20.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.19.1a2"
+            else "compressed-tensors>=0.20.1a2"
         ),
     ],
     extras_require={
