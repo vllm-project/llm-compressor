@@ -167,6 +167,7 @@ def decompress_subgraph_modules(modules: list[Module]) -> None:
         module
         for module in modules
         if is_module_quantized(module)
+        and module.quantization_scheme.weights is not None
         and getattr(module, "quantization_status", None)
         == QuantizationStatus.COMPRESSED
     ]
@@ -175,8 +176,15 @@ def decompress_subgraph_modules(modules: list[Module]) -> None:
 
 
 def compress_subgraph_modules(modules: list[Module]) -> None:
-    """Compress quantized modules owned by one subgraph."""
-    quantized_modules = [module for module in modules if is_module_quantized(module)]
+    """Compress weight-quantized modules owned by one subgraph."""
+    # Activation-only schemes, such as KV-cache quantization, have no weight state
+    # for the module compressor to pack.
+    quantized_modules = [
+        module
+        for module in modules
+        if is_module_quantized(module)
+        and module.quantization_scheme.weights is not None
+    ]
     if is_distributed():
         replace_module_parallel(
             quantized_modules, compress_module, desc="Compressing modules"
