@@ -104,8 +104,7 @@ def _decompress_compressed_weights(
     modules = [
         module
         for module in model.modules()
-        if getattr(module, "quantization_status", None)
-        == QuantizationStatus.COMPRESSED
+        if getattr(module, "quantization_status", None) == QuantizationStatus.COMPRESSED
         and getattr(getattr(module, "quantization_scheme", None), "weights", None)
         is not None
     ]
@@ -256,9 +255,8 @@ def _ensure_kv_cache_config_group(save_dir: str) -> None:
         config = json.load(config_file)
 
     quantization_config = config.get("quantization_config", {})
-    if (
-        quantization_config.get("kv_cache_scheme") is None
-        or quantization_config.get("config_groups")
+    if quantization_config.get("kv_cache_scheme") is None or quantization_config.get(
+        "config_groups"
     ):
         return
 
