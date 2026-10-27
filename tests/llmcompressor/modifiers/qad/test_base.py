@@ -456,7 +456,11 @@ def test_oneshot_accepts_sequential_qad(pipeline, tmp_path):
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
     with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
-            model=model, recipe=[_quantizer("rtn"), qad], pipeline=pipeline
+            model=model,
+            recipe=[_quantizer("rtn"), qad],
+            pipeline=pipeline,
+            # QAD needs observers after quantization's sequential callback.
+            layerwise_decompression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
