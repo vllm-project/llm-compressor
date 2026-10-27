@@ -231,6 +231,8 @@ def test_real_llama_sequential_pipeline(kind, scheme):
     args = DatasetArguments(
         sequential_targets=["LlamaDecoderLayer"],
         sequential_targets_per_subgraph=1,
+        # This test runs the model after calibration, which requires unpacked weights.
+        layerwise_compression=False,
     )
     with create_session() as session:
         recipe = [AWQModifier(n_grid=4)] if kind == "awq" else []
