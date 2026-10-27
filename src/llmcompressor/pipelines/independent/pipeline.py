@@ -44,10 +44,7 @@ class IndependentPipeline(CalibrationPipeline):
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
                 stage_args = dataset_args
-                if (
-                    index < len(modifiers) - 1
-                    and dataset_args.layerwise_compression
-                ):
+                if index < len(modifiers) - 1 and dataset_args.layerwise_compression:
                     # Later independent modifiers still need live weight tensors.
                     stage_args = replace(dataset_args, layerwise_compression=False)
                 pipeline(model, dataloader, stage_args)
