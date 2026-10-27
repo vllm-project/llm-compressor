@@ -72,7 +72,7 @@ We used lm-evaluation-harness through `local-chat-completions`, local task defin
 |---|---:|---|---|
 | GPQA Diamond | 198 | Accuracy | `</s>` |
 | IFEval | 541 | Prompt-level strict accuracy | Empty list |
-| GSM8K | 1,319 | Exact match, flexible-extract filter | `Question:`, `</s>`, `<\|im_end\|>` |
+| GSM8K | 1,319 | Exact match, flexible-extract filter | <code>Question:</code>, <code>&lt;/s&gt;</code>, <code>&lt;&#124;im_end&#124;&gt;</code> |
 | MATH500 | 500 | Exact match | Empty list |
 
 GSM8K's flexible extractor selects the last numeric regex match rather than requiring the strict `####` answer format. Local wrappers and answer extraction are part of this setup; these scores should not be assumed interchangeable with another harness configuration. The exact public reproduction bundle is not available with this report.
