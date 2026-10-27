@@ -35,7 +35,11 @@ recipe = [
         group="backbone",
         scheme="NVFP4",
         targets=[r"re:^model\.layers\."],
-        ignore=[r"re:.*\.mlp\.gate$"],
+        ignore=[
+            r"re:.*\.mlp\.gate$",
+            # vLLM uses BF16 copies of this projection for MLA decoding.
+            r"re:^model\.layers\.\d+\.self_attn\.kv_b_proj$",
+        ],
     ),
     QuantizationModifier(
         group="mtp",
