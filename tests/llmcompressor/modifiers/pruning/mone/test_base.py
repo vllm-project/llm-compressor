@@ -20,7 +20,7 @@ from llmcompressor.modifiers.pruning.mone.utils import (
     collapse_moe_layer,
 )
 from llmcompressor.modifiers.pruning.reap.utils import get_moe_attrs
-from tests.testing_utils import torchrun
+from tests.testing_utils import requires_gpu, torchrun
 
 # ---------------------------------------------------------------------------
 # Helpers: tiny synthetic MoE model with LinearExperts2D for testing
@@ -141,7 +141,9 @@ class TestMoNeSaliencyTracker:
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
-            tracker = MoNeSaliencyTracker(num_experts=4)
+            tracker = MoNeSaliencyTracker(
+                num_experts=4, hidden_dim=2, device=torch.device("cpu")
+            )
 
             # routing over two tokens: expert 0 and 1 are always selected
             tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]]))
@@ -161,7 +163,7 @@ class TestMoNeSaliencyTracker:
             routing = tracker.routing_score
             torch.testing.assert_close(
                 routing,
-                torch.tensor([0.7, 0.3, 0.0, 0.0], dtype=torch.float64),
+                torch.tensor([0.7, 0.3, 0.0, 0.0], dtype=torch.float32),
             )
 
             # fluctuation = L2 norm over dims of per-dim std
@@ -191,7 +193,9 @@ class TestMoNeSaliencyTracker:
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
-            tracker = MoNeSaliencyTracker(num_experts=4)
+            tracker = MoNeSaliencyTracker(
+                num_experts=4, hidden_dim=2, device=torch.device("cpu")
+            )
             # expert 1 gets two tokens across two batches, expert 3 one token
             topk_indices = torch.tensor([[1, 3]])
             tracker.update_outputs(
@@ -206,24 +210,26 @@ class TestMoNeSaliencyTracker:
             assert novices.shape == (2, 2)
             # expert 1 mean: ([1,2] + [3,4]) / 2 = [2, 3]
             torch.testing.assert_close(
-                novices[0], torch.tensor([2.0, 3.0], dtype=torch.float64)
+                novices[0], torch.tensor([2.0, 3.0], dtype=torch.float32)
             )
             # expert 3 mean: [7, 8] / 1
             torch.testing.assert_close(
-                novices[1], torch.tensor([7.0, 8.0], dtype=torch.float64)
+                novices[1], torch.tensor([7.0, 8.0], dtype=torch.float32)
             )
         finally:
             context._CALIBRATE_ALL_EXPERTS = original_state
 
     def test_compute_novices_ordering_matches_dropped(self):
-        tracker = MoNeSaliencyTracker(num_experts=4)
-        tracker.sum_output = torch.tensor(
-            [[0.0], [10.0], [20.0], [30.0]], dtype=torch.float64
+        tracker = MoNeSaliencyTracker(
+            num_experts=4, hidden_dim=1, device=torch.device("cpu")
         )
-        tracker.output_count = torch.ones(4, dtype=torch.float64)
+        tracker.sum_output = torch.tensor(
+            [[0.0], [10.0], [20.0], [30.0]], dtype=torch.float32
+        )
+        tracker.output_count = torch.ones(4, dtype=torch.float32)
         novices = tracker.compute_novices(dropped=[3, 0])
         torch.testing.assert_close(
-            novices[:, 0], torch.tensor([30.0, 0.0], dtype=torch.float64)
+            novices[:, 0], torch.tensor([30.0, 0.0], dtype=torch.float32)
         )
 
 
@@ -511,14 +517,9 @@ def test_mone_report_only_does_not_modify_model(tmp_path):
 
 
 @pytest.mark.unit
-def test_mone_layer_without_data_collapses_after_later_epoch(monkeypatch):
+def test_mone_layer_without_data_collapses_after_later_epoch():
     """A layer which saw no calibration tokens keeps its tracker (in case data
     arrives in a later epoch) and is collapsed once it does."""
-    import llmcompressor.modifiers.pruning.mone.base as mone_base
-
-    # keep the test on CPU (the synthetic model and its data live on CPU)
-    monkeypatch.setattr(mone_base, "get_main_device", lambda: torch.device("cpu"))
-
     torch.manual_seed(42)
     config = FakeMoEConfig(
         num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
@@ -698,7 +699,7 @@ def test_save_pretrained_writes_moe_sparsity_config_and_novices(tmp_path):
 
 @pytest.mark.unit
 @torchrun(world_size=2, init_dist=False)
-def test_mone_distributed_uneven_data(monkeypatch):
+def test_mone_distributed_uneven_data():
     """Layers must be reduced and collapsed identically on all ranks when
     calibration data is unevenly distributed across ranks.
 
@@ -710,11 +711,6 @@ def test_mone_distributed_uneven_data(monkeypatch):
     only the source rank saw data (a rank without data must still join every
     reduction rather than deadlocking it).
     """
-    import llmcompressor.modifiers.pruning.mone.base as mone_base
-
-    # keep the test on CPU; only the gloo collectives are distributed
-    monkeypatch.setattr(mone_base, "get_main_device", lambda: torch.device("cpu"))
-
     dist.init_process_group(backend="gloo", init_method="env://")
     try:
         rank = dist.get_rank()
@@ -766,3 +762,42 @@ def test_mone_distributed_uneven_data(monkeypatch):
         dist.barrier()
     finally:
         dist.destroy_process_group()
+
+
+@pytest.mark.unit
+@requires_gpu
+@torchrun(world_size=1, init_dist=True)
+def test_mone_distributed_nccl_reduces_on_gpu():
+    """The saliency reduction runs on the gpu (float32) over the default
+    nccl-backed process group, rather than on host copies."""
+    device = torch.device("cuda", dist.get_rank())
+    assert dist.get_backend() == "nccl"
+
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config).to(device)
+    model.eval()
+
+    modifier = MoNePruningModifier(sparsity=0.5)
+    state = _make_state(model)
+
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with torch.no_grad():
+        for _ in range(5):
+            model(torch.randn(2, 8, config.hidden_size, device=device))
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    # every layer collapsed, with novices installed on the gpu
+    assert len(modifier._saliency_trackers) == 0
+    for layer in model.layers:
+        assert layer.experts.num_experts == 4
+        assert layer.experts.novices is not None
+        assert layer.experts.novices.shape == (4, config.hidden_size)
+        assert layer.experts.novices.device == device
