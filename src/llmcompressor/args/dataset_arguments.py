@@ -319,11 +319,11 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     layerwise_decompression: bool = field(
-        default=True,
+        default=False,
         metadata={
             "help": "When True, each layer is decompressed before calibrating in "
             "the sequential pipeline. Use when loading a pre-compressed model "
-            "that needs recalibration. Default True."
+            "that needs recalibration. Default False."
         },
     )
     layerwise_compression: bool = field(

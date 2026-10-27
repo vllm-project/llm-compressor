@@ -459,8 +459,6 @@ def test_oneshot_accepts_sequential_qad(pipeline, tmp_path):
             model=model,
             recipe=[_quantizer("rtn"), qad],
             pipeline=pipeline,
-            # QAD needs observers after quantization's sequential callback.
-            layerwise_decompression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
@@ -481,7 +479,6 @@ def test_oneshot_qad_with_and_without_error_propagation(propagate_error, tmp_pat
             recipe=[_quantizer("rtn"), qad],
             pipeline="sequential",
             propagate_error=propagate_error,
-            layerwise_decompression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
@@ -503,7 +500,6 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
             model=model,
             recipe=[quantizer, qad],
             pipeline="sequential",
-            layerwise_decompression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
