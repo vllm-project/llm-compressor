@@ -162,14 +162,24 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
 
 def decompress_subgraph_modules(modules: list[Module]) -> None:
     """Decompress compressed quantized modules owned by one subgraph."""
-    # Standard oneshot loading may already have decompressed the checkpoint.
-    compressed_modules = [
-        module
-        for module in modules
-        if is_module_quantized(module)
-        and getattr(module, "quantization_status", None)
-        == QuantizationStatus.COMPRESSED
-    ]
+    compressed_modules = []
+    for module in modules:
+        if not is_module_quantized(module):
+            continue
+
+        status = getattr(module, "quantization_status", None)
+        weight = getattr(module, "weight", None)
+        has_integer_weight = (
+            module.quantization_scheme.weights is not None
+            and isinstance(weight, torch.Tensor)
+            and not torch.is_floating_point(weight)
+        )
+        # Recipe initialization can reset a checkpoint's lifecycle status while
+        # leaving its integer-stored weight in place. Plain Linear.forward cannot
+        # multiply that weight by the model's floating-point activations.
+        if status == QuantizationStatus.COMPRESSED or has_integer_weight:
+            compressed_modules.append(module)
+
     for module in tqdm(compressed_modules, desc="Decompressing modules"):
         decompress_module(module, leave_decompressed=False)
 
