@@ -296,10 +296,24 @@ def mtp_calibration_context(model: PreTrainedModel):
         yield
         return
 
+    # Backbone embeddings are valid MTP inputs only when MTP shares the embedding;
+    # Inkling's MTP, for example, applies its own embedding norm
+    shares_embeddings = mtp.embed_tokens is model.get_input_embeddings()
+
     def run_mtp(_decoder, _args, kwargs, outputs):
+        # Like MtpModel.forward_layer, accept token ids or precomputed embeddings
         input_ids = kwargs.get("input_ids")
-        if input_ids is None:
-            raise ValueError("MTP calibration requires `input_ids`")
+        inputs_embeds = kwargs.get("inputs_embeds")
+        if (input_ids is None) == (inputs_embeds is None):
+            raise ValueError(
+                "MTP calibration requires exactly one of `input_ids` or "
+                "`inputs_embeds`"
+            )
+        if input_ids is None and not shares_embeddings:
+            raise ValueError(
+                "MTP calibration requires `input_ids` when the MTP layers have "
+                "their own embedding, since backbone `inputs_embeds` differ from it"
+            )
         last_hidden_state = (
             outputs.last_hidden_state
             if hasattr(outputs, "last_hidden_state")
@@ -308,6 +322,7 @@ def mtp_calibration_context(model: PreTrainedModel):
         _mtp_teacher_forced_forward(
             mtp,
             input_ids,
+            inputs_embeds,
             kwargs.get("attention_mask"),
             kwargs.get("position_ids"),
             last_hidden_state,
@@ -326,15 +341,18 @@ def mtp_calibration_context(model: PreTrainedModel):
             handle.remove()
 
 
-def _mtp_teacher_forced_forward(mtp, input_ids, attention_mask, position_ids, hidden):
+def _mtp_teacher_forced_forward(
+    mtp, input_ids, token_embeds, attention_mask, position_ids, hidden
+):
+    tokens = input_ids if input_ids is not None else token_embeds
     if position_ids is None:
-        position_ids = torch.arange(input_ids.shape[1], device=input_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand(input_ids.shape[0], -1)
+        batch_size, seq_len = tokens.shape[:2]
+        position_ids = torch.arange(seq_len, device=tokens.device)
+        position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
 
     for index, layer in enumerate(mtp.layers):
         shift = index + 1
         hidden = hidden[:, :-1]
-        layer_ids = input_ids[:, shift:]
         layer_positions = position_ids[:, shift:]
         layer_mask = None
         if attention_mask is not None:
@@ -342,7 +360,10 @@ def _mtp_teacher_forced_forward(mtp, input_ids, attention_mask, position_ids, hi
             # previous hidden state are, so padding is never paired with a token
             layer_mask = attention_mask[:, shift:] * attention_mask[:, :-shift]
 
-        inputs_embeds = mtp.embed_tokens(layer_ids)
+        if input_ids is not None:
+            inputs_embeds = mtp.embed_tokens(input_ids[:, shift:])
+        else:
+            inputs_embeds = token_embeds[:, shift:]
         position_embeddings = None
         if mtp.rotary_emb is not None:
             # Same per-layer RoPE selection as MtpModel.forward_layer

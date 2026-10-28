@@ -34,8 +34,13 @@ from transformers import (
 )
 
 from llmcompressor import oneshot, reset_session
+from llmcompressor.entrypoints.oneshot import _calibrated_names
 from llmcompressor.modeling.moe.linearize import linearize_moe
+from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
+from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers.compression.mtp import (
@@ -795,6 +800,102 @@ def test_mtp_does_not_run_when_recipe_ignores_it(tmp_path):
     )
     assert not calls
     assert not hasattr(model.mtp.layers[0].eh_proj, "quantization_scheme")
+
+
+def test_mtp_calibration_accepts_inputs_embeds(tmp_path):
+    # GLM's MTP shares the backbone embedding
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    input_ids = torch.tensor(_calibration_dataset(num_samples=2)["input_ids"])
+    with torch.no_grad():
+        inputs_embeds = model.get_input_embeddings()(input_ids)
+    expected = _mtp_layer_outputs(model, input_ids=input_ids)
+    actual = _mtp_layer_outputs(model, inputs_embeds=inputs_embeds)
+    for embedded, tokens in zip(actual, expected, strict=True):
+        torch.testing.assert_close(embedded, tokens)
+
+
+def test_mtp_calibration_rejects_embeds_for_own_mtp_embedding(tmp_path):
+    # Inkling's MTP normalizes embeddings with its own weights
+    model = _loaded_mtp_model(tmp_path, "dedicated")
+    input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
+    with torch.no_grad():
+        inputs_embeds = model.get_input_embeddings()(input_ids)
+    with pytest.raises(ValueError, match="their own embedding"):
+        _mtp_layer_outputs(model, inputs_embeds=inputs_embeds)
+
+
+_BACKBONE = r"re:^model\.layers\.\d+\."
+
+
+@pytest.mark.parametrize(
+    "modifier,calibrates_mtp",
+    [
+        (
+            SmoothQuantModifier(
+                mappings=[
+                    [[f"{_BACKBONE}self_attn.q_proj$"], f"{_BACKBONE}input_layernorm$"]
+                ],
+            ),
+            False,
+        ),
+        (
+            SmoothQuantModifier(
+                mappings=[[["re:.*self_attn.q_proj$"], "re:.*input_layernorm$"]]
+            ),
+            True,
+        ),
+        (
+            AWQModifier(
+                mappings=[
+                    AWQMapping(
+                        f"{_BACKBONE}input_layernorm$",
+                        [f"{_BACKBONE}self_attn.q_proj$"],
+                    )
+                ]
+            ),
+            False,
+        ),
+        (
+            AWQModifier(
+                mappings=[
+                    AWQMapping("re:.*input_layernorm$", ["re:.*self_attn.q_proj$"])
+                ]
+            ),
+            True,
+        ),
+        (REAPPruningModifier(sparsity=0.5, ignore=[r"^mtp\."]), False),
+        (REAPPruningModifier(sparsity=0.5), True),
+        (QADModifier(), False),
+    ],
+)
+def test_calibrated_names_resolve_mtp(tmp_path, modifier, calibrates_mtp):
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    names = _calibrated_names(model, modifier)
+    # QAD only distills what a preceding modifier quantized
+    assert bool(names) != isinstance(modifier, QADModifier)
+    assert any(name.startswith("mtp.") for name in names) == calibrates_mtp
+
+
+def test_mtp_does_not_run_for_backbone_only_mappings(tmp_path):
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    calls = []
+    model.mtp.layers[0].register_forward_hook(lambda *_: calls.append(1))
+    recipe = [
+        SmoothQuantModifier(
+            mappings=[
+                [[f"{_BACKBONE}self_attn.q_proj$"], f"{_BACKBONE}input_layernorm$"]
+            ],
+        ),
+        QuantizationModifier(scheme="W8A8", ignore=["lm_head", r"re:^mtp\."]),
+    ]
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+    )
+    assert not calls
 
 
 @pytest.mark.parametrize("layout", ["dedicated", "trailing"])
