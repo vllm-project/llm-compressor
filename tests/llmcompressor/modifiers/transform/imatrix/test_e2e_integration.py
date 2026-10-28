@@ -79,10 +79,20 @@ class TestIMatrixObserverIntegration:
             assert not hasattr(mod, "weight_observer")
 
         # Hooks should be cleaned up
-        total_hooks = sum(len(m._forward_pre_hooks) for m in model.modules())
-        assert (
-            total_hooks == 0
-        ), f"Expected 0 forward pre-hooks after completion, found {total_hooks}"
+        active_pre_hooks = {
+            hook_id
+            for module in model.modules()
+            for hook_id in module._forward_pre_hooks
+        }
+        decompress_hook = getattr(model, "ct_decompress_hook", None)
+        expected_pre_hooks = (
+            {decompress_hook.id} if decompress_hook is not None else set()
+        )
+        assert active_pre_hooks == expected_pre_hooks, (
+            "Calibration hooks should be removed after completion; only the "
+            "compressed-tensors lazy decompression hook may remain. "
+            f"Found pre-hook ids {active_pre_hooks}"
+        )
 
         # Verify imatrix actually affected quantization by comparing scales
         # with a run using uniform memoryless_mse. Same kwargs, same calibration;
