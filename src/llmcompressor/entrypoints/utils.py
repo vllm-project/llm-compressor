@@ -97,7 +97,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
-    streaming_checkpoint_writer=None,
+    async_writer=None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -119,7 +119,7 @@ def post_process(
         model_args.model.save_pretrained(
             output_dir,
             save_compressed=model_args.save_compressed,
-            _streaming_checkpoint_writer=streaming_checkpoint_writer,
+            _async_writer=async_writer,
         )
 
         if model_args.processor is not None:
