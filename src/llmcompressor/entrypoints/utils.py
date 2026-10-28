@@ -130,16 +130,6 @@ def post_process(
         reset_session()
 
 
-def resolve_output_dir(
-    output_dir: str | None, recipe_args: RecipeArguments | None = None
-) -> str | None:
-    if output_dir is not None and recipe_args is not None:
-        stage = getattr(recipe_args, "stage", None)
-        if stage is not None:
-            return os.path.join(output_dir, stage)
-    return output_dir
-
-
 def initialize_model_from_path(
     model_args: ModelArguments,
 ) -> PreTrainedModel:
