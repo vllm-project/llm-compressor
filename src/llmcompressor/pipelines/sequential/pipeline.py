@@ -36,8 +36,8 @@ from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
     create_distributed_writeback_group,
     decompress_subgraph_modules,
-    flush_async_writer,
     find_modules_outside_graph,
+    flush_async_writer,
     handle_sequential_oom,
     partition_subgraphs,
     trace_graph,
@@ -255,9 +255,7 @@ class SequentialPipeline(CalibrationPipeline):
             # Keep disk serialization off the calibration thread when this model
             # has disk-backed weights or streaming checkpoint output is enabled.
             if async_writer is not None or _has_disk_cache(model):
-                distributed_writeback_group = create_distributed_writeback_group(
-                    stack
-                )
+                distributed_writeback_group = create_distributed_writeback_group(stack)
                 if async_writer is None:
                     async_writer = AsyncWriter(
                         defer_errors=distributed_writeback_group is not None
