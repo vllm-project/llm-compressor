@@ -153,7 +153,6 @@ def subgraph_offload_modules(
     offload_kwargs: dict[str, dict],
     default: dict | None = None,
     async_writer=None,
-    streaming_writer=None,
 ) -> None:
     """Offload exactly the supplied modules using saved or inherited settings.
 
@@ -172,14 +171,15 @@ def subgraph_offload_modules(
             module_kwargs = get_cache_init_kwargs(module)
             if default is not None:
                 module_kwargs.update(default)
-        if streaming_writer is not None:
+        if async_writer is not None and async_writer.streaming_save:
             module_kwargs["offload_device"] = "disk"
             if module_kwargs.get("offload_dir") is None:
-                output_dir = streaming_writer.output_dir
+                output_dir = async_writer.output_dir
+                if output_dir is None:
+                    raise ValueError("Streaming save requires an output directory")
                 cache_dir = output_dir.parent / f".{output_dir.name}-offload"
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 module_kwargs["offload_dir"] = str(cache_dir)
-            module_kwargs["streaming_writer"] = streaming_writer
             module_kwargs["module_name"] = name
         if async_writer is not None and str(module_kwargs.get("offload_device")) == "disk":
             module_kwargs["async_writer"] = async_writer
@@ -188,7 +188,5 @@ def subgraph_offload_modules(
     with contextlib.ExitStack() as stack:
         if async_writer is not None:
             stack.enter_context(async_writer.batch())
-        if streaming_writer is not None:
-            stack.enter_context(streaming_writer.batch())
         for name, module in modules.items():
             offload_module(module, **get_offload_kwargs(name, module))

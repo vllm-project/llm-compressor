@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Iterator
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import get_source_rank, is_distributed
-from compressed_tensors.offload import AsyncDiskWriteback, disable_onloading
+from compressed_tensors.offload import AsyncWriter, disable_onloading
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -47,12 +47,12 @@ if TYPE_CHECKING:
 __all__ = ["SequentialPipeline"]
 
 
-def _detach_async_writeback(model: torch.nn.Module, writeback: AsyncDiskWriteback):
+def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
     """Remove a completed pipeline writer from caches retained by the model."""
     for module in model.modules():
         for name in ("_parameters", "_buffers"):
             cache = getattr(module, name, None)
-            if getattr(cache, "async_writer", None) is writeback:
+            if getattr(cache, "async_writer", None) is writer:
                 cache.async_writer = None
 
 
@@ -110,7 +110,7 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
-        streaming_writer = getattr(session.state, "streaming_checkpoint_writer", None)
+        async_writer = getattr(session.state, "async_writer", None)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -226,16 +226,12 @@ class SequentialPipeline(CalibrationPipeline):
                     stack.callback(
                         dist.destroy_process_group, distributed_writeback_group
                     )
-            if streaming_writer is not None:
-                # Checkpoint shards and temporary cache files share one bounded
-                # writer, with the checkpoint sink choosing the shard destination.
-                async_writeback = streaming_writer.async_writer
-            else:
-                async_writeback = AsyncDiskWriteback(
+            if async_writer is None:
+                async_writer = AsyncWriter(
                     defer_errors=distributed_writeback_group is not None
                 )
-                stack.enter_context(async_writeback)
-            stack.callback(_detach_async_writeback, model, async_writeback)
+                stack.enter_context(async_writer)
+                stack.callback(_detach_async_writer, model, async_writer)
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -247,7 +243,7 @@ class SequentialPipeline(CalibrationPipeline):
                 {},
                 restructure_handler,
                 stage_weights_in_pinned_memory,
-                async_writeback,
+                async_writer,
                 distributed_writeback_group,
             )
 
@@ -258,7 +254,7 @@ class SequentialPipeline(CalibrationPipeline):
                         subgraph_modules,
                         restructure_handler,
                         pin_memory=stage_weights_in_pinned_memory,
-                        async_writer=async_writeback,
+                        async_writer=async_writer,
                         distributed_group=distributed_writeback_group,
                     )
                     warnings.warn(
@@ -296,7 +292,7 @@ class SequentialPipeline(CalibrationPipeline):
                         subgraph_modules,
                         restructure_handler,
                         stage_weights_in_pinned_memory,
-                        async_writeback,
+                        async_writer,
                         distributed_writeback_group,
                     )
 
@@ -378,8 +374,7 @@ class SequentialPipeline(CalibrationPipeline):
                 subgraph_offload_modules(
                     subgraph_modules,
                     offload_kwargs,
-                    async_writer=async_writeback,
-                    streaming_writer=streaming_writer,
+                    async_writer=async_writer,
                 )
                 #######################
                 #### END OF ONLOAD ####
@@ -391,27 +386,27 @@ class SequentialPipeline(CalibrationPipeline):
             subgraph_offload_modules(
                 persistent_modules,
                 persistent_offload_kwargs,
-                async_writer=async_writeback,
-                streaming_writer=streaming_writer,
+                async_writer=async_writer,
             )
             # Finalization may read/update disk-backed parameters directly, so
             # submit the final partial checkpoint shard before running callbacks.
             writeback_error = None
-            if streaming_writer is not None:
+            if async_writer.streaming_save:
                 try:
-                    streaming_writer.wait_all()
+                    async_writer.wait_all()
                 except Exception as error:
                     writeback_error = str(error)
 
             if distributed_writeback_group is not None:
                 try:
-                    async_writeback.flush_distributed(distributed_writeback_group)
+                    async_writer.flush_distributed(distributed_writeback_group)
                 except Exception as error:
                     if writeback_error is None:
                         writeback_error = str(error)
-            elif streaming_writer is None:
-                async_writeback.flush()
-            if streaming_writer is not None:
+            elif not async_writer.streaming_save:
+                async_writer.flush()
+
+            if async_writer.streaming_save:
                 if is_distributed():
                     payload = [writeback_error]
                     dist.broadcast_object_list(payload, src=get_source_rank())
@@ -421,16 +416,16 @@ class SequentialPipeline(CalibrationPipeline):
                         f"Streaming checkpoint writeback failed: {writeback_error}"
                     )
 
-            if streaming_writer is not None:
+            if async_writer.streaming_save:
                 # Check coverage without materializing disk-offloaded parameters.
                 writer_error = None
-                if streaming_writer.is_source:
+                if async_writer.is_source:
                     try:
                         with disable_onloading():
                             expected_tensor_names = set(
                                 model.state_dict(keep_vars=True)
                             )
-                        streaming_writer.validate_coverage(expected_tensor_names)
+                        async_writer.validate_coverage(expected_tensor_names)
                     except Exception as error:
                         writer_error = str(error)
                 if is_distributed():
