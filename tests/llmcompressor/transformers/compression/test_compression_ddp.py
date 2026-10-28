@@ -24,8 +24,9 @@ import tempfile
 import pytest
 import torch
 import torch.distributed
-from compressed_tensors import ModelCompressor
-from compressed_tensors.offload import init_dist
+from compressed_tensors import ModelCompressor, decompress_module
+from compressed_tensors.distributed import is_distributed, replace_module_parallel
+from compressed_tensors.offload import from_accelerate, init_dist
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -110,7 +111,28 @@ def _run_single_gpu(
 
 def _extract_effective_weights(model: torch.nn.Module) -> dict[str, torch.Tensor]:
     """Compare effective quantized weights, not packed integer encodings."""
-    ModelCompressor.from_pretrained_model(model).decompress_model(model)
+    compressor = ModelCompressor.from_pretrained_model(model)
+    from_accelerate(model)
+
+    # The model can contain a mix of packed and ordinary quantized modules. The
+    # model-level decompressor tries every module with quantization metadata, even
+    # when that module still has a dense `weight`; only unpack modules that actually
+    # carry the packed representation.
+    packed_modules = [
+        module
+        for module in model.modules()
+        if "weight_packed" in module._parameters or "weight_packed" in module._buffers
+    ]
+    if packed_modules:
+        if is_distributed():
+            replace_module_parallel(
+                packed_modules, decompress_module, desc="Decompressing modules"
+            )
+        else:
+            for module in packed_modules:
+                decompress_module(module)
+
+    compressor.remove_decompression_hook(model)
     return {
         name: param.detach().cpu().clone()
         for name, param in model.named_parameters()
