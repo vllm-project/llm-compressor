@@ -121,7 +121,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_directory: str,
             quantization_format: str | None = None,
             save_compressed: bool = True,
-            _streaming_checkpoint_writer=None,
+            _async_writer=None,
             **kwargs,
         ):
             """
@@ -139,6 +139,7 @@ def modify_save_pretrained(model: PreTrainedModel):
             """
 
             save_dir = save_directory
+            streaming_save = getattr(_async_writer, "streaming_save", False)
             kwargs.setdefault("max_shard_size", "20GB")
 
             source_mtp = None
@@ -161,7 +162,7 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             # TODO: remove use of `ModelCompressor` and instead rely on
             # modifiers and pipelines to perform layerwise compression
-            if save_compressed and _streaming_checkpoint_writer is None:
+            if save_compressed and not streaming_save:
                 compressor.compress_model(model, skip_compressed=True)
 
             # Re-tie input and output embeddings before offload conversion so a
@@ -175,12 +176,12 @@ def modify_save_pretrained(model: PreTrainedModel):
             # Normal saving lets Transformers read CT offload files and rewrite
             # them into model shards. Streaming saving already wrote those tensors
             # into final shards as the subgraphs were offloaded.
-            if _streaming_checkpoint_writer is None:
+            if not streaming_save:
                 to_accelerate(model)
 
             with suspend_distributed_timeout():
                 if is_source_process():
-                    if _streaming_checkpoint_writer is None:
+                    if not streaming_save:
                         # save the complete model, including loaded MTP layers
                         original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
                     else:
@@ -249,10 +250,10 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
 
-                    if _streaming_checkpoint_writer is not None:
+                    if streaming_save:
                         # Publish the backbone index before optional MTP copying,
                         # whose helper adds its separate shard to the index.
-                        _streaming_checkpoint_writer.publish()
+                        _async_writer.publish()
 
                     if source_mtp is not None:
                         logger.info(
@@ -262,7 +263,7 @@ def modify_save_pretrained(model: PreTrainedModel):
                         save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
 
             # convert back from accelerate to restore model to original form
-            if _streaming_checkpoint_writer is None:
+            if not streaming_save:
                 from_accelerate(model)
 
         save_pretrained_wrapper._overridden = True

@@ -21,6 +21,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import AsyncWriter
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -41,7 +42,6 @@ from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.recipe import Recipe
-from llmcompressor.transformers.checkpoint import StreamingCheckpointWriter
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
@@ -195,7 +195,7 @@ class Oneshot:
         self.model_args = model_args
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
-        self.streaming_checkpoint_writer: StreamingCheckpointWriter | None = None
+        self.async_writer: AsyncWriter | None = None
 
         if model_args.streaming_save:
             if output_dir is None:
@@ -252,15 +252,15 @@ class Oneshot:
                 model_args=self.model_args,
                 recipe_args=self.recipe_args,
                 output_dir=self.output_dir,
-                streaming_checkpoint_writer=self.streaming_checkpoint_writer,
+                async_writer=self.async_writer,
             )
-            if self.streaming_checkpoint_writer is not None:
+            if self.async_writer is not None:
                 # The source rank closes during publish; other ranks only use the
                 # shared worker for their local offload-cache writes.
-                self.streaming_checkpoint_writer.close()
+                self.async_writer.close()
         except BaseException:
-            if self.streaming_checkpoint_writer is not None:
-                self.streaming_checkpoint_writer.abort()
+            if self.async_writer is not None:
+                self.async_writer.abort()
             raise
 
     def apply_recipe_modifiers(
@@ -283,7 +283,7 @@ class Oneshot:
 
         session = active_session()
         session.reset()
-        session.state.streaming_checkpoint_writer = None
+        session.state.async_writer = None
 
         if len(get_non_linearized_moes(self.model)) > 0:
             logger.warning(
@@ -331,12 +331,11 @@ class Oneshot:
                         "streaming_save requires the sequential calibration pipeline"
                     )
                 assert self.output_dir is not None
-                self.streaming_checkpoint_writer = StreamingCheckpointWriter(
-                    self.output_dir
+                self.async_writer = AsyncWriter(
+                    output_dir=self.output_dir,
+                    streaming_save=True,
                 )
-                session.state.streaming_checkpoint_writer = (
-                    self.streaming_checkpoint_writer
-                )
+                session.state.async_writer = self.async_writer
 
             pipeline(
                 self.model,
