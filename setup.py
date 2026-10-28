@@ -119,7 +119,7 @@ setup(
         ("tqdm>=4.66.3" if BUILD_TYPE == "release" else "tqdm>=4.66.3"),
         ("torch>=2.10.0,<=2.14.1" if BUILD_TYPE == "release" else "torch>=2.10.0"),
         (
-            "transformers>=5.15.0,<=5.20.2"
+            "transformers>=5.15.0,<=5.21.0"
             if BUILD_TYPE == "release"
             else "transformers>=5.15.0"
         ),
@@ -133,9 +133,9 @@ setup(
         ),
         ("pillow>=12.0.0" if BUILD_TYPE == "release" else "pillow>=12.0.0"),
         (
-            "compressed-tensors==0.19.0"
+            "compressed-tensors==0.20.0"
             if BUILD_TYPE == "release"
-            else "compressed-tensors>=0.19.1a2"
+            else "compressed-tensors>=0.20.1a2"
         ),
     ],
     extras_require={
