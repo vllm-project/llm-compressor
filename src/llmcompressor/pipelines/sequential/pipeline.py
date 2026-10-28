@@ -10,6 +10,7 @@ from compressed_tensors.offload import (
     AsyncWriter,
     set_onload_device,
 )
+from compressed_tensors.offload.cache import DiskCache
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -76,6 +77,14 @@ def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
             cache = getattr(module, name, None)
             if getattr(cache, "async_writer", None) is writer:
                 cache.async_writer = None
+
+
+def _has_disk_cache(model: torch.nn.Module) -> bool:
+    return any(
+        isinstance(cache, DiskCache)
+        for module in model.modules()
+        for cache in (module._parameters, module._buffers)
+    )
 
 
 def _get_batches(
@@ -223,15 +232,20 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
-            # Keep disk serialization off the calibration thread. Both cache files
-            # and checkpoint shards go through this worker as stable CPU snapshots.
-            distributed_writeback_group = create_distributed_writeback_group(stack)
-            if async_writer is None:
-                async_writer = AsyncWriter(
-                    defer_errors=distributed_writeback_group is not None
+            # Keep disk serialization off the calibration thread when this model
+            # has disk-backed weights or streaming checkpoint output is enabled.
+            if async_writer is not None or _has_disk_cache(model):
+                distributed_writeback_group = create_distributed_writeback_group(
+                    stack
                 )
-                stack.enter_context(async_writer)
-                stack.callback(_detach_async_writer, model, async_writer)
+                if async_writer is None:
+                    async_writer = AsyncWriter(
+                        defer_errors=distributed_writeback_group is not None
+                    )
+                    stack.enter_context(async_writer)
+                    stack.callback(_detach_async_writer, model, async_writer)
+            else:
+                distributed_writeback_group = None
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -383,9 +397,11 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Finalization may read/update disk-backed parameters directly, so
             # submit the final partial checkpoint shard before running callbacks.
-            flush_async_writer(async_writer, distributed_writeback_group)
+            if async_writer is not None:
+                flush_async_writer(async_writer, distributed_writeback_group)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
             # Check coverage without materializing disk-offloaded parameters.
-            validate_streaming_checkpoint(model, async_writer)
+            if async_writer is not None:
+                validate_streaming_checkpoint(model, async_writer)

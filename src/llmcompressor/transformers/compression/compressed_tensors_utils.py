@@ -49,8 +49,7 @@ def _named_tensors(module: torch.nn.Module) -> dict[str, torch.Tensor]:
 
 
 def _retie_embeddings(model: PreTrainedModel):
-    """Re-tie input and output embeddings before saving so one shared table is
-    written instead of a duplicate.
+    """Re-tie equal input and output embeddings before saving.
 
     Embeddings can end up as value-identical but separate tensors that defeat
     transformers' save-time de-duplication: offloading splits a tied weight into
@@ -165,12 +164,10 @@ def modify_save_pretrained(model: PreTrainedModel):
             if save_compressed and not streaming_save:
                 compressor.compress_model(model, skip_compressed=True)
 
-            # Re-tie input and output embeddings before offload conversion so a
-            # shared table is written once. Offloading splits a tied weight into
-            # separate params, and quantized embeddings are untied during
-            # calibration; either way identical tensors would otherwise be saved
-            # twice. Doing this before `to_accelerate` keeps accelerate's
-            # tied-parameter bookkeeping consistent.
+            # Re-tie before ordinary save conversion so Transformers can write a
+            # shared table once. Streaming shards were already emitted as each
+            # subgraph was offloaded, so this only restores in-memory references
+            # and the model's tied-embedding config in that path.
             _retie_embeddings(model)
 
             # Normal saving lets Transformers read CT offload files and rewrite

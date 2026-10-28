@@ -60,12 +60,18 @@ def flush_async_writer(
     distributed_group,
 ) -> None:
     """Drain queued writes and propagate any distributed write failures."""
+    if not async_writer.streaming_save:
+        if distributed_group is None:
+            async_writer.flush()
+        else:
+            async_writer.flush_distributed(distributed_group)
+        return
+
     writeback_error = None
-    if async_writer.streaming_save:
-        try:
-            async_writer.wait_all()
-        except Exception as error:
-            writeback_error = str(error)
+    try:
+        async_writer.wait_all()
+    except Exception as error:
+        writeback_error = str(error)
 
     if distributed_group is not None:
         try:
@@ -73,18 +79,14 @@ def flush_async_writer(
         except Exception as error:
             if writeback_error is None:
                 writeback_error = str(error)
-    elif not async_writer.streaming_save:
-        async_writer.flush()
-
-    if async_writer.streaming_save:
-        if is_distributed():
-            payload = [writeback_error]
-            dist.broadcast_object_list(payload, src=get_source_rank())
-            writeback_error = payload[0]
-        if writeback_error is not None:
-            raise RuntimeError(
-                f"Streaming checkpoint writeback failed: {writeback_error}"
-            )
+    if is_distributed():
+        payload = [writeback_error]
+        dist.broadcast_object_list(payload, src=get_source_rank())
+        writeback_error = payload[0]
+    if writeback_error is not None:
+        raise RuntimeError(
+            f"Streaming checkpoint writeback failed: {writeback_error}"
+        )
 
 
 def validate_streaming_checkpoint(
