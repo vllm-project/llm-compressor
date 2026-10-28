@@ -58,6 +58,9 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
         ("q_proj", "k_proj", "v_proj", "b_proj", "forget_gate.f_a_proj"),
         optional_names=("g_proj",),
     ),
+    # Qwen3.5 gated delta net. Qwen3-Next checkpoints store these pre-fused
+    FusedMapping("in_proj_qkvz", ("in_proj_qkv", "in_proj_z")),
+    FusedMapping("in_proj_ba", ("in_proj_b", "in_proj_a")),
     # Multi-latent attention (DeepSeek V2/V3/V3.2, Kimi). Kimi MLA layers with
     # `mla_use_output_gate` also pack g_proj, into fused_qkv_a_g_proj
     FusedMapping(

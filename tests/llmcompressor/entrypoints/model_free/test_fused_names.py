@@ -18,6 +18,7 @@ MLA_ATTN = "model.layers.1.self_attn"
 K_EQ_V_ATTN = "model.layers.2.self_attn"
 EXPERT = "model.layers.1.mlp.experts"
 V4_ATTN = "layers.3.attn"
+GDN = "model.language_model.layers.5.linear_attn"
 
 # fused groups of a checkpoint mixing the layer types that vLLM packs differently
 FUSED_GROUPS = [
@@ -31,6 +32,9 @@ FUSED_GROUPS = [
     [f"{MLA_ATTN}.{n}" for n in ("q_a_proj", "kv_a_proj_with_mqa", "g_proj")],
     # gemma 4 attention_k_eq_v layer
     [f"{K_EQ_V_ATTN}.q_proj", f"{K_EQ_V_ATTN}.k_proj"],
+    # qwen3.5 gated delta net
+    [f"{GDN}.in_proj_qkv", f"{GDN}.in_proj_z"],
+    [f"{GDN}.in_proj_b", f"{GDN}.in_proj_a"],
     # moe experts
     [f"{EXPERT}.0.gate_proj", f"{EXPERT}.0.up_proj"],
     [f"{EXPERT}.1.gate_proj", f"{EXPERT}.1.up_proj"],
@@ -45,6 +49,7 @@ UNFUSED = [
     f"{MLA_ATTN}.o_proj",
     f"{EXPERT}.0.down_proj",
     f"{V4_ATTN}.wo_b",
+    f"{GDN}.out_proj",
 ]
 MODULE_NAMES = [name for group in FUSED_GROUPS for name in group] + UNFUSED
 
