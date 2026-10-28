@@ -6,11 +6,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-import torch.distributed as dist
-from compressed_tensors.distributed import get_source_rank, is_distributed
 from compressed_tensors.offload import (
     AsyncWriter,
-    disable_onloading,
     set_onload_device,
 )
 from compressed_tensors.offload.module import (
@@ -32,10 +29,13 @@ from llmcompressor.pipelines.sequential.error_logging import (
 )
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
+    create_distributed_writeback_group,
     decompress_subgraph_modules,
+    flush_async_writer,
     find_modules_outside_subgraphs,
     handle_sequential_oom,
     trace_subgraphs,
+    validate_streaming_checkpoint,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -76,79 +76,6 @@ def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
             cache = getattr(module, name, None)
             if getattr(cache, "async_writer", None) is writer:
                 cache.async_writer = None
-
-
-def _create_distributed_writeback_group(stack: contextlib.ExitStack):
-    """Create a Gloo group for writer collectives run by the staging thread."""
-    if not (dist.is_available() and dist.is_initialized()):
-        return None
-    if dist.get_world_size() <= 1:
-        return None
-
-    # The calibration thread can issue model collectives on the default group
-    # while the staging thread reports write completion. Keep those collectives
-    # on separate groups, and destroy this one with the pipeline resources.
-    group = dist.new_group(backend="gloo")
-    stack.callback(dist.destroy_process_group, group)
-    return group
-
-
-def _flush_async_writer(
-    async_writer: AsyncWriter,
-    distributed_group,
-) -> None:
-    """Drain queued writes and propagate any distributed write failures."""
-    writeback_error = None
-    if async_writer.streaming_save:
-        try:
-            async_writer.wait_all()
-        except Exception as error:
-            writeback_error = str(error)
-
-    if distributed_group is not None:
-        try:
-            async_writer.flush_distributed(distributed_group)
-        except Exception as error:
-            if writeback_error is None:
-                writeback_error = str(error)
-    elif not async_writer.streaming_save:
-        async_writer.flush()
-
-    if async_writer.streaming_save:
-        if is_distributed():
-            payload = [writeback_error]
-            dist.broadcast_object_list(payload, src=get_source_rank())
-            writeback_error = payload[0]
-        if writeback_error is not None:
-            raise RuntimeError(
-                f"Streaming checkpoint writeback failed: {writeback_error}"
-            )
-
-
-def _validate_streaming_checkpoint(
-    model: torch.nn.Module,
-    async_writer: AsyncWriter,
-) -> None:
-    """Check streamed tensor coverage and report failures to every rank."""
-    if not async_writer.streaming_save:
-        return
-
-    writer_error = None
-    if async_writer.is_source:
-        try:
-            with disable_onloading():
-                expected_tensor_names = set(model.state_dict(keep_vars=True))
-            async_writer.validate_coverage(expected_tensor_names)
-        except Exception as error:
-            writer_error = str(error)
-    if is_distributed():
-        payload = [writer_error]
-        dist.broadcast_object_list(payload, src=get_source_rank())
-        writer_error = payload[0]
-    if writer_error is not None:
-        raise RuntimeError(
-            f"Streaming checkpoint preparation failed: {writer_error}"
-        )
 
 
 def _get_batches(
@@ -298,7 +225,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Keep disk serialization off the calibration thread. Both cache files
             # and checkpoint shards go through this worker as stable CPU snapshots.
-            distributed_writeback_group = _create_distributed_writeback_group(stack)
+            distributed_writeback_group = create_distributed_writeback_group(stack)
             if async_writer is None:
                 async_writer = AsyncWriter(
                     defer_errors=distributed_writeback_group is not None
@@ -456,9 +383,9 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Finalization may read/update disk-backed parameters directly, so
             # submit the final partial checkpoint shard before running callbacks.
-            _flush_async_writer(async_writer, distributed_writeback_group)
+            flush_async_writer(async_writer, distributed_writeback_group)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
             # Check coverage without materializing disk-offloaded parameters.
-            _validate_streaming_checkpoint(model, async_writer)
+            validate_streaming_checkpoint(model, async_writer)
