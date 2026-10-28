@@ -84,9 +84,7 @@ def flush_async_writer(
         dist.broadcast_object_list(payload, src=get_source_rank())
         writeback_error = payload[0]
     if writeback_error is not None:
-        raise RuntimeError(
-            f"Streaming checkpoint writeback failed: {writeback_error}"
-        )
+        raise RuntimeError(f"Streaming checkpoint writeback failed: {writeback_error}")
 
 
 def validate_streaming_checkpoint(
@@ -110,9 +108,7 @@ def validate_streaming_checkpoint(
         dist.broadcast_object_list(payload, src=get_source_rank())
         writer_error = payload[0]
     if writer_error is not None:
-        raise RuntimeError(
-            f"Streaming checkpoint preparation failed: {writer_error}"
-        )
+        raise RuntimeError(f"Streaming checkpoint preparation failed: {writer_error}")
 
 
 # Node.meta key listing modules which ran while HFTracer executed a node on meta
