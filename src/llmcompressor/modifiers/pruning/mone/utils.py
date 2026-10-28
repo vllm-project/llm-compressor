@@ -55,7 +55,7 @@ class MoNeSaliencyTracker:
     output used as the novice vector.
 
     Two groups of statistics are accumulated per expert, over the tokens routed
-    to it (allocated lazily on the device of the incoming data):
+    to it:
 
     - Output statistics (``sum_output``, ``sum_sq_output``, ``output_count``):
       the mean output is the novice vector, and the per-dimension variance gives
@@ -63,35 +63,29 @@ class MoNeSaliencyTracker:
     - Routing statistics (``sum_gate``, ``token_count``): the frequency-weighted
       mean gate weight gives the ``routing_score`` term.
 
+    The accumulators are zero-initialized on ``device`` at construction and
+    never move devices: statistics are accumulated and reduced in float32
+    (gpu-backed process groups do not support float64) where the calibration
+    data flows, and a layer which has not seen tokens yet contributes its
+    zeros to every reduction.
+
     Saliency is ``fluctuation_j * routing_score_j``; experts with the lowest
     saliency are collapsed into novices.
     """
 
-    def __init__(self, num_experts: int):
+    def __init__(self, num_experts: int, hidden_dim: int, device: torch.device):
         self.num_experts = num_experts
+        self.hidden_dim = hidden_dim
+        self.device = device
         # output statistics: mean -> novice vector, variance -> fluctuation
-        self.sum_output: torch.Tensor | None = None
-        self.sum_sq_output: torch.Tensor | None = None
-        self.output_count: torch.Tensor | None = None
+        self.sum_output = torch.zeros(
+            num_experts, hidden_dim, dtype=torch.float32, device=device
+        )
+        self.sum_sq_output = torch.zeros_like(self.sum_output)
+        self.output_count = torch.zeros(num_experts, dtype=torch.float32, device=device)
         # routing statistics: frequency-weighted mean gate weight
-        self.sum_gate: torch.Tensor | None = None
+        self.sum_gate = torch.zeros(num_experts, dtype=torch.float32, device=device)
         self.token_count: int = 0
-
-    def _ensure_outputs(self, device: torch.device, hidden_dim: int):
-        if self.sum_output is None:
-            self.sum_output = torch.zeros(
-                self.num_experts, hidden_dim, dtype=torch.float64, device=device
-            )
-            self.sum_sq_output = torch.zeros_like(self.sum_output)
-            self.output_count = torch.zeros(
-                self.num_experts, dtype=torch.float64, device=device
-            )
-
-    def _ensure_routing(self, device: torch.device):
-        if self.sum_gate is None:
-            self.sum_gate = torch.zeros(
-                self.num_experts, dtype=torch.float64, device=device
-            )
 
     @torch.no_grad()
     def update_outputs(
@@ -113,9 +107,6 @@ class MoNeSaliencyTracker:
         if not expert_outputs_dict:
             return
 
-        sample = next(iter(expert_outputs_dict.values()))
-        self._ensure_outputs(sample.device, sample.shape[-1])
-
         calibrate_all = get_calibrate_all_experts_flag()
         for expert_idx, output in expert_outputs_dict.items():
             if calibrate_all:
@@ -123,7 +114,7 @@ class MoNeSaliencyTracker:
                 output = output[mask]
             if output.shape[0] == 0:
                 continue
-            output = output.to(torch.float64)
+            output = output.to(torch.float32)
             self.sum_output[expert_idx] += output.sum(dim=0)
             self.sum_sq_output[expert_idx] += output.pow(2).sum(dim=0)
             self.output_count[expert_idx] += output.shape[0]
@@ -145,38 +136,37 @@ class MoNeSaliencyTracker:
         :param topk_indices: ``[num_tokens, top_k]`` selected expert ids
         :param topk_weights: ``[num_tokens, top_k]`` gate weight per selection
         """
-        self._ensure_routing(topk_indices.device)
         flat_idx = topk_indices.reshape(-1).to(torch.long)
-        flat_weights = topk_weights.reshape(-1).to(torch.float64)
+        flat_weights = topk_weights.reshape(-1).to(torch.float32)
         self.sum_gate.index_add_(0, flat_idx, flat_weights)
         self.token_count += topk_indices.shape[0]
 
-    def reduce_stats(
-        self,
-        device: torch.device,
-        hidden_dim: int,
-        group: "dist.ProcessGroup | None" = None,
-    ):
-        """Reduce all accumulators to the source rank (rank 0). The token
-        count is all-reduced so that every rank holds the count summed across
-        ranks."""
-        self._ensure_outputs(device, hidden_dim)
-        self._ensure_routing(device)
+    def reduce_stats(self):
+        """Reduce all accumulators to the source rank (rank 0), in float32 on
+        the device they were accumulated on, over the default process group.
+        The token count is all-reduced so that every rank holds the count
+        summed across ranks.
+
+        The accumulators are reduced in place: ``dist.reduce`` only writes
+        its result at the destination, so non-source ranks keep their local
+        statistics, while the source rank's accumulators become the global
+        sums, which their consumers (report, retained-expert selection,
+        novices) read immediately after. A rank whose layer has not seen
+        tokens contributes its zero-initialized accumulators, keeping the
+        collectives aligned across ranks.
+        """
         if not is_distributed():
             return
 
-        self.sum_output = self.sum_output.cpu()
-        self.sum_sq_output = self.sum_sq_output.cpu()
-        self.output_count = self.output_count.cpu()
-        self.sum_gate = self.sum_gate.cpu()
-        token_count = torch.tensor(float(self.token_count), dtype=torch.float64)
+        token_count = torch.tensor(
+            float(self.token_count), dtype=torch.float32, device=self.device
+        )
         pending = [
             dist.reduce(
                 tensor,
                 dst=get_source_rank(),
                 op=dist.ReduceOp.SUM,
                 async_op=True,
-                group=group,
             )
             for tensor in (
                 self.sum_output,
@@ -186,9 +176,7 @@ class MoNeSaliencyTracker:
             )
         ]
         pending.append(
-            dist.all_reduce(
-                token_count, op=dist.ReduceOp.SUM, async_op=True, group=group
-            )
+            dist.all_reduce(token_count, op=dist.ReduceOp.SUM, async_op=True)
         )
         wait_for_comms(pending)
         self.token_count = int(token_count.item())
@@ -204,22 +192,20 @@ class MoNeSaliencyTracker:
     def output_fluctuation(self) -> torch.Tensor:
         """``[num_experts]`` L2 norm (over hidden dims) of the per-dimension
         standard deviation of each expert's output."""
-        if self.sum_output is None:
-            return torch.zeros(self.num_experts, dtype=torch.float64)
-        sum_output = self.sum_output.to("cpu", torch.float64)
-        sum_sq = self.sum_sq_output.to("cpu", torch.float64)
-        count = self.output_count.to("cpu", torch.float64).clamp(min=1.0)
-        mean = sum_output / count.unsqueeze(-1)
-        variance = (sum_sq / count.unsqueeze(-1) - mean.pow(2)).clamp_min(0.0)
+        count = self.output_count.clamp(min=1.0).unsqueeze(-1)
+        mean = self.sum_output / count
+        variance = (self.sum_sq_output / count - mean.pow(2)).clamp_min(0.0)
         std = variance.sqrt()
         return torch.linalg.norm(std, dim=1)
 
     @property
     def routing_score(self) -> torch.Tensor:
         """``[num_experts]`` frequency-weighted mean gate weight."""
-        if self.sum_gate is None or self.token_count <= 0:
-            return torch.zeros(self.num_experts, dtype=torch.float64)
-        return self.sum_gate.to("cpu", torch.float64) / float(self.token_count)
+        if self.token_count <= 0:
+            return torch.zeros(
+                self.num_experts, dtype=torch.float32, device=self.device
+            )
+        return self.sum_gate / float(self.token_count)
 
     @property
     def saliency(self) -> torch.Tensor:
@@ -232,21 +218,15 @@ class MoNeSaliencyTracker:
         _, drop_indices = torch.topk(saliency, n_experts_to_drop, largest=False)
         drop_set = {int(i) for i in drop_indices.tolist()}
         retained = [i for i in range(self.num_experts) if i not in drop_set]
-        return torch.tensor(retained, dtype=torch.int)
+        return torch.tensor(retained, dtype=torch.int, device=saliency.device)
 
     def compute_novices(self, dropped: list[int]) -> torch.Tensor:
         """Return the ``(len(dropped), hidden_dim)`` matrix of novice vectors --
         the mean output of each collapsed expert, ordered to match ``dropped``.
         """
-        if self.sum_output is None:
-            raise RuntimeError(
-                "MoNeSaliencyTracker.compute_novices called before any outputs "
-                "were accumulated."
-            )
-        sum_output = self.sum_output.to("cpu", torch.float64)
-        count = self.output_count.to("cpu", torch.float64).clamp(min=1.0)
-        mean_output = sum_output / count.unsqueeze(-1)
-        drop_idx = torch.tensor(dropped, dtype=torch.long)
+        count = self.output_count.clamp(min=1.0).unsqueeze(-1)
+        mean_output = self.sum_output / count
+        drop_idx = torch.tensor(dropped, dtype=torch.long, device=mean_output.device)
         return mean_output[drop_idx]
 
 
