@@ -66,7 +66,7 @@ The [MTP examples](https://github.com/vllm-project/llm-compressor/tree/main/exam
 - [GLM-4.7-Flash](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/glm4_7_flash_copy_mtp.py): quantize the backbone to FP8 with `load_context(load_mtp=False)` and copy the source BF16 MTP tensors unchanged when saving.
 - [GLM-4.5-Air](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/glm4_5_air_mtp.py): load MTP with `load_context(load_mtp=True)` and apply the same `FP8_DYNAMIC` scheme to the backbone and MTP.
 - [DeepSeek V3](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/deepseek_v3_nvfp4_fp8_mtp.py): use separate `QuantizationModifier` instances and the independent pipeline to calibrate the backbone to NVFP4, then quantize the MTP decoder to `FP8_DYNAMIC` without calibration data. Treat `MtpModel` as a tracing boundary and update the exported scheme targets to match checkpoint names without overlap.
-- [GLM-4.7-Flash AutoRound](../../../examples/autoround/quantization_wNa16/mtp/glm4_7_flash_mtp_w4a16.py): calibrate the backbone and MTP with `AutoRoundModifier` for W4A16, tuning each MTP layer as one block.
+- [GLM-4.5-Air AutoRound](../../../examples/autoround/quantization_wNa16/mtp/glm4_5_air_mtp_w4a16.py): calibrate the backbone and MTP with `AutoRoundModifier` for W4A16, tuning each MTP layer as one block.
 - [GLM-5.3](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/glm_5_3_mxfp4.py): use `model_free_ptq` to convert source FP8 checkpoint weights and quantize the backbone and MTP to MXFP4. `FP8BlockDequantizer.from_pretrained()` identifies source FP8 tensors from their scale entries.
 
 ### Loading and quantizing MTP
