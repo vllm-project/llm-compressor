@@ -199,6 +199,9 @@ class Oneshot:
         self.model_args = model_args
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
+        # Resolve stage-specific output directories once so streaming shard writes
+        # and post-processing metadata use the identical destination.
+        output_dir = resolve_output_dir(output_dir, recipe_args)
         self.output_dir = output_dir
         self.streaming_checkpoint_writer: StreamingCheckpointWriter | None = None
 
@@ -329,9 +332,10 @@ class Oneshot:
                     raise ValueError(
                         "streaming_save requires the sequential calibration pipeline"
                     )
-                save_dir = resolve_output_dir(self.output_dir, self.recipe_args)
-                assert save_dir is not None
-                self.streaming_checkpoint_writer = StreamingCheckpointWriter(save_dir)
+                assert self.output_dir is not None
+                self.streaming_checkpoint_writer = StreamingCheckpointWriter(
+                    self.output_dir
+                )
                 session.state.streaming_checkpoint_writer = (
                     self.streaming_checkpoint_writer
                 )

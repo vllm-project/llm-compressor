@@ -111,8 +111,6 @@ def post_process(
         ValueError: If saving fails due to an invalid `output_dir` or other issues.
     """
     if model_args is not None and output_dir is not None:
-        output_dir = resolve_output_dir(output_dir, recipe_args)
-        assert output_dir is not None
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
