@@ -27,7 +27,11 @@ import torch.distributed
 from compressed_tensors import ModelCompressor, decompress_module
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import from_accelerate, init_dist
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStatus,
+)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -114,22 +118,28 @@ def _extract_effective_weights(model: torch.nn.Module) -> dict[str, torch.Tensor
     compressor = ModelCompressor.from_pretrained_model(model)
     from_accelerate(model)
 
-    # The model can contain a mix of packed and ordinary quantized modules. The
-    # model-level decompressor tries every module with quantization metadata, even
-    # when that module still has a dense `weight`; only unpack modules that actually
-    # carry the packed representation.
-    packed_modules = [
+    # Layerwise compression can leave modules in different lifecycle states. Only
+    # decompress weight-quantized modules marked compressed; some formats store the
+    # compressed values under `weight`, while dense modules may have no packed key.
+    compressed_modules = [
         module
         for module in model.modules()
-        if "weight_packed" in module._parameters or "weight_packed" in module._buffers
+        if (
+            getattr(module, "quantization_status", None)
+            == QuantizationStatus.COMPRESSED
+            and getattr(
+                getattr(module, "quantization_scheme", None), "weights", None
+            )
+            is not None
+        )
     ]
-    if packed_modules:
+    if compressed_modules:
         if is_distributed():
             replace_module_parallel(
-                packed_modules, decompress_module, desc="Decompressing modules"
+                compressed_modules, decompress_module, desc="Decompressing modules"
             )
         else:
-            for module in packed_modules:
+            for module in compressed_modules:
                 decompress_module(module)
 
     compressor.remove_decompression_hook(model)
