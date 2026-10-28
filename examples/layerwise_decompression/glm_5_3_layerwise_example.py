@@ -5,12 +5,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 # Already compressed
-MODEL_ID = "RedHatAI/GLM-5.3-MXFP4"
-SAVE_DIR = (
-    "/data-tier-1/machine/Roderick-Wu/"
-    + MODEL_ID.rstrip("/").split("/")[-1]
-    + "-NVFP4-Layerwise"
-)
+MODEL_ID = "zai-org/GLM-5.3"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 NUM_CALIBRATION_SAMPLES = 512
 MAX_SEQUENCE_LENGTH = 2048
 
