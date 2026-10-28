@@ -6,7 +6,11 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
+from compressed_tensors.offload import (
+    AsyncWriter,
+    set_onload_device,
+)
+from compressed_tensors.offload.cache import DiskCache
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -26,10 +30,13 @@ from llmcompressor.pipelines.sequential.error_logging import (
 )
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
+    create_distributed_writeback_group,
     decompress_subgraph_modules,
     find_modules_outside_subgraphs,
+    flush_async_writer,
     handle_sequential_oom,
     trace_subgraphs,
+    validate_streaming_checkpoint,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -46,6 +53,8 @@ def _submit_subgraph_staging(
     modules: dict[str, torch.nn.Module],
     current_modules: dict[str, torch.nn.Module],
     pin_memory: bool,
+    async_writer: AsyncWriter | None = None,
+    distributed_group=None,
 ) -> tuple[dict[str, torch.nn.Module], Future] | None:
     """Stage disjoint next-subgraph modules in the background."""
     if set(modules.values()) & set(current_modules.values()):
@@ -55,8 +64,27 @@ def _submit_subgraph_staging(
         subgraph_stage_modules,
         modules,
         pin_memory=pin_memory,
+        async_writer=async_writer,
+        distributed_group=distributed_group,
     )
     return modules, future
+
+
+def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
+    """Remove a completed pipeline writer from caches retained by the model."""
+    for module in model.modules():
+        for name in ("_parameters", "_buffers"):
+            cache = getattr(module, name, None)
+            if getattr(cache, "async_writer", None) is writer:
+                cache.async_writer = None
+
+
+def _has_disk_cache(model: torch.nn.Module) -> bool:
+    return any(
+        isinstance(cache, DiskCache)
+        for module in model.modules()
+        for cache in (module._parameters, module._buffers)
+    )
 
 
 def _get_batches(
@@ -111,6 +139,7 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
+        async_writer = getattr(session.state, "async_writer", None)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -203,6 +232,18 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
+            # Keep disk serialization off the calibration thread when this model
+            # has disk-backed weights or streaming checkpoint output is enabled.
+            if async_writer is not None or _has_disk_cache(model):
+                distributed_writeback_group = create_distributed_writeback_group(stack)
+                if async_writer is None:
+                    async_writer = AsyncWriter(
+                        defer_errors=distributed_writeback_group is not None
+                    )
+                    stack.enter_context(async_writer)
+                    stack.callback(_detach_async_writer, model, async_writer)
+            else:
+                distributed_writeback_group = None
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -213,13 +254,18 @@ class SequentialPipeline(CalibrationPipeline):
                 next_subgraph_modules,
                 {},
                 stage_weights_in_pinned_memory,
+                async_writer,
+                distributed_writeback_group,
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 if prefetched_staging is None:
                     subgraph_modules = subgraph.submodule_dict(model)
                     subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                        subgraph_modules,
+                        pin_memory=stage_weights_in_pinned_memory,
+                        async_writer=async_writer,
+                        distributed_group=distributed_writeback_group,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -254,6 +300,8 @@ class SequentialPipeline(CalibrationPipeline):
                         next_subgraph_modules,
                         subgraph_modules,
                         stage_weights_in_pinned_memory,
+                        async_writer,
+                        distributed_writeback_group,
                     )
 
                 #######################
@@ -336,10 +384,22 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(
+                    subgraph_modules,
+                    offload_kwargs,
+                    async_writer=async_writer,
+                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
+            # Finalization may read/update disk-backed parameters directly, so
+            # submit the final partial checkpoint shard before running callbacks.
+            if async_writer is not None:
+                flush_async_writer(async_writer, distributed_writeback_group)
+
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
+            # Check coverage without materializing disk-offloaded parameters.
+            if async_writer is not None:
+                validate_streaming_checkpoint(model, async_writer)

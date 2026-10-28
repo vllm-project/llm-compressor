@@ -7,9 +7,14 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
+import torch.distributed as dist
 from compressed_tensors.compressors import compress_module, decompress_module
-from compressed_tensors.distributed import is_distributed, replace_module_parallel
-from compressed_tensors.offload import disable_onloading
+from compressed_tensors.distributed import (
+    get_source_rank,
+    is_distributed,
+    replace_module_parallel,
+)
+from compressed_tensors.offload import AsyncWriter, disable_onloading
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
 from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
@@ -33,6 +38,78 @@ if TYPE_CHECKING:
     pass
 
 __all__ = ["trace_subgraphs", "Subgraph", "handle_sequential_oom"]
+
+
+def create_distributed_writeback_group(stack: contextlib.ExitStack):
+    """Create a Gloo group for writer collectives run by the staging thread."""
+    if not (dist.is_available() and dist.is_initialized()):
+        return None
+    if dist.get_world_size() <= 1:
+        return None
+
+    # The calibration thread can issue model collectives on the default group
+    # while the staging thread reports write completion. Keep those collectives
+    # on separate groups, and destroy this one with the pipeline resources.
+    group = dist.new_group(backend="gloo")
+    stack.callback(dist.destroy_process_group, group)
+    return group
+
+
+def flush_async_writer(
+    async_writer: AsyncWriter,
+    distributed_group,
+) -> None:
+    """Drain queued writes and propagate any distributed write failures."""
+    if not async_writer.streaming_save:
+        if distributed_group is None:
+            async_writer.flush()
+        else:
+            async_writer.flush_distributed(distributed_group)
+        return
+
+    writeback_error = None
+    try:
+        async_writer.wait_all()
+    except Exception as error:
+        writeback_error = str(error)
+
+    if distributed_group is not None:
+        try:
+            async_writer.flush_distributed(distributed_group)
+        except Exception as error:
+            if writeback_error is None:
+                writeback_error = str(error)
+    if is_distributed():
+        payload = [writeback_error]
+        dist.broadcast_object_list(payload, src=get_source_rank())
+        writeback_error = payload[0]
+    if writeback_error is not None:
+        raise RuntimeError(f"Streaming checkpoint writeback failed: {writeback_error}")
+
+
+def validate_streaming_checkpoint(
+    model: torch.nn.Module,
+    async_writer: AsyncWriter,
+) -> None:
+    """Check streamed tensor coverage and report failures to every rank."""
+    if not async_writer.streaming_save:
+        return
+
+    writer_error = None
+    if async_writer.is_source:
+        try:
+            with disable_onloading():
+                expected_tensor_names = set(model.state_dict(keep_vars=True))
+            async_writer.validate_coverage(expected_tensor_names)
+        except Exception as error:
+            writer_error = str(error)
+    if is_distributed():
+        payload = [writer_error]
+        dist.broadcast_object_list(payload, src=get_source_rank())
+        writer_error = payload[0]
+    if writer_error is not None:
+        raise RuntimeError(f"Streaming checkpoint preparation failed: {writer_error}")
+
 
 # Node.meta key listing modules which ran while HFTracer executed a node on meta
 # tensors. Modules called inside wrapped functions (e.g. `embed_tokens` inside an

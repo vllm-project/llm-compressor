@@ -97,6 +97,7 @@ def post_process(
     model_args: ModelArguments | None = None,
     recipe_args: RecipeArguments | None = None,
     output_dir: str | None = None,
+    async_writer=None,
 ):
     """
     Saves the model and tokenizer/processor to the output directory if model_args,
@@ -111,13 +112,14 @@ def post_process(
     """
     if model_args is not None and output_dir is not None:
         if recipe_args is not None and getattr(recipe_args, "stage", None) is not None:
-            output_dir = os.path.join(output_dir, recipe_args.stage)
             os.makedirs(output_dir, exist_ok=True)
             logger.info(f"[Save] Stage detected. Updating output_dir to {output_dir}")
 
         # TODO: support general saving parameters, beyond save_compressed
         model_args.model.save_pretrained(
-            output_dir, save_compressed=model_args.save_compressed
+            output_dir,
+            save_compressed=model_args.save_compressed,
+            _async_writer=async_writer,
         )
 
         if model_args.processor is not None:
