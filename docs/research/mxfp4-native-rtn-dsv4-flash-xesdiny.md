@@ -21,7 +21,22 @@ We compared native RTN with SpinQuant R1 + ceil on a private DeepSeek-V4-Flash-0
 
 ## Setup
 
-The experiments used a local model-free Converter implementation to produce DeepSeek native checkpoints: MXFP4 routed experts, plus selected attention projections and shared experts in FP8-block. The output is not a compressed-tensors checkpoint; see [#3372](https://github.com/vllm-project/llm-compressor/issues/3372).
+### Motivation and native output
+
+Fine-tuning produced updated BF16 weights. We wanted to reduce their deployment footprint while reusing DeepSeek's native loading paths. The experiment used a local implementation of the model-free Converter interface to write native tensors; it did not export a compressed-tensors checkpoint. The scope discussion and implementation overview are in [#3372](https://github.com/vllm-project/llm-compressor/issues/3372).
+
+The source fine-tune is private and is called **BF16-FT** here. Its exact weights are unavailable for independent replication. It has no MTP layers; none were added from the reference model.
+
+| Component | Output representation |
+|---|---|
+| Routed experts, `w1/w2/w3` | MXFP4 E2M1, two values per `int8` byte; one E8M0 scale per 32 values |
+| Selected attention projections, including `indexer.wq_b` | FP8 E4M3 weights with E8M0 scales in 128 × 128 blocks |
+| Shared experts | FP8 E4M3 weights with E8M0 scales in 128 × 128 blocks |
+| Other tensors | No additional quantization; the R1 recipe still transforms residual-stream readers/writers and fuses the associated norms |
+
+Native quantized modules use `.weight` and `.scale`. Configuration declares `expert_dtype: fp4` and `quant_method: fp8`, with `scale_fmt: ue8m0` and `weight_block_size: [128, 128]`. The FP8 configuration label does not make the routed experts FP8. Dynamic activation quantization is handled by the serving runtime; the offline conversion quantizes weights.
+
+### Experiment paths
 
 ```text
 Private BF16 fine-tune
@@ -36,7 +51,7 @@ Public official native
 ```
 
 - **Recipes:** Both are data-free. RTN uses floor-rounded MXFP4 routed-expert scales. SpinQuant R1 + ceil combines a local offline R1 Hadamard rotation with ceil-rounded MXFP4 routed-expert scales. Its routed experts are rewritten from the BF16 source in FP32; other tensors come from an R1 native base. A BF16 intermediate can produce different packed values and scales.
-- **Inputs:** The private BF16 fine-tune had no MTP and is no longer available. Public decoded BF16 comes from the already-quantized official weights, not the original pre-quantization BF16. Official-Native retains MTP; the derived public variants do not.
+- **Inputs:** Public decoded BF16 comes from the already-quantized official weights, not the original pre-quantization BF16. Official-Native retains MTP; the derived public variants do not.
 - **Evaluation:** Four full runs of GPQA Diamond, IFEval, GSM8K, and MATH500, using lm-evaluation-harness with local wrappers, 0-shot, temperature 0, up to 2,048 generated tokens and thinking disabled. GSM8K uses flexible extraction. The same task sets were used across repeats.
 - **Serving:** SGLang was used for both experiments. Historical RTN and R1 were recorded as 4×H20, TP4, but their full serving provenance was not recovered. Historical BF16 hardware and TP records conflict, and its reported context length differed. Public runs used 8×H20-3e, TP8, SGLang 0.5.20, and a 16,384-token context; native and decoded BF16 variants used different execution paths.
 
