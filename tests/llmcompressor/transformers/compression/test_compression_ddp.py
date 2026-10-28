@@ -24,6 +24,7 @@ import tempfile
 import pytest
 import torch
 import torch.distributed
+from compressed_tensors import ModelCompressor
 from compressed_tensors.offload import init_dist
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -95,12 +96,7 @@ def _run_single_gpu(
         shuffle_calibration_samples=False,
     )
 
-    # Extract quantized weights (exclude common ignored parameters)
-    weights = {
-        name: param.clone().cpu()
-        for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
-    }
+    weights = _extract_effective_weights(model)
 
     if return_model:
         eval_ds = _make_eval_dataset(model_id)
@@ -110,6 +106,18 @@ def _run_single_gpu(
     torch.accelerator.empty_cache()
 
     return weights
+
+
+def _extract_effective_weights(model: torch.nn.Module) -> dict[str, torch.Tensor]:
+    """Compare effective quantized weights, not packed integer encodings."""
+    ModelCompressor.from_pretrained_model(model).decompress_model(model)
+    return {
+        name: param.detach().cpu().clone()
+        for name, param in model.named_parameters()
+        if "weight" in name
+        and "lm_head" not in name
+        and not name.endswith(("weight_packed", "weight_shape"))
+    }
 
 
 def _compare_weights(ref_weights: dict, ddp_weights: dict, atol: float = 1e-4):
@@ -251,12 +259,10 @@ def _test_ddp_modifier(
         shuffle_calibration_samples=False,
     )
 
-    # Extract DDP weights (exclude common ignored parameters)
-    ddp_weights = {
-        name: param.clone().cpu()
-        for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
-    }
+    # Decode packed weights before comparison. Comparing weight_packed int32
+    # values directly exaggerates a one-level quantization difference into a
+    # large integer delta and does not reflect the effective model weights.
+    ddp_weights = _extract_effective_weights(model)
 
     torch.distributed.barrier()
 
