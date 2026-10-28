@@ -40,7 +40,6 @@ from llmcompressor.entrypoints.utils import (
     has_sequential_targets_across_moes,
     post_process,
     pre_process,
-    resolve_output_dir,
 )
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
@@ -228,10 +227,6 @@ class Oneshot:
         self.model_args = model_args
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
-        # Resolve stage-specific output directories once so streaming shard writes
-        # and post-processing metadata use the identical destination.
-        output_dir = resolve_output_dir(output_dir, recipe_args)
-        self.output_dir = output_dir
         self.streaming_checkpoint_writer: StreamingCheckpointWriter | None = None
 
         if model_args.streaming_save:
@@ -241,6 +236,12 @@ class Oneshot:
                 raise ValueError("streaming_save requires layerwise_compression=True")
             if not model_args.save_compressed:
                 raise ValueError("streaming_save requires save_compressed=True")
+
+        # Stage runs save to a stage-specific subdirectory. Resolve this once so
+        # streaming shard writes and post-processing metadata share the same path.
+        if output_dir is not None and recipe_args.stage is not None:
+            output_dir = os.path.join(output_dir, recipe_args.stage)
+        self.output_dir = output_dir
 
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
