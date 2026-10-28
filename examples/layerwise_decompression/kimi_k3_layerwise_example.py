@@ -99,10 +99,6 @@ oneshot(
     layerwise_compression=True,
 )
 
-SAVE_DIR = (
-    "/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder/"
-    + MODEL_ID.rstrip("/").split("/")[-1]
-    + "-NVFP4-Layerwise"
-)
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
