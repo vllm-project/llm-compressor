@@ -127,9 +127,7 @@ def _extract_effective_weights(model: torch.nn.Module) -> dict[str, torch.Tensor
         if (
             getattr(module, "quantization_status", None)
             == QuantizationStatus.COMPRESSED
-            and getattr(
-                getattr(module, "quantization_scheme", None), "weights", None
-            )
+            and getattr(getattr(module, "quantization_scheme", None), "weights", None)
             is not None
         )
     ]
