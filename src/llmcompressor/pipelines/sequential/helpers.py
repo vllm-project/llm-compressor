@@ -83,7 +83,9 @@ class Subgraph:
 
                 qualified_name = target
                 if relative_name:
-                    qualified_name = f"{target}.{relative_name}"
+                    qualified_name = (
+                        f"{target}.{relative_name}" if target else relative_name
+                    )
                 ordered_names.append(qualified_name)
                 seen_modules.add(submodule)
 
@@ -142,6 +144,21 @@ def find_modules_outside_subgraphs(
     }
 
 
+def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
+    """Build an untraced subgraph for a model with consistent batch input names."""
+
+    def _forward_whole_model(model: Module, inputs: dict[str, Any]):
+        return model(**inputs)
+
+    graph = Graph()
+    root = graph.placeholder("self")
+    inputs = graph.placeholder("**kwargs")
+    output = graph.call_function(_forward_whole_model, args=(root, inputs))
+    output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
+    graph.output(output)
+    return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
+
+
 def decompress_subgraph_modules(modules: list[Module]) -> None:
     """Decompress quantized modules owned by one subgraph."""
     compressed_modules = [module for module in modules if is_module_quantized(module)]
@@ -166,6 +183,10 @@ def _resolve_sequential_targets(
 ) -> set[Module]:
     """Combine requested targets with attention boundaries and remove nested ones."""
     orig_targets = {m for _, m in list(match_named_modules(model, sequential_targets))}
+
+    # The root owns every module, including attention boundaries.
+    if model in orig_targets:
+        return {model}
 
     # Add attention modules as targets (we don't want to trace inside attention)
     attention_targets = {
@@ -225,6 +246,11 @@ def trace_subgraphs(
     :return: a list of Subgraphs in order of execution
     """
     targets = _resolve_sequential_targets(model, sequential_targets)
+
+    if targets == {model}:
+        # FX traces the root's forward directly, without consulting is_leaf_module.
+        return [_create_whole_model_subgraph(set(sample_input))]
+
     ancestors = get_sequential_ancestors(model, targets)
 
     # initialize arguments

@@ -16,7 +16,6 @@
 /src/llmcompressor/pytorch/ @kylesayrs @Roderick-Wu @GOavi101
 /src/llmcompressor/pytorch/model_load/ @kylesayrs @HDCharles @GOavi101 @Roderick-Wu
 /src/llmcompressor/pytorch/utils/ @kylesayrs @HDCharles @GOavi101 @Roderick-Wu
-/src/llmcompressor/pytorch/utils/sparsification_info/ @kylesayrs @GOavi101 @Roderick-Wu
 /src/llmcompressor/recipe/ @kylesayrs @dsikka @GOavi101 @Roderick-Wu
 /src/llmcompressor/utils/ @kylesayrs @HDCharles @yiliu30 @GOavi101 @Roderick-Wu
 /src/llmcompressor/utils/pytorch/ @kylesayrs @HDCharles @yiliu30 @GOavi101 @Roderick-Wu
@@ -26,15 +25,8 @@
 /src/llmcompressor/modifiers/awq/ @HDCharles @kylesayrs @Roderick-Wu
 /src/llmcompressor/modifiers/experimental/ @kylesayrs @HDCharles @dsikka
 /src/llmcompressor/modifiers/logarithmic_equalization/ @kylesayrs @HDCharles
-/src/llmcompressor/modifiers/obcq/ @kylesayrs @HDCharles
 /src/llmcompressor/modifiers/pruning/ @kylesayrs @HDCharles @soyr-redhat
-/src/llmcompressor/modifiers/pruning/constant/ @kylesayrs @HDCharles @soyr-redhat
-/src/llmcompressor/modifiers/pruning/magnitude/ @kylesayrs @HDCharles @soyr-redhat
 /src/llmcompressor/modifiers/pruning/reap/ @kylesayrs @HDCharles @soyr-redhat
-/src/llmcompressor/modifiers/pruning/sparsegpt/ @kylesayrs @HDCharles @soyr-redhat
-/src/llmcompressor/modifiers/pruning/utils/ @kylesayrs @HDCharles @soyr-redhat
-/src/llmcompressor/modifiers/pruning/utils/pytorch/ @kylesayrs @HDCharles @soyr-redhat
-/src/llmcompressor/modifiers/pruning/wanda/ @kylesayrs @HDCharles @soyr-redhat
 /src/llmcompressor/modifiers/quantization/ @kylesayrs @dsikka @HDCharles @Roderick-Wu
 /src/llmcompressor/modifiers/quantization/gptq/ @kylesayrs @HDCharles @Roderick-Wu
 /src/llmcompressor/modifiers/quantization/quantization/ @kylesayrs @HDCharles @Roderick-Wu
@@ -106,7 +98,6 @@
 /tests/e2e/ @dsikka @kylesayrs @HDCharles @Roderick-Wu
 /tests/examples/ @kylesayrs @dsikka
 /tests/lmeval/ @dsikka @kylesayrs
-/tests/sparsity/ @kylesayrs @dsikka
 /tests/test_timer/ @kylesayrs @dsikka
 /tests/tools/ @kylesayrs @dsikka
 /tests/unit/ @kylesayrs @dsikka
