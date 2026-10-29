@@ -61,6 +61,13 @@ with load_context():
 
 A checkpoint can contain MTP weights without those layers being loaded into the model. `has_mtp_in_checkpoint(model)` checks whether the config declares MTP layers. `hasattr(model, "mtp")` checks whether the model has an attached MTP module.
 
+The [MTP examples](https://github.com/vllm-project/llm-compressor/tree/main/examples/mtp) demonstrate the following workflows:
+
+- [GLM-4.7-Flash](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/glm4_7_flash_copy_mtp.py): quantize the backbone to FP8 with `load_context(load_mtp=False)` and copy the source BF16 MTP tensors unchanged when saving.
+- [GLM-4.5-Air](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/glm4_5_air_mtp.py): load MTP with `load_context(load_mtp=True)` and apply the same `FP8_DYNAMIC` scheme to the backbone and MTP.
+- [DeepSeek V3](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/deepseek_v3_nvfp4_fp8_mtp.py): use separate `QuantizationModifier` instances and the independent pipeline to calibrate the backbone to NVFP4, then quantize the MTP decoder to `FP8_DYNAMIC` without calibration data. Treat `MtpModel` as a tracing boundary and update the exported scheme targets to match checkpoint names without overlap.
+- [GLM-5.3](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/glm_5_3_mxfp4.py): use `model_free_ptq` to convert source FP8 checkpoint weights and quantize the backbone and MTP to MXFP4. `FP8BlockDequantizer.from_pretrained()` identifies source FP8 tensors from their scale entries.
+
 ### Loading and quantizing MTP
 
 1. `load_context()` defaults to `load_mtp=True`. During `from_pretrained()`, `load_with_mtp_model()` loads supported MTP layers with Transformers' `MtpModel` and attaches them as `model.mtp` before MoE conversion and offloading. Models whose config does not declare MTP load normally.
@@ -68,11 +75,9 @@ A checkpoint can contain MTP weights without those layers being loaded into the 
 3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP must use a data-free scheme such as `FP8_DYNAMIC`; methods requiring calibration are rejected. The recipe then applies to matching backbone and MTP modules.
 4. `save_pretrained()` serializes loaded MTP with the rest of the model.
 
-See the [GLM-4.5-Air MTP example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/quantization_w8a8_fp8/glm4_5_air_mtp.py).
-
 Recipe targets select the loaded Hugging Face modules. Saving restores checkpoint names for weights and ignore entries, but leaves quantization targets unchanged. For example, a target such as `re:^mtp\.layers\.` can select MTP during quantization while the saved weights use `model.layers.N.*` or `model.mtp.layers.*`.
 
-If named targets no longer match after saving, update the targets in `config.json` to cover the checkpoint names and any prefix changes made by vLLM while preserving each module's scheme. Ensure backbone and MTP targets do not overlap when their schemes differ. The shared `FP8_DYNAMIC` scheme with `Linear` targets in the example does not require this correction. Automatic target remapping is deferred to [compressed-tensors #980](https://github.com/vllm-project/compressed-tensors/pull/980).
+If named targets no longer match after saving, update the targets in `config.json` to cover the checkpoint names and any prefix changes made by vLLM while preserving each module's scheme. Ensure backbone and MTP targets do not overlap when their schemes differ. The shared `FP8_DYNAMIC` scheme with `Linear` targets in the GLM-4.5-Air example does not require this correction.
 
 ### Preserving unloaded MTP
 
@@ -80,7 +85,7 @@ Use `load_context(load_mtp=False)` to skip attaching MTP. With `load_mtp=True`, 
 
 The save wrapper also calls `validate_mtp_copy_source()` before writing any checkpoint files. This prevents a validation failure from leaving a partial checkpoint, including when calling `save_pretrained()` directly. After saving the backbone, it passes the validated source to `save_mtp_tensors()`, which copies the MTP weights unchanged and adds their module names to the exported quantization ignore list. If the config declares MTP but no weights are found, saving warns that there is nothing to copy.
 
-Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. To convert these checkpoints or quantize unsupported MTP layouts, use an explicit model-free workflow; see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/ece00265d70e09dc91f4d6e9ded5aa06d27e08f6/examples/model_free_ptq/mtp_fp8_fallback.py), which works directly on checkpoint tensors. This fallback never runs model-free quantization automatically.
+Loading through `MtpModel` and copying unloaded MTP both reject MTP weights that are already quantized in the source checkpoint. To convert these checkpoints or quantize unsupported MTP layouts, use an explicit model-free workflow; see the [model-free conversion example](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/glm_5_3_mxfp4.py), which works directly on checkpoint tensors. This fallback never runs model-free quantization automatically.
 
 ## Basic Pipeline ##
 The basic pipeline calibrates the whole model without tracing. Use it only when the model and calibration memory, such as GPTQ hessians, fit in the available VRAM.
