@@ -112,6 +112,7 @@ def test_reap_ddp_qwen3():
                     # and ddp runs sum the same contributions in a different
                     # order; allow small differences
                     rtol=1e-5,
+                    atol=1e-3,
                     msg=lambda m, i=layer_idx: (
                         f"Saliency scores differ between single-GPU and DDP "
                         f"at layer {i}.\n{m}"
