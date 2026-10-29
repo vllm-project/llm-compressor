@@ -29,9 +29,9 @@ class GPTQLutBModifier(GPTQModifier):
       rather than ``quantize_weight``.
     - No weight/activation observers are run: the codebook is fit inside the
       quantization routine, so there are no scale/zero-point qparams to observe.
-    - The only quantization parameter produced is ``weight`` (the LUT-B
-      compressor recovers an identical codebook at save time), so nothing else
-      needs to be broadcast/stored in the distributed path.
+    - The only GPTQ parameter produced is ``weight``. LUT-B tiles are range
+      normalized with E8M0 scales during fitting; the CT compressor writes the
+      final codebooks and scales from the resulting quantized weights.
     - Activation ordering is unsupported: LUT-B uses 2D block tiling
       (``[block_n, block_k]``) and actorder would scatter a tile's columns.
     """
@@ -41,8 +41,8 @@ class GPTQLutBModifier(GPTQModifier):
     actorder: ActivationOrdering | None = None
 
     # LUT-B produces a non-uniform codebook, not a scale/zero-point grid. The
-    # final weight takes on E4M3 center values, so the LUT-B compressor recovers
-    # an identical codebook at save time and only the weight is broadcast/stored.
+    # output weight contains scaled E4M3 center values, so no separate GPTQ
+    # qparams need to be broadcast; CT emits the canonical book and E8M0 scale.
     _q_param_names: ClassVar[list[str]] = ["weight"]
 
     def on_sequential_epoch_end(
