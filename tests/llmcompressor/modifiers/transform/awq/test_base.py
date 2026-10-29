@@ -871,3 +871,64 @@ def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
 
     # Verify QKV and gate/up are NOT fused together
     assert abs(q_gs - gate_gs) > 1e-6, f"QKV and gate/up incorrectly fused: {q_gs}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "offload_device,held",
+    [(None, True), (torch.device("cpu"), False), (torch.device("cuda"), True)],
+    ids=["no-offload", "cpu", "gpu"],
+)
+def test_estimate_sequential_memory(offload_device, held):
+    awq = AWQModifier(
+        mappings=[
+            AWQMapping(
+                "re:.*input_layernorm",
+                ["re:.*q_proj", "re:.*k_proj", "re:.*v_proj"],
+            ),
+            AWQMapping("re:.*up_proj", ["re:.*down_proj"]),
+        ],
+        offload_device=offload_device,
+    )
+    self_attn = torch.nn.ModuleDict(
+        {name: Linear(8, 8) for name in ("q_proj", "k_proj", "v_proj", "o_proj")}
+    )
+    mlp = torch.nn.ModuleDict({"up_proj": Linear(8, 16), "down_proj": Linear(16, 8)})
+    model = torch.nn.ModuleDict(
+        {
+            "decoder": torch.nn.ModuleDict(
+                {
+                    "input_layernorm": torch.nn.LayerNorm(8),
+                    "self_attn": self_attn,
+                    "mlp": mlp,
+                }
+            )
+        }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq._set_resolved_mappings(model)
+
+    tokens, value_bytes = 10, 4  # float32
+    # inputs cached on a gpu count against its memory, even when offloaded there
+    held_per_feature = tokens * value_bytes if held else 0
+
+    # parent module: input and output widths are those of the balance layers
+    qkv_weights = 3 * 8 * 8 * value_bytes
+    assert awq.estimate_sequential_memory(self_attn, tokens) == (
+        held_per_feature * 8,
+        2 * tokens * 8 * value_bytes + qkv_weights,
+    )
+
+    # parent Linear: its own output width
+    down_weight = 16 * 8 * value_bytes
+    assert awq.estimate_sequential_memory(mlp.down_proj, tokens) == (
+        held_per_feature * 16,
+        2 * tokens * 8 * value_bytes + down_weight,
+    )
+
+    # modules which are not mapping parents cache nothing
+    assert awq.estimate_sequential_memory(self_attn.q_proj, tokens) == (0, 0)
+    assert awq.estimate_sequential_memory(model, tokens) == (0, 0)

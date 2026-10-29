@@ -138,3 +138,20 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         """
         if not getattr(state, "layerwise_decompression", False):
             QuantizationMixin.end_calibration(self, state.model)
+
+    def estimate_sequential_memory(
+        self, module: torch.nn.Module, num_tokens: int
+    ) -> tuple[int, int]:
+        """
+        Observers keep only small per-module statistics, but observing a weight when
+        its subgraph ends may need a full precision copy of it
+
+        :param module: module belonging to the subgraph being calibrated
+        :param num_tokens: number of calibration tokens, unused
+        :return: tuple of (held, scratch) bytes
+        """
+        weight = getattr(module, "weight", None)
+        if weight is None or not is_module_quantized(module):
+            return 0, 0
+
+        return 0, weight.numel() * torch.float32.itemsize
