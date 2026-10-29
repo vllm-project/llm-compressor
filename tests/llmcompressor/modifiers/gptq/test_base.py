@@ -12,6 +12,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 
 @pytest.fixture
 def q_config_kwargs(config_0, config_1):
+    config_0 = {} if config_0 == "N/A" else dict(actorder=config_0)
+    config_1 = {} if config_1 == "N/A" else dict(actorder=config_1)
     return dict(
         config_groups=dict(
             group_0=dict(
@@ -22,7 +24,7 @@ def q_config_kwargs(config_0, config_1):
                     symmetric=True,
                     strategy="group",
                     group_size=128,
-                    actorder=config_0,
+                    **config_0,
                 ),
             ),
             group_1=dict(
@@ -33,7 +35,7 @@ def q_config_kwargs(config_0, config_1):
                     symmetric=True,
                     strategy="group",
                     group_size=128,
-                    actorder=config_1,
+                    **config_1,
                 ),
             ),
         )
@@ -72,16 +74,19 @@ def test_block_strategy_parsing(block_q_config_kwargs):
     "has_actorder,actorder,config_0,config_1,expected_0,expected_1",
     [
         # defaults to "static" if nothing provided
-        (False, "N/A", None, None, "static", "static"),
+        (False, "N/A", "N/A", "N/A", "static", "static"),
         # modifier overrides config if no config provided
-        (True, "static", None, None, "static", "static"),
-        (True, None, None, None, None, None),
+        (True, "static", "N/A", "N/A", "static", "static"),
+        (True, None, "N/A", "N/A", None, None),
         # modifier errors if explicitly conflicts with config
-        (True, None, "static", None, "error", "error"),
+        (True, None, "static", "N/A", "error", "error"),
+        (True, "static", None, "N/A", "error", "error"),
         # modifier overrides to static if nothing is provided
-        (False, "N/A", None, "static", "static", "static"),
-        (False, "N/A", "static", None, "static", "static"),
+        (False, "N/A", "N/A", "static", "static", "static"),
+        (False, "N/A", "static", "N/A", "static", "static"),
         (False, "N/A", "static", "static", "static", "static"),
+        # explicit None in config disables activation ordering
+        (False, "N/A", None, "static", None, "static"),
     ],
 )
 def test_actorder_resolution(
