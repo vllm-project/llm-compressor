@@ -537,7 +537,9 @@ def quantize_weight_lut_b(
     """Run GPTQ error compensation using one E4M3 codebook per LUT-B tile."""
     from compressed_tensors.quantization.utils.lut_b import (
         LUT_B_LLOYD_ITERATIONS,
+        _decode_lut_b_scales,
         _fit_codebooks,
+        _scale_lut_b_tiles,
         _weight_to_tiles,
         is_lut_b_quantization,
     )
@@ -562,10 +564,14 @@ def quantize_weight_lut_b(
     codebook_size = 1 << quant_args.num_bits
 
     tiles = _weight_to_tiles(weight, quant_args)
-    _, centers = _fit_codebooks(tiles, quant_args, LUT_B_LLOYD_ITERATIONS)
+    normalized_tiles, scales = _scale_lut_b_tiles(tiles)
+    _, centers = _fit_codebooks(
+        normalized_tiles, quant_args, LUT_B_LLOYD_ITERATIONS
+    )
     row_tiles = num_rows // block_n
     column_tiles = num_columns // block_k
     centers = centers.to(torch.float32).reshape(row_tiles, column_tiles, codebook_size)
+    scale_factors = _decode_lut_b_scales(scales).reshape(row_tiles, column_tiles)
     row_block = torch.arange(num_rows, device=weight.device) // block_n
 
     losses = torch.zeros(num_rows, device=weight.device)
@@ -607,7 +613,9 @@ def quantize_weight_lut_b(
             diagonal_value = inverse_block[offset, offset]
             column_tile = column // block_k
             if column_tile != cur_column_tile:
-                column_centers = centers[row_block, column_tile]
+                column_centers = centers[row_block, column_tile] * scale_factors[
+                    row_block, column_tile
+                ].unsqueeze(1)
                 cur_column_tile = column_tile
 
             nearest = (value.unsqueeze(1) - column_centers).abs().argmin(dim=1)
