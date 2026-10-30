@@ -1,5 +1,5 @@
 import contextlib
-from typing import Literal
+from typing import ClassVar, Literal
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
@@ -127,6 +127,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
     """
 
     requires_calibration_data: bool = True
+
+    # Parameters produced by this GPTQ implementation. Specialized schemes may
+    # override this when they produce a different set of qparams.
+    _q_param_names: ClassVar[list[str]] = _GPTQ_Q_PARAMS
 
     # gptq modifier arguments
     block_size: int = 128
@@ -342,7 +346,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self.compress_module_list(rank_to_modules[rank])
 
         # broadcast compressed modules to each rank
-        broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
+        broadcast_qparams_and_cleanup(module_list, module_to_rank, self._q_param_names)
 
     def compress_module_list(self, module_list):
         for batch in assign_batches(
