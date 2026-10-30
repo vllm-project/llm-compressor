@@ -42,7 +42,7 @@ with load_context(KimiK3ForConditionalGeneration):
         config=config,
         device_map="auto_offload",
         # max_memory={"cpu": "500GiB"},
-        offload_folder="/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder",
+        offload_folder="./offload",
         dtype="auto",
         trust_remote_code=True,
     )
