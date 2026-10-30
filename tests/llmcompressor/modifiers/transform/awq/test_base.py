@@ -1,4 +1,5 @@
 from itertools import product
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -932,3 +933,80 @@ def test_estimate_sequential_memory(offload_device, held):
     # modules which are not mapping parents cache nothing
     assert awq.estimate_sequential_memory(self_attn.q_proj, tokens) == (0, 0)
     assert awq.estimate_sequential_memory(model, tokens) == (0, 0)
+
+
+class _TinyGQAAttention(torch.nn.Module):
+    """Four query heads consume two KV heads of dimension two."""
+
+    def __init__(self):
+        super().__init__()
+        self.v_proj = Linear(8, 4, bias=False)
+        self.o_proj = Linear(8, 8, bias=False)
+
+    def forward(self, hidden_states):
+        values = self.v_proj(hidden_states)
+        # repeat_kv layout: each KV head is repeated contiguously.
+        repeated = values.unflatten(-1, (2, 2)).repeat_interleave(2, dim=-2)
+        return self.o_proj(repeated.flatten(-2))
+
+
+# Group quantization makes the search sensitive to nonuniform channel scales.
+_GQA_QUANT_SCHEME = QuantizationScheme(
+    targets=["Linear"],
+    weights=QuantizationArgs(
+        num_bits=4,
+        type=QuantizationType.INT,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=4,
+        symmetric=False,
+        dynamic=False,
+    ),
+)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("grouped_query_smoothing", [False, True])
+@torch.no_grad()
+def test_grouped_query_smoothing(grouped_query_smoothing):
+    """Opted-in smoothing changes O weights but preserves the FP function."""
+    torch.manual_seed(0)
+    attention = _TinyGQAAttention()
+    model = torch.nn.ModuleDict({"self_attn": attention})
+    model.config = SimpleNamespace(
+        num_attention_heads=4, num_key_value_heads=2, head_dim=2
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(
+            config_groups={"group_0": _GQA_QUANT_SCHEME}
+        ).resolve_quantization_config(),
+    )
+    # Disable fake-quantized forwards, not the explicit quantization in the search.
+    for module in model.modules():
+        module.quantization_enabled = False
+    awq = AWQModifier(
+        mappings=[AWQMapping("self_attn.v_proj", ["self_attn.o_proj"])],
+        grouped_query_smoothing=grouped_query_smoothing,
+        offload_device=None,
+    )
+    awq._set_resolved_mappings(model)
+    assert len(awq._resolved_mappings) == int(grouped_query_smoothing)
+
+    hidden_states = torch.randn(4, 32, 8)
+    original_o_weight = attention.o_proj.weight.clone()
+    awq._setup_activation_cache_hooks()
+    try:
+        expected_output = attention(hidden_states)
+    finally:
+        awq.remove_hooks()
+
+    # Runs the real _compute_best_scale grid search for the enabled mapping.
+    awq._apply_smoothing(model)
+
+    if grouped_query_smoothing:
+        assert not torch.allclose(attention.o_proj.weight, original_o_weight)
+    else:
+        assert torch.equal(attention.o_proj.weight, original_o_weight)
+    assert_close(attention(hidden_states), expected_output, atol=1e-6, rtol=1e-5)
+    assert not awq._parent_args_cache
+    assert not awq._smooth_activation_stats
