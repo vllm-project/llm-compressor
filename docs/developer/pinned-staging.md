@@ -50,30 +50,41 @@ copies.
 - No kill switch: the `COMPRESSED_TENSORS_PINNED_STAGING=0` read-then-pin
   fallback is gone along with the rest of the non-raw opening logic
 
-## Results (ps=1, warm CephFS page cache)
+## Results (ps=1, mean of two warm runs per cell)
 
-| | span | staging wall | onload | forward | H2D |
-|---|---|---|---|---|---|
-| main unpinned | 82.2 s | 2.1 s (mmap) | 32.1 s | 48.6 s | 1.9 GB/s |
-| main pinned | 61.4 s | 19.7 s (hidden) | 4.4 s | 55.0 s | 13.0 GB/s |
-| branch unpinned | 63.2 s | 16.1 s (hidden) | 12.1 s | 49.7 s | 5.2 GB/s |
-| **branch pinned** | **58.0 s** | 16.6 s (hidden) | 2.8 s | 53.7 s | **23.1 GB/s** |
+**e2e** is full process wall (interpreter start to report write, warm page
+cache); **span** is the calibration window (first weight stage to last
+forward); **onload** is summed H2D busy time (18,868 copies, 61.7 GB), which
+partly overlaps forward:
 
-- **branch pinned is the fastest cell: -29.4% span vs main unpinned, -5.5%
-  vs main pinned**, and sits at the compute floor (53.7 s forward + the first
+| | e2e | span | staging wall | onload busy | forward | H2D |
+|---|---|---|---|---|---|---|
+| main unpinned | 125.6 s | 79.4 s | 2.2 s (mmap) | 28.7 s | 48.7 s | 2.2 GB/s |
+| main pinned | 106.4 s | 61.1 s | 18.3 s (hidden) | 7.3 s | 52.6 s | 8.5 GB/s |
+| branch unpinned | 112.3 s | 65.2 s | 15.8 s (hidden) | 12.6 s | 50.9 s | 4.9 GB/s |
+| **branch pinned** | **105.3 s** | **59.9 s** | 18.2 s (hidden) | **4.4 s** | 53.1 s | 14.4 GB/s |
+
+- **branch pinned is the fastest cell: -16.2% e2e / -24.6% span vs main
+  unpinned**, and sits at the compute floor (53.1 s forward + the first
   subgraph's un-hidden staging)
-- The async onload more than doubles main's synchronous H2D throughput
-  (23.1 vs 13.0 GB/s busy) and overlaps it with the forward pass, cutting the
-  exposed onload from 4.4 s to 2.8 s
-- **Even unpinned, the branch beats main by 23%** (63.2 vs 82.2 s): reads
-  into `torch.empty` pageable memory onload at 5.2 GB/s, while the mmap-backed
-  tensors `safe_open` returns collapse to 1.9 GB/s. Staging gets more
-  expensive (16.1 s of real reads vs 2.1 s of mmap), but it is hidden behind
-  compute, so the span still wins
+- The async onload roughly halves main's synchronous H2D busy time (7.3 to
+  4.4 s) and overlaps it with the forward pass; DMA throughput varies run to
+  run (8.5-13 GB/s on main, 14.4-23.1 GB/s here) with contention from the
+  forward pass
+- **Even unpinned, the branch beats main by 10.6% e2e** (112.3 vs 125.6 s):
+  reads into `torch.empty` pageable memory onload at ~4.9 GB/s, while the
+  mmap-backed tensors `safe_open` returns collapse to ~2.2 GB/s. Staging
+  gets more expensive (15.8 s of real reads vs 2.2 s of mmap), but it is
+  hidden behind compute, so the span still wins
 - Zero pin-copies in every cell (the read-then-pin path no longer exists);
-  18,867 pinned allocations take 1.3 s of busy time on the branch
-- Forward stretches by ~4-6 s under concurrent pinned staging on both main
+  18,867 pinned allocations take 1.3-3.7 s of busy time on the branch
+- Forward stretches by ~3-4 s under concurrent pinned staging on both main
   and the branch (memory-bandwidth contention from the staging reads)
+- e2e decomposes as span + ~26 s model load (offload folder rewrite) + ~20 s
+  fixed overhead (imports, tokenization, tracing). With more calibration
+  samples or a real recipe, per-batch compute grows while the I/O saving
+  stays fixed, so the relative e2e gain shrinks — these numbers bound it
+  from above on an I/O-heavy workload
 
 ## Remaining headroom (not addressed here)
 
