@@ -1,14 +1,15 @@
 # Pinned Weight Staging: Why It Was Slower, and Fixing It
 
-Status: implemented on `main` (compressed-tensors), benchmarked 2026-10-30.
-Benchmark: `bench_pinned_staging.py` / `run_pinned_staging.sh` (repo root), same
-workload as `bench_loading.py` (Qwen/Qwen3-30B-A3B, `device_map="disk"`,
-perfectblend `train[:16]`, `max_seq_length=2048`, empty recipe, weight
-write-back disabled to isolate the read path).
+Status: `pinned-staging-gains` (compressed-tensors), rebased on main,
+benchmarked 2026-10-30. Benchmark: `bench_pinned_staging.py` /
+`run_pinned_staging.sh` (repo root), same workload as `bench_loading.py`
+(Qwen/Qwen3-30B-A3B, `device_map="disk"`, perfectblend `train[:16]`,
+`max_seq_length=2048`, empty recipe, weight write-back disabled to isolate
+the read path).
 
 ## The problem
 
-`DiskCache.stage(pin_memory=True)` on main staged in two steps:
+`DiskCache.stage(pin_memory=True)` used to stage in two steps:
 
 1. read the tensor through safetensors into ordinary pageable memory
    (`safe_open(...).get_tensor()` — effectively an mmap view, ~17 GB/s warm)
@@ -20,59 +21,66 @@ pinned allocation per tensor (18,867 for Qwen3-30B-A3B). Meanwhile
 `DiskCache.onload` moved staged tensors with a blocking `.to(device)`, which
 collects none of pinned memory's async-DMA advantage.
 
-Measured effect (ps=1 / ps=6, warm CephFS page cache):
+The double copy and its memory-bandwidth contention ate most of the H2D
+savings, and the unpinned onload from mmap-backed pageable memory was itself
+pathological (~2 GB/s under stream contention), which is why pinning once
+appeared roughly break-even.
 
-| | span | staging wall | onload | forward | note |
-|---|---|---|---|---|---|
-| unpinned | 83.8 / 78.3 s | 2.1 / 2.1 s | 29.7 / 28.4 s | 52.5 / 48.9 s | mmap staging nearly free; **onload from pageable memory collapses to ~2.2 GB/s** under stream contention (per-copy sync on 18,870 blocking copies) |
-| pinned (old) | 70.6 / 74.6 s | 41.6 / 44.0 s | 7.8 / 5.2 s | 60.5 / 61.0 s | 35.7 / 38.5 s of pin-copy; the extra memory traffic **stretches forward by 8-12 s**; at ps=6 the staging wall also exceeds the compute window (8.4 s exposed) |
+## What main does now (compressed-tensors #937)
 
-This is why pinning appeared worse than generic CPU memory: the double copy
-and its memory-bandwidth contention ate most of the H2D savings, and at larger
-subgraphs the staging itself became exposed. (On this machine the unpinned
-onload is so pathological that old-pinned still came out slightly ahead; with a
-less catastrophic pageable H2D path, old-pinned loses outright.)
+Main reads matching dtypes directly into a pinned buffer (one read, one
+allocation, no second copy) through a raw reader that is opened per file
+inside `disk_load_context` — but it validates every file with `safe_open`
+before opening the raw byte stream, still serves **unpinned** reads through
+`safe_open.get_tensor`, and onloads staged tensors with **synchronous**
+copies.
 
-## The fix (compressed-tensors)
+## This branch
 
-- `disk_utils._opened_raw`: a cached, header-parsed, unbuffered raw reader
-  alongside the existing `safe_open` handle cache (thread-local, bounded,
-  evicted before in-place rewrites in `update_offload`)
-- `load_disk_tensor_from_offload(..., pin_memory=True)` reads matching dtypes
-  **directly into a pinned buffer** — one read, one allocation, no
-  intermediate pageable tensor, no second copy. Dtype casts and big-endian
-  hosts fall back to the safetensors path (cast, then pin), preserving the
-  existing conversion contract
-- `DiskCache.stage` routes `pin_memory` through the loader instead of
-  pinning after the fact
-- `DiskCache.onload` moves staged pinned tensors with
-  `non_blocking=True`: the H2D copies are async DMA, stream-ordered with the
+- **Always raw opening**: every disk read goes through `_opened_raw`. There is
+  no `safe_open` in the read path at all — no validation double-open per
+  shard, and no mmap-backed pageable tensors (unpinned reads land in
+  allocator-owned `torch.empty` memory, which onloads ~2.7x faster, see
+  below). Dtype casts read the on-disk dtype into pageable memory, cast, then
+  pin; non-staged onloads read raw then transfer to the device
+- **Async H2D onload**: `DiskCache.onload` moves staged pinned tensors with
+  `non_blocking=True`. The copies are async DMA, stream-ordered with the
   forwards that consume them; the caching host allocator does not reuse the
   pinned blocks until the copies complete
-- Kill switch: `COMPRESSED_TENSORS_PINNED_STAGING=0` restores main's exact
-  read-then-pin behavior (used for the "pinned (old)" benchmark column)
+- No kill switch: the `COMPRESSED_TENSORS_PINNED_STAGING=0` read-then-pin
+  fallback is gone along with the rest of the non-raw opening logic
 
-## Results
+## Results (ps=1, warm CephFS page cache)
 
-| | span (ps=1) | span (ps=6) | staging wall | onload | forward | H2D |
-|---|---|---|---|---|---|---|
-| unpinned | 83.8 s | 78.3 s | 2.1 s | 29.7 / 28.4 s | 52.5 / 48.9 s | 2.1-2.2 GB/s |
-| pinned (old) | 70.6 s | 74.6 s | 41.6 / 44.0 s | 7.8 / 5.2 s | 60.5 / 61.0 s | 7.5-10.5 GB/s |
-| **pinned (new)** | **59.3 s** | **59.4 s** | 18.9 / 17.8 s (hidden) | 5.5 / 2.7 s | 52.2 / 51.6 s | 10.1-18.4 GB/s |
+| | span | staging wall | onload | forward | H2D |
+|---|---|---|---|---|---|
+| main unpinned | 82.2 s | 2.1 s (mmap) | 32.1 s | 48.6 s | 1.9 GB/s |
+| main pinned | 61.4 s | 19.7 s (hidden) | 4.4 s | 55.0 s | 13.0 GB/s |
+| branch unpinned | 63.2 s | 16.1 s (hidden) | 12.1 s | 49.7 s | 5.2 GB/s |
+| **branch pinned** | **58.0 s** | 16.6 s (hidden) | 2.8 s | 53.7 s | **23.1 GB/s** |
 
-- **+29.2% / +24.2% span reduction vs unpinned**, +15.7% / +18.9% vs the old
-  pinned path, at `sequential_targets_per_subgraph` 1 and 6
-- Zero pin-copies (0 vs 35.7-38.5 s of extra memory traffic); forward time
-  matches the unpinned baseline (no contention stretch)
-- The span now sits at the compute floor: forward + a 2.7-5.5 s onload + the
-  first subgraph's un-hidden staging
+- **branch pinned is the fastest cell: -29.4% span vs main unpinned, -5.5%
+  vs main pinned**, and sits at the compute floor (53.7 s forward + the first
+  subgraph's un-hidden staging)
+- The async onload more than doubles main's synchronous H2D throughput
+  (23.1 vs 13.0 GB/s busy) and overlaps it with the forward pass, cutting the
+  exposed onload from 4.4 s to 2.8 s
+- **Even unpinned, the branch beats main by 23%** (63.2 vs 82.2 s): reads
+  into `torch.empty` pageable memory onload at 5.2 GB/s, while the mmap-backed
+  tensors `safe_open` returns collapse to 1.9 GB/s. Staging gets more
+  expensive (16.1 s of real reads vs 2.1 s of mmap), but it is hidden behind
+  compute, so the span still wins
+- Zero pin-copies in every cell (the read-then-pin path no longer exists);
+  18,867 pinned allocations take 1.3 s of busy time on the branch
+- Forward stretches by ~4-6 s under concurrent pinned staging on both main
+  and the branch (memory-bandwidth contention from the staging reads)
 
 ## Remaining headroom (not addressed here)
 
-- The onload still pays ~160-330 us per tensor (async enqueue throttling on
-  18,870 small copies). Batching H2D — staging a subgraph's tensors as views
+- The onload still pays ~150 us per tensor (async enqueue throttling on
+  18,868 small copies). Batching H2D — staging a subgraph's tensors as views
   of shared pinned buffers and issuing one copy per buffer — would cut the
   onload toward pure DMA time (~2.5 s). That design exists on the
   `bulk-read-staging` branch
-- The first big subgraph's staging has no compute to hide behind (~2-9 s
-  exposed at ps>=6); starting it during data preprocessing would recover it
+- The first big subgraph's staging has no compute to hide behind; starting it
+  during data preprocessing would recover it
