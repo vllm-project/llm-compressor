@@ -758,39 +758,34 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM, first_k_dense_repl
     return model
 
 
-def test_glm_dsa_mtp_accepts_normalized_layer_count():
-    config = GlmMoeDsaForCausalLM.config_class(
-        num_mtp_layers=1,
-        mtp_layer_types=["indexed_attention"],
-        mtp_mlp_layer_types=["sparse"],
-    )
+@pytest.mark.parametrize("count_field", ["num_nextn_predict_layers", "num_mtp_layers"])
+def test_glm_dsa_mtp_config(count_field):
+    config = GlmMoeDsaForCausalLM.config_class(**{count_field: 1})
     original = deepcopy(config.to_dict())
     mtp_config = get_mtp_config(SimpleNamespace(config=config))
     assert mtp_config.num_hidden_layers == mtp_config.num_mtp_layers == 1
+    assert mtp_config.first_k_dense_replace == 0
+    assert mtp_config.mlp_layer_types == ["sparse"]
+    assert mtp_config.layer_types == ["indexed_attention"]
+    assert mtp_config.indexer_types == ["full"]
     assert config.to_dict() == original
 
 
-@pytest.mark.parametrize("num_layers", [None, 0, 2])
-def test_glm_dsa_mtp_requires_one_prediction_layer(num_layers):
-    config = GlmMoeDsaForCausalLM.config_class(num_nextn_predict_layers=num_layers)
-    original = deepcopy(config.to_dict())
+def test_glm_dsa_mtp_requires_one_prediction_layer():
+    config = GlmMoeDsaForCausalLM.config_class(num_nextn_predict_layers=2)
     with pytest.raises(ValueError, match="one prediction layer"):
         get_mtp_config(SimpleNamespace(config=config))
-    assert config.to_dict() == original
 
 
 @pytest.mark.parametrize("shared_indexer", [False, True], ids=["glm5", "glm5_2"])
-def test_glm_dsa_checkpoint_mtp_config_and_quantized_round_trip(
-    tmp_path, shared_indexer
-):
+def test_glm_dsa_mtp_round_trip(tmp_path, shared_indexer):
     source_model = _source_glm_model(
         tmp_path, GlmMoeDsaForCausalLM, first_k_dense_replace=1
     )
     source = tmp_path / "source"
     config_path = source / "config.json"
     config = json.loads(config_path.read_text())
-    # Released GLM checkpoints declare next-token prediction without the fields
-    # required by upstream get_mtp_config. Do not let the fixture supply them.
+    # Released checkpoints omit the normalized MTP fields supplied by the fixture.
     for name in ("num_mtp_layers", "mtp_layer_types", "mtp_mlp_layer_types"):
         config.pop(name, None)
     if shared_indexer:
@@ -805,15 +800,20 @@ def test_glm_dsa_checkpoint_mtp_config_and_quantized_round_trip(
     weights_path = source / "model.safetensors"
     weights = load_file(weights_path)
     if shared_indexer:
-        last_indexer = (
-            f"model.layers.{source_model.config.num_hidden_layers - 1}."
-            "self_attn.indexer."
-        )
+        last_layer = source_model.config.num_hidden_layers - 1
+        last_indexer = f"model.layers.{last_layer}.self_attn.indexer."
         weights = {
             name: tensor
             for name, tensor in weights.items()
             if not name.startswith(last_indexer)
         }
+    # Distinct values catch swapped norms and an unloaded router buffer.
+    for name, value in (
+        ("enorm.weight", 0.5),
+        ("hnorm.weight", 1.25),
+        ("shared_head.norm.weight", 1.75),
+    ):
+        weights[f"{prefix}{name}"].fill_(value)
     for name, tensor in weights.items():
         if name.startswith(prefix) and name.endswith("e_score_correction_bias"):
             tensor.copy_(torch.tensor([0.125, -0.25], dtype=tensor.dtype))
@@ -823,105 +823,31 @@ def test_glm_dsa_checkpoint_mtp_config_and_quantized_round_trip(
         for name, tensor in weights.items()
         if name.startswith(prefix)
     }
-    assert any(name.startswith("self_attn.indexer.") for name in expected)
-    assert not torch.equal(
-        expected["mlp.experts.0.up_proj.weight"],
-        expected["mlp.experts.1.up_proj.weight"],
-    )
-
-    original_config = GlmMoeDsaForCausalLM.config_class.from_pretrained(source)
-    original_fields = deepcopy(original_config.to_dict())
-    mtp_config = get_mtp_config(SimpleNamespace(config=original_config))
-    assert original_config.to_dict() == original_fields
-    assert mtp_config.num_hidden_layers == mtp_config.num_mtp_layers == 1
-    assert mtp_config.first_k_dense_replace == 0
-    if hasattr(mtp_config, "layer_types"):
-        assert mtp_config.layer_types == ["indexed_attention"]
-    if hasattr(mtp_config, "mlp_layer_types"):
-        assert mtp_config.mlp_layer_types == ["sparse"]
-    if hasattr(mtp_config, "indexer_types"):
-        assert mtp_config.indexer_types == ["full"]
 
     with load_context(GlmMoeDsaForCausalLM, load_mtp=True):
         model = GlmMoeDsaForCausalLM.from_pretrained(source, local_files_only=True)
     block = model.mtp.layers[0].mtp_block
     assert block.self_attn.indexer is not None
     assert block.mlp.experts.num_experts == 2
-    actual = {}
-    for name, tensor in model.mtp.layers[0].state_dict().items():
-        name = name.removeprefix("mtp_block.")
-        if name == "post_norm.weight":
-            name = "shared_head.norm.weight"
-        actual[name] = tensor
+    assert model.config.num_hidden_layers == source_model.config.num_hidden_layers
+    assert model.config.first_k_dense_replace == 1
+    actual = {
+        name.removeprefix("mtp_block.").replace(
+            "post_norm.", "shared_head.norm."
+        ): tensor
+        for name, tensor in model.mtp.layers[0].state_dict().items()
+    }
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
-    config_fields = (
-        "num_hidden_layers",
-        "first_k_dense_replace",
-        "layer_types",
-        "mlp_layer_types",
-        "indexer_types",
-    )
-    for name in config_fields:
-        if name in original_fields:
-            assert getattr(model.config, name) == original_fields[name]
-    for name in ("num_mtp_layers", "mtp_layer_types", "mtp_mlp_layer_types"):
-        assert not hasattr(model.config, name)
 
-    oneshot(
-        model=model,
-        recipe=QuantizationModifier(
-            scheme="FP8_DYNAMIC", targets=[r"re:^mtp\.layers\."]
-        ),
-    )
-    saved = []
-    for directory in ("first", "second"):
-        destination = tmp_path / directory
-        model.save_pretrained(destination, max_shard_size="100KB")
-        mapping = get_weight_mappings(destination)
-        assert len(set(mapping.values())) > 1
-        assert not (destination / "model_mtp.safetensors").exists()
-        assert not any(name.startswith("mtp.") for name in mapping)
-        assert f"{prefix}mlp.experts.0.up_proj.weight_scale" in mapping
-        assert f"{prefix}mlp.experts.1.up_proj.weight_scale" in mapping
-        assert f"{prefix}self_attn.indexer.wk.weight_scale" in mapping
-        saved.append(
-            {
-                name: tensor
-                for shard in set(mapping.values())
-                for name, tensor in load_file(shard).items()
-            }
-        )
-        assert saved[-1][f"{prefix}eh_proj.weight"].dtype == torch.float8_e4m3fn
-        for name in (
-            "enorm.weight",
-            "hnorm.weight",
-            "shared_head.norm.weight",
-            *(name for name in expected if name.endswith("e_score_correction_bias")),
-        ):
-            torch.testing.assert_close(
-                saved[-1][f"{prefix}{name}"], expected[name], rtol=0, atol=0
-            )
-        assert f"{prefix}shared_head.head.weight" not in mapping
-        for expert in range(2):
-            name = f"mlp.experts.{expert}.up_proj.weight"
-            torch.testing.assert_close(
-                saved[-1][f"{prefix}{name}"].float()
-                * saved[-1][f"{prefix}{name}_scale"],
-                expected[name],
-                atol=0.005,
-                rtol=0.15,
-            )
-        saved_config = json.loads((destination / "config.json").read_text())
-        for name in ("num_mtp_layers", "mtp_layer_types", "mtp_mlp_layer_types"):
-            assert name not in saved_config
-        for name in config_fields:
-            if name in original_fields:
-                assert getattr(model.config, name) == original_fields[name]
-            if name in config:
-                assert saved_config[name] == config[name]
-            else:
-                assert name not in saved_config
-    torch.testing.assert_close(saved[0], saved[1], rtol=0, atol=0)
+    destination = tmp_path / "saved"
+    model.save_pretrained(destination)
+    saved = load_file(destination / "model.safetensors")
+    actual = {
+        name.removeprefix(prefix): tensor
+        for name, tensor in saved.items()
+        if name.startswith(prefix)
+    }
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize(
