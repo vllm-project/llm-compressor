@@ -37,7 +37,6 @@ from llmcompressor.transformers.compression.mtp import (
     save_mtp_tensors,
     validate_mtp_copy_source,
 )
-from llmcompressor.transformers.compression.mtp_compat import get_mtp_config
 from llmcompressor.utils import load_context
 
 MtpModel = getattr(
@@ -760,6 +759,8 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM, first_k_dense_repl
 
 @pytest.mark.parametrize("count_field", ["num_nextn_predict_layers", "num_mtp_layers"])
 def test_glm_dsa_mtp_config(count_field):
+    from llmcompressor.transformers.compression.mtp_compat import get_mtp_config
+
     config = GlmMoeDsaForCausalLM.config_class(**{count_field: 1})
     original = deepcopy(config.to_dict())
     mtp_config = get_mtp_config(SimpleNamespace(config=config))
@@ -772,6 +773,8 @@ def test_glm_dsa_mtp_config(count_field):
 
 
 def test_glm_dsa_mtp_requires_one_prediction_layer():
+    from llmcompressor.transformers.compression.mtp_compat import get_mtp_config
+
     config = GlmMoeDsaForCausalLM.config_class(num_nextn_predict_layers=2)
     with pytest.raises(ValueError, match="one prediction layer"):
         get_mtp_config(SimpleNamespace(config=config))

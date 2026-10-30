@@ -74,7 +74,7 @@ target_map = {
     r"re:^mtp\.layers\.": rf"re:^model\.layers\.{mtp_layer}\.",
 }
 config_path = Path(SAVE_DIR) / "config.json"
-config = json.loads(config_path.read_text())
+config = json.loads(config_path.read_text(encoding="utf-8"))
 for scheme in config["quantization_config"]["config_groups"].values():
     scheme["targets"] = [target_map.get(target, target) for target in scheme["targets"]]
-config_path.write_text(json.dumps(config, indent=2) + "\n")
+config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
