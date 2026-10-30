@@ -40,13 +40,16 @@ copies.
 - **Always raw opening**: every disk read goes through `_opened_raw`. There is
   no `safe_open` in the read path at all — no validation double-open per
   shard, and no mmap-backed pageable tensors (unpinned reads land in
-  allocator-owned `torch.empty` memory, which onloads ~2.7x faster, see
+  allocator-owned `torch.empty` memory, which onloads ~2.5x faster, see
   below). Dtype casts read the on-disk dtype into pageable memory, cast, then
   pin; non-staged onloads read raw then transfer to the device
-- **Async H2D onload**: `DiskCache.onload` moves staged pinned tensors with
-  `non_blocking=True`. The copies are async DMA, stream-ordered with the
-  forwards that consume them; the caching host allocator does not reuse the
-  pinned blocks until the copies complete
+- **Async H2D onload for every staged CPU tensor, pinned or pageable**:
+  `DiskCache.onload` moves staged tensors with `non_blocking=True`. For
+  pinned tensors the DMA engine reads host memory directly and the copies are
+  stream-ordered with the forwards that consume them; for pageable tensors
+  the driver stages through a pinned bounce buffer and skipping the
+  post-copy synchronize still lets each copy's DMA tail overlap the next
+  staging copy and the consuming kernels (~18% less H2D busy time measured)
 - No kill switch: the `COMPRESSED_TENSORS_PINNED_STAGING=0` read-then-pin
   fallback is gone along with the rest of the non-raw opening logic
 
@@ -54,28 +57,27 @@ copies.
 
 **e2e** is full process wall (interpreter start to report write, warm page
 cache); **span** is the calibration window (first weight stage to last
-forward); **onload** is summed H2D busy time (18,868 copies, 61.7 GB), which
+forward); **H2D busy** is summed copy time (18,868 copies, 61.7 GB), which
 partly overlaps forward:
 
-| | e2e | span | staging wall | onload busy | forward | H2D |
+| | e2e | span | staging wall | H2D busy | forward | H2D |
 |---|---|---|---|---|---|---|
 | main unpinned | 125.6 s | 79.4 s | 2.2 s (mmap) | 28.7 s | 48.7 s | 2.2 GB/s |
 | main pinned | 106.4 s | 61.1 s | 18.3 s (hidden) | 7.3 s | 52.6 s | 8.5 GB/s |
-| branch unpinned | 112.3 s | 65.2 s | 15.8 s (hidden) | 12.6 s | 50.9 s | 4.9 GB/s |
-| **branch pinned** | **105.3 s** | **59.9 s** | 18.2 s (hidden) | **4.4 s** | 53.1 s | 14.4 GB/s |
+| branch unpinned | 108.7 s | 62.0 s | 14.4 s (hidden) | 9.7 s | 49.8 s | 6.5 GB/s |
+| **branch pinned** | **105.6 s** | **59.4 s** | 18.1 s (hidden) | **4.0 s** | 53.4 s | 15.9 GB/s |
 
-- **branch pinned is the fastest cell: -16.2% e2e / -24.6% span vs main
-  unpinned**, and sits at the compute floor (53.1 s forward + the first
+- **branch pinned is the fastest cell: -15.9% e2e / -25.2% span vs main
+  unpinned**, and sits at the compute floor (53.4 s forward + the first
   subgraph's un-hidden staging)
 - The async onload roughly halves main's synchronous H2D busy time (7.3 to
-  4.4 s) and overlaps it with the forward pass; DMA throughput varies run to
-  run (8.5-13 GB/s on main, 14.4-23.1 GB/s here) with contention from the
-  forward pass
-- **Even unpinned, the branch beats main by 10.6% e2e** (112.3 vs 125.6 s):
-  reads into `torch.empty` pageable memory onload at ~4.9 GB/s, while the
-  mmap-backed tensors `safe_open` returns collapse to ~2.2 GB/s. Staging
-  gets more expensive (15.8 s of real reads vs 2.2 s of mmap), but it is
-  hidden behind compute, so the span still wins
+  4.0 s); DMA throughput varies run to run (8.5-13 GB/s on main, 13.7-23.1
+  GB/s here) with contention from the forward pass
+- **Even unpinned, the branch beats main by 13.5% e2e** (108.7 vs 125.6 s)
+  without allocating a single pinned byte. Of the H2D busy drop (28.7 to
+  9.7 s): ~16 s comes from reading into `torch.empty` memory instead of
+  `safe_open`'s mmap-backed tensors, and ~2 s from the async pageable copies
+  (a controlled A/B of just the copy mode measured 12.4 to 10.2 s)
 - Zero pin-copies in every cell (the read-then-pin path no longer exists);
   18,867 pinned allocations take 1.3-3.7 s of busy time on the branch
 - Forward stretches by ~3-4 s under concurrent pinned staging on both main
