@@ -1,5 +1,5 @@
 """
-Unit tests for the REAP saliency tracker's reduction behavior.
+Unit tests for the REAP modifier's per-layer saliency reduction behavior.
 
 Distributed (data-parallel) REAP runs reduce *every* tracked layer at every
 sequential epoch end over the default process group, in float32 on the device
@@ -15,8 +15,8 @@ which is exactly what a world size of one contributes.
 import pytest
 import torch
 
-from llmcompressor.modifiers.pruning.reap import utils as reap_utils
-from llmcompressor.modifiers.pruning.reap.utils import REAPSaliencyTracker
+from llmcompressor.modifiers.pruning import base as pruning_base
+from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 
 
 class _FakeHandle:
@@ -44,13 +44,20 @@ class _FakeDist:
 
 
 def _fake_distributed(monkeypatch, device: torch.device):
-    monkeypatch.setattr(reap_utils, "is_distributed", lambda: True)
-    monkeypatch.setattr(reap_utils, "get_source_rank", lambda: 0)
-    monkeypatch.setattr(reap_utils, "dist", _FakeDist(device))
-    monkeypatch.setattr(reap_utils, "wait_for_comms", lambda pending: None)
+    monkeypatch.setattr(pruning_base, "is_distributed", lambda: True)
+    monkeypatch.setattr(pruning_base, "get_source_rank", lambda: 0)
+    monkeypatch.setattr(pruning_base, "dist", _FakeDist(device))
+    monkeypatch.setattr(pruning_base, "wait_for_comms", lambda pending: None)
 
 
-def _accumulate(tracker: REAPSaliencyTracker, device: torch.device):
+def _modifier_with_layer(device: torch.device) -> REAPPruningModifier:
+    modifier = REAPPruningModifier(sparsity=0.5)
+    modifier._layer_devices["layer"] = device
+    modifier._init_layer_stats("layer", 4, 2, device)
+    return modifier
+
+
+def _accumulate(modifier: REAPPruningModifier, device: torch.device):
     topk_indices = torch.tensor([[0, 1], [0, 2]], device=device)
     topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]], device=device)
     expert_norms_dict = {
@@ -58,7 +65,7 @@ def _accumulate(tracker: REAPSaliencyTracker, device: torch.device):
         1: torch.tensor([2.0], device=device),
         2: torch.tensor([4.0], device=device),
     }
-    tracker.update(topk_indices, topk_weights, expert_norms_dict)
+    modifier._update_stats("layer", topk_indices, topk_weights, expert_norms_dict)
 
 
 def _reduction_devices() -> list[torch.device]:
@@ -72,17 +79,20 @@ def _reduction_devices() -> list[torch.device]:
 @pytest.mark.unit
 @pytest.mark.parametrize("device", _reduction_devices())
 def test_accumulators_are_initialized_on_the_device(monkeypatch, device):
-    """The accumulators are zero-initialized on ``device`` at construction, in
-    float32, so every rank always holds tensors to contribute to a reduction."""
+    """The accumulators are zero-initialized on ``device`` at calibration
+    start, in float32, so every rank always holds tensors to contribute to a
+    reduction."""
     _fake_distributed(monkeypatch, device)
 
-    tracker = REAPSaliencyTracker(num_experts=4, device=device)
-    assert tracker.device == device
-    for tensor in (tracker.count, tracker.sum_saliency):
+    modifier = _modifier_with_layer(device)
+    for tensor in (
+        modifier._layer_stats["layer"]["sum_saliency"],
+        modifier._layer_stats["layer"]["counts"],
+    ):
         assert tensor.device == device
         assert tensor.dtype == torch.float32
         assert torch.all(tensor == 0)
-    assert tracker.total_count == 0.0
+    assert modifier._layer_counts["layer"] == 0.0
 
 
 @pytest.mark.unit
@@ -92,16 +102,18 @@ def test_reduce_stats_zero_token_layer_contributes_zeros(monkeypatch, device):
     accumulators to the reduction and keeps collecting afterwards."""
     _fake_distributed(monkeypatch, device)
 
-    tracker = REAPSaliencyTracker(num_experts=4, device=device)
-    tracker.reduce_saliency_stats()
-    assert tracker.total_count == 0.0
-    assert tracker.count.tolist() == [0.0, 0.0, 0.0, 0.0]
+    modifier = _modifier_with_layer(device)
+    modifier._reduce_layer_stats("layer")
+    assert modifier._layer_counts["layer"] == 0.0
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [0.0, 0.0, 0.0, 0.0]
 
     # data arrives in a later epoch and accumulates from the zeros
-    _accumulate(tracker, device)
-    assert tracker.sum_saliency.tolist() == pytest.approx([2.3, 0.8, 2.0, 0.0])
-    assert tracker.count.tolist() == [2.0, 1.0, 1.0, 0.0]
-    assert tracker.total_count == 4.0
+    _accumulate(modifier, device)
+    assert modifier._layer_stats["layer"]["sum_saliency"].tolist() == pytest.approx(
+        [2.3, 0.8, 2.0, 0.0]
+    )
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [2.0, 1.0, 1.0, 0.0]
+    assert modifier._layer_counts["layer"] == 4.0
 
 
 @pytest.mark.unit
@@ -113,27 +125,29 @@ def test_reduce_stats_reduces_accumulators_in_place(monkeypatch, device):
     selection."""
     _fake_distributed(monkeypatch, device)
 
-    tracker = REAPSaliencyTracker(num_experts=4, device=device)
-    _accumulate(tracker, device)
-    sum_saliency = tracker.sum_saliency
+    modifier = _modifier_with_layer(device)
+    _accumulate(modifier, device)
+    sum_saliency = modifier._layer_stats["layer"]["sum_saliency"]
 
-    tracker.reduce_saliency_stats()
-    assert tracker.total_count == 4.0
+    modifier._reduce_layer_stats("layer")
+    assert modifier._layer_counts["layer"] == 4.0
     # same tensor, still on the accumulation device in float32 (single-member
     # semantics leave the values unchanged)
-    assert tracker.sum_saliency is sum_saliency
-    assert tracker.sum_saliency.device == device
-    assert tracker.sum_saliency.dtype == torch.float32
-    assert tracker.sum_saliency.tolist() == pytest.approx([2.3, 0.8, 2.0, 0.0])
-    assert tracker.count.tolist() == [2.0, 1.0, 1.0, 0.0]
+    assert modifier._layer_stats["layer"]["sum_saliency"] is sum_saliency
+    assert modifier._layer_stats["layer"]["sum_saliency"].device == device
+    assert modifier._layer_stats["layer"]["sum_saliency"].dtype == torch.float32
+    assert modifier._layer_stats["layer"]["sum_saliency"].tolist() == pytest.approx(
+        [2.3, 0.8, 2.0, 0.0]
+    )
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [2.0, 1.0, 1.0, 0.0]
 
 
 @pytest.mark.unit
 def test_reduce_stats_is_a_no_op_when_not_distributed():
-    tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
-    _accumulate(tracker, torch.device("cpu"))
-    sum_saliency = tracker.sum_saliency
+    modifier = _modifier_with_layer(torch.device("cpu"))
+    _accumulate(modifier, torch.device("cpu"))
+    sum_saliency = modifier._layer_stats["layer"]["sum_saliency"]
 
-    tracker.reduce_saliency_stats()
-    assert tracker.sum_saliency is sum_saliency
-    assert tracker.total_count == 4.0
+    modifier._reduce_layer_stats("layer")
+    assert modifier._layer_stats["layer"]["sum_saliency"] is sum_saliency
+    assert modifier._layer_counts["layer"] == 4.0

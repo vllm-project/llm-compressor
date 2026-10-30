@@ -1,5 +1,5 @@
 """
-Unit tests for the MoNe saliency tracker's reduction behavior.
+Unit tests for the MoNe modifier's per-layer statistics reduction behavior.
 
 Distributed (data-parallel) MoNe runs reduce *every* tracked layer at every
 sequential epoch end over the default process group, in float32 on the device
@@ -15,8 +15,8 @@ which is exactly what a world size of one contributes.
 import pytest
 import torch
 
-from llmcompressor.modifiers.pruning.mone import utils as mone_utils
-from llmcompressor.modifiers.pruning.mone.utils import MoNeSaliencyTracker
+from llmcompressor.modifiers.pruning import base as pruning_base
+from llmcompressor.modifiers.pruning.mone import MoNePruningModifier
 
 
 class _FakeHandle:
@@ -44,17 +44,26 @@ class _FakeDist:
 
 
 def _fake_distributed(monkeypatch, device: torch.device):
-    monkeypatch.setattr(mone_utils, "is_distributed", lambda: True)
-    monkeypatch.setattr(mone_utils, "get_source_rank", lambda: 0)
-    monkeypatch.setattr(mone_utils, "dist", _FakeDist(device))
-    monkeypatch.setattr(mone_utils, "wait_for_comms", lambda pending: None)
+    monkeypatch.setattr(pruning_base, "is_distributed", lambda: True)
+    monkeypatch.setattr(pruning_base, "get_source_rank", lambda: 0)
+    monkeypatch.setattr(pruning_base, "dist", _FakeDist(device))
+    monkeypatch.setattr(pruning_base, "wait_for_comms", lambda pending: None)
 
 
-def _accumulate(tracker: MoNeSaliencyTracker, device: torch.device):
+def _modifier_with_layer(device: torch.device) -> MoNePruningModifier:
+    modifier = MoNePruningModifier(sparsity=0.5)
+    modifier._layer_devices["layer"] = device
+    modifier._init_layer_stats("layer", 4, 4, device)
+    return modifier
+
+
+def _accumulate(modifier: MoNePruningModifier, device: torch.device):
     topk_indices = torch.tensor([[0, 1], [0, 2]], device=device)
     topk_weights = torch.tensor([[0.5, 0.25], [0.125, 0.5]], device=device)
-    tracker.update_routing(topk_indices, topk_weights)
-    tracker.update_outputs(topk_indices, {0: torch.ones(2, 4, device=device)})
+    modifier._update_routing("layer", topk_indices, topk_weights)
+    modifier._update_outputs(
+        "layer", topk_indices, {0: torch.ones(2, 4, device=device)}
+    )
 
 
 def _reduction_devices() -> list[torch.device]:
@@ -68,23 +77,23 @@ def _reduction_devices() -> list[torch.device]:
 @pytest.mark.unit
 @pytest.mark.parametrize("device", _reduction_devices())
 def test_accumulators_are_initialized_on_the_device(monkeypatch, device):
-    """The accumulators are zero-initialized on ``device`` at construction, in
-    float32, so every rank always holds tensors to contribute to a reduction."""
+    """The accumulators are zero-initialized on ``device`` at calibration
+    start, in float32, so every rank always holds tensors to contribute to a
+    reduction."""
     _fake_distributed(monkeypatch, device)
 
-    tracker = MoNeSaliencyTracker(num_experts=4, hidden_dim=4, device=device)
-    assert tracker.device == device
-    assert tracker.hidden_dim == 4
+    modifier = _modifier_with_layer(device)
     for tensor in (
-        tracker.sum_output,
-        tracker.sum_sq_output,
-        tracker.output_count,
-        tracker.sum_gate,
+        modifier._layer_stats["layer"]["sum_output"],
+        modifier._layer_stats["layer"]["sum_sq_output"],
+        modifier._layer_stats["layer"]["counts"],
+        modifier._layer_stats["layer"]["sum_gates"],
     ):
         assert tensor.device == device
         assert tensor.dtype == torch.float32
         assert torch.all(tensor == 0)
-    assert tracker.sum_output.shape == (4, 4)
+    assert modifier._layer_stats["layer"]["sum_output"].shape == (4, 4)
+    assert modifier._layer_counts["layer"] == 0
 
 
 @pytest.mark.unit
@@ -94,15 +103,20 @@ def test_reduce_stats_zero_token_layer_contributes_zeros(monkeypatch, device):
     accumulators to the reduction and keeps collecting afterwards."""
     _fake_distributed(monkeypatch, device)
 
-    tracker = MoNeSaliencyTracker(num_experts=4, hidden_dim=4, device=device)
-    tracker.reduce_stats()
-    assert tracker.token_count == 0
-    assert tracker.sum_gate.tolist() == [0.0, 0.0, 0.0, 0.0]
+    modifier = _modifier_with_layer(device)
+    modifier._reduce_layer_stats("layer")
+    assert modifier._layer_counts["layer"] == 0
+    assert modifier._layer_stats["layer"]["sum_gates"].tolist() == [0.0, 0.0, 0.0, 0.0]
 
     # data arrives in a later epoch and accumulates from the zeros
-    _accumulate(tracker, device)
-    assert tracker.sum_gate.tolist() == [0.625, 0.25, 0.5, 0.0]
-    assert tracker.token_count == 2
+    _accumulate(modifier, device)
+    assert modifier._layer_stats["layer"]["sum_gates"].tolist() == [
+        0.625,
+        0.25,
+        0.5,
+        0.0,
+    ]
+    assert modifier._layer_counts["layer"] == 2
 
 
 @pytest.mark.unit
@@ -114,30 +128,38 @@ def test_reduce_stats_reduces_accumulators_in_place(monkeypatch, device):
     selection, novices."""
     _fake_distributed(monkeypatch, device)
 
-    tracker = MoNeSaliencyTracker(num_experts=4, hidden_dim=4, device=device)
-    _accumulate(tracker, device)
-    sum_gate = tracker.sum_gate
+    modifier = _modifier_with_layer(device)
+    _accumulate(modifier, device)
+    sum_gates = modifier._layer_stats["layer"]["sum_gates"]
 
-    tracker.reduce_stats()
-    assert tracker.token_count == 2
+    modifier._reduce_layer_stats("layer")
+    assert modifier._layer_counts["layer"] == 2
     # same tensor, still on the accumulation device in float32 (single-member
     # semantics leave the values unchanged)
-    assert tracker.sum_gate is sum_gate
-    assert tracker.sum_gate.device == device
-    assert tracker.sum_gate.dtype == torch.float32
-    assert tracker.sum_gate.tolist() == [0.625, 0.25, 0.5, 0.0]
-    assert tracker.sum_output[0].tolist() == [2.0, 2.0, 2.0, 2.0]
-    assert tracker.output_count.tolist() == [2.0, 0.0, 0.0, 0.0]
+    assert modifier._layer_stats["layer"]["sum_gates"] is sum_gates
+    assert modifier._layer_stats["layer"]["sum_gates"].device == device
+    assert modifier._layer_stats["layer"]["sum_gates"].dtype == torch.float32
+    assert modifier._layer_stats["layer"]["sum_gates"].tolist() == [
+        0.625,
+        0.25,
+        0.5,
+        0.0,
+    ]
+    assert modifier._layer_stats["layer"]["sum_output"][0].tolist() == [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+    ]
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [2.0, 0.0, 0.0, 0.0]
 
 
 @pytest.mark.unit
 def test_reduce_stats_is_a_no_op_when_not_distributed():
-    tracker = MoNeSaliencyTracker(
-        num_experts=4, hidden_dim=4, device=torch.device("cpu")
-    )
-    _accumulate(tracker, torch.device("cpu"))
-    sum_gate = tracker.sum_gate
+    modifier = _modifier_with_layer(torch.device("cpu"))
+    _accumulate(modifier, torch.device("cpu"))
+    sum_gates = modifier._layer_stats["layer"]["sum_gates"]
 
-    tracker.reduce_stats()
-    assert tracker.sum_gate is sum_gate
-    assert tracker.token_count == 2
+    modifier._reduce_layer_stats("layer")
+    assert modifier._layer_stats["layer"]["sum_gates"] is sum_gates
+    assert modifier._layer_counts["layer"] == 2

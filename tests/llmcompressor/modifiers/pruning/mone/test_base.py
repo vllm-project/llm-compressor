@@ -14,12 +14,9 @@ from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.mone import MoNePruningModifier
-from llmcompressor.modifiers.pruning.mone.utils import (
-    MoNeSaliencyTracker,
-    build_moe_num_experts,
-    collapse_moe_layer,
-)
+from llmcompressor.modifiers.pruning.mone.utils import collapse_moe_layer
 from llmcompressor.modifiers.pruning.reap.utils import get_moe_attrs
+from llmcompressor.modifiers.pruning.utils import build_moe_num_experts
 from tests.testing_utils import requires_gpu, torchrun
 
 # ---------------------------------------------------------------------------
@@ -128,12 +125,24 @@ def _make_state(model):
 
 
 # ---------------------------------------------------------------------------
-# Tests: MoNeSaliencyTracker
+# Tests: MoNe saliency accumulation
 # ---------------------------------------------------------------------------
 
 
+def _stats_modifier(num_experts: int = 4, hidden_dim: int = 2) -> MoNePruningModifier:
+    """A MoNe modifier with initialized per-layer statistics for one layer."""
+    modifier = MoNePruningModifier(sparsity=0.5)
+    modifier._moe_attrs = get_moe_attrs(
+        FakeMoEModel(FakeMoEConfig(num_experts=num_experts, num_hidden_layers=1)),
+        ignore=[],
+    )
+    modifier._n_experts_to_drop = int(num_experts * 0.5)
+    modifier._init_layer_stats("layer", num_experts, hidden_dim, torch.device("cpu"))
+    return modifier
+
+
 @pytest.mark.unit
-class TestMoNeSaliencyTracker:
+class TestMoNeSaliency:
     def test_fusion_saliency_metric(self):
         """Saliency is ``||std(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``."""
         import llmcompressor.modeling.moe.context as context
@@ -141,26 +150,30 @@ class TestMoNeSaliencyTracker:
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
-            tracker = MoNeSaliencyTracker(
-                num_experts=4, hidden_dim=2, device=torch.device("cpu")
-            )
+            modifier = _stats_modifier(num_experts=4, hidden_dim=2)
 
             # routing over two tokens: expert 0 and 1 are always selected
-            tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]]))
-            tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.8, 0.2]]))
+            modifier._update_routing(
+                "layer", torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]])
+            )
+            modifier._update_routing(
+                "layer", torch.tensor([[0, 1]]), torch.tensor([[0.8, 0.2]])
+            )
 
             # expert outputs over the tokens routed to each expert
-            tracker.update_outputs(
+            modifier._update_outputs(
+                "layer",
                 torch.tensor([[0, 1]]),
                 {0: torch.tensor([[1.0, 2.0]]), 1: torch.tensor([[10.0, 10.0]])},
             )
-            tracker.update_outputs(
+            modifier._update_outputs(
+                "layer",
                 torch.tensor([[0, 1]]),
                 {0: torch.tensor([[3.0, 4.0]]), 1: torch.tensor([[12.0, 14.0]])},
             )
 
-            # routing_score = sum_gate / token_count (token_count == 2)
-            routing = tracker.routing_score
+            # routing_score = sum_gates / token_count (token_count == 2)
+            routing = modifier._routing_score("layer")
             torch.testing.assert_close(
                 routing,
                 torch.tensor([0.7, 0.3, 0.0, 0.0], dtype=torch.float32),
@@ -168,21 +181,21 @@ class TestMoNeSaliencyTracker:
 
             # fluctuation = L2 norm over dims of per-dim std
             # expert 0: std=[1,1] -> sqrt(2); expert 1: std=[1,2] -> sqrt(5)
-            fluc = tracker.output_fluctuation
+            fluc = modifier._output_fluctuation("layer")
             assert fluc[0].item() == pytest.approx(2**0.5)
             assert fluc[1].item() == pytest.approx(5**0.5)
             assert fluc[2].item() == pytest.approx(0.0)
             assert fluc[3].item() == pytest.approx(0.0)
 
-            saliency = tracker.saliency
+            saliency = modifier._saliency("layer")
             assert saliency[0].item() == pytest.approx(2**0.5 * 0.7)
             assert saliency[1].item() == pytest.approx(5**0.5 * 0.3)
             assert saliency[2].item() == pytest.approx(0.0)
             assert saliency[3].item() == pytest.approx(0.0)
 
             # lowest-saliency experts (2, 3) are dropped
-            retained = tracker.compute_retained_experts(n_experts_to_drop=2)
-            assert sorted(retained.tolist()) == [0, 1]
+            retained = modifier._decide_retained_experts("layer")
+            assert sorted(retained) == [0, 1]
         finally:
             context._CALIBRATE_ALL_EXPERTS = original_state
 
@@ -193,20 +206,20 @@ class TestMoNeSaliencyTracker:
         original_state = context._CALIBRATE_ALL_EXPERTS
         context._CALIBRATE_ALL_EXPERTS = False
         try:
-            tracker = MoNeSaliencyTracker(
-                num_experts=4, hidden_dim=2, device=torch.device("cpu")
-            )
+            modifier = _stats_modifier(num_experts=4, hidden_dim=2)
             # expert 1 gets two tokens across two batches, expert 3 one token
             topk_indices = torch.tensor([[1, 3]])
-            tracker.update_outputs(
+            modifier._update_outputs(
+                "layer",
                 topk_indices,
                 {1: torch.tensor([[1.0, 2.0]]), 3: torch.tensor([[7.0, 8.0]])},
             )
-            tracker.update_outputs(
+            modifier._update_outputs(
+                "layer",
                 torch.tensor([[1, 0]]),
                 {1: torch.tensor([[3.0, 4.0]]), 0: torch.tensor([[0.0, 0.0]])},
             )
-            novices = tracker.compute_novices(dropped=[1, 3])
+            novices = modifier._compute_novices("layer", dropped=[1, 3])
             assert novices.shape == (2, 2)
             # expert 1 mean: ([1,2] + [3,4]) / 2 = [2, 3]
             torch.testing.assert_close(
@@ -220,14 +233,12 @@ class TestMoNeSaliencyTracker:
             context._CALIBRATE_ALL_EXPERTS = original_state
 
     def test_compute_novices_ordering_matches_dropped(self):
-        tracker = MoNeSaliencyTracker(
-            num_experts=4, hidden_dim=1, device=torch.device("cpu")
-        )
-        tracker.sum_output = torch.tensor(
+        modifier = _stats_modifier(num_experts=4, hidden_dim=1)
+        modifier._layer_stats["layer"]["sum_output"] = torch.tensor(
             [[0.0], [10.0], [20.0], [30.0]], dtype=torch.float32
         )
-        tracker.output_count = torch.ones(4, dtype=torch.float32)
-        novices = tracker.compute_novices(dropped=[3, 0])
+        modifier._layer_stats["layer"]["counts"] = torch.ones(4, dtype=torch.float32)
+        novices = modifier._compute_novices("layer", dropped=[3, 0])
         torch.testing.assert_close(
             novices[:, 0], torch.tensor([30.0, 0.0], dtype=torch.float32)
         )
@@ -411,14 +422,14 @@ def test_mone_full_lifecycle():
     assert modifier._n_experts_to_drop == 4
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
-    assert len(modifier._saliency_trackers) == 2
+    assert len(modifier._layer_stats) == 2
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 0
+    assert len(modifier._layer_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
@@ -536,9 +547,9 @@ def test_mone_layer_without_data_collapses_after_later_epoch():
     # first epoch end: no layer has seen any data yet, so nothing is
     # finalized and the trackers are kept
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 2
-    for tracker in modifier._saliency_trackers.values():
-        assert tracker.total_count == 0
+    assert len(modifier._layer_stats) == 2
+    for token_count in modifier._layer_counts.values():
+        assert token_count == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 8
 
@@ -548,7 +559,7 @@ def test_mone_layer_without_data_collapses_after_later_epoch():
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 0
+    assert len(modifier._layer_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
@@ -569,7 +580,7 @@ def test_build_moe_num_experts_marks_dense_layers():
         attrs.moe_layer_names[1]: [0, 1, 2, 3],
         attrs.moe_layer_names[3]: [0, 1, 2, 3, 4],
     }
-    per_layer = build_moe_num_experts(model, attrs, retained)
+    per_layer = build_moe_num_experts(model, retained)
     assert per_layer == [None, 4, None, 5]
 
 
@@ -667,7 +678,7 @@ def test_save_pretrained_writes_moe_sparsity_config_and_novices(tmp_path):
 
     model._moe_sparsity_config = ExpertSparsityConfig(
         method=MoESparsityMethod.NOVICE,
-        num_experts=build_moe_num_experts(model, attrs, {layer_name: [0, 2]}),
+        num_experts=build_moe_num_experts(model, {layer_name: [0, 2]}),
     )
     repack_moe(model)
 
@@ -743,7 +754,7 @@ def test_mone_distributed_uneven_data():
             modifier.finalize(state)
 
             # every layer was collapsed from the globally summed statistics
-            assert len(modifier._saliency_trackers) == 0
+            assert len(modifier._layer_stats) == 0
             for layer in model.layers:
                 assert layer.experts.num_experts == 4
                 assert layer.experts.novices is not None
@@ -801,7 +812,7 @@ def test_mone_distributed_nccl_reduces_on_gpu():
     modifier.finalize(state)
 
     # every layer collapsed, with novices installed on the gpu
-    assert len(modifier._saliency_trackers) == 0
+    assert len(modifier._layer_stats) == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 4
         assert layer.experts.novices is not None

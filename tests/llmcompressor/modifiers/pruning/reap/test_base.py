@@ -12,10 +12,8 @@ from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.modifiers.pruning.reap.utils import (
-    REAPSaliencyTracker,
     get_moe_attrs,
     prune_moe_layer,
-    update_model_config,
 )
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -203,12 +201,24 @@ class FakeMoEModel(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Tests: REAPSaliencyTracker
+# Tests: REAP saliency accumulation
 # ---------------------------------------------------------------------------
 
 
+def _stats_modifier(num_experts: int = 4) -> REAPPruningModifier:
+    """A REAP modifier with initialized per-layer statistics for one layer."""
+    modifier = REAPPruningModifier(sparsity=0.5)
+    modifier._moe_attrs = get_moe_attrs(
+        FakeMoEModel(FakeMoEConfig(num_experts=num_experts, num_hidden_layers=1)),
+        ignore=[],
+    )
+    modifier._n_experts_to_drop = int(num_experts * 0.5)
+    modifier._init_layer_stats("layer", num_experts, 4, torch.device("cpu"))
+    return modifier
+
+
 @pytest.mark.unit
-class TestREAPSaliencyTracker:
+class TestSaliencyAccumulation:
     def test_update_and_mean(self):
         """Test update and mean with calibrate_all_experts=False (sparse norms)."""
         import llmcompressor.modeling.moe.context as context
@@ -218,7 +228,7 @@ class TestREAPSaliencyTracker:
         context._CALIBRATE_ALL_EXPERTS = False
 
         try:
-            tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
+            modifier = _stats_modifier(num_experts=4)
             # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
             topk_indices = torch.tensor([[0, 1], [0, 2]])
             topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
@@ -231,9 +241,11 @@ class TestREAPSaliencyTracker:
                 # expert 3 got 0 tokens, not in dict
             }
 
-            tracker.update(topk_indices, topk_weights, expert_norms_dict)
+            modifier._update_stats(
+                "layer", topk_indices, topk_weights, expert_norms_dict
+            )
 
-            mean = tracker.mean_saliency
+            mean = modifier._saliency("layer")
             # expert 0: (0.6*3.0 + 0.5*1.0) / 2 = 2.3 / 2 = 1.15
             assert mean[0].item() == pytest.approx(1.15)
             # expert 1: 0.4*2.0 / 1 = 0.8
@@ -255,7 +267,7 @@ class TestREAPSaliencyTracker:
         context._CALIBRATE_ALL_EXPERTS = True
 
         try:
-            tracker = REAPSaliencyTracker(num_experts=4, device=torch.device("cpu"))
+            modifier = _stats_modifier(num_experts=4)
             # 2 tokens, top_k=2, 4 experts; expert 3 is never routed
             topk_indices = torch.tensor([[0, 1], [0, 2]])
             topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
@@ -272,9 +284,11 @@ class TestREAPSaliencyTracker:
                 ),  # expert 3's norms for tokens [0, 1] (never routed)
             }
 
-            tracker.update(topk_indices, topk_weights, expert_norms_dict)
+            modifier._update_stats(
+                "layer", topk_indices, topk_weights, expert_norms_dict
+            )
 
-            mean = tracker.mean_saliency
+            mean = modifier._saliency("layer")
             # Stacked norms: [[3.0, 2.0, 6.0, 7.0],  # token 0
             #                 [1.0, 5.0, 4.0, 8.0]]  # token 1
             # gathered_norms using topk_indices [[0, 1], [0, 2]]:
@@ -304,34 +318,40 @@ class TestREAPSaliencyTracker:
         try:
             # Test 1: calibrate_all_experts=False (sparse norms)
             context._CALIBRATE_ALL_EXPERTS = False
-            tracker = REAPSaliencyTracker(num_experts=2, device=torch.device("cpu"))
+            modifier = _stats_modifier(num_experts=2)
             idx = torch.tensor([[0]])
-            tracker.update(idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])})
-            tracker.update(idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])})
+            modifier._update_stats(
+                "layer", idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])}
+            )
+            modifier._update_stats(
+                "layer", idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])}
+            )
             # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
-            assert tracker.mean_saliency[0].item() == pytest.approx(1.1)
-            assert tracker.total_count == pytest.approx(2.0)
+            assert modifier._saliency("layer")[0].item() == pytest.approx(1.1)
+            assert modifier._layer_counts["layer"] == pytest.approx(2.0)
 
             # Test 2: calibrate_all_experts=True (dense norms)
             context._CALIBRATE_ALL_EXPERTS = True
-            tracker2 = REAPSaliencyTracker(num_experts=2, device=torch.device("cpu"))
+            modifier = _stats_modifier(num_experts=2)
             idx = torch.tensor([[0]])  # token 0 routes to expert 0
             # Dense norms: all experts have norms for all tokens
-            tracker2.update(
+            modifier._update_stats(
+                "layer",
                 idx,
                 torch.tensor([[0.6]]),
                 {0: torch.tensor([3.0]), 1: torch.tensor([5.0])},
             )
-            tracker2.update(
+            modifier._update_stats(
+                "layer",
                 idx,
                 torch.tensor([[0.4]]),
                 {0: torch.tensor([1.0]), 1: torch.tensor([2.0])},
             )
             # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
-            assert tracker2.mean_saliency[0].item() == pytest.approx(1.1)
+            assert modifier._saliency("layer")[0].item() == pytest.approx(1.1)
             # expert 1: never routed -> 0 (even though it has norms in the dict)
-            assert tracker2.mean_saliency[1].item() == pytest.approx(0.0)
-            assert tracker2.total_count == pytest.approx(2.0)
+            assert modifier._saliency("layer")[1].item() == pytest.approx(0.0)
+            assert modifier._layer_counts["layer"] == pytest.approx(2.0)
         finally:
             # Restore original state
             context._CALIBRATE_ALL_EXPERTS = original_state
@@ -388,8 +408,8 @@ class TestREAPSaliencyTracker:
 
             # Get mean saliency from sparse mode
             mean_saliency_sparse = [
-                tracker.mean_saliency.clone()
-                for tracker in modifier_sparse._saliency_trackers.values()
+                modifier_sparse._saliency(layer_name).clone()
+                for layer_name in modifier_sparse._layer_stats
             ]
 
             # Test with calibrate_all_experts=True (dense mode)
@@ -412,8 +432,8 @@ class TestREAPSaliencyTracker:
 
             # Get mean saliency from dense mode
             mean_saliency_dense = [
-                tracker.mean_saliency.clone()
-                for tracker in modifier_dense._saliency_trackers.values()
+                modifier_dense._saliency(layer_name).clone()
+                for layer_name in modifier_dense._layer_stats
             ]
 
             # Verify both modes produce identical mean saliency
@@ -440,45 +460,37 @@ class TestREAPSaliencyTracker:
             # Restore original state
             context._CALIBRATE_ALL_EXPERTS = original_state
 
-    def test_compute_retained_global(self):
+    def test_decide_retained_global(self):
         # 8 experts, drop 3 globally
-        tracker = REAPSaliencyTracker(num_experts=8, device=torch.device("cpu"))
-        tracker.sum_saliency = torch.tensor(
+        modifier = _stats_modifier(num_experts=8)
+        modifier._layer_stats["layer"]["sum_saliency"] = torch.tensor(
             [0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.9, 0.4], dtype=torch.float32
         )
-        tracker.count = torch.ones(8, dtype=torch.float32)
+        modifier._layer_stats["layer"]["counts"] = torch.ones(8, dtype=torch.float32)
+        modifier._n_experts_to_drop = 3
 
-        config = FakeMoEConfig(num_experts=8)
-        moe_attrs = get_moe_attrs(FakeMoEModel(config), ignore=[])
-
-        retained = tracker.compute_retained_experts(
-            n_experts_to_drop=3, n_experts_to_drop_per_group=None, moe_attrs=moe_attrs
-        )
+        retained = modifier._decide_retained_experts("layer")
         # drop the 3 lowest: experts 0 (0.1), 5 (0.2), 3 (0.3)
-        assert retained.tolist() == [1, 2, 4, 6, 7]
+        assert retained == [1, 2, 4, 6, 7]
 
-    def test_compute_retained_per_group(self):
+    def test_decide_retained_per_group(self):
         # 8 experts, 2 groups of 4; drop 2 total -> 1 per group
-        tracker = REAPSaliencyTracker(num_experts=8, device=torch.device("cpu"))
-        tracker.sum_saliency = torch.tensor(
+        modifier = _stats_modifier(num_experts=8)
+        modifier._layer_stats["layer"]["sum_saliency"] = torch.tensor(
             [0.1, 0.9, 0.8, 0.7, 0.6, 0.2, 0.5, 0.4], dtype=torch.float32
         )
-        tracker.count = torch.ones(8, dtype=torch.float32)
+        modifier._layer_stats["layer"]["counts"] = torch.ones(8, dtype=torch.float32)
+        modifier._n_experts_to_drop = 2
 
-        # Create a mock moe_attrs with group info
-        config = FakeMoEConfig(num_experts=8)
-        model = FakeMoEModel(config)
-        moe_attrs = get_moe_attrs(model, ignore=[])
-        # Override to simulate group-limited routing
-        moe_attrs.n_group = 2
-        moe_attrs.group_size = 4
+        # Simulate a group-limited router
+        modifier._moe_attrs.n_group = 2
+        modifier._moe_attrs.group_size = 4
+        modifier._n_experts_to_drop_per_group = 1
 
-        retained = tracker.compute_retained_experts(
-            n_experts_to_drop=2, n_experts_to_drop_per_group=1, moe_attrs=moe_attrs
-        )
+        retained = modifier._decide_retained_experts("layer")
         # group 0 [0,1,2,3]: drop expert 0 (0.1) -> keep 1,2,3
         # group 1 [4,5,6,7]: drop expert 5 (0.2) -> keep 4,6,7
-        assert retained.tolist() == [1, 2, 3, 4, 6, 7]
+        assert retained == [1, 2, 3, 4, 6, 7]
 
 
 # ---------------------------------------------------------------------------
@@ -652,38 +664,6 @@ class TestPruning:
             assert not torch.isnan(out).any()
 
 
-@pytest.mark.unit
-class TestUpdateModelConfig:
-    def test_update_config_without_text_config(self):
-        config = FakeMoEConfig(num_experts=8)
-        model = FakeMoEModel(config)
-        attrs = get_moe_attrs(model, ignore=[])
-
-        update_model_config(model, attrs, new_num_experts=4)
-
-        assert model.config.num_experts == 4
-
-    def test_update_config_with_text_config(self):
-        # Create a config with text_config wrapper
-        class WrapperConfig(PretrainedConfig):
-            def __init__(self, text_config):
-                super().__init__()
-                self.text_config = text_config
-
-        text_config = FakeMoEConfig(num_experts=8)
-        wrapper_config = WrapperConfig(text_config)
-
-        model = FakeMoEModel(text_config)
-        model.config = wrapper_config
-
-        attrs = get_moe_attrs(model, ignore=[])
-        assert attrs.has_text_config
-
-        update_model_config(model, attrs, new_num_experts=4)
-
-        assert model.config.text_config.num_experts == 4
-
-
 # ---------------------------------------------------------------------------
 # Tests: REAPPruningModifier
 # ---------------------------------------------------------------------------
@@ -799,7 +779,7 @@ def test_reap_full_lifecycle():
     # Start calibration
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
     assert modifier.started_
-    assert len(modifier._saliency_trackers) == 2
+    assert len(modifier._layer_stats) == 2
 
     # Run forward passes to collect saliency
     with torch.no_grad():
@@ -811,8 +791,8 @@ def test_reap_full_lifecycle():
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
 
     # Verify decisions finalized and buffers freed
-    assert len(modifier._saliency_trackers) == 0
-    assert len(modifier._norm_buffers) == 0
+    assert len(modifier._layer_stats) == 0
+    assert len(modifier._capture) == 0
 
     # End calibration
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
@@ -822,8 +802,12 @@ def test_reap_full_lifecycle():
     modifier.finalize(state)
     assert modifier.finalized_
 
-    # Verify pruning results
-    assert model.config.num_experts == 4
+    # Verify pruning results: the config's num_experts key is untouched, and
+    # the per-layer retained counts are recorded in the expert-sparsity
+    # config instead
+    assert model.config.num_experts == 8
+    assert model._moe_sparsity_config.method.value == "prune"
+    assert model._moe_sparsity_config.num_experts == [4, 4]
 
     for layer in model.layers:
         assert layer.num_experts == 4
@@ -872,6 +856,7 @@ def test_reap_report_only_does_not_modify_model(tmp_path):
 
     # Model config and weights are unchanged
     assert model.config.num_experts == 8
+    assert not hasattr(model, "_moe_sparsity_config")
     for layer in model.layers:
         assert layer.num_experts == 8
         expert_count = sum(
@@ -994,11 +979,11 @@ def test_reap_layer_without_data_prunes_after_later_epoch():
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
 
     # first epoch end: no layer has seen any data yet, so nothing is
-    # finalized and the trackers are kept
+    # finalized and the accumulators are kept
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 2
-    for tracker in modifier._saliency_trackers.values():
-        assert tracker.total_count == 0
+    assert len(modifier._layer_stats) == 2
+    for total_count in modifier._layer_counts.values():
+        assert total_count == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 8
 
@@ -1008,7 +993,7 @@ def test_reap_layer_without_data_prunes_after_later_epoch():
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 0
+    assert len(modifier._layer_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
@@ -1069,7 +1054,7 @@ def test_reap_distributed_uneven_data():
             modifier.finalize(state)
 
             # every layer was pruned from the globally summed statistics
-            assert len(modifier._saliency_trackers) == 0
+            assert len(modifier._layer_stats) == 0
             for layer in model.layers:
                 assert layer.experts.num_experts == 4
                 assert layer.gate.weight.shape[0] == 4
@@ -1126,7 +1111,7 @@ def test_reap_distributed_nccl_reduces_on_gpu():
     modifier.finalize(state)
 
     # every layer pruned, with the router shrunk on the gpu
-    assert len(modifier._saliency_trackers) == 0
+    assert len(modifier._layer_stats) == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 4
         assert layer.gate.weight.shape[0] == 4

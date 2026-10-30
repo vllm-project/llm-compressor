@@ -26,6 +26,7 @@ __all__ = [
     "disable_hf_kernels",
     "calibration_forward_context",
     "disable_lm_head",
+    "hasattr_fallbacks",
     "getattr_fallbacks",
     "hasitem_fallbacks",
     "getitem_fallbacks",
@@ -199,6 +200,16 @@ def disable_lm_head(model: torch.nn.Module):
                 stack.enter_context(patch_attr(model._hf_hook, "io_same_device", False))
 
             yield
+
+
+def hasattr_fallbacks(
+    target: object, attrs: list[str], return_attr: bool = False
+) -> bool | str:
+    for attr in attrs:
+        if hasattr(target, attr):
+            return attr if return_attr else True
+
+    return False
 
 
 def getattr_fallbacks(

@@ -19,7 +19,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 from transformers.utils import http_user_agent
 
 from llmcompressor.core import active_session
-from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
+from llmcompressor.modifiers.pruning.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.compression.mtp import (
@@ -277,7 +277,7 @@ def _apply_expert_sparsity(
 ):
     """
     Pick up `model._moe_sparsity_config` which may be applied by a modifier, see
-    `MoNePruningModifier.on_finalize`.
+    `ExpertPruningModifierBase.on_finalize`.
 
     This lifecycle is hacky and should be replaced in the future
     """
