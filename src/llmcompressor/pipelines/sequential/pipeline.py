@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import os
+import time
 import warnings
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import (
+    AsyncTransfer,
     AsyncWriter,
     set_onload_device,
 )
@@ -61,13 +64,20 @@ def _submit_subgraph_staging(
         return None
 
     future = executor.submit(
-        subgraph_stage_modules,
+        _stage_subgraph_modules,
         modules,
         pin_memory=pin_memory,
         async_writer=async_writer,
         distributed_group=distributed_group,
     )
     return modules, future
+
+
+def _stage_subgraph_modules(*args, **kwargs) -> float:
+    """Stage modules and return the background worker's wall-clock duration."""
+    started = time.perf_counter()
+    subgraph_stage_modules(*args, **kwargs)
+    return (time.perf_counter() - started) * 1000
 
 
 def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
@@ -145,6 +155,19 @@ class SequentialPipeline(CalibrationPipeline):
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
+        async_transfer_requested = (
+            os.environ.get("LLMCOMPRESSOR_EXPERIMENTAL_ASYNC_TRANSFERS") == "1"
+        )
+        async_transfer = AsyncTransfer(
+            onload_device, enabled=async_transfer_requested
+        )
+        if async_transfer_requested and not async_transfer.enabled:
+            warnings.warn(
+                "LLMCOMPRESSOR_EXPERIMENTAL_ASYNC_TRANSFERS=1 requires a CUDA "
+                "onload device; using blocking transfers.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -182,6 +205,7 @@ class SequentialPipeline(CalibrationPipeline):
         LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
+            stack.callback(async_transfer.wait_previous_offload)
             stack.enter_context(calibration_forward_context(model))
             stack.enter_context(DisableQuantization(model))
             # prepare intermediates cache
@@ -259,9 +283,12 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
+                transfer_label = f"subgraph {subgraph_index + 1}/{num_subgraphs}"
+                stage_was_prefetched = prefetched_staging is not None
+                stage_wait_ms = 0.0
                 if prefetched_staging is None:
                     subgraph_modules = subgraph.submodule_dict(model)
-                    subgraph_stage_modules(
+                    stage_worker_ms = _stage_subgraph_modules(
                         subgraph_modules,
                         pin_memory=stage_weights_in_pinned_memory,
                         async_writer=async_writer,
@@ -276,7 +303,11 @@ class SequentialPipeline(CalibrationPipeline):
                     )
                 else:
                     subgraph_modules, stage_future = prefetched_staging
-                    stage_future.result()
+                    stage_wait_started = time.perf_counter()
+                    stage_worker_ms = stage_future.result()
+                    stage_wait_ms = (
+                        time.perf_counter() - stage_wait_started
+                    ) * 1000
                 prefetched_staging = None
 
                 # prepare tqdm description texts
@@ -307,71 +338,97 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                async_transfer.wait_previous_offload()
+                onload_started = time.perf_counter()
+                offload_kwargs = subgraph_onload_modules(
+                    subgraph_modules,
+                    async_transfer=async_transfer,
+                    transfer_label=transfer_label,
+                )
+                onload_wall_ms = (time.perf_counter() - onload_started) * 1000
                 modules = subgraph.submodules(model)
 
                 # Decompress and initialize only this subgraph after onloading it.
-                if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
-                    for modifier in modifiers:
-                        if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(model, modules)
+                setup_started = time.perf_counter()
+                with async_transfer.cuda_phase(transfer_label, "module_setup"):
+                    if dataset_args.layerwise_decompression:
+                        decompress_subgraph_modules(modules)
+                        for modifier in modifiers:
+                            if hasattr(modifier, "start_layerwise_calibration"):
+                                modifier.start_layerwise_calibration(model, modules)
+                module_setup_ms = (time.perf_counter() - setup_started) * 1000
 
                 # do a preliminary pass to trigger modifier hooks
-                for batch_idx, inputs in _get_batches(
-                    activations,
-                    num_batches,
-                    subgraph.input_names,
-                    calib_desc,
-                ):
-                    session.state.current_batch_idx = batch_idx
-                    outputs = subgraph.forward(model, **inputs)
+                calibration_started = time.perf_counter()
+                with async_transfer.cuda_phase(transfer_label, "calibration"):
+                    for batch_idx, inputs in _get_batches(
+                        activations,
+                        num_batches,
+                        subgraph.input_names,
+                        calib_desc,
+                    ):
+                        session.state.current_batch_idx = batch_idx
+                        outputs = subgraph.forward(model, **inputs)
 
-                    # update activations immediately only when no pass 2
-                    # is needed; otherwise defer to after pass 2
-                    if not dataset_args.propagate_error:
-                        if not dataset_args.log_sequential_error and has_next_subgraph:
-                            activations.update(batch_idx, outputs)
-                            activations.delete(batch_idx, subgraph.consumed_names)
+                        # update activations immediately only when no pass 2
+                        # is needed; otherwise defer to after pass 2
+                        if not dataset_args.propagate_error:
+                            if (
+                                not dataset_args.log_sequential_error
+                                and has_next_subgraph
+                            ):
+                                activations.update(batch_idx, outputs)
+                                activations.delete(batch_idx, subgraph.consumed_names)
 
-                    if seq_error_cache is not None and has_next_subgraph:
-                        seq_error_cache.update(batch_idx, outputs)
+                        if seq_error_cache is not None and has_next_subgraph:
+                            seq_error_cache.update(batch_idx, outputs)
 
-                # For the last subgraph its outputs are not cached (no next
-                # layer to feed), so the cache holds stale inputs rather than
-                # outputs. Clear state so AutoRound falls back to
-                # collect_reference instead of using wrong tensors as fp_ref.
-                if not has_next_subgraph:
-                    session.state.sequential_activations = None
+                    # For the last subgraph its outputs are not cached (no next
+                    # layer to feed), so the cache holds stale inputs rather than
+                    # outputs. Clear state so AutoRound falls back to
+                    # collect_reference instead of using wrong tensors as fp_ref.
+                    if not has_next_subgraph:
+                        session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(modules)
+                    LifecycleCallbacks.sequential_epoch_end(modules)
+                calibration_wall_ms = (
+                    time.perf_counter() - calibration_started
+                ) * 1000
 
+                propagation_wall_ms = 0.0
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
                     # outputs of compressed modules (for propagate_error) and/or
                     # per-batch signal/noise power for SQNR (for
                     # log_sequential_error)
                     batch_powers: list[tuple[float, float]] = []
-                    with HooksMixin.disable_hooks():
-                        for batch_idx, inputs in _get_batches(
-                            activations, num_batches, subgraph.input_names, prop_desc
-                        ):
-                            output = subgraph.forward(model, **inputs)
-                            if dataset_args.propagate_error and has_next_subgraph:
-                                activations.update(batch_idx, output)
-                                activations.delete(batch_idx, subgraph.consumed_names)
+                    propagation_started = time.perf_counter()
+                    with async_transfer.cuda_phase(transfer_label, "propagation"):
+                        with HooksMixin.disable_hooks():
+                            for batch_idx, inputs in _get_batches(
+                                activations,
+                                num_batches,
+                                subgraph.input_names,
+                                prop_desc,
+                            ):
+                                output = subgraph.forward(model, **inputs)
+                                if dataset_args.propagate_error and has_next_subgraph:
+                                    activations.update(batch_idx, output)
+                                    activations.delete(
+                                        batch_idx, subgraph.consumed_names
+                                    )
 
-                            if seq_error_cache is not None and has_next_subgraph:
-                                batch_power = process_batch_error(
-                                    seq_error_cache,
-                                    activations,
-                                    batch_idx,
-                                    output,
-                                    dataset_args.propagate_error,
-                                    subgraph.consumed_names,
-                                )
-                                if batch_power is not None:
-                                    batch_powers.append(batch_power)
+                                if seq_error_cache is not None and has_next_subgraph:
+                                    batch_power = process_batch_error(
+                                        seq_error_cache,
+                                        activations,
+                                        batch_idx,
+                                        output,
+                                        dataset_args.propagate_error,
+                                        subgraph.consumed_names,
+                                    )
+                                    if batch_power is not None:
+                                        batch_powers.append(batch_power)
 
                     if batch_powers:
                         sqnr = compute_subgraph_sqnr(batch_powers)
@@ -380,18 +437,45 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
+                    propagation_wall_ms = (
+                        time.perf_counter() - propagation_started
+                    ) * 1000
                 # Repack weights before offloading the subgraph's tensors.
-                if dataset_args.layerwise_compression:
-                    compress_subgraph_modules(modules)
+                compression_started = time.perf_counter()
+                with async_transfer.cuda_phase(transfer_label, "compression"):
+                    if dataset_args.layerwise_compression:
+                        compress_subgraph_modules(modules)
+                compression_wall_ms = (
+                    time.perf_counter() - compression_started
+                ) * 1000
+
+                async_transfer.record_host_metrics(
+                    transfer_label,
+                    stage_worker_ms=stage_worker_ms,
+                    stage_wait_blocking_ms=stage_wait_ms,
+                    stage_fallback_blocking_ms=(
+                        stage_worker_ms if not stage_was_prefetched else 0.0
+                    ),
+                    host_onload_total_ms=onload_wall_ms,
+                    module_setup_wall_ms=module_setup_ms,
+                    calibration_host_wall_ms=calibration_wall_ms,
+                    propagation_host_wall_ms=propagation_wall_ms,
+                    compression_host_wall_ms=compression_wall_ms,
+                )
 
                 subgraph_offload_modules(
                     subgraph_modules,
                     offload_kwargs,
                     async_writer=async_writer,
+                    async_transfer=async_transfer,
+                    transfer_label=transfer_label,
                 )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
+
+            # Wait for the last transfer before releasing retained pinned buffers.
+            async_transfer.wait_previous_offload()
 
             # Finalization may read/update disk-backed parameters directly, so
             # submit the final partial checkpoint shard before running callbacks.
