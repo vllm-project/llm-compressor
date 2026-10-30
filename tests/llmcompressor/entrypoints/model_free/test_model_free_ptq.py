@@ -39,6 +39,37 @@ def test_model_free_ptq_forwards_max_workers(max_workers, tmp_path):
     assert convert_checkpoint.call_args.kwargs["max_workers"] == max_workers
 
 
+@pytest.mark.parametrize(
+    "observer",
+    ["minmax", "static_minmax", "memoryless_minmax", "mse", "memoryless_mse"],
+)
+def test_model_free_ptq_weight_observers(observer, tmp_path):
+    from transformers import LlamaConfig, LlamaForCausalLM
+
+    config = LlamaConfig(
+        vocab_size=128,
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=1,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+    )
+    LlamaForCausalLM(config).save_pretrained(tmp_path / "source")
+
+    scheme = _get_tiny_w4a16_quant()
+    scheme.weights.observer = observer
+    model_free_ptq(
+        tmp_path / "source",
+        tmp_path / "output",
+        scheme=scheme,
+        max_workers=1,
+        device="cpu",
+    )
+
+    tensors = load_file(tmp_path / "output" / "model.safetensors")
+    assert "model.layers.0.self_attn.q_proj.weight_scale" in tensors
+
+
 def _get_tiny_w4a16_quant():
     return QuantizationScheme(
         targets=["re:.*self_attn.(q|k|o|v)_proj"],
