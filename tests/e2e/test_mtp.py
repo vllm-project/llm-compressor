@@ -15,6 +15,7 @@ from transformers import (
     AutoProcessor,
     Glm4MoeForCausalLM,
     InklingForConditionalGeneration,
+    Qwen3_5ForConditionalGeneration,
 )
 
 from llmcompressor import oneshot, reset_session
@@ -35,6 +36,13 @@ from tests.testing_utils import requires_cadence, requires_gpu
             "model.layers.46.",
             id="trailing-layers",
         ),
+        pytest.param(
+            "Qwen/Qwen3.5-0.8B",
+            "2fc06364715b967f1860aea9cf38778875588b17",
+            Qwen3_5ForConditionalGeneration,
+            "mtp.layers.0.",
+            id="qwen3_5_0_8b",
+        ),
     ],
 )
 def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
@@ -48,7 +56,12 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
         model=model,
         recipe=QuantizationModifier(
             scheme="FP8_DYNAMIC",
-            ignore=["lm_head", r"re:.*\.eh_proj$"],
+            ignore=[
+                "lm_head",
+                r"re:.*\.eh_proj$",
+                r"re:.*\.linear_attn\..*",
+                r"re:.*\.visual\..*",
+            ],
         ),
     )
     model.save_pretrained(tmp_path)
@@ -59,7 +72,12 @@ def test_mtp_vllm(tmp_path, model_id, revision, model_cls, mtp_prefix):
     )
     reset_session()
     del model
-    _run_mtp_vllm(tmp_path)
+    kwargs = (
+        {"limit_mm_per_prompt": {"image": 0, "video": 0}}
+        if model_cls is Qwen3_5ForConditionalGeneration
+        else {}
+    )
+    _run_mtp_vllm(tmp_path, **kwargs)
 
 
 def _run_mtp_vllm(model_path, **kwargs):

@@ -66,6 +66,27 @@ def test_disable_cache(model_cls, model_stub):
     assert output.past_key_values is not None
 
 
+@pytest.mark.unit
+def test_disable_lm_head_does_not_onload_weight(monkeypatch):
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokeqwen3")
+    set_onload_device(model, "cpu")
+
+    # only the weight's shape is needed, so entering the context moves no weights
+    onloaded = []
+    cache_type = type(model.lm_head._parameters)
+    onload = cache_type.onload
+    monkeypatch.setattr(
+        cache_type,
+        "onload",
+        lambda self, offloaded: onloaded.append(offloaded) or onload(self, offloaded),
+    )
+    with disable_lm_head(model):
+        pass
+
+    assert onloaded == []
+
+
 @requires_gpu
 @pytest.mark.parametrize("offload", ["sequential", "basic", "none"])
 def test_disable_lm_head(offload):
