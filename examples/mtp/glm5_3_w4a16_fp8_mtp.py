@@ -75,6 +75,11 @@ target_map = {
 }
 config_path = Path(SAVE_DIR) / "config.json"
 config = json.loads(config_path.read_text(encoding="utf-8"))
+seen_targets = set()
 for scheme in config["quantization_config"]["config_groups"].values():
+    seen_targets.update(scheme["targets"])
     scheme["targets"] = [target_map.get(target, target) for target in scheme["targets"]]
+missing_targets = set(target_map) - seen_targets
+if missing_targets:
+    raise ValueError(f"Saved quantization targets not found: {sorted(missing_targets)}")
 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
