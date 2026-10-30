@@ -258,7 +258,11 @@ def _get_partition_start_end(
     return start, end
 
 
-def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
+def _make_sampler(
+    args: DatasetArguments, dataset: Dataset
+) -> "RandomSampler | LengthAwareSampler":
+    # both samplers expose data_source, which format_calibration_data relies on
+    # to build the DataLoader over the same (possibly per-rank) partition
     num_samples = args.num_calibration_samples
     shuffle = args.shuffle_calibration_samples
     batch_size = args.batch_size
