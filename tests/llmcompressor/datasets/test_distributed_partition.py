@@ -44,7 +44,9 @@ def test_same_dataset_partitions_disjointly():
         # partitions are disjoint and cover the dataset
         all_rows = _gather_rows(rows)
         assert set().union(*all_rows) == set(range(10))
-        assert len(set().intersection(*all_rows)) == 0
+        # no row was read by more than one rank (sum of partition sizes
+        # equals the size of their union)
+        assert sum(map(len, all_rows)) == len(set().union(*all_rows))
     finally:
         dist.destroy_process_group()
 
@@ -66,7 +68,9 @@ def test_num_calibration_samples_partitions_subset():
 
         all_rows = _gather_rows(rows)
         assert set().union(*all_rows) == set(range(8))
-        assert len(set().intersection(*all_rows)) == 0
+        # no row was read by more than one rank (sum of partition sizes
+        # equals the size of their union)
+        assert sum(map(len, all_rows)) == len(set().union(*all_rows))
     finally:
         dist.destroy_process_group()
 
@@ -88,7 +92,9 @@ def test_shuffle_preserves_partition():
 
         all_rows = _gather_rows(rows)
         assert set().union(*all_rows) == set(range(10))
-        assert len(set().intersection(*all_rows)) == 0
+        # no row was read by more than one rank (sum of partition sizes
+        # equals the size of their union)
+        assert sum(map(len, all_rows)) == len(set().union(*all_rows))
     finally:
         dist.destroy_process_group()
 
@@ -115,7 +121,9 @@ def test_uneven_partition_covers_dataset():
 
         all_rows = _gather_rows(rows)
         assert set().union(*all_rows) == set(range(10))
-        assert len(set().intersection(*all_rows)) == 0
+        # no row was read by more than one rank (sum of partition sizes
+        # equals the size of their union)
+        assert sum(map(len, all_rows)) == len(set().union(*all_rows))
     finally:
         dist.destroy_process_group()
 
