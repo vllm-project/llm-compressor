@@ -146,7 +146,13 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                 LifecycleCallbacks.sequential_epoch_end(list(candidate.modules()))
                 LifecycleCallbacks.calibration_end()
             else:
-                BasicPipeline()(candidate, dataloader, DatasetArguments())
+                BasicPipeline()(
+                    candidate,
+                    dataloader,
+                    DatasetArguments(
+                        layerwise_compression=False,
+                    ),
+                )
             session.finalize()
 
     expected = reference.state_dict()

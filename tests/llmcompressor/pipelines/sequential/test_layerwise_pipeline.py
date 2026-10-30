@@ -2,6 +2,7 @@ import contextlib
 from types import SimpleNamespace
 
 import torch
+from compressed_tensors.quantization import QuantizationStatus
 
 import llmcompressor.pipelines.sequential.helpers as helpers_module
 import llmcompressor.pipelines.sequential.pipeline as pipeline_module
@@ -51,6 +52,7 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
     module = model[0]
+    module.quantization_status = QuantizationStatus.COMPRESSED
     events = []
 
     modifier = _FakeModifier(events)

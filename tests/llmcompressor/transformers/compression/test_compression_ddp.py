@@ -24,8 +24,14 @@ import tempfile
 import pytest
 import torch
 import torch.distributed
-from compressed_tensors.offload import init_dist
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from compressed_tensors import ModelCompressor, decompress_module
+from compressed_tensors.distributed import is_distributed, replace_module_parallel
+from compressed_tensors.offload import from_accelerate, init_dist
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStatus,
+)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -95,12 +101,7 @@ def _run_single_gpu(
         shuffle_calibration_samples=False,
     )
 
-    # Extract quantized weights (exclude common ignored parameters)
-    weights = {
-        name: param.clone().cpu()
-        for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
-    }
+    weights = _extract_effective_weights(model)
 
     if return_model:
         eval_ds = _make_eval_dataset(model_id)
@@ -110,6 +111,43 @@ def _run_single_gpu(
     torch.accelerator.empty_cache()
 
     return weights
+
+
+def _extract_effective_weights(model: torch.nn.Module) -> dict[str, torch.Tensor]:
+    """Compare effective quantized weights, not packed integer encodings."""
+    compressor = ModelCompressor.from_pretrained_model(model)
+    from_accelerate(model)
+
+    # Layerwise compression can leave modules in different lifecycle states. Only
+    # decompress weight-quantized modules marked compressed; some formats store the
+    # compressed values under `weight`, while dense modules may have no packed key.
+    compressed_modules = [
+        module
+        for module in model.modules()
+        if (
+            getattr(module, "quantization_status", None)
+            == QuantizationStatus.COMPRESSED
+            and getattr(getattr(module, "quantization_scheme", None), "weights", None)
+            is not None
+        )
+    ]
+    if compressed_modules:
+        if is_distributed():
+            replace_module_parallel(
+                compressed_modules, decompress_module, desc="Decompressing modules"
+            )
+        else:
+            for module in compressed_modules:
+                decompress_module(module)
+
+    compressor.remove_decompression_hook(model)
+    return {
+        name: param.detach().cpu().clone()
+        for name, param in model.named_parameters()
+        if "weight" in name
+        and "lm_head" not in name
+        and not name.endswith(("weight_packed", "weight_shape"))
+    }
 
 
 def _compare_weights(ref_weights: dict, ddp_weights: dict, atol: float = 1e-4):
@@ -251,12 +289,10 @@ def _test_ddp_modifier(
         shuffle_calibration_samples=False,
     )
 
-    # Extract DDP weights (exclude common ignored parameters)
-    ddp_weights = {
-        name: param.clone().cpu()
-        for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
-    }
+    # Decode packed weights before comparison. Comparing weight_packed int32
+    # values directly exaggerates a one-level quantization difference into a
+    # large integer delta and does not reflect the effective model weights.
+    ddp_weights = _extract_effective_weights(model)
 
     torch.distributed.barrier()
 

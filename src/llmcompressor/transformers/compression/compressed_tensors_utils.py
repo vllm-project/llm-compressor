@@ -8,10 +8,15 @@ from functools import wraps
 import torch
 import torch.distributed as dist
 from compressed_tensors import ModelCompressor, SparsityCompressionConfig
+from compressed_tensors.compressors import decompress_module
 from compressed_tensors.config import CompressionFormat
-from compressed_tensors.distributed import is_source_process
+from compressed_tensors.distributed import (
+    is_distributed,
+    is_source_process,
+    replace_module_parallel,
+)
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.quantization import QuantizationConfig
+from compressed_tensors.quantization import QuantizationConfig, QuantizationStatus
 from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
@@ -91,6 +96,41 @@ def _retie_embeddings(model: PreTrainedModel):
     logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
+def _decompress_compressed_weights(
+    model: torch.nn.Module, compressor: ModelCompressor
+) -> None:
+    """Restore packed weight modules before saving a dense checkpoint."""
+    from_accelerate(model)
+    modules = [
+        module
+        for module in model.modules()
+        if getattr(module, "quantization_status", None) == QuantizationStatus.COMPRESSED
+        and getattr(getattr(module, "quantization_scheme", None), "weights", None)
+        is not None
+    ]
+
+    if modules:
+        if is_distributed():
+            replace_module_parallel(
+                modules, decompress_module, desc="Decompressing modules"
+            )
+        else:
+            for module in modules:
+                decompress_module(module)
+
+        # ``weight_shape`` is packing metadata. The decompressor needs it to
+        # reconstruct the dense weight, but it is not part of a dense checkpoint.
+        for module in modules:
+            if hasattr(module, "weight_shape"):
+                delattr(module, "weight_shape")
+
+    if compressor.quantization_config is not None:
+        compressor.quantization_config.quantization_status = (
+            QuantizationStatus.DECOMPRESSED
+        )
+    compressor.remove_decompression_hook(model)
+
+
 def modify_save_pretrained(model: PreTrainedModel):
     """
     Overrides a PreTrainedModel's save_pretrained() method with a wrapped version that
@@ -142,13 +182,24 @@ def modify_save_pretrained(model: PreTrainedModel):
             if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
                 source_mtp = validate_mtp_copy_source(model)
 
+            # A dense save cannot use a packed compression format.
+            if not save_compressed and quantization_format not in (
+                None,
+                CompressionFormat.dense.value,
+            ):
+                raise ValueError(
+                    "A quantization format can only be applied when saving the "
+                    "model compressed"
+                )
+
             # without this, quantization format will be inferred from the model
-            if not save_compressed and quantization_format is None:
+            if not save_compressed:
                 quantization_format = CompressionFormat.dense.value
 
             # Use `ModelCompressor` to construct a quantization config
             compressor = ModelCompressor.from_pretrained_model(
-                model, quantization_format=quantization_format
+                model,
+                quantization_format=(quantization_format if save_compressed else None),
             )
 
             # Add expert sparsity to quantization config
@@ -161,6 +212,13 @@ def modify_save_pretrained(model: PreTrainedModel):
             # modifiers and pipelines to perform layerwise compression
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
+            else:
+                # Layerwise compression leaves the model packed in memory. A dense
+                # save must restore those weights before serializing them, or the
+                # checkpoint contains packed keys with a dense format in its config.
+                _decompress_compressed_weights(model, compressor)
+                if compressor.quantization_config is not None:
+                    compressor.quantization_config.format = CompressionFormat.dense
 
             # Re-tie input and output embeddings before offload conversion so a
             # shared table is written once. Offloading splits a tied weight into
@@ -183,6 +241,7 @@ def modify_save_pretrained(model: PreTrainedModel):
 
                     # update config to reflect quantization
                     compressor.update_config(save_dir)
+                    _ensure_kv_cache_config_group(save_dir)
 
                     # update existing recipe
                     update_and_save_recipe(model.name_or_path, save_dir)
@@ -206,6 +265,25 @@ def modify_save_pretrained(model: PreTrainedModel):
     # wrap save_pretrained if not already
     if not getattr(model.save_pretrained, "_overridden", False):
         model.save_pretrained = save_pretrained_compressed(model.save_pretrained)
+
+
+def _ensure_kv_cache_config_group(save_dir: str) -> None:
+    """Add an empty group for Transformers' KV-cache-only config lookup."""
+    config_path = os.path.join(save_dir, "config.json")
+    with open(config_path) as config_file:
+        config = json.load(config_file)
+
+    quantization_config = config.get("quantization_config", {})
+    if quantization_config.get("kv_cache_scheme") is None or quantization_config.get(
+        "config_groups"
+    ):
+        return
+
+    # Transformers currently resolves an experts scheme from config_groups even when
+    # the checkpoint only quantizes the KV cache. An empty target list is a no-op.
+    quantization_config["config_groups"] = {"kv_cache_only": {"targets": []}}
+    with open(config_path, "w") as config_file:
+        json.dump(config, config_file, indent=2, sort_keys=True)
 
 
 @deprecated("ModelCompressor.from_pretrained_model")

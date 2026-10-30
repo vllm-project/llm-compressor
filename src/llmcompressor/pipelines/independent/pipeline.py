@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import torch
@@ -35,13 +36,17 @@ class IndependentPipeline(CalibrationPipeline):
         session = active_session()
         modifiers = session.lifecycle.recipe.modifiers
         with patch_attr(session.lifecycle.recipe, "modifiers", None):
-            for modifier in modifiers:
+            for index, modifier in enumerate(modifiers):
                 mod_type = type(modifier).__name__
                 session.lifecycle.recipe.modifiers = [modifier]
                 pipeline = CalibrationPipeline.from_modifiers([modifier])
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                pipeline(model, dataloader, dataset_args)
+                stage_args = dataset_args
+                if index < len(modifiers) - 1 and dataset_args.layerwise_compression:
+                    # Later independent modifiers still need live weight tensors.
+                    stage_args = replace(dataset_args, layerwise_compression=False)
+                pipeline(model, dataloader, stage_args)
 
                 # restore modifiers on exit so model can be compressed based on recipe
