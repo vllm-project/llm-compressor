@@ -21,7 +21,7 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 from loguru import logger
-from pydantic import ConfigDict, PrivateAttr, field_validator
+from pydantic import ConfigDict, Field, PrivateAttr, field_validator
 from torch import distributed as dist
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
@@ -137,7 +137,7 @@ class AWQModifier(Modifier):
     :param n_grid: when performing the best scales grid search for each mapping,
         this specifies how many grid points should be used. To decrease the runtime,
         at the possible cost of slightly worse scales, this can be decreased.
-        Defaults to 20
+        Must be at least 1. Defaults to 20
     """
 
     requires_calibration_data: bool = True
@@ -149,7 +149,7 @@ class AWQModifier(Modifier):
     mappings: list[AWQMapping] | None = None
     offload_device: torch.device | None | Sentinel = Sentinel("not_provided")
     duo_scaling: bool | Literal["both"] = True
-    n_grid: int = 20
+    n_grid: int = Field(default=20, ge=1)
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
@@ -865,25 +865,21 @@ class AWQModifier(Modifier):
 
         match self.duo_scaling:
             # if self.duo_scaling is "both", perform half the grid search with
-            # duo_scaling off and half with duo_scaling on
+            # duo_scaling off and half with duo_scaling on. At least one ratio
+            # is used for each, so that identity scaling is always included
             case "both":
-                n_grid = int(self.n_grid / 2)
                 return [
-                    (grid_idx / (n_grid - 1), duo_scaling)
-                    for grid_idx in range(n_grid)
+                    (ratio, duo_scaling)
+                    for ratio in _evenly_spaced_ratios(max(self.n_grid // 2, 1))
                     for duo_scaling in [False, True]
                 ]
             case False:
-                return [
-                    (grid_idx / (self.n_grid - 1), False)
-                    for grid_idx in range(self.n_grid)
-                ]
+                return [(ratio, False) for ratio in _evenly_spaced_ratios(self.n_grid)]
             # if self.duo_scaling is True, explicitly include the (0.0, False)
             # case, so that identity scaling is included in grid search
             case True:
                 return [(0.0, False)] + [
-                    (grid_idx / (self.n_grid - 2), True)
-                    for grid_idx in range(self.n_grid - 1)
+                    (ratio, True) for ratio in _evenly_spaced_ratios(self.n_grid - 1)
                 ]
             case _:
                 raise ValueError(
@@ -1034,6 +1030,16 @@ class AWQModifier(Modifier):
         if v not in (True, False, "both"):
             raise ValueError(f"duo_scaling must be True, False, or 'both', got {v!r}")
         return v
+
+
+def _evenly_spaced_ratios(num_ratios: int) -> list[float]:
+    """
+    Get `num_ratios` evenly spaced ratios in [0.0, 1.0], starting at 0.0
+
+    :param num_ratios: number of ratios to return
+    :return: list of ratios, which is `[0.0]` if `num_ratios` is 1
+    """
+    return [index / max(num_ratios - 1, 1) for index in range(num_ratios)]
 
 
 def _check_layers_are_compatible(

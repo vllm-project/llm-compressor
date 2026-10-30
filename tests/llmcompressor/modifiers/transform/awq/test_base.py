@@ -785,6 +785,31 @@ def test_get_grid_search_params(n_grid, duo_scaling):
         assert abs(n_false - n_true) <= 1
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "n_grid, duo_scaling", product([1, 2, 3, 4], [True, False, "both"])
+)
+def test_get_grid_search_params_small_n_grid(n_grid, duo_scaling):
+    awq = AWQModifier(n_grid=n_grid, duo_scaling=duo_scaling)
+
+    grid_search_params = awq._get_grid_search_params()
+
+    assert (0.0, False) in grid_search_params
+    assert all(0.0 <= ratio <= 1.0 for ratio, _ in grid_search_params)
+    if duo_scaling == "both":
+        # each half of the grid uses at least one ratio
+        assert len(grid_search_params) == 2 * max(n_grid // 2, 1)
+    else:
+        assert len(grid_search_params) == n_grid
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("n_grid", [0, -1])
+def test_n_grid_must_be_positive(n_grid):
+    with pytest.raises(ValidationError):
+        AWQModifier(n_grid=n_grid)
+
+
 @requires_compute_capability(9, 0)  # Requires H100 or higher
 @torch.no_grad()
 def test_awq_nvfp4_saves_fused_global_scale(tmp_path):
