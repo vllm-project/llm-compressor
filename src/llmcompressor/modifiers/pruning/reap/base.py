@@ -4,20 +4,12 @@ REAP (Router-weighted Expert Activation Pruning) modifier for MoE models.
 See: https://arxiv.org/abs/2510.13999
 """
 
-from functools import partial
-from typing import Any
-
 import torch
 from compressed_tensors.config import MoESparsityMethod
-from compressed_tensors.distributed import is_source_process
-from compressed_tensors.offload import get_execution_device
-from loguru import logger
-from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modifiers.pruning.base import ExpertPruningModifierBase
-from llmcompressor.modifiers.pruning.reap.utils import REAP_PRECISION, prune_moe_layer
+from llmcompressor.modifiers.pruning.reap.utils import REAP_PRECISION
 
 __all__ = ["REAPPruningModifier"]
 
@@ -62,117 +54,33 @@ class REAPPruningModifier(ExpertPruningModifierBase):
     """
 
     sparsity_method = MoESparsityMethod.PRUNE
+    _expert_verb = "drop"
+    _expert_verb_past = "dropped"
 
-    _n_experts_to_drop_per_group: int | None = PrivateAttr(default=None)
-
-    # per-layer REAP saliency accumulators, in float32 on each layer's
-    # execution device: sum_saliency[j] accumulates g_j * ||f_j||_2 over the
-    # tokens routed to expert j, counts[j] the number of routed tokens, and
-    # total_counts the total number of routing decisions. They never move
-    # devices (they are reduced in place over the default process group) and
-    # a layer which has not seen tokens yet still contributes zeros
-    _sum_saliency: dict[str, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _counts: dict[str, torch.Tensor] = PrivateAttr(default_factory=dict)
-    _total_counts: dict[str, float] = PrivateAttr(default_factory=dict)
-    # per-batch expert output norms captured by _expert_hook, as
-    # {layer_name: {expert_idx: [num_routed_tokens]}}
-    _norm_buffers: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
-        default_factory=dict
-    )
-
-    # -- lifecycle ------------------------------------------------------------
-
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        initialized = super().on_initialize(state, **kwargs)
-
-        # group-limited routers require an equal number of drops per group
-        if self._n_experts_to_drop > 0 and self._moe_attrs.n_group is not None:
-            self._n_experts_to_drop_per_group = round(
-                self._n_experts_to_drop / self._moe_attrs.n_group
-            )
-
-            if self._n_experts_to_drop_per_group == 0:
-                raise ValueError(
-                    f"Group-limited router detected: sparsity={self.sparsity} "
-                    f"results in 0 experts to drop per group "
-                    f"(out of {self._moe_attrs.group_size}). "
-                    "No pruning will be performed."
-                )
-
-            logger.info(
-                f"Group-limited router detected: will drop "
-                f"{self._n_experts_to_drop_per_group} experts/group "
-                f"(out of {self._moe_attrs.group_size} in each of "
-                f"{self._moe_attrs.n_group} groups)"
-            )
-            if (
-                self._n_experts_to_drop_per_group * self._moe_attrs.n_group
-                != self._n_experts_to_drop
-            ):
-                logger.warning(
-                    f"REAP: group-limited routing requires an equal drop "
-                    f"per group; dropping "
-                    f"{self._n_experts_to_drop_per_group * self._moe_attrs.n_group} "
-                    f"experts instead of the requested "
-                    f"{self._n_experts_to_drop} "
-                    f"(n_group={self._moe_attrs.n_group})"
-                )
-                self._n_experts_to_drop = (
-                    self._n_experts_to_drop_per_group * self._moe_attrs.n_group
-                )
-
-        return initialized
-
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        for layer_name in self._moe_attrs.moe_layer_names:
-            experts = getattr(
-                state.model.get_submodule(layer_name), self._moe_attrs.experts_attr
-            )
-            self._init_layer_stats(
-                layer_name,
-                self._moe_attrs.num_experts,
-                get_execution_device(experts),
-            )
-            self._norm_buffers[layer_name] = {}
-
-        super().on_calibration_start(state, event, **kwargs)
-
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        finalized = super().on_finalize(state, **kwargs)
-        self._sum_saliency.clear()
-        self._counts.clear()
-        self._total_counts.clear()
-        self._norm_buffers.clear()
-        return finalized
-
-    # -- saliency accumulation -----------------------------------------------
+    # -- saliency metric ------------------------------------------------------
 
     def _init_layer_stats(
-        self, layer_name: str, num_experts: int, device: torch.device
+        self,
+        layer_name: str,
+        num_experts: int,
+        hidden_dim: int,
+        device: torch.device,
     ):
-        self._sum_saliency[layer_name] = torch.zeros(
-            num_experts, dtype=REAP_PRECISION, device=device
-        )
-        self._counts[layer_name] = torch.zeros(
-            num_experts, dtype=REAP_PRECISION, device=device
-        )
-        self._total_counts[layer_name] = 0.0
+        """Per-layer REAP accumulators: ``sum_saliency[j]`` accumulates
+        ``g_j * ||f_j||_2`` over the tokens routed to expert ``j`` and
+        ``counts[j]`` the number of routed tokens."""
+        self._layer_stats[layer_name] = {
+            name: torch.zeros(num_experts, dtype=REAP_PRECISION, device=device)
+            for name in ("counts", "sum_saliency")
+        }
 
-    def _reduce_layer_stats(self, layer_name: str):
-        """Reduce this layer's saliency accumulators to the source rank,
-        leaving the total count summed across ranks on every rank."""
-        sum_saliency = self._sum_saliency[layer_name]
-        self._total_counts[layer_name] = self._reduce_stats(
-            [sum_saliency, self._counts[layer_name]],
-            self._total_counts[layer_name],
-            sum_saliency.device,
-        )
+    def _capture_expert_output(self, output: torch.Tensor) -> torch.Tensor:
+        """Capture only the L2 norm ``||f_j||_2`` of each token's expert
+        output -- all the REAP metric needs -- rather than the full output,
+        to bound peak memory."""
+        return torch.linalg.norm(output.float(), dim=-1).reshape(-1)
 
-    def _mean_saliency(self, layer_name: str) -> torch.Tensor:
-        return self._sum_saliency[layer_name] / self._counts[layer_name].clamp(min=1.0)
-
-    @torch.no_grad()
-    def _update_saliency(
+    def _update_stats(
         self,
         layer_name: str,
         topk_indices: torch.Tensor,
@@ -191,9 +99,10 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         if not expert_norms_dict:
             return
 
-        sum_saliency = self._sum_saliency[layer_name]
-        counts = self._counts[layer_name]
-        self._total_counts[layer_name] += topk_indices.numel()
+        stats = self._layer_stats[layer_name]
+        sum_saliency = stats["sum_saliency"]
+        counts = stats["counts"]
+        self._layer_counts[layer_name] += topk_indices.numel()
 
         if get_calibrate_all_experts_flag():
             stacked_norms = torch.stack(
@@ -236,111 +145,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32)
             )
 
-    def _compute_retained_experts(self, layer_name: str) -> torch.Tensor:
-        """Select which experts to keep, dropping the lowest-saliency ones."""
-        saliency = self._mean_saliency(layer_name)
-
-        if self._n_experts_to_drop_per_group is None:
-            _, drop_indices = torch.topk(
-                saliency, self._n_experts_to_drop, largest=False
-            )
-            drop_set = set(int(i) for i in drop_indices.tolist())
-            retained = [i for i in range(saliency.shape[0]) if i not in drop_set]
-        else:
-            retained: list[int] = []
-            for group in range(self._moe_attrs.n_group):
-                lo = group * self._moe_attrs.group_size
-                grp = saliency[lo : lo + self._moe_attrs.group_size]
-                _, drop_local = torch.topk(
-                    grp, self._n_experts_to_drop_per_group, largest=False
-                )
-                drop_set = {lo + int(i) for i in drop_local.tolist()}
-                retained.extend(
-                    i
-                    for i in range(lo, lo + self._moe_attrs.group_size)
-                    if i not in drop_set
-                )
-
-        return torch.tensor(retained, dtype=torch.int, device=saliency.device)
-
-    # -- pruning --------------------------------------------------------------
-
-    def _prune_moe_layer(self, model: torch.nn.Module, layer_name: str) -> bool:
-        """Reduce this layer's saliency statistics, record them for the
-        report, and prune the lowest-saliency experts from the layer."""
-
-        if layer_name not in self._sum_saliency:
-            # Layer has already been finalized
-            return False
-
-        self._reduce_layer_stats(layer_name)
-
-        # every rank holds the total count summed across ranks after the
-        # reduction, so all decide identically whether the layer collected
-        # any samples; layers with no samples anywhere keep their statistics
-        # in case data arrives in a later epoch
-        if self._total_counts[layer_name] == 0:
-            return False
-
-        # the source rank holds the globally reduced statistics
-        if is_source_process():
-            self._report_values[layer_name] = {
-                "count": self._counts[layer_name].tolist(),
-                "saliency": self._mean_saliency(layer_name).tolist(),
-            }
-
-        if self._n_experts_to_drop > 0:
-            retained = self._decide_retained_experts(
-                self._sum_saliency[layer_name].device,
-                partial(self._compute_retained_experts, layer_name),
-            )
-            self._retained_experts[layer_name] = retained
-            prune_moe_layer(model, layer_name, retained, self._moe_attrs)
-
-        # free this layer's accumulators / buffers now
-        del self._sum_saliency[layer_name]
-        del self._counts[layer_name]
-        del self._total_counts[layer_name]
-        self._norm_buffers.pop(layer_name, None)
-
-        return True
-
-    # -- calibration hooks ---------------------------------------------------
-
-    def _expert_hook(
-        self,
-        layer_name: str,
-        expert_idx: int,
-        module: torch.nn.Module,
-        args: tuple,
-        output: Any,
-    ):
-        """Record expert ``f_j`` output norms for every token this batch."""
-        if layer_name not in self._norm_buffers:
-            # Layer has already been pruned
-            return
-        if isinstance(output, tuple):
-            output = output[0]
-        with torch.no_grad():
-            norms = torch.linalg.norm(output.float(), dim=-1).reshape(-1)
-        self._norm_buffers[layer_name][expert_idx] = norms
-
-    def _experts_block_hook(
-        self,
-        layer_name: str,
-        module: torch.nn.Module,
-        args: tuple,
-        output: Any,
-    ):
-        """Combine router decisions with expert norms to update saliency."""
-        top_k_indices, top_k_weights = args[1:3]
-
-        if layer_name not in self._norm_buffers:
-            # Layer has already been pruned
-            return
-
-        self._update_saliency(
-            layer_name, top_k_indices, top_k_weights, self._norm_buffers[layer_name]
-        )
-
-        self._norm_buffers[layer_name] = {}
+    def _saliency(self, layer_name: str) -> torch.Tensor:
+        """The mean saliency ``S_j`` per expert."""
+        stats = self._layer_stats[layer_name]
+        return stats["sum_saliency"] / stats["counts"].clamp(min=1.0)

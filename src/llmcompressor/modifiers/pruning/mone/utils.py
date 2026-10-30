@@ -16,10 +16,10 @@ import torch.nn as nn
 from compressed_tensors.offload import get_execution_device
 
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
-from llmcompressor.modifiers.pruning.reap.utils import _prune_router
 from llmcompressor.modifiers.pruning.utils import (
     NUM_EXPERTS_CONFIG_KEYS,
     MoeModelAttrs,
+    _prune_router,
 )
 
 __all__ = ["collapse_moe_layer"]
