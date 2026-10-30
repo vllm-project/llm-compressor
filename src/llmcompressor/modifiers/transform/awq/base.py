@@ -5,6 +5,7 @@ from typing import Literal
 import torch
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling.kvcache import QuantizedKVCache
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
@@ -152,6 +153,10 @@ class AWQModifier(Modifier):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
+    # Resolved mappings grouped by their parent module, for memory estimates
+    _mappings_by_parent: dict[Module, list[ResolvedMapping]] = PrivateAttr(
+        default_factory=dict
+    )
     # Cache list of forward input args for each parent module, one dict for each batch
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
@@ -259,6 +264,53 @@ class AWQModifier(Modifier):
         # remove activation hooks
         self.remove_hooks()
 
+    def estimate_sequential_memory(
+        self, module: Module, num_tokens: int
+    ) -> tuple[int, int]:
+        """
+        Estimate the inputs cached for a mapping parent until it is smoothed (held,
+        unless `offload_device` is the cpu), and its outputs before and after
+        quantization and the balance weights copied while smoothing (scratch). Cached
+        keyword arguments such as position embeddings are not counted
+
+        :param module: module belonging to the subgraph being calibrated
+        :param num_tokens: number of calibration tokens, including padding
+        :return: tuple of (held, scratch) bytes
+        """
+        mappings = self._mappings_by_parent.get(module, [])
+        if len(mappings) == 0:
+            return 0, 0
+
+        # read shapes from the offloaded weights rather than onloading them
+        with disable_onloading():
+            # the parent's input is the input of its balance layers
+            balance_weight = mappings[0].balance_layers[0].weight
+            in_features = balance_weight.shape[-1]
+            out_features = (
+                module.weight.shape[0]
+                if isinstance(module, torch.nn.Linear)
+                else in_features
+            )
+            value_bytes = balance_weight.element_size()
+            weight_copies = max(
+                sum(
+                    layer.weight.numel() * layer.weight.element_size()
+                    for layer in m.balance_layers
+                )
+                for m in mappings
+            )
+
+        # cached inputs stay on the device unless they are offloaded to the cpu
+        offload_device = self.offload_device
+        offloaded_to_cpu = (
+            isinstance(offload_device, (str, torch.device))
+            and torch.device(offload_device).type == "cpu"
+        )
+        held = 0 if offloaded_to_cpu else num_tokens * in_features * value_bytes
+        scratch = 2 * num_tokens * out_features * value_bytes + weight_copies
+
+        return held, scratch
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the activations and mapping data
@@ -274,6 +326,7 @@ class AWQModifier(Modifier):
         self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
+        self._mappings_by_parent.clear()
         self._error_metrics.clear()
 
         return True
@@ -384,6 +437,9 @@ class AWQModifier(Modifier):
             )
 
         self._resolved_mappings = resolved_mappings
+        self._mappings_by_parent = {}
+        for mapping in resolved_mappings:
+            self._mappings_by_parent.setdefault(mapping.parent, []).append(mapping)
         return
 
     def _setup_activation_cache_hooks(self) -> None:

@@ -185,10 +185,12 @@ def load_with_mtp_model(
         model = original_from_pretrained(*args, **kwargs)
         if hasattr(model, "mtp") or not has_mtp_in_checkpoint(model):
             return model
+        from .mtp_compat import get_mtp_config, load_mtp_model
+
         try:
             if not _mtp_patterns(model):
                 raise ValueError("No registered MTP checkpoint patterns")
-            mtp_config = model.config.get_mtp_config()
+            mtp_config = get_mtp_config(model)
             if (
                 getattr(mtp_config, "first_k_dense_replace", 0) > 0
                 and getattr(mtp_config, "mlp_layer_types", None) is None
@@ -206,13 +208,11 @@ def load_with_mtp_model(
             )
             return model
 
-        from transformers.modeling_layers import MtpModel
-
         # Upstream MtpModel does not dequantize source FP8/packed tensors.
         validate_mtp_copy_source(model)
         device_map = {"": "meta"} if kwargs.get("device_map") == "meta" else None
         backbone_modules = set(model.modules())
-        model.mtp = MtpModel.from_pretrained(model, device_map=device_map)
+        model.mtp = load_mtp_model(model, mtp_config, device_map=device_map)
 
         # Keep only MTP-specific mappings here. The surrounding MoE loader owns
         # the backbone mappings and finishes configuring them after this returns.
