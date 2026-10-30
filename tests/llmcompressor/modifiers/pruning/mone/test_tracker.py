@@ -52,6 +52,7 @@ def _fake_distributed(monkeypatch, device: torch.device):
 
 def _modifier_with_layer(device: torch.device) -> MoNePruningModifier:
     modifier = MoNePruningModifier(sparsity=0.5)
+    modifier._layer_devices["layer"] = device
     modifier._init_layer_stats("layer", 4, 4, device)
     return modifier
 
@@ -83,16 +84,16 @@ def test_accumulators_are_initialized_on_the_device(monkeypatch, device):
 
     modifier = _modifier_with_layer(device)
     for tensor in (
-        modifier._sum_output["layer"],
-        modifier._sum_sq_output["layer"],
-        modifier._output_counts["layer"],
-        modifier._sum_gates["layer"],
+        modifier._layer_stats["layer"]["sum_output"],
+        modifier._layer_stats["layer"]["sum_sq_output"],
+        modifier._layer_stats["layer"]["counts"],
+        modifier._layer_stats["layer"]["sum_gates"],
     ):
         assert tensor.device == device
         assert tensor.dtype == torch.float32
         assert torch.all(tensor == 0)
-    assert modifier._sum_output["layer"].shape == (4, 4)
-    assert modifier._token_counts["layer"] == 0
+    assert modifier._layer_stats["layer"]["sum_output"].shape == (4, 4)
+    assert modifier._layer_counts["layer"] == 0
 
 
 @pytest.mark.unit
@@ -104,13 +105,18 @@ def test_reduce_stats_zero_token_layer_contributes_zeros(monkeypatch, device):
 
     modifier = _modifier_with_layer(device)
     modifier._reduce_layer_stats("layer")
-    assert modifier._token_counts["layer"] == 0
-    assert modifier._sum_gates["layer"].tolist() == [0.0, 0.0, 0.0, 0.0]
+    assert modifier._layer_counts["layer"] == 0
+    assert modifier._layer_stats["layer"]["sum_gates"].tolist() == [0.0, 0.0, 0.0, 0.0]
 
     # data arrives in a later epoch and accumulates from the zeros
     _accumulate(modifier, device)
-    assert modifier._sum_gates["layer"].tolist() == [0.625, 0.25, 0.5, 0.0]
-    assert modifier._token_counts["layer"] == 2
+    assert modifier._layer_stats["layer"]["sum_gates"].tolist() == [
+        0.625,
+        0.25,
+        0.5,
+        0.0,
+    ]
+    assert modifier._layer_counts["layer"] == 2
 
 
 @pytest.mark.unit
@@ -124,26 +130,36 @@ def test_reduce_stats_reduces_accumulators_in_place(monkeypatch, device):
 
     modifier = _modifier_with_layer(device)
     _accumulate(modifier, device)
-    sum_gates = modifier._sum_gates["layer"]
+    sum_gates = modifier._layer_stats["layer"]["sum_gates"]
 
     modifier._reduce_layer_stats("layer")
-    assert modifier._token_counts["layer"] == 2
+    assert modifier._layer_counts["layer"] == 2
     # same tensor, still on the accumulation device in float32 (single-member
     # semantics leave the values unchanged)
-    assert modifier._sum_gates["layer"] is sum_gates
-    assert modifier._sum_gates["layer"].device == device
-    assert modifier._sum_gates["layer"].dtype == torch.float32
-    assert modifier._sum_gates["layer"].tolist() == [0.625, 0.25, 0.5, 0.0]
-    assert modifier._sum_output["layer"][0].tolist() == [2.0, 2.0, 2.0, 2.0]
-    assert modifier._output_counts["layer"].tolist() == [2.0, 0.0, 0.0, 0.0]
+    assert modifier._layer_stats["layer"]["sum_gates"] is sum_gates
+    assert modifier._layer_stats["layer"]["sum_gates"].device == device
+    assert modifier._layer_stats["layer"]["sum_gates"].dtype == torch.float32
+    assert modifier._layer_stats["layer"]["sum_gates"].tolist() == [
+        0.625,
+        0.25,
+        0.5,
+        0.0,
+    ]
+    assert modifier._layer_stats["layer"]["sum_output"][0].tolist() == [
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+    ]
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [2.0, 0.0, 0.0, 0.0]
 
 
 @pytest.mark.unit
 def test_reduce_stats_is_a_no_op_when_not_distributed():
     modifier = _modifier_with_layer(torch.device("cpu"))
     _accumulate(modifier, torch.device("cpu"))
-    sum_gates = modifier._sum_gates["layer"]
+    sum_gates = modifier._layer_stats["layer"]["sum_gates"]
 
     modifier._reduce_layer_stats("layer")
-    assert modifier._sum_gates["layer"] is sum_gates
-    assert modifier._token_counts["layer"] == 2
+    assert modifier._layer_stats["layer"]["sum_gates"] is sum_gates
+    assert modifier._layer_counts["layer"] == 2

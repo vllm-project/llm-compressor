@@ -204,7 +204,7 @@ def hasattr_fallbacks(
     for attr in attrs:
         if hasattr(target, attr):
             return attr if return_attr else True
-            
+
     return False
 
 

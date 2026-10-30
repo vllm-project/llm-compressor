@@ -213,7 +213,7 @@ def _stats_modifier(num_experts: int = 4) -> REAPPruningModifier:
         ignore=[],
     )
     modifier._n_experts_to_drop = int(num_experts * 0.5)
-    modifier._init_layer_stats("layer", num_experts, torch.device("cpu"))
+    modifier._init_layer_stats("layer", num_experts, 4, torch.device("cpu"))
     return modifier
 
 
@@ -241,11 +241,11 @@ class TestSaliencyAccumulation:
                 # expert 3 got 0 tokens, not in dict
             }
 
-            modifier._update_saliency(
+            modifier._update_stats(
                 "layer", topk_indices, topk_weights, expert_norms_dict
             )
 
-            mean = modifier._mean_saliency("layer")
+            mean = modifier._saliency("layer")
             # expert 0: (0.6*3.0 + 0.5*1.0) / 2 = 2.3 / 2 = 1.15
             assert mean[0].item() == pytest.approx(1.15)
             # expert 1: 0.4*2.0 / 1 = 0.8
@@ -284,11 +284,11 @@ class TestSaliencyAccumulation:
                 ),  # expert 3's norms for tokens [0, 1] (never routed)
             }
 
-            modifier._update_saliency(
+            modifier._update_stats(
                 "layer", topk_indices, topk_weights, expert_norms_dict
             )
 
-            mean = modifier._mean_saliency("layer")
+            mean = modifier._saliency("layer")
             # Stacked norms: [[3.0, 2.0, 6.0, 7.0],  # token 0
             #                 [1.0, 5.0, 4.0, 8.0]]  # token 1
             # gathered_norms using topk_indices [[0, 1], [0, 2]]:
@@ -320,38 +320,38 @@ class TestSaliencyAccumulation:
             context._CALIBRATE_ALL_EXPERTS = False
             modifier = _stats_modifier(num_experts=2)
             idx = torch.tensor([[0]])
-            modifier._update_saliency(
+            modifier._update_stats(
                 "layer", idx, torch.tensor([[0.6]]), {0: torch.tensor([3.0])}
             )
-            modifier._update_saliency(
+            modifier._update_stats(
                 "layer", idx, torch.tensor([[0.4]]), {0: torch.tensor([1.0])}
             )
             # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
-            assert modifier._mean_saliency("layer")[0].item() == pytest.approx(1.1)
-            assert modifier._total_counts["layer"] == pytest.approx(2.0)
+            assert modifier._saliency("layer")[0].item() == pytest.approx(1.1)
+            assert modifier._layer_counts["layer"] == pytest.approx(2.0)
 
             # Test 2: calibrate_all_experts=True (dense norms)
             context._CALIBRATE_ALL_EXPERTS = True
             modifier = _stats_modifier(num_experts=2)
             idx = torch.tensor([[0]])  # token 0 routes to expert 0
             # Dense norms: all experts have norms for all tokens
-            modifier._update_saliency(
+            modifier._update_stats(
                 "layer",
                 idx,
                 torch.tensor([[0.6]]),
                 {0: torch.tensor([3.0]), 1: torch.tensor([5.0])},
             )
-            modifier._update_saliency(
+            modifier._update_stats(
                 "layer",
                 idx,
                 torch.tensor([[0.4]]),
                 {0: torch.tensor([1.0]), 1: torch.tensor([2.0])},
             )
             # expert 0: (0.6*3.0 + 0.4*1.0) / 2 = 2.2 / 2 = 1.1
-            assert modifier._mean_saliency("layer")[0].item() == pytest.approx(1.1)
+            assert modifier._saliency("layer")[0].item() == pytest.approx(1.1)
             # expert 1: never routed -> 0 (even though it has norms in the dict)
-            assert modifier._mean_saliency("layer")[1].item() == pytest.approx(0.0)
-            assert modifier._total_counts["layer"] == pytest.approx(2.0)
+            assert modifier._saliency("layer")[1].item() == pytest.approx(0.0)
+            assert modifier._layer_counts["layer"] == pytest.approx(2.0)
         finally:
             # Restore original state
             context._CALIBRATE_ALL_EXPERTS = original_state
@@ -408,8 +408,8 @@ class TestSaliencyAccumulation:
 
             # Get mean saliency from sparse mode
             mean_saliency_sparse = [
-                modifier_sparse._mean_saliency(layer_name).clone()
-                for layer_name in modifier_sparse._sum_saliency
+                modifier_sparse._saliency(layer_name).clone()
+                for layer_name in modifier_sparse._layer_stats
             ]
 
             # Test with calibrate_all_experts=True (dense mode)
@@ -432,8 +432,8 @@ class TestSaliencyAccumulation:
 
             # Get mean saliency from dense mode
             mean_saliency_dense = [
-                modifier_dense._mean_saliency(layer_name).clone()
-                for layer_name in modifier_dense._sum_saliency
+                modifier_dense._saliency(layer_name).clone()
+                for layer_name in modifier_dense._layer_stats
             ]
 
             # Verify both modes produce identical mean saliency
@@ -460,26 +460,26 @@ class TestSaliencyAccumulation:
             # Restore original state
             context._CALIBRATE_ALL_EXPERTS = original_state
 
-    def test_compute_retained_global(self):
+    def test_decide_retained_global(self):
         # 8 experts, drop 3 globally
         modifier = _stats_modifier(num_experts=8)
-        modifier._sum_saliency["layer"] = torch.tensor(
+        modifier._layer_stats["layer"]["sum_saliency"] = torch.tensor(
             [0.1, 0.5, 0.8, 0.3, 0.7, 0.2, 0.9, 0.4], dtype=torch.float32
         )
-        modifier._counts["layer"] = torch.ones(8, dtype=torch.float32)
+        modifier._layer_stats["layer"]["counts"] = torch.ones(8, dtype=torch.float32)
         modifier._n_experts_to_drop = 3
 
-        retained = modifier._compute_retained_experts("layer")
+        retained = modifier._decide_retained_experts("layer")
         # drop the 3 lowest: experts 0 (0.1), 5 (0.2), 3 (0.3)
-        assert retained.tolist() == [1, 2, 4, 6, 7]
+        assert retained == [1, 2, 4, 6, 7]
 
-    def test_compute_retained_per_group(self):
+    def test_decide_retained_per_group(self):
         # 8 experts, 2 groups of 4; drop 2 total -> 1 per group
         modifier = _stats_modifier(num_experts=8)
-        modifier._sum_saliency["layer"] = torch.tensor(
+        modifier._layer_stats["layer"]["sum_saliency"] = torch.tensor(
             [0.1, 0.9, 0.8, 0.7, 0.6, 0.2, 0.5, 0.4], dtype=torch.float32
         )
-        modifier._counts["layer"] = torch.ones(8, dtype=torch.float32)
+        modifier._layer_stats["layer"]["counts"] = torch.ones(8, dtype=torch.float32)
         modifier._n_experts_to_drop = 2
 
         # Simulate a group-limited router
@@ -487,10 +487,10 @@ class TestSaliencyAccumulation:
         modifier._moe_attrs.group_size = 4
         modifier._n_experts_to_drop_per_group = 1
 
-        retained = modifier._compute_retained_experts("layer")
+        retained = modifier._decide_retained_experts("layer")
         # group 0 [0,1,2,3]: drop expert 0 (0.1) -> keep 1,2,3
         # group 1 [4,5,6,7]: drop expert 5 (0.2) -> keep 4,6,7
-        assert retained.tolist() == [1, 2, 3, 4, 6, 7]
+        assert retained == [1, 2, 3, 4, 6, 7]
 
 
 # ---------------------------------------------------------------------------
@@ -779,7 +779,7 @@ def test_reap_full_lifecycle():
     # Start calibration
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
     assert modifier.started_
-    assert len(modifier._sum_saliency) == 2
+    assert len(modifier._layer_stats) == 2
 
     # Run forward passes to collect saliency
     with torch.no_grad():
@@ -791,8 +791,8 @@ def test_reap_full_lifecycle():
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
 
     # Verify decisions finalized and buffers freed
-    assert len(modifier._sum_saliency) == 0
-    assert len(modifier._norm_buffers) == 0
+    assert len(modifier._layer_stats) == 0
+    assert len(modifier._capture) == 0
 
     # End calibration
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
@@ -981,8 +981,8 @@ def test_reap_layer_without_data_prunes_after_later_epoch():
     # first epoch end: no layer has seen any data yet, so nothing is
     # finalized and the accumulators are kept
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._sum_saliency) == 2
-    for total_count in modifier._total_counts.values():
+    assert len(modifier._layer_stats) == 2
+    for total_count in modifier._layer_counts.values():
         assert total_count == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 8
@@ -993,7 +993,7 @@ def test_reap_layer_without_data_prunes_after_later_epoch():
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._sum_saliency) == 0
+    assert len(modifier._layer_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
@@ -1054,7 +1054,7 @@ def test_reap_distributed_uneven_data():
             modifier.finalize(state)
 
             # every layer was pruned from the globally summed statistics
-            assert len(modifier._sum_saliency) == 0
+            assert len(modifier._layer_stats) == 0
             for layer in model.layers:
                 assert layer.experts.num_experts == 4
                 assert layer.gate.weight.shape[0] == 4
@@ -1105,7 +1105,7 @@ def test_reap_distributed_nccl_reduces_on_gpu():
     modifier.finalize(state)
 
     # every layer pruned, with the router shrunk on the gpu
-    assert len(modifier._sum_saliency) == 0
+    assert len(modifier._layer_stats) == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 4
         assert layer.gate.weight.shape[0] == 4

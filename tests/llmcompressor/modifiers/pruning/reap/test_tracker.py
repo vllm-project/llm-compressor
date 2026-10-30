@@ -52,7 +52,8 @@ def _fake_distributed(monkeypatch, device: torch.device):
 
 def _modifier_with_layer(device: torch.device) -> REAPPruningModifier:
     modifier = REAPPruningModifier(sparsity=0.5)
-    modifier._init_layer_stats("layer", 4, device)
+    modifier._layer_devices["layer"] = device
+    modifier._init_layer_stats("layer", 4, 2, device)
     return modifier
 
 
@@ -64,7 +65,7 @@ def _accumulate(modifier: REAPPruningModifier, device: torch.device):
         1: torch.tensor([2.0], device=device),
         2: torch.tensor([4.0], device=device),
     }
-    modifier._update_saliency("layer", topk_indices, topk_weights, expert_norms_dict)
+    modifier._update_stats("layer", topk_indices, topk_weights, expert_norms_dict)
 
 
 def _reduction_devices() -> list[torch.device]:
@@ -84,11 +85,14 @@ def test_accumulators_are_initialized_on_the_device(monkeypatch, device):
     _fake_distributed(monkeypatch, device)
 
     modifier = _modifier_with_layer(device)
-    for tensor in (modifier._sum_saliency["layer"], modifier._counts["layer"]):
+    for tensor in (
+        modifier._layer_stats["layer"]["sum_saliency"],
+        modifier._layer_stats["layer"]["counts"],
+    ):
         assert tensor.device == device
         assert tensor.dtype == torch.float32
         assert torch.all(tensor == 0)
-    assert modifier._total_counts["layer"] == 0.0
+    assert modifier._layer_counts["layer"] == 0.0
 
 
 @pytest.mark.unit
@@ -100,16 +104,16 @@ def test_reduce_stats_zero_token_layer_contributes_zeros(monkeypatch, device):
 
     modifier = _modifier_with_layer(device)
     modifier._reduce_layer_stats("layer")
-    assert modifier._total_counts["layer"] == 0.0
-    assert modifier._counts["layer"].tolist() == [0.0, 0.0, 0.0, 0.0]
+    assert modifier._layer_counts["layer"] == 0.0
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [0.0, 0.0, 0.0, 0.0]
 
     # data arrives in a later epoch and accumulates from the zeros
     _accumulate(modifier, device)
-    assert modifier._sum_saliency["layer"].tolist() == pytest.approx(
+    assert modifier._layer_stats["layer"]["sum_saliency"].tolist() == pytest.approx(
         [2.3, 0.8, 2.0, 0.0]
     )
-    assert modifier._counts["layer"].tolist() == [2.0, 1.0, 1.0, 0.0]
-    assert modifier._total_counts["layer"] == 4.0
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [2.0, 1.0, 1.0, 0.0]
+    assert modifier._layer_counts["layer"] == 4.0
 
 
 @pytest.mark.unit
@@ -123,27 +127,27 @@ def test_reduce_stats_reduces_accumulators_in_place(monkeypatch, device):
 
     modifier = _modifier_with_layer(device)
     _accumulate(modifier, device)
-    sum_saliency = modifier._sum_saliency["layer"]
+    sum_saliency = modifier._layer_stats["layer"]["sum_saliency"]
 
     modifier._reduce_layer_stats("layer")
-    assert modifier._total_counts["layer"] == 4.0
+    assert modifier._layer_counts["layer"] == 4.0
     # same tensor, still on the accumulation device in float32 (single-member
     # semantics leave the values unchanged)
-    assert modifier._sum_saliency["layer"] is sum_saliency
-    assert modifier._sum_saliency["layer"].device == device
-    assert modifier._sum_saliency["layer"].dtype == torch.float32
-    assert modifier._sum_saliency["layer"].tolist() == pytest.approx(
+    assert modifier._layer_stats["layer"]["sum_saliency"] is sum_saliency
+    assert modifier._layer_stats["layer"]["sum_saliency"].device == device
+    assert modifier._layer_stats["layer"]["sum_saliency"].dtype == torch.float32
+    assert modifier._layer_stats["layer"]["sum_saliency"].tolist() == pytest.approx(
         [2.3, 0.8, 2.0, 0.0]
     )
-    assert modifier._counts["layer"].tolist() == [2.0, 1.0, 1.0, 0.0]
+    assert modifier._layer_stats["layer"]["counts"].tolist() == [2.0, 1.0, 1.0, 0.0]
 
 
 @pytest.mark.unit
 def test_reduce_stats_is_a_no_op_when_not_distributed():
     modifier = _modifier_with_layer(torch.device("cpu"))
     _accumulate(modifier, torch.device("cpu"))
-    sum_saliency = modifier._sum_saliency["layer"]
+    sum_saliency = modifier._layer_stats["layer"]["sum_saliency"]
 
     modifier._reduce_layer_stats("layer")
-    assert modifier._sum_saliency["layer"] is sum_saliency
-    assert modifier._total_counts["layer"] == 4.0
+    assert modifier._layer_stats["layer"]["sum_saliency"] is sum_saliency
+    assert modifier._layer_counts["layer"] == 4.0

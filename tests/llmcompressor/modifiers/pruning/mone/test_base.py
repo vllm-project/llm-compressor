@@ -132,6 +132,10 @@ def _make_state(model):
 def _stats_modifier(num_experts: int = 4, hidden_dim: int = 2) -> MoNePruningModifier:
     """A MoNe modifier with initialized per-layer statistics for one layer."""
     modifier = MoNePruningModifier(sparsity=0.5)
+    modifier._moe_attrs = get_moe_attrs(
+        FakeMoEModel(FakeMoEConfig(num_experts=num_experts, num_hidden_layers=1)),
+        ignore=[],
+    )
     modifier._n_experts_to_drop = int(num_experts * 0.5)
     modifier._init_layer_stats("layer", num_experts, hidden_dim, torch.device("cpu"))
     return modifier
@@ -190,8 +194,8 @@ class TestMoNeSaliency:
             assert saliency[3].item() == pytest.approx(0.0)
 
             # lowest-saliency experts (2, 3) are dropped
-            retained = modifier._compute_retained_experts("layer")
-            assert sorted(retained.tolist()) == [0, 1]
+            retained = modifier._decide_retained_experts("layer")
+            assert sorted(retained) == [0, 1]
         finally:
             context._CALIBRATE_ALL_EXPERTS = original_state
 
@@ -230,10 +234,10 @@ class TestMoNeSaliency:
 
     def test_compute_novices_ordering_matches_dropped(self):
         modifier = _stats_modifier(num_experts=4, hidden_dim=1)
-        modifier._sum_output["layer"] = torch.tensor(
+        modifier._layer_stats["layer"]["sum_output"] = torch.tensor(
             [[0.0], [10.0], [20.0], [30.0]], dtype=torch.float32
         )
-        modifier._output_counts["layer"] = torch.ones(4, dtype=torch.float32)
+        modifier._layer_stats["layer"]["counts"] = torch.ones(4, dtype=torch.float32)
         novices = modifier._compute_novices("layer", dropped=[3, 0])
         torch.testing.assert_close(
             novices[:, 0], torch.tensor([30.0, 0.0], dtype=torch.float32)
@@ -418,14 +422,14 @@ def test_mone_full_lifecycle():
     assert modifier._n_experts_to_drop == 4
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
-    assert len(modifier._sum_output) == 2
+    assert len(modifier._layer_stats) == 2
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._sum_output) == 0
+    assert len(modifier._layer_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
@@ -543,8 +547,8 @@ def test_mone_layer_without_data_collapses_after_later_epoch():
     # first epoch end: no layer has seen any data yet, so nothing is
     # finalized and the trackers are kept
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._sum_output) == 2
-    for token_count in modifier._token_counts.values():
+    assert len(modifier._layer_stats) == 2
+    for token_count in modifier._layer_counts.values():
         assert token_count == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 8
@@ -555,7 +559,7 @@ def test_mone_layer_without_data_collapses_after_later_epoch():
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._sum_output) == 0
+    assert len(modifier._layer_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
@@ -750,7 +754,7 @@ def test_mone_distributed_uneven_data():
             modifier.finalize(state)
 
             # every layer was collapsed from the globally summed statistics
-            assert len(modifier._sum_output) == 0
+            assert len(modifier._layer_stats) == 0
             for layer in model.layers:
                 assert layer.experts.num_experts == 4
                 assert layer.experts.novices is not None
@@ -802,7 +806,7 @@ def test_mone_distributed_nccl_reduces_on_gpu():
     modifier.finalize(state)
 
     # every layer collapsed, with novices installed on the gpu
-    assert len(modifier._sum_output) == 0
+    assert len(modifier._layer_stats) == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 4
         assert layer.experts.novices is not None
