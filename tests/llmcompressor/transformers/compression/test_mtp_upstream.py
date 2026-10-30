@@ -757,6 +757,102 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM, first_k_dense_repl
     return model
 
 
+@pytest.mark.parametrize("count_field", ["num_nextn_predict_layers", "num_mtp_layers"])
+def test_glm_dsa_mtp_config(count_field):
+    from llmcompressor.transformers.compression.mtp_compat import get_mtp_config
+
+    config = GlmMoeDsaForCausalLM.config_class(**{count_field: 1})
+    original = deepcopy(config.to_dict())
+    mtp_config = get_mtp_config(SimpleNamespace(config=config))
+    assert mtp_config.num_hidden_layers == mtp_config.num_mtp_layers == 1
+    assert mtp_config.first_k_dense_replace == 0
+    assert mtp_config.mlp_layer_types == ["sparse"]
+    assert mtp_config.layer_types == ["indexed_attention"]
+    assert mtp_config.indexer_types == ["full"]
+    assert config.to_dict() == original
+
+
+def test_glm_dsa_mtp_requires_one_prediction_layer():
+    from llmcompressor.transformers.compression.mtp_compat import get_mtp_config
+
+    config = GlmMoeDsaForCausalLM.config_class(num_nextn_predict_layers=2)
+    with pytest.raises(ValueError, match="one prediction layer"):
+        get_mtp_config(SimpleNamespace(config=config))
+
+
+@pytest.mark.parametrize("shared_indexer", [False, True], ids=["glm5", "glm5_2"])
+def test_glm_dsa_mtp_round_trip(tmp_path, shared_indexer):
+    source_model = _source_glm_model(
+        tmp_path, GlmMoeDsaForCausalLM, first_k_dense_replace=1
+    )
+    source = tmp_path / "source"
+    config_path = source / "config.json"
+    config = json.loads(config_path.read_text())
+    # Released checkpoints omit the normalized MTP fields supplied by the fixture.
+    for name in ("num_mtp_layers", "mtp_layer_types", "mtp_mlp_layer_types"):
+        config.pop(name, None)
+    if shared_indexer:
+        if not hasattr(source_model.config, "indexer_types"):
+            pytest.skip("Transformers does not support shared GLM indexers")
+        config["indexer_types"][-1] = "shared"
+    else:
+        config.pop("indexer_types", None)
+    config_path.write_text(json.dumps(config))
+
+    prefix = f"model.layers.{source_model.config.num_hidden_layers}."
+    weights_path = source / "model.safetensors"
+    weights = load_file(weights_path)
+    if shared_indexer:
+        last_layer = source_model.config.num_hidden_layers - 1
+        last_indexer = f"model.layers.{last_layer}.self_attn.indexer."
+        weights = {
+            name: tensor
+            for name, tensor in weights.items()
+            if not name.startswith(last_indexer)
+        }
+    # Distinct values catch swapped norms and an unloaded router buffer.
+    for name, value in (
+        ("enorm.weight", 0.5),
+        ("hnorm.weight", 1.25),
+        ("shared_head.norm.weight", 1.75),
+    ):
+        weights[f"{prefix}{name}"].fill_(value)
+    for name, tensor in weights.items():
+        if name.startswith(prefix) and name.endswith("e_score_correction_bias"):
+            tensor.copy_(torch.tensor([0.125, -0.25], dtype=tensor.dtype))
+    save_file(weights, weights_path)
+    expected = {
+        name.removeprefix(prefix): tensor
+        for name, tensor in weights.items()
+        if name.startswith(prefix)
+    }
+
+    with load_context(GlmMoeDsaForCausalLM, load_mtp=True):
+        model = GlmMoeDsaForCausalLM.from_pretrained(source, local_files_only=True)
+    block = model.mtp.layers[0].mtp_block
+    assert block.self_attn.indexer is not None
+    assert block.mlp.experts.num_experts == 2
+    assert model.config.num_hidden_layers == source_model.config.num_hidden_layers
+    assert model.config.first_k_dense_replace == 1
+    actual = {
+        name.removeprefix("mtp_block.").replace(
+            "post_norm.", "shared_head.norm."
+        ): tensor
+        for name, tensor in model.mtp.layers[0].state_dict().items()
+    }
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+    destination = tmp_path / "saved"
+    model.save_pretrained(destination)
+    saved = load_file(destination / "model.safetensors")
+    actual = {
+        name.removeprefix(prefix): tensor
+        for name, tensor in saved.items()
+        if name.startswith(prefix)
+    }
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
 @pytest.mark.parametrize(
     "model_cls",
     [
@@ -775,7 +871,8 @@ def test_trailing_mtp_layer_uses_upstream_weight_mapping(
     prefix = f"model.layers.{model.config.num_hidden_layers}."
     mtp_config = model.config.get_mtp_config()
     supported = (
-        getattr(mtp_config, "mlp_layer_types", None) is not None
+        model_cls is GlmMoeDsaForCausalLM
+        or getattr(mtp_config, "mlp_layer_types", None) is not None
         or getattr(mtp_config, "first_k_dense_replace", 0) == 0
     )
     with load_context(model_cls, load_mtp=target_mtp):
