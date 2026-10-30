@@ -23,6 +23,7 @@ from compressed_tensors.base import (
 from compressed_tensors.distributed import is_distributed
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
+from torch.utils._pytree import tree_leaves
 from torch.utils.data import DataLoader
 from transformers import (
     AutoConfig,
@@ -38,11 +39,21 @@ from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
+from llmcompressor.modifiers.pruning.mone import MoNePruningModifier
+from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
+from llmcompressor.modifiers.pruning.reap.utils import get_moe_attrs
+from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
+from llmcompressor.modifiers.transform.awq import (
+    AWQModifier,
+    get_layer_mappings_from_model,
+)
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
+    mtp_calibration_context,
     validate_mtp_copy_source,
 )
 from llmcompressor.utils.helpers import use_eager_attention
@@ -266,6 +277,8 @@ class Oneshot:
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
             stack.enter_context(norm_calibration_context(self.model))
+            if self._calibrates_mtp(recipe_stage):
+                stack.enter_context(mtp_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -302,6 +315,23 @@ class Oneshot:
 
         session.finalize()
 
+    def _calibrates_mtp(self, recipe_stage: str | None) -> bool:
+        """
+        Whether loaded MTP layers must run during calibration: a modifier needs
+        calibration data and the modules it calibrates include MTP.
+        """
+        if not hasattr(self.model, "mtp") or not self.recipe:
+            return False
+        recipe = Recipe.create_instance(self.recipe, target_stage=recipe_stage)
+        return any(
+            modifier.requires_calibration_data
+            and any(
+                name.startswith("mtp.")
+                for name in _calibrated_names(self.model, modifier)
+            )
+            for modifier in recipe.modifiers
+        )
+
     def validate_model(self, model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
@@ -315,27 +345,6 @@ class Oneshot:
                 "unchanged when saving. Use load_context(load_mtp=True) "
                 "to quantize them when supported by Transformers."
             )
-        if hasattr(model, "mtp") and self.recipe:
-            recipe = Recipe.create_instance(
-                self.recipe, target_stage=self.recipe_args.stage
-            )
-            for modifier in recipe.modifiers:
-                if (
-                    isinstance(modifier, QuantizationMixin)
-                    and modifier.requires_calibration_data
-                    and any(
-                        name.startswith("mtp.")
-                        for name, _ in match_named_modules(
-                            model, modifier.resolved_targets, modifier.ignore
-                        )
-                    )
-                ):
-                    # TODO: Support MTP forward execution and sequential offloading
-                    # during calibration before allowing data-dependent MTP schemes.
-                    raise ValueError(
-                        "MTP calibration is not supported in oneshot; MTP targets "
-                        "currently support data-free schemes only."
-                    )
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(
@@ -369,6 +378,36 @@ class Oneshot:
                 "oneshot does not currently support models that are already quantized "
                 f"in a different format ({quant_method}). {resolution}"
             )
+
+
+def _calibrated_names(model: PreTrainedModel, modifier) -> list[str]:
+    """
+    Names of the modules a calibration modifier observes, resolved from its
+    targets, mappings or MoE detection before it is initialized. A modifier whose
+    modules cannot be resolved is assumed to observe every module.
+    """
+    if isinstance(modifier, QuantizationMixin):
+        matches = match_named_modules(model, modifier.resolved_targets, modifier.ignore)
+    elif isinstance(modifier, AWQModifier):
+        mappings = modifier.mappings or get_layer_mappings_from_model(model)
+        patterns = [
+            pattern
+            for mapping in mappings
+            for pattern in (mapping.smooth_layer, *mapping.balance_layers)
+        ]
+        matches = match_named_modules(model, patterns)
+    elif isinstance(modifier, SmoothQuantModifier):
+        patterns = tree_leaves(modifier._infer_mappings_from_model(model))
+        matches = match_named_modules(model, patterns, modifier.ignore or [])
+    elif isinstance(modifier, (REAPPruningModifier, MoNePruningModifier)):
+        moe_attrs = get_moe_attrs(model, modifier.ignore)
+        return moe_attrs.moe_layer_names if moe_attrs is not None else []
+    elif isinstance(modifier, QADModifier):
+        # Distills only modules quantized by a preceding modifier, checked on its own
+        return []
+    else:
+        matches = model.named_modules()
+    return [name for name, _ in matches]
 
 
 def oneshot(

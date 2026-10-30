@@ -13,8 +13,11 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.utils.match import match_name
 from compressed_tensors.utils.safetensors_load import get_weight_mappings
+from datasets import Dataset
 from loguru import logger
 from safetensors.torch import load_file, save_file
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
 from transformers import (
     AutoModelForCausalLM,
     DeepseekV3ForCausalLM,
@@ -26,18 +29,28 @@ from transformers import (
     LlamaConfig,
     LlamaForCausalLM,
     PretrainedConfig,
+    PreTrainedTokenizerFast,
     Qwen3_5MoeConfig,
 )
 
 from llmcompressor import oneshot, reset_session
+from llmcompressor.entrypoints.oneshot import _calibrated_names
 from llmcompressor.modeling.moe.linearize import linearize_moe
+from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
+from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
+from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+from llmcompressor.pipelines.cache import IntermediatesCache
+from llmcompressor.pipelines.sequential.helpers import trace_subgraphs
 from llmcompressor.transformers.compression.mtp import (
     _mtp_weights,
+    mtp_calibration_context,
     save_mtp_tensors,
     validate_mtp_copy_source,
 )
 from llmcompressor.utils import load_context
+from llmcompressor.utils.pytorch.module import get_no_split_params
 
 MtpModel = getattr(
     pytest.importorskip("transformers.modeling_layers"), "MtpModel", None
@@ -46,7 +59,7 @@ if MtpModel is None:
     pytest.skip("Transformers does not provide MtpModel", allow_module_level=True)
 
 
-def _source_model(tmp_path, with_mtp=True, load_mtp=False):
+def _source_model(tmp_path, with_mtp=True, load_mtp=False, num_mtp_layers=1):
     config = InklingTextConfig(
         vocab_size=128,
         hidden_size=64,
@@ -60,7 +73,7 @@ def _source_model(tmp_path, with_mtp=True, load_mtp=False):
         intermediate_size=128,
         layer_types=["hybrid", "hybrid"],
         mlp_layer_types=["dense", "dense"],
-        num_mtp_layers=1,
+        num_mtp_layers=num_mtp_layers,
         conv_kernel_size=2,
         max_position_embeddings=128,
     )
@@ -68,17 +81,18 @@ def _source_model(tmp_path, with_mtp=True, load_mtp=False):
     source = tmp_path / "source"
     model.save_pretrained(source)
     if with_mtp:
-        mtp = MtpModel(model, 1)
+        mtp = MtpModel(model, num_mtp_layers)
         mtp.layers.apply(model._init_weights)
         weights = load_file(source / "model.safetensors")
-        for name, tensor in mtp.layers[0].state_dict().items():
-            name = (
-                name.replace("mtp_block.", "transformer_block.")
-                .replace("enorm.", "embed_norm.")
-                .replace("hnorm.", "hidden_norm.")
-                .replace("eh_proj.", "input_proj.")
-            )
-            weights[f"model.mtp.layers.0.{name}"] = tensor.contiguous()
+        for index, layer in enumerate(mtp.layers):
+            for name, tensor in layer.state_dict().items():
+                name = (
+                    name.replace("mtp_block.", "transformer_block.")
+                    .replace("enorm.", "embed_norm.")
+                    .replace("hnorm.", "hidden_norm.")
+                    .replace("eh_proj.", "input_proj.")
+                )
+                weights[f"model.mtp.layers.{index}.{name}"] = tensor.contiguous()
         save_file(weights, source / "model.safetensors")
     model.config.name_or_path = str(source)
     model.config.dtype = torch.float32
@@ -571,11 +585,374 @@ def test_unexpected_mtp_load_error_is_not_reframed(tmp_path, error):
     assert InklingForCausalLM.from_pretrained == original_from_pretrained
 
 
-def test_calibrated_mtp_target_is_not_silently_skipped(tmp_path):
+def _calibration_dataset(num_samples=4, seq_len=16):
+    generator = torch.Generator().manual_seed(0)
+    input_ids = torch.randint(0, 128, (num_samples, seq_len), generator=generator)
+    return Dataset.from_dict(
+        {
+            "input_ids": input_ids.tolist(),
+            "attention_mask": torch.ones_like(input_ids).tolist(),
+        }
+    )
+
+
+def _tokenizer():
+    vocab = {"<unk>": 0, "<s>": 1, "</s>": 2, "<pad>": 3}
+    vocab.update({f"token{i}": i for i in range(4, 128)})
+    return PreTrainedTokenizerFast(
+        tokenizer_object=Tokenizer(WordLevel(vocab, unk_token="<unk>")),
+        unk_token="<unk>",
+        bos_token="<s>",
+        eos_token="</s>",
+        pad_token="<pad>",
+    )
+
+
+def _loaded_mtp_model(tmp_path, layout, num_mtp_layers=1):
+    if layout == "dedicated":
+        return _source_model(tmp_path, load_mtp=True, num_mtp_layers=num_mtp_layers)
+    assert num_mtp_layers == 1, "GLM checkpoints declare one MTP layer"
+    source = _source_glm_model(tmp_path).name_or_path
+    with load_context(Glm4MoeForCausalLM):
+        return Glm4MoeForCausalLM.from_pretrained(source)
+
+
+@pytest.mark.parametrize("layout", ["dedicated", "trailing"])
+@pytest.mark.parametrize("pipeline", ["sequential", "basic"])
+def test_calibrated_mtp_target_runs_observers(tmp_path, layout, pipeline):
+    model = _loaded_mtp_model(tmp_path, layout)
+    calls = []
+    model.mtp.layers[0].eh_proj.register_forward_hook(lambda *_: calls.append(1))
+
+    recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\..*proj$"]})
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+        pipeline=pipeline,
+    )
+
+    assert calls
+    linears = {
+        name: module
+        for name, module in model.mtp.named_modules()
+        if isinstance(module, torch.nn.Linear) and name.endswith("proj")
+    }
+    assert linears
+    for name, module in linears.items():
+        scale = module.input_global_scale
+        assert torch.isfinite(scale).all() and (scale > 0).all(), name
+
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+    weights = get_weight_mappings(destination)
+    mtp_prefixes = ("model.mtp.", f"model.layers.{model.config.num_hidden_layers}.")
+    mtp_scales = [
+        name
+        for name in weights
+        if name.endswith(".input_global_scale") and name.startswith(mtp_prefixes)
+    ]
+    assert len(mtp_scales) == len(linears)
+    quant = json.loads((destination / "config.json").read_text())["quantization_config"]
+    assert not any(
+        name.removesuffix(".input_global_scale") in quant["ignore"]
+        for name in mtp_scales
+    )
+
+
+def test_mtp_calibration_does_not_change_backbone_outputs(tmp_path):
     model = _source_model(tmp_path, load_mtp=True)
-    recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\."]})
-    with pytest.raises(ValueError, match="data-free schemes only"):
-        oneshot(model=model, recipe=recipe)
+    input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
+    with torch.no_grad():
+        expected = model(input_ids=input_ids).logits
+        with mtp_calibration_context(model):
+            actual = model(input_ids=input_ids).logits
+    torch.testing.assert_close(actual, expected)
+
+
+def _mtp_layer_outputs(model, **inputs):
+    """Hidden states produced by each MTP layer during a calibration forward pass"""
+    mtp = model.mtp
+    outputs = []
+
+    def capture(_module, _args, output):
+        if mtp.use_shared_post_norm:
+            output = mtp.shared_post_norm(output)
+        outputs.append(output)
+
+    handles = [layer.register_forward_hook(capture) for layer in mtp.layers]
+    try:
+        with torch.no_grad(), mtp_calibration_context(model):
+            model(**inputs)
+    finally:
+        for handle in handles:
+            handle.remove()
+    return outputs
+
+
+@pytest.mark.parametrize("layout,num_mtp_layers", [("dedicated", 2), ("trailing", 1)])
+def test_mtp_calibration_matches_upstream_layer_forward(
+    tmp_path, layout, num_mtp_layers
+):
+    model = _loaded_mtp_model(tmp_path, layout, num_mtp_layers)
+    if not hasattr(model.mtp, "forward_layer"):
+        pytest.skip("Transformers does not provide MtpModel.forward_layer")
+    input_ids = torch.tensor(_calibration_dataset(num_samples=2)["input_ids"])
+    actual = _mtp_layer_outputs(model, input_ids=input_ids)
+    assert len(actual) == num_mtp_layers
+
+    # Teacher forcing: layer `i` embeds the tokens shifted by `i + 1`
+    positions = torch.arange(input_ids.shape[1]).expand_as(input_ids)
+    with torch.no_grad():
+        hidden = model.get_decoder()(input_ids=input_ids).last_hidden_state
+        for index, output in enumerate(actual):
+            shift = index + 1
+            hidden = model.mtp.forward_layer(
+                index,
+                hidden[:, :-1],
+                positions[:, shift:],
+                None,
+                input_ids=input_ids[:, shift:],
+            )
+            torch.testing.assert_close(output, hidden)
+
+
+def test_mtp_calibration_masks_left_padding(tmp_path):
+    # Inkling's hybrid MTP layer needs both the attention and the conv mask
+    model = _source_model(tmp_path, load_mtp=True, num_mtp_layers=2)
+    input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
+    num_pad = 3
+    padded_ids = torch.cat([torch.full((1, num_pad), 3), input_ids], dim=1)
+    attention_mask = torch.cat(
+        [torch.zeros(1, num_pad, dtype=torch.long), torch.ones_like(input_ids)], dim=1
+    )
+    position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)
+
+    expected = _mtp_layer_outputs(model, input_ids=input_ids)
+    actual = _mtp_layer_outputs(
+        model,
+        input_ids=padded_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+    )
+    for padded, unpadded in zip(actual, expected, strict=True):
+        torch.testing.assert_close(padded[:, num_pad:], unpadded)
+
+
+def test_each_mtp_layer_is_one_subgraph(tmp_path):
+    model = _source_model(tmp_path, load_mtp=True, num_mtp_layers=2)
+    input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
+    sample = {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids)}
+    with mtp_calibration_context(model):
+        subgraphs = trace_subgraphs(model, sample, get_no_split_params(model), [])
+
+    owners = {}
+    for index, subgraph in enumerate(subgraphs):
+        for name in subgraph.submodule_dict(model):
+            owners.setdefault(name, set()).add(index)
+    for layer in ("mtp.layers.0", "mtp.layers.1"):
+        assert len(owners[layer]) == 1, layer
+        assert owners[f"{layer}.eh_proj"] == owners[layer]
+        assert owners[f"{layer}.mtp_block"] == owners[layer]
+    assert owners["mtp.layers.0"] != owners["mtp.layers.1"]
+
+    # Each subgraph must return what later subgraphs consume. The model output
+    # does not depend on MTP, so it is ready before the last MTP layer runs.
+    cache = IntermediatesCache.from_dataloader([sample], torch.device("cpu"))
+    with torch.no_grad(), mtp_calibration_context(model):
+        for subgraph in subgraphs:
+            inputs = cache.fetch(0, list(subgraph.input_names))
+            cache.update(0, subgraph.forward(model, **inputs))
+
+
+def test_two_layer_mtp_calibrates_sequentially(tmp_path):
+    model = _source_model(tmp_path, load_mtp=True, num_mtp_layers=2)
+    recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\..*proj$"]})
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+        pipeline="sequential",
+    )
+    for index, layer in enumerate(model.mtp.layers):
+        for name in ("eh_proj", "mtp_block.self_attn.q_proj"):
+            scale = layer.get_submodule(name).input_global_scale
+            assert torch.isfinite(scale).all() and (scale > 0).all(), (index, name)
+
+
+def test_mtp_does_not_run_when_recipe_ignores_it(tmp_path):
+    model = _source_model(tmp_path, load_mtp=True)
+    calls = []
+    model.mtp.layers[0].register_forward_hook(lambda *_: calls.append(1))
+    recipe = QuantizationModifier(
+        scheme={"NVFP4": ["Linear"]}, ignore=["lm_head", r"re:^mtp\."]
+    )
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+    )
+    assert not calls
+    assert not hasattr(model.mtp.layers[0].eh_proj, "quantization_scheme")
+
+
+def test_mtp_calibration_accepts_inputs_embeds(tmp_path):
+    # GLM's MTP shares the backbone embedding
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    input_ids = torch.tensor(_calibration_dataset(num_samples=2)["input_ids"])
+    with torch.no_grad():
+        inputs_embeds = model.get_input_embeddings()(input_ids)
+    expected = _mtp_layer_outputs(model, input_ids=input_ids)
+    actual = _mtp_layer_outputs(model, inputs_embeds=inputs_embeds)
+    for embedded, tokens in zip(actual, expected, strict=True):
+        torch.testing.assert_close(embedded, tokens)
+
+
+def test_mtp_calibration_rejects_embeds_for_own_mtp_embedding(tmp_path):
+    # Inkling's MTP normalizes embeddings with its own weights
+    model = _loaded_mtp_model(tmp_path, "dedicated")
+    input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
+    with torch.no_grad():
+        inputs_embeds = model.get_input_embeddings()(input_ids)
+    with pytest.raises(ValueError, match="their own embedding"):
+        _mtp_layer_outputs(model, inputs_embeds=inputs_embeds)
+
+
+_BACKBONE = r"re:^model\.layers\.\d+\."
+
+
+@pytest.mark.parametrize(
+    "modifier,calibrates_mtp",
+    [
+        (
+            SmoothQuantModifier(
+                mappings=[
+                    [[f"{_BACKBONE}self_attn.q_proj$"], f"{_BACKBONE}input_layernorm$"]
+                ],
+            ),
+            False,
+        ),
+        (
+            SmoothQuantModifier(
+                mappings=[[["re:.*self_attn.q_proj$"], "re:.*input_layernorm$"]]
+            ),
+            True,
+        ),
+        (
+            AWQModifier(
+                mappings=[
+                    AWQMapping(
+                        f"{_BACKBONE}input_layernorm$",
+                        [f"{_BACKBONE}self_attn.q_proj$"],
+                    )
+                ]
+            ),
+            False,
+        ),
+        (
+            AWQModifier(
+                mappings=[
+                    AWQMapping("re:.*input_layernorm$", ["re:.*self_attn.q_proj$"])
+                ]
+            ),
+            True,
+        ),
+        (REAPPruningModifier(sparsity=0.5, ignore=[r"^mtp\."]), False),
+        (REAPPruningModifier(sparsity=0.5), True),
+        (QADModifier(), False),
+    ],
+)
+def test_calibrated_names_resolve_mtp(tmp_path, modifier, calibrates_mtp):
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    names = _calibrated_names(model, modifier)
+    # QAD only distills what a preceding modifier quantized
+    assert bool(names) != isinstance(modifier, QADModifier)
+    assert any(name.startswith("mtp.") for name in names) == calibrates_mtp
+
+
+def test_mtp_does_not_run_for_backbone_only_mappings(tmp_path):
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    calls = []
+    model.mtp.layers[0].register_forward_hook(lambda *_: calls.append(1))
+    recipe = [
+        SmoothQuantModifier(
+            mappings=[
+                [[f"{_BACKBONE}self_attn.q_proj$"], f"{_BACKBONE}input_layernorm$"]
+            ],
+        ),
+        QuantizationModifier(scheme="W8A8", ignore=["lm_head", r"re:^mtp\."]),
+    ]
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+    )
+    assert not calls
+
+
+@pytest.mark.parametrize("layout", ["dedicated", "trailing"])
+@pytest.mark.parametrize("method", ["gptq", "autoround"])
+def test_calibrated_weight_quantization_of_mtp(tmp_path, layout, method):
+    from llmcompressor.modifiers.autoround import AutoRoundModifier
+    from llmcompressor.modifiers.gptq import GPTQModifier
+
+    model = _loaded_mtp_model(tmp_path, layout)
+    scheme = QuantizationScheme(
+        targets=[r"re:^mtp\.layers\..*proj$"],
+        weights=QuantizationArgs(
+            num_bits=4, type="int", symmetric=True, strategy="group", group_size=16
+        ),
+    )
+    if method == "gptq":
+        recipe = GPTQModifier(config_groups={"group_0": scheme})
+    else:
+        recipe = AutoRoundModifier(
+            config_groups={"group_0": scheme}, iters=2, enable_torch_compile=False
+        )
+    linears = [
+        name
+        for name, module in model.mtp.named_modules()
+        if isinstance(module, torch.nn.Linear) and name.endswith("proj")
+    ]
+    assert "layers.0.eh_proj" in linears
+
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+    )
+
+    for name in linears:
+        module = model.mtp.get_submodule(name)
+        assert module.quantization_scheme is not None, name
+        assert torch.isfinite(module.weight_scale).all(), name
+
+    destination = tmp_path / "destination"
+    model.save_pretrained(destination)
+    weights = get_weight_mappings(destination)
+    mtp_prefixes = ("model.mtp.", f"model.layers.{model.config.num_hidden_layers}.")
+    mtp_scales = [
+        name
+        for name in weights
+        if name.endswith(".weight_scale") and name.startswith(mtp_prefixes)
+    ]
+    assert len(mtp_scales) == len(linears)
+    projection = "input_proj" if layout == "dedicated" else "eh_proj"
+    assert any(f".{projection}.weight_scale" in name for name in mtp_scales)
+    quant = json.loads((destination / "config.json").read_text())["quantization_config"]
+    assert not any(
+        name.removesuffix(".weight_scale") in quant["ignore"] for name in mtp_scales
+    )
 
 
 def test_unloaded_mtp_warns_for_default_linear_targets(tmp_path):
