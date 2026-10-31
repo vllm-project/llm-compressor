@@ -37,7 +37,7 @@ copies.
 
 ## This branch
 
-- **Always raw opening**: every disk read goes through `_opened_raw`. There is
+- **Always raw opening**: every disk read goes through `_opened`. There is
   no `safe_open` in the read path at all — no validation double-open per
   shard, and no mmap-backed pageable tensors (unpinned reads land in
   allocator-owned `torch.empty` memory, which onloads ~2.5x faster, see
