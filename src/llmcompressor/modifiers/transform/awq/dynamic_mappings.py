@@ -117,7 +117,10 @@ def build_hybrid_attention_mappings(model: Module) -> list[AWQMapping] | None:
             AWQMapping(
                 "re:.*post_attention_layernorm$",
                 [
-                    # TODO: should add "re:.*mlp.gate.weight$" but is a Parameter
+                    # the router reads the smoothed activations too; it is a
+                    # TopKRouter module with a [num_experts, hidden] weight, so
+                    # it is balanced like any other layer (as in #2451)
+                    "re:.*mlp.gate$",
                     "re:.*mlp.experts.*.gate_proj$",
                     "re:.*mlp.experts.*.up_proj$",
                     "re:.*mlp.shared_expert_gate$",
