@@ -2,6 +2,8 @@
 Integration tests for HIGGS mixed-precision quantization.
 """
 
+import re
+
 import pytest
 import torch
 from compressed_tensors.quantization import (
@@ -9,12 +11,14 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     preset_name_to_scheme,
 )
+from compressed_tensors.utils import match_targets
 
 from llmcompressor.entrypoints.higgs import (
     HiggsMSECollectorConverter,
     compute_fused_layer_mse,
     compute_heuristic_alphas,
     compute_layer_mse,
+    generate_config_groups,
 )
 from llmcompressor.entrypoints.higgs.utils import UNQUANTIZED_SCHEME
 from llmcompressor.entrypoints.model_free.validate import validate_config
@@ -215,6 +219,41 @@ def test_mse_collector_with_fusion(
     # Should generate valid config respecting fusion constraints
     assert config is not None
     assert len(config.config_groups) > 0
+
+
+@pytest.mark.parametrize("other_scheme", ["W8A8", UNQUANTIZED_SCHEME])
+def test_generate_config_groups_mixed_expert_schemes(candidate_schemes, other_scheme):
+    prefix = "model.layers.0.mlp.experts"
+    ilp_solution = {
+        f"{prefix}.0.gate_proj": "W4A16",
+        f"{prefix}.1.gate_proj": other_scheme,
+        f"{prefix}.0.up_proj": "W4A16",
+        f"{prefix}.1.up_proj": "W4A16",
+    }
+
+    config_groups = generate_config_groups(ilp_solution, candidate_schemes)
+
+    # Each expert layer must be targeted only by the group of its own scheme
+    module = torch.nn.Linear(1, 1)
+    for layer, scheme_name in ilp_solution.items():
+        matching = [
+            group
+            for group in config_groups.values()
+            if match_targets(layer, module, group.targets)
+        ]
+        if scheme_name == UNQUANTIZED_SCHEME:
+            assert matching == []
+        else:
+            assert len(matching) == 1
+            assert matching[0].weights == candidate_schemes[scheme_name].weights
+
+    # Experts that share a scheme are still collapsed into a wildcard
+    (up_proj_group,) = [
+        group
+        for group in config_groups.values()
+        if match_targets(f"{prefix}.0.up_proj", module, group.targets)
+    ]
+    assert f"re:^{re.escape(prefix)}\\.\\d+\\.up_proj$" in up_proj_group.targets
 
 
 def test_alpha_heuristic_layer_types():
