@@ -51,6 +51,7 @@ Review the [LLM Compressor v0.15.0 release notes](https://github.com/vllm-projec
 | **GPTQ** | Weighted quantization with calibration | High-accuracy 4 and 8 bit weight quantization |
 | **AWQ** | Activation-aware weight quantization | Preserves accuracy for important weights |
 | **SmoothQuant** | Outlier handling for W8A8 | Improved activation quantization |
+| **IterSmooth** | Calibration-based channel scaling and outlier suppression | Preprocessing for W8A8 weight and activation quantization |
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
 | **REAP** | Router-weighted expert activation pruning | Reduce the memory footprint of MoE models by removing low-saliency experts |
