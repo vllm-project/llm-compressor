@@ -18,6 +18,8 @@ from llmcompressor.observers.helpers import fuse_weight_observers
 
 KDA = ("q_proj", "k_proj", "v_proj", "b_proj", "f_a_proj")
 MLA = ("q_a_proj", "kv_a_proj_with_mqa")
+GDN_QKVZ = ("in_proj_qkv", "in_proj_z")
+GDN_BA = ("in_proj_b", "in_proj_a")
 
 
 def test_fused_mappings_well_formed():
@@ -50,6 +52,10 @@ def test_fused_mappings_well_formed():
             {"q_proj", "k_proj", "v_proj", "b_proj", "forget_gate.f_a_proj"},
             [("q_proj", "k_proj", "v_proj", "b_proj", "forget_gate.f_a_proj")],
         ),
+        # qwen3.5 gated delta net
+        ({*GDN_QKVZ, *GDN_BA, "out_proj"}, [GDN_QKVZ, GDN_BA]),
+        # qwen3-next gated delta net: stored pre-fused, nothing to link
+        ({"in_proj_qkvz", "in_proj_ba", "out_proj"}, []),
         # multi-latent attention, with and without the kimi output gate
         ({*MLA, "q_b_proj", "kv_b_proj", "o_proj", "g_proj"}, [(*MLA, "g_proj")]),
         ({*MLA, "q_b_proj", "kv_b_proj", "o_proj"}, [MLA]),
@@ -206,5 +212,54 @@ def test_kimi_k3_oneshot_and_model_free_agree():
             frozenset(
                 f"model.layers.1.self_attn.{name}.weight" for name in (*MLA, "g_proj")
             )
+            in checkpoint_groups
+        )
+
+
+def test_qwen3_5_oneshot_and_model_free_agree():
+    """
+    The oneshot (module) and model_free_ptq (checkpoint) paths resolve the same
+    fused groups on the Qwen3.5 model definition, including the gated delta net
+    projections that vLLM packs into in_proj_qkvz and in_proj_ba
+    """
+    try:
+        from transformers import Qwen3_5ForCausalLM, Qwen3_5TextConfig
+    except ImportError:
+        pytest.skip("installed transformers has no Qwen3.5 model definition")
+
+    from llmcompressor.entrypoints.model_free.microscale import get_fused_names
+
+    config = Qwen3_5TextConfig(
+        vocab_size=128,
+        hidden_size=64,
+        intermediate_size=64,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        linear_key_head_dim=16,
+        linear_value_head_dim=16,
+        linear_num_key_heads=2,
+        linear_num_value_heads=4,
+        layer_types=["linear_attention", "full_attention"],
+    )
+    with torch.device("meta"):
+        model = Qwen3_5ForCausalLM(config)
+
+    module_groups = {
+        frozenset(f"{name}.{layer_name}.weight" for layer_name in fused_layers)
+        for name, module in model.named_modules()
+        for fused_layers in get_fused_layers(module)
+    }
+
+    weight_names = [name for name, _ in model.named_parameters()]
+    checkpoint_groups = {
+        frozenset(group.values()) for group in get_fused_names(weight_names)
+    }
+
+    assert module_groups == checkpoint_groups
+    for names in (GDN_QKVZ, GDN_BA):
+        assert (
+            frozenset(f"model.layers.0.linear_attn.{name}.weight" for name in names)
             in checkpoint_groups
         )
