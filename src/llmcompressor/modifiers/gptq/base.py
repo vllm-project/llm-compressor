@@ -22,7 +22,7 @@ from loguru import logger
 from pydantic import PrivateAttr, StrictInt, field_validator
 from torch import distributed as dist
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import Event, State, active_session
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq.gptq_quantize import quantize_weight
 from llmcompressor.modifiers.gptq.helpers import (
@@ -314,7 +314,19 @@ class GPTQModifier(Modifier, QuantizationMixin):
             module,
             self._hessians[module],
             self._num_samples[module],
+            mask=self._get_loss_mask(),
         )
+
+    @staticmethod
+    def _get_loss_mask() -> torch.Tensor | None:
+        """
+        Return the loss mask of the batch currently being calibrated, if token
+        masking is enabled (`use_loss_mask=True`)
+        """
+        state = active_session().state
+        if state is None or not state.loss_masks or state.current_batch_idx < 0:
+            return None
+        return state.loss_masks[state.current_batch_idx]
 
     def compress_modules(self):
         """
