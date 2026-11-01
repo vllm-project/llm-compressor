@@ -44,6 +44,7 @@ __all__ = ["Oneshot", "oneshot"]
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
+    from torch import Generator
 
     from llmcompressor.recipe import RecipeInput
 
@@ -347,6 +348,8 @@ def oneshot(
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
+    calibration_seed: int | None = None,
+    calibration_generator: Generator | None = None,
     max_seq_length: int | None = None,
     pad_to_max_length: bool = False,
     text_column: str = "text",
@@ -436,6 +439,12 @@ def oneshot(
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before
         calibration.
+    :param calibration_seed: Optional seed for the calibration shuffle. When
+        set, repeated runs draw the same samples. When None, the shuffle stays
+        unseeded. Ignored when shuffle_calibration_samples is False.
+    :param calibration_generator: Optional torch.Generator for the calibration
+        shuffle. Mutually exclusive with calibration_seed. When neither is
+        set, the shuffle stays unseeded.
     :param max_seq_length: Maximum total input sequence length after tokenization.
     :param pad_to_max_length: Whether to pad all samples to `max_seq_length`.
     :param text_column: Key to use as the `text` input to tokenizer/processor.
