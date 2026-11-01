@@ -289,27 +289,16 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
                 "`oneshot` with `batch_size=1`"
             )
 
-        return RandomSampler(
-            dataset,
-            num_samples=num_samples,
-            generator=_calibration_generator(args),
+        generator = (
+            torch.Generator().manual_seed(args.calibration_seed)
+            if args.calibration_seed is not None
+            else None
         )
+        return RandomSampler(dataset, num_samples=num_samples, generator=generator)
     else:
         return LengthAwareSampler(
             dataset, num_samples=num_samples, batch_size=batch_size
         )
-
-
-def _calibration_generator(args: DatasetArguments) -> torch.Generator | None:
-    generator = args.calibration_generator
-    seed = args.calibration_seed
-    if generator is not None and seed is not None:
-        raise ValueError("Pass calibration_seed or calibration_generator, not both.")
-    if generator is not None:
-        return generator
-    if seed is None:
-        return None
-    return torch.Generator().manual_seed(seed)
 
 
 class DataCollatorWithTruncation:

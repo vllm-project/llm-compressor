@@ -11,7 +11,6 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Callable
 
-import torch
 from datasets import Dataset, DatasetDict
 from torch.utils.data import DataLoader
 
@@ -177,18 +176,7 @@ class DatasetArguments(CustomDatasetArguments):
             "help": (
                 "Seed for the calibration shuffle. When set, repeated runs draw "
                 "the same samples. When None, the shuffle stays unseeded. "
-                "Ignored when shuffle_calibration_samples is False. Do not set "
-                "together with calibration_generator."
-            )
-        },
-    )
-    calibration_generator: torch.Generator | None = field(
-        default=None,
-        metadata={
-            "help": (
-                "torch.Generator for the calibration shuffle. Use this instead "
-                "of calibration_seed when the caller already owns a generator. "
-                "When both are unset, the shuffle stays unseeded."
+                "Ignored when shuffle_calibration_samples is False."
             )
         },
     )
