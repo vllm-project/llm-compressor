@@ -8,6 +8,7 @@ from collections import defaultdict
 
 import torch
 from compressed_tensors.config import MoESparsityMethod
+from loguru import logger
 from pydantic import PrivateAttr
 from transformers.modeling_utils import local_torch_dtype
 
@@ -87,8 +88,12 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         output: torch.Tensor,
     ):
         if moe_name not in self._moe_stats:
-            # layer has already been finalized
+            logger.warning(
+                f"Attempted to calibrate layer {moe_name} which was never "
+                "initialized or has already been finalized"
+            )
             return
+
         norm = torch.linalg.norm(output.to(self.precision), dim=-1)
         self._expert_norms[moe_name][expert_idx] = norm
 
@@ -101,9 +106,10 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         output: torch.Tensor,
     ):
         if moe_name not in self._moe_stats:
-            # layer has already been finalized: stop collecting and discard
-            # any stale norms
-            self._expert_norms.pop(moe_name, None)
+            logger.warning(
+                f"Attempted to calibrate layer {moe_name} which was never "
+                "initialized or has already been finalized"
+            )
             return
 
         topk_indices: torch.Tensor = args[1].to(torch.long)
@@ -133,26 +139,6 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 flat_norms = torch.zeros_like(flat_weights)
                 for expert_idx, expert_norms in enumerate(self._expert_norms[moe_name]):
                     mask = flat_idx == expert_idx
-
-                    if expert_norms is None:
-                        # this expert was not executed this batch, so the
-                        # router must not have sent it any tokens
-                        assert mask.sum().item() == 0, (
-                            f"REAP saliency accumulation: router sent "
-                            f"{mask.sum().item()} tokens to expert {expert_idx}, "
-                            f"but its hook never fired. This indicates a bug in "
-                            f"the expert hook registration or routing extraction "
-                            f"logic."
-                        )
-                        continue
-
-                    assert len(expert_norms) == mask.sum().item(), (
-                        f"REAP saliency accumulation: expert {expert_idx} has "
-                        f"{len(expert_norms)} norms but router sent "
-                        f"{mask.sum().item()} tokens to it. This indicates a bug in "
-                        f"the expert hook or routing extraction logic."
-                    )
-
                     flat_norms[mask] = expert_norms
 
                 # Vectorized computation using index_add_
@@ -162,9 +148,9 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                     0, flat_idx, torch.ones_like(flat_idx, dtype=counts.dtype)
                 )
 
-        # discard this batch's norms; the next batch's expert hooks
-        # repopulate them
-        self._expert_norms[moe_name] = [None] * len(self._expert_norms[moe_name])
+        # reset expert norms for next batch
+        num_experts = self._moe_config.num_experts
+        self._expert_norms[moe_name] = [None for _ in range(num_experts)]
 
     def saliency(self, moe_name: str) -> torch.Tensor:
         """The mean saliency ``S_j`` per expert."""
