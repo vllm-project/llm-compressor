@@ -16,6 +16,7 @@ from compressed_tensors.utils import (
 from loguru import logger
 from torch.nn import Module
 
+from llmcompressor.core import active_session
 from llmcompressor.observers import Observer
 
 __all__ = [
@@ -181,19 +182,69 @@ def update_qparams(
                 getattr(module, full_param_name).data = param_val
 
 
+def _current_loss_mask() -> torch.Tensor | None:
+    """
+    Loss mask of the batch being calibrated, or None if token masking is off.
+    The sequential pipeline fills `state.loss_masks` when `use_loss_mask=True`,
+    the same lookup AWQ uses.
+    """
+    state = active_session().state
+    loss_masks = state.loss_masks if state else None
+    batch_idx = state.current_batch_idx if state else -1
+    if not loss_masks or not 0 <= batch_idx < len(loss_masks):
+        return None
+    return loss_masks[batch_idx]
+
+
+def _select_masked_tokens(
+    module: Module, value: torch.Tensor, seq_dim: int
+) -> torch.Tensor:
+    """
+    Keep only the tokens where the current batch's loss mask is nonzero, so that
+    masked tokens do not affect activation statistics. Without a mask, the value
+    is returned unchanged.
+
+    :param module: module being calibrated, named in the error message
+    :param value: activations of shape (batch_size, seq_len, hidden_dim) if
+        `seq_dim` is 1, or attention states of shape
+        (batch_size, num_heads, seq_len, head_dim) if `seq_dim` is 2
+    :param seq_dim: dimension of `value` that indexes the tokens
+    :return: the kept tokens, with batch size 1 and the dims of `value`
+    """
+    loss_mask = _current_loss_mask()
+    if loss_mask is None:
+        return value
+
+    token_shape = tuple(value.shape[:1] + value.shape[seq_dim : seq_dim + 1])
+    if value.dim() != seq_dim + 2 or token_shape != tuple(loss_mask.shape):
+        raise ValueError(
+            f"Token masking (use_loss_mask=True) cannot be applied to "
+            f"{type(module).__name__}: its activations have shape "
+            f"{tuple(value.shape)}, which does not align with the loss mask of "
+            f"shape {tuple(loss_mask.shape)}. This happens for modules which do "
+            "not see the batch's token sequence, such as routed MoE experts or "
+            "vision encoders. Add the module to `ignore`, or disable token masking."
+        )
+
+    keep = loss_mask.to(device=value.device).bool()
+    return value.movedim(seq_dim, 1)[keep].unsqueeze(0).movedim(1, seq_dim)
+
+
 def calibrate_input_hook(module: Module, args: Any):
     """
     Hook to calibrate input activations by accumulating statistics in the observer.
+    With `use_loss_mask=True`, only tokens selected by the loss mask are observed.
     """
     args = args[0] if isinstance(args, tuple) else args
-    module.input_observer(args)
+    module.input_observer(_select_masked_tokens(module, args, seq_dim=1))
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
     Hook to calibrate output activations by accumulating statistics in the observer.
+    With `use_loss_mask=True`, only tokens selected by the loss mask are observed.
     """
-    module.output_observer(output)
+    module.output_observer(_select_masked_tokens(module, output, seq_dim=1))
     output = forward_quantize(
         module=module,
         value=output,
@@ -204,15 +255,15 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
 
 
 def calibrate_query_hook(module: Module, query_states: torch.Tensor):
-    module.q_observer(query_states)
+    module.q_observer(_select_masked_tokens(module, query_states, seq_dim=2))
 
 
 def calibrate_key_hook(module: Module, key_states: torch.Tensor):
-    module.k_observer(key_states)
+    module.k_observer(_select_masked_tokens(module, key_states, seq_dim=2))
 
 
 def calibrate_value_hook(module: Module, value_states: torch.Tensor):
-    module.v_observer(value_states)
+    module.v_observer(_select_masked_tokens(module, value_states, seq_dim=2))
 
 
 def apply_calibration_status(module: Module):
