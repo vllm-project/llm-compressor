@@ -103,7 +103,10 @@ class TestBuildInverseWeightMaps:
                 str(tmp_path / "shard-00002.safetensors"): [
                     "model.layers.0.self_attn.k_proj.weight"
                 ],
-            }
+            },
+            # shard-00002 holds only a dependency tensor, so it gets an empty
+            # plan that job building can skip
+            "shard-00002.safetensors": {},
         }
 
     def test_requires_weight_names(self, tmp_path, mfptq):
