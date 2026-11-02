@@ -1,4 +1,4 @@
-from .base import ExpertPruningModifierBase
+from .expert_sparsity.base import ExpertPruningModifierBase
 from .mone import MoNePruningModifier
 from .reap import REAPPruningModifier
 

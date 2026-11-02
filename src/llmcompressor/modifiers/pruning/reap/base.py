@@ -4,12 +4,18 @@ REAP (Router-weighted Expert Activation Pruning) modifier for MoE models.
 See: https://arxiv.org/abs/2510.13999
 """
 
+from collections import defaultdict
+
 import torch
 from compressed_tensors.config import MoESparsityMethod
+from pydantic import PrivateAttr
+from transformers.modeling_utils import local_torch_dtype
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
-from llmcompressor.modifiers.pruning.base import ExpertPruningModifierBase
-from llmcompressor.modifiers.pruning.reap.utils import REAP_PRECISION
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP
+from llmcompressor.modifiers.pruning.expert_sparsity.base import (
+    ExpertPruningModifierBase,
+)
 
 __all__ = ["REAPPruningModifier"]
 
@@ -54,98 +60,90 @@ class REAPPruningModifier(ExpertPruningModifierBase):
     """
 
     sparsity_method = MoESparsityMethod.PRUNE
-    _expert_verb = "drop"
-    _expert_verb_past = "dropped"
+    stats_to_report = ("saliency", "counts")
 
-    # -- saliency metric ------------------------------------------------------
+    _expert_norms: dict[list[torch.Tensor]] = PrivateAttr(
+        default_factory=defaultdict(list)
+    )
 
-    def _init_layer_stats(
+    def init_moe_stats(
         self,
-        layer_name: str,
+        moe_name: str,
         num_experts: int,
         hidden_dim: int,
         device: torch.device,
     ):
-        """Per-layer REAP accumulators: ``sum_saliency[j]`` accumulates
-        ``g_j * ||f_j||_2`` over the tokens routed to expert ``j`` and
-        ``counts[j]`` the number of routed tokens."""
-        self._layer_stats[layer_name] = {
-            name: torch.zeros(num_experts, dtype=REAP_PRECISION, device=device)
-            for name in ("counts", "sum_saliency")
+        return {
+            "sum_saliency": torch.zeros(
+                num_experts, dtype=self.precision, device=device
+            ),
+            "counts": torch.zeros(num_experts, dtype=torch.int, device=device),
         }
 
-    def _capture_expert_output(self, output: torch.Tensor) -> torch.Tensor:
-        """Capture only the L2 norm ``||f_j||_2`` of each token's expert
-        output -- all the REAP metric needs -- rather than the full output,
-        to bound peak memory."""
-        return torch.linalg.norm(output.float(), dim=-1).reshape(-1)
-
-    def _update_stats(
+    def expert_hook(
         self,
-        layer_name: str,
-        topk_indices: torch.Tensor,
-        topk_weights: torch.Tensor,
-        expert_norms_dict: dict[int, torch.Tensor],
+        moe_name: str,
+        expert_idx: int,
+        module: ExpertMLP,
+        args: tuple,
+        output: torch.Tensor,
     ):
-        """
-        Vectorized accumulation over one batch.
+        norm = torch.linalg.norm(output.float(), dim=-1).reshape(-1)
+        self._expert_norms[moe_name][expert_idx] = norm
 
-        :param topk_indices: ``[num_tokens, top_k]`` selected expert ids
-        :param topk_weights: ``[num_tokens, top_k]`` gate weight per selection
-        :param expert_norms_dict: dict mapping expert_idx to output norms
-            ``[num_routed_tokens]`` for tokens routed to that expert (sparse
-            routing: experts only see tokens the router sent to them)
-        """
-        if not expert_norms_dict:
-            return
+    def experts_block_hook(
+        self,
+        moe_name: str,
+        module: torch.nn.Module,
+        args: tuple,
+        output: torch.Tensor,
+    ):
+        topk_indices: torch.Tensor = args[1].to(self.precision)
+        topk_weights: torch.Tensor = args[2].to(self.precision)
 
-        stats = self._layer_stats[layer_name]
+        stats = self._moe_stats[moe_name]
         sum_saliency = stats["sum_saliency"]
         counts = stats["counts"]
-        self._layer_counts[layer_name] += topk_indices.numel()
+        self._moe_stats[moe_name]["counts"] += topk_indices.numel()
 
-        if get_calibrate_all_experts_flag():
-            stacked_norms = torch.stack(
-                [expert_norms_dict[i] for i in range(self._moe_attrs.num_experts)],
-                dim=1,
-            )
-            flat_idx = topk_indices.reshape(-1).to(torch.long)
-            gathered_norms = stacked_norms.gather(1, topk_indices.to(torch.long))
-            contrib = topk_weights.to(torch.float32) * gathered_norms.to(torch.float32)
-            counts.index_add_(
-                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32)
-            )
-            sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
-        else:
-            # Flatten in (slot, token) order to match torch.where order
-            # in LinearExperts2D torch.where scans row-by-row (slot 0 all
-            # tokens, then slot 1 all tokens, etc.)
-            flat_idx = topk_indices.T.reshape(-1).to(torch.long)
-            flat_weights = topk_weights.T.reshape(-1).to(torch.float32)
+        # TODO: I think the "counts" calculations for this function are incorrect
+        # TODO: at some point, `_expert_norms` needs to be discarded
 
-            # Build flat norms tensor aligned with flat_idx
-            flat_norms = torch.zeros_like(flat_weights)
-            for expert_idx, expert_norms in expert_norms_dict.items():
-                mask = flat_idx == expert_idx
+        with local_torch_dtype(self.precision):
+            if get_calibrate_all_experts_flag():
+                stacked_norms = torch.stack(self._expert_norms[moe_name], dim=1)
+                flat_idx = topk_indices.reshape(-1)
+                gathered_norms = stacked_norms.gather(1, topk_indices)
+                contrib = topk_weights * gathered_norms
+                counts.index_add_(0, flat_idx, torch.ones_like(flat_idx))
+                sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
+            else:
+                # Flatten in (slot, token) order to match torch.where order
+                # in LinearExperts2D torch.where scans row-by-row (slot 0 all
+                # tokens, then slot 1 all tokens, etc.)
+                flat_idx = topk_indices.T.reshape(-1)
+                flat_weights = topk_weights.T.reshape(-1)
 
-                # Assertion check: number of norms must match number of routed tokens
-                assert len(expert_norms) == mask.sum().item(), (
-                    f"REAP saliency accumulation: expert {expert_idx} has "
-                    f"{len(expert_norms)} norms but router sent "
-                    f"{mask.sum().item()} tokens to it. This indicates a bug in "
-                    f"the expert hook or routing extraction logic."
-                )
+                # Build flat norms tensor aligned with flat_idx
+                flat_norms = torch.zeros_like(flat_weights)
+                for expert_idx, expert_norms in enumerate(self._expert_norms[moe_name]):
+                    mask = flat_idx == expert_idx
 
-                flat_norms[mask] = expert_norms.to(torch.float32)
+                    assert len(expert_norms) == mask.sum().item(), (
+                        f"REAP saliency accumulation: expert {expert_idx} has "
+                        f"{len(expert_norms)} norms but router sent "
+                        f"{mask.sum().item()} tokens to it. This indicates a bug in "
+                        f"the expert hook or routing extraction logic."
+                    )
 
-            # Vectorized computation using index_add_
-            contrib = flat_weights * flat_norms
-            sum_saliency.index_add_(0, flat_idx, contrib)
-            counts.index_add_(
-                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32)
-            )
+                    flat_norms[mask] = expert_norms
 
-    def _saliency(self, layer_name: str) -> torch.Tensor:
+                # Vectorized computation using index_add_
+                contrib = flat_weights * flat_norms
+                sum_saliency.index_add_(0, flat_idx, contrib)
+                counts.index_add_(0, flat_idx, torch.ones_like(flat_idx))
+
+    def saliency(self, moe_name: str) -> torch.Tensor:
         """The mean saliency ``S_j`` per expert."""
-        stats = self._layer_stats[layer_name]
+        stats = self._moe_stats[moe_name]
         return stats["sum_saliency"] / stats["counts"].clamp(min=1.0)

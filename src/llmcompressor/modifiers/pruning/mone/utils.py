@@ -16,7 +16,7 @@ import torch.nn as nn
 from compressed_tensors.offload import get_execution_device
 
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
-from llmcompressor.modifiers.pruning.utils import (
+from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     NUM_EXPERTS_CONFIG_KEYS,
     MoeModelAttrs,
     _prune_router,

@@ -23,7 +23,9 @@ from compressed_tensors.distributed import (
 from torch import distributed as dist
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
-from llmcompressor.modifiers.pruning.base import ExpertPruningModifierBase
+from llmcompressor.modifiers.pruning.expert_sparsity.base import (
+    ExpertPruningModifierBase,
+)
 from llmcompressor.modifiers.pruning.mone.utils import collapse_moe_layer
 
 __all__ = ["MoNePruningModifier"]
@@ -70,13 +72,6 @@ class MoNePruningModifier(ExpertPruningModifierBase):
     """
 
     sparsity_method = MoESparsityMethod.NOVICE
-    _expert_verb = "collapse"
-    _expert_verb_past = "collapsed"
-
-    # n_group == 1 is a degenerate "group-limited" router: a single group
-    # holds every expert, so routing is equivalent to ungrouped top-k and
-    # MoNe's uniform collapse is correct. Only genuine group-limited routers
-    # (n_group > 1), which would need group-balanced collapse, are unsupported
     supports_group_limited_routers = False
 
     # -- saliency metric ------------------------------------------------------

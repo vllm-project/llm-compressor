@@ -105,19 +105,33 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
 
 @dataclass
 class MoEConfig:
+    # experts routing
     num_experts: int
     num_experts_per_tok: int
+
+    # group-limited routing
+    n_group: int | None
+    top_k_group: int | None
+    group_size: int | None
+
+    # hidden sizes
     hidden_dim: int
     intermediate_size: int
+
+    # biases and activations
     use_bias: bool
     hidden_act: str
+
+    # moe extras
     limit: float
     alpha: float | None
+
+    # weight dtypes
     dtype: torch.dtype
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
-        ret = cls(
+        self = cls(
             num_experts=_getattr_fallbacks(
                 config,
                 [
@@ -130,6 +144,9 @@ class MoEConfig:
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
             ),
+            n_group=_getattr_fallbacks(config, ["n_group"]),
+            top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"]),
+            group_size=None,
             hidden_dim=_getattr_fallbacks(
                 config, ["moe_latent_size", "hidden_size", "hidden_dim"]
             ),
@@ -146,20 +163,29 @@ class MoEConfig:
             dtype=_getattr_fallbacks(config, ["dtype"]),
         )
 
+        # compute group_size
+        if self.n_group is not None:
+            if self.num_experts % self.n_group != 0:
+                raise ValueError(
+                    f"Group limited router detected, but {self.num_experts} experts "
+                    f"not divisible by n_group={self.n_group}"
+                )
+            self.group_size = self.num_experts // self.n_group
+
         # special case: some configs have parameters which are not marked in config
         match config.model_type:
             case "gpt_oss" | "openai_privacy_filter":
-                ret.use_bias = True
-                ret.limit = 7.0
-                ret.alpha = 1.702
-                ret.hidden_act = "sigmoid"
+                self.use_bias = True
+                self.limit = 7.0
+                self.alpha = 1.702
+                self.hidden_act = "sigmoid"
             case "lfm2_moe":
-                ret.hidden_act = "silu"
+                self.hidden_act = "silu"
             case "nemotron_h":
                 if config.moe_latent_size is None:
-                    ret.hidden_dim = config.hidden_size
+                    self.hidden_dim = config.hidden_size
 
-        return ret
+        return self
 
 
 def import_or_none(paths: str | list[str]) -> object | None:
