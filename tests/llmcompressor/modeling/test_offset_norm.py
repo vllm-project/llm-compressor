@@ -6,6 +6,7 @@ from compressed_tensors.offload import offload_module, update_offload_parameter
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 
 from llmcompressor.modeling import offset_norm
+from llmcompressor.modeling.fuse import fuse_norm_linears
 from llmcompressor.modeling.offset_norm import (
     CalibrationOffsetNorm,
     norm_calibration_context,
@@ -234,6 +235,42 @@ def test_failed_unmount_leaves_stand_in_weight(tmp_path, monkeypatch):
     assert type(model.b) is Gemma2RMSNorm
     assert torch.equal(_bits(model.b.weight.detach()), _bits(before))
     assert len(set(tmp_path.iterdir()) - files_before) == 1
+
+
+@pytest.mark.unit
+def test_fuse_norm_linears_restores_zero_offset():
+    before = torch.tensor(
+        [0.001, 1e-4, -0.001, 0.0, 0.125, -0.03],
+        dtype=torch.bfloat16,
+    )
+    model = _model(before)
+    linear = torch.nn.Linear(before.numel(), 3, bias=False)
+    with norm_calibration_context(model):
+        fuse_norm_linears(model.norm, [linear])
+    assert torch.equal(model.norm.weight.detach(), torch.zeros_like(before))
+
+
+@pytest.mark.unit
+def test_later_cleanup_error_stays_on_the_raised_exception(tmp_path, monkeypatch):
+    before = torch.tensor(OFFSETS, dtype=torch.bfloat16)
+    model = _two_disk_norms(before, str(tmp_path))
+
+    def fail_restore(self, original):
+        raise RuntimeError("restore failed")
+
+    def fail_release(module):
+        raise RuntimeError("release failed")
+
+    monkeypatch.setattr(CalibrationOffsetNorm, "restore", fail_restore)
+    monkeypatch.setattr(offset_norm, "_release_offload", fail_release)
+    with pytest.raises(RuntimeError, match="restore failed") as caught:
+        with norm_calibration_context(model):
+            pass
+
+    notes = getattr(caught.value, "__notes__", [])
+    assert any("release failed" in note for note in notes)
+    assert type(model.a) is Gemma2RMSNorm
+    assert type(model.b) is Gemma2RMSNorm
 
 
 @pytest.mark.unit
