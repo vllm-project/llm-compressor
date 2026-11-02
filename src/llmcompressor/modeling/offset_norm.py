@@ -82,6 +82,7 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         self._orig_dtype = original.weight.dtype
         offset = original.weight.detach().to(self._orig_dtype).clone()
         self._original_offset = offset
+        self._restore_live_scale = False
         self.weight = torch.nn.Parameter((1.0 + offset.float()).to(self._orig_dtype))
 
     def _norm(self, x: torch.Tensor) -> torch.Tensor:
@@ -92,15 +93,23 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         output = output * self.weight.float()
         return output.type_as(x)
 
+    def restore_live_scale(self) -> None:
+        self._restore_live_scale = True
+
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         live = self.weight.detach()
-        offset = self._original_offset.to(device=live.device, dtype=self._orig_dtype)
-        initial = (1.0 + offset.float()).to(dtype=self._orig_dtype)
-        restored = torch.where(
-            live == initial,
-            offset,
-            (live.float() - 1.0).to(self._orig_dtype),
-        )
+        if self._restore_live_scale:
+            restored = (live.float() - 1.0).to(self._orig_dtype)
+        else:
+            offset = self._original_offset.to(
+                device=live.device, dtype=self._orig_dtype
+            )
+            initial = (1.0 + offset.float()).to(dtype=self._orig_dtype)
+            restored = torch.where(
+                live == initial,
+                offset,
+                (live.float() - 1.0).to(self._orig_dtype),
+            )
         update_offload_parameter(original, "weight", restored)
         return original
 
@@ -182,7 +191,13 @@ def norm_calibration_context(model: PreTrainedModel):
             except Exception as release_exc:
                 failures.append(release_exc)
         if failures:
-            raise failures[0]
+            primary, *rest = failures
+            for extra in rest:
+                logger.opt(exception=extra).error(
+                    "norm calibration cleanup also failed"
+                )
+                primary.add_note(f"{type(extra).__name__}: {extra}")
+            raise primary
 
 
 def _release_offload(module: torch.nn.Module) -> None:
