@@ -23,7 +23,7 @@ ROUTER_ATTRS = ["router", "gate"]
 
 def get_experts_router(
     moe_name: str, moe_module: torch.nn.Module
-) -> tuple[torch.nn.Module | None, torch.nn.Module | None]:
+) -> tuple[LinearExperts2D | None, torch.nn.Module | None]:
     (
         experts,
         router,

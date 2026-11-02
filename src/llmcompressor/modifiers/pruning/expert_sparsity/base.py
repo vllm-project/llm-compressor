@@ -1,26 +1,8 @@
 """
 Base class for expert pruning modifiers for MoE models.
 
-``ExpertPruningModifierBase`` implements the expert pruning lifecycle shared
-by expert pruning modifiers (currently REAP and MoNe): it identifies the
-model's MoE layers and validates the requested sparsity against them
-(``on_initialize``), attaches the activation capture hooks and initializes the
-subclass's per-layer statistics (``on_calibration_start``), and finalizes each
-layer once its statistics are complete (``on_sequential_epoch_end``): it
-reduces the statistics across ranks, records the report values, decides which
-experts to prune (dropping the ``sparsity`` fraction with the lowest saliency)
-and applies that decision to the layer's structure. On ``on_finalize`` the
-pruning is recorded in the model's expert-sparsity config and the per-expert
-statistics are written to ``report_path``.
-
-A new expert pruning algorithm only has to define its saliency metric, by
-implementing ``_init_moe_stats``, ``_update_stats`` and ``_saliency``, and
-may optionally override ``_capture_expert_output`` (how each expert's output
-is captured) and ``_apply_retained_experts`` (how a retained-experts decision
-is applied to a layer's structure). Everything else -- MoE detection,
-distributed reduction of the statistics, the pruning decision (including
-group-limited routers and broadcasting the decision across ranks), report
-writing and expert-sparsity config recording -- is inherited.
+Implements calibration lifecycle as well as provides interfaces for
+subclasses to implement their own saliency calculations and pruning
 """
 
 import json
@@ -39,6 +21,7 @@ from compressed_tensors.distributed import (
     wait_for_comms,
 )
 from compressed_tensors.offload import get_execution_device
+from compressed_tensors.utils import TorchDtype
 from compressed_tensors.utils.match import is_match
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
@@ -53,6 +36,7 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     get_experts_router,
     prune_moe_layer,
 )
+from llmcompressor.utils.helpers import numeric_sorted_names
 
 __all__ = ["ExpertPruningModifierBase"]
 
@@ -82,18 +66,18 @@ class ExpertPruningModifierBase(Modifier):
     """
 
     requires_calibration_data: bool = True
-    precision: torch.dtype = torch.float32
+    precision: TorchDtype = torch.float32
 
     sparsity: float = 0.0
     ignore: list[str] = Field(default_factory=list)
     report_path: Optional[str] = Field(default=None)
 
     # subclass configuration: the sparsity method recorded in the model's
-    # expert-sparsity config, verbs for log and error messages, and whether
-    # group-balanced expert selection applies to the subclass
+    # expert-sparsity config, whether group-limited routers are supported,
+    # and which stats to serialize in the report
     sparsity_method: ClassVar[MoESparsityMethod]
     supports_group_limited_routers: ClassVar[bool] = True
-    stats_to_report: tuple[str] = ("saliency", "counts")
+    stats_to_report: tuple[str] = ("saliency", "count")
 
     # model structure, decided in on_initialize
     _moe_config: MoEConfig = PrivateAttr()
@@ -105,9 +89,7 @@ class ExpertPruningModifierBase(Modifier):
 
     # pruning outputs
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
-    _report: dict[str, dict[str, list[int | float]]] = PrivateAttr(
-        default_factory=lambda: defaultdict(defaultdict(list))
-    )
+    _report: dict[str, dict[str, list[int | float]]] = PrivateAttr(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate(self) -> "ExpertPruningModifierBase":
@@ -121,9 +103,9 @@ class ExpertPruningModifierBase(Modifier):
             Path(self.report_path).parent.mkdir(parents=True, exist_ok=True)
         if self.sparsity == 0.0 and self.report_path is None:
             raise ValueError(
-                f"sparsity is 0.0 (no experts will be {self._expert_verb_past}) "
+                f"sparsity is 0.0 (no experts will be pruned) "
                 f"and no report_path is set; {type(self).__name__} would do "
-                f"nothing. Set sparsity > 0 to {self._expert_verb} experts, or "
+                f"nothing. Set sparsity > 0 to prune experts, or "
                 "set report_path to write a saliency report"
             )
         return self
@@ -230,8 +212,8 @@ class ExpertPruningModifierBase(Modifier):
                 continue
 
             device = get_execution_device(experts)
-            self._init_moe_stats(moe_name, num_experts, hidden_dim, device)
-            assert "counts" in self._moe_stats[moe_name], "moe stats must use counts"
+            self.init_moe_stats(moe_name, num_experts, hidden_dim, device)
+            assert "count" in self._moe_stats[moe_name], "moe stats must use counts"
 
             # add hooks to experts
             for idx, expert in enumerate(
@@ -249,24 +231,32 @@ class ExpertPruningModifierBase(Modifier):
             self.register_hook(experts, _experts_block_hook, "forward")
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """ """
+        """Finalize each layer whose statistics are complete: reduce them
+        across ranks, record the report values, and prune its lowest-saliency
+        experts (when ``sparsity > 0``). Layers which have not seen any
+        calibration tokens anywhere keep their statistics, in case data
+        arrives in a later epoch."""
         model: torch.nn.Module = state.model
 
         # sort by layer name to keep the sequence of distributed collectives identical
         pruned_layers = 0
-        for moe_name in sorted(self._moe_stats):
+        for moe_name in numeric_sorted_names(self._moe_stats):
             moe_module = model.get_submodule(moe_name)
 
-            # compute saliency and retained experts
+            # reduce stats and process any MoEs that were calibrated
             self.reduce_moe_stats(moe_name)
-            device = self._moe_stats[moe_name]["counts"].device
+            if self._moe_stats[moe_name]["count"].count_nonzero().item() <= 0:
+                continue
+
+            # compute saliency and retained experts
+            device = self._moe_stats[moe_name]["count"].device
             retained, saliency = self.compute_retained_experts(moe_name, device)
 
             # apply pruning
             is_ignored = is_match(moe_name, moe_module, self.ignore)
             if self._n_experts_to_drop > 0 and not is_ignored:
                 self._retained_experts[moe_name] = retained
-                self.prune_moe_layer(model, moe_name, retained)
+                self.prune_moe_layer(moe_name, moe_module, retained)
                 pruned_layers += 1
             else:
                 self._retained_experts[moe_name] = None
@@ -274,11 +264,11 @@ class ExpertPruningModifierBase(Modifier):
             # source rank writes report
             if is_source_process():
                 assert moe_name not in self._report, f"duplicate report for {moe_name}"
+                self._moe_stats[moe_name]["saliency"] = saliency
                 self._report[moe_name] = {
                     key: self._moe_stats[moe_name][key].tolist()
                     for key in self.stats_to_report
                 }
-                self._report[moe_name]["saliency"] = saliency.tolist()
 
             # free all stats
             del self._moe_stats[moe_name]
@@ -298,24 +288,53 @@ class ExpertPruningModifierBase(Modifier):
 
         model = state.model
 
+        # Warn and nullify any moe layers which were initialized but never calibrated
+        if len(self._moe_stats) > 0:
+            logger.warning(
+                "Found MoE layers which were initialized but "
+                f"never calibrated: {self._moe_stats.keys()}"
+            )
+            for moe_name in self._moe_stats:
+                self._retained_experts[moe_name] = None
+                self._report[moe_name] = {key: None for key in self.stats_to_report}
+
+        # Picked up by the compressed save path and written into
+        # config.json's quantization_config.moe_sparsity_config.
         if self._n_experts_to_drop > 0:
-            # Picked up by the compressed save path and written into
-            # config.json's quantization_config.moe_sparsity_config.
             model._moe_sparsity_config = ExpertSparsityConfig(
                 method=self.sparsity_method,
                 num_experts=[
                     len(self._retained_experts[moe_name])
                     if self._retained_experts[moe_name] is not None
                     else None
-                    for moe_name in sorted(self._retained_experts)
+                    for moe_name in numeric_sorted_names(self._retained_experts)
                 ],
             )
 
+        # Report needs to be reconstructed, using the sorted moe names
+        # as a source of truth for which layer index is being sparsified
         if self.report_path is not None and is_source_process():
-            with open(self.report_path, "w") as file:
-                json.dump(self._report, file)
+            if self._report.keys() != self._retained_experts.keys():
+                extra_diff = self._report.keys() - self._retained_experts.keys()
+                missing_diff = self._retained_experts.keys() - self._report.keys()
+                logger.warning(
+                    "Mismatched keys at save time: \n"
+                    f"Extra  : {extra_diff}\n"
+                    f"Missing: {missing_diff}\n"
+                )
 
+            _report = defaultdict(list)
+            for moe_name in numeric_sorted_names(self._report):
+                for key in self.stats_to_report:
+                    _report[key].append(self._report[moe_name][key])
+
+            with open(self.report_path, "w") as file:
+                json.dump(_report, file)
+
+        # cleanup
         self._moe_stats.clear()
+        self._retained_experts.clear()
+        self._report.clear()
 
         return True
 
@@ -354,7 +373,7 @@ class ExpertPruningModifierBase(Modifier):
     ):
         raise NotImplementedError()
 
-    def reduce_moe_stats(self, layer_name: str) -> float:
+    def reduce_moe_stats(self, layer_name: str):
         if not is_distributed():
             return
 
@@ -362,7 +381,7 @@ class ExpertPruningModifierBase(Modifier):
         pending = [
             (
                 dist.reduce(tensor, dst=src_rank, op=dist.ReduceOp.SUM, async_op=True)
-                if name != "counts"
+                if name != "count"
                 else dist.all_reduce(tensor, op=dist.ReduceOp.SUM, async_op=True)
             )
             for name, tensor in self._moe_stats[layer_name].items()
@@ -406,7 +425,9 @@ class ExpertPruningModifierBase(Modifier):
 
             retained = torch.tensor(retained, dtype=torch.int, device=device)
         else:
-            saliency = torch.empty(expected, dtype=self.precision, device=device)
+            # saliency is broadcast from the source rank at its full
+            # [num_experts] size; only retained is sized to `expected`
+            saliency = torch.empty(num_experts, dtype=self.precision, device=device)
             retained = torch.empty(expected, dtype=torch.int, device=device)
 
         if is_distributed():
@@ -417,16 +438,12 @@ class ExpertPruningModifierBase(Modifier):
             len(retained) == expected
         ), f"Expected {expected} retained experts, got {len(retained)}"
 
-        return retained.tolist()
+        return retained.tolist(), saliency
 
     def prune_moe_layer(
         self,
-        model: torch.nn.Module,
-        layer_name: str,
+        moe_name: str,
+        moe_module: torch.nn.Module,
         retained: list[int],
     ):
-        """Apply a retained-experts decision to a layer's structure. The
-        default structurally prunes the layer to the retained experts;
-        subclasses may override it to apply the decision differently (e.g.
-        MoNe collapses the dropped experts into novices instead)."""
-        prune_moe_layer(model, layer_name, retained)
+        prune_moe_layer(moe_name, moe_module, retained)

@@ -15,18 +15,21 @@ See: https://arxiv.org/abs/2507.00390
 
 import torch
 from compressed_tensors.config import MoESparsityMethod
-from compressed_tensors.distributed import (
-    get_source_rank,
-    is_distributed,
-    is_source_process,
-)
-from torch import distributed as dist
 
-from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
+# from compressed_tensors.distributed import (
+#     get_source_rank,
+#     is_distributed,
+#     is_source_process,
+# )
+from pydantic import PrivateAttr
+
+# from torch import distributed as dist
+# from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
 )
-from llmcompressor.modifiers.pruning.mone.utils import collapse_moe_layer
+from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
+from llmcompressor.modifiers.pruning.mone.utils import set_novices
 
 __all__ = ["MoNePruningModifier"]
 
@@ -74,158 +77,172 @@ class MoNePruningModifier(ExpertPruningModifierBase):
     sparsity_method = MoESparsityMethod.NOVICE
     supports_group_limited_routers = False
 
-    # -- saliency metric ------------------------------------------------------
+    _novices: dict[str, torch.Tensor] = PrivateAttr(default_factory=dict)
 
-    def _init_layer_stats(
+    # # -- saliency metric ------------------------------------------------------
+
+    # def _init_layer_stats(
+    #     self,
+    #     layer_name: str,
+    #     num_experts: int,
+    #     hidden_dim: int,
+    #     device: torch.device,
+    # ):
+    #     """Per-layer MoNe accumulators. Output statistics (``sum_output``,
+    #     ``sum_sq_output``, ``counts``): the mean output is the novice vector,
+    #     and the per-dimension variance gives the fluctuation term of the
+    #     saliency metric. Routing statistics (``sum_gates``): the
+    #     frequency-weighted mean gate weight gives the routing score term."""
+    #     self._layer_stats[layer_name] = {
+    #         "counts": torch.zeros(num_experts, dtype=torch.float32, device=device),
+    #         "sum_gates": torch.zeros(num_experts, dtype=torch.float32, device=device),
+    #         "sum_output": torch.zeros(
+    #             num_experts, hidden_dim, dtype=torch.float32, device=device
+    #         ),
+    #         "sum_sq_output": torch.zeros(
+    #             num_experts, hidden_dim, dtype=torch.float32, device=device
+    #         ),
+    #     }
+
+    # def _update_stats(
+    #     self,
+    #     layer_name: str,
+    #     topk_indices: torch.Tensor,
+    #     topk_weights: torch.Tensor,
+    #     expert_outputs_dict: dict[int, torch.Tensor],
+    # ):
+    #     """Combine the router decisions with the captured expert outputs to
+    #     update the routing and novice accumulators."""
+    #     self._update_routing(layer_name, topk_indices, topk_weights)
+    #     self._update_outputs(layer_name, topk_indices, expert_outputs_dict)
+
+    # def _update_routing(
+    #     self,
+    #     layer_name: str,
+    #     topk_indices: torch.Tensor,
+    #     topk_weights: torch.Tensor,
+    # ):
+    #     """
+    #     Accumulate the frequency-weighted router gate weight per expert.
+
+    #     ``sum_gates[j]`` collects ``g_j`` summed over the tokens for which ``j`` is
+    #     in the top-k, and ``_layer_counts[layer_name]`` counts all tokens, so
+    #     that ``routing_score_j = sum_gates[j] / layer_counts`` equals
+    #     ``E_tokens[ g_j * 1(j in top-k) ]``.
+
+    #     :param topk_indices: ``[num_tokens, top_k]`` selected expert ids
+    #     :param topk_weights: ``[num_tokens, top_k]`` gate weight per selection
+    #     """
+    #     flat_idx = topk_indices.reshape(-1).to(torch.long)
+    #     flat_weights = topk_weights.reshape(-1).to(torch.float32)
+    #     self._layer_stats[layer_name]["sum_gates"].index_add_(
+    # 0, flat_idx, flat_weights)
+    #     self._layer_counts[layer_name] += topk_indices.shape[0]
+
+    # def _update_outputs(
+    #     self,
+    #     layer_name: str,
+    #     topk_indices: torch.Tensor,
+    #     expert_outputs_dict: dict[int, torch.Tensor],
+    # ):
+    #     """
+    #     Accumulate the sum and sum-of-squares of each expert's output over the
+    #     tokens routed to it (for the novice mean and the fluctuation term).
+
+    #     :param topk_indices: ``[num_tokens, top_k]`` selected expert ids, used to
+    #         mask routed tokens when ``calibrate_all_experts`` is enabled
+    #     :param expert_outputs_dict: dict mapping expert_idx to that expert's output
+    #         activations. In sparse mode these are already the routed-token outputs
+    #         ``[num_routed, hidden_dim]``; in calibrate-all mode they are the
+    #         dense outputs ``[num_tokens, hidden_dim]`` and are masked here.
+    #     """
+    #     if not expert_outputs_dict:
+    #         return
+
+    #     stats = self._layer_stats[layer_name]
+    #     calibrate_all = get_calibrate_all_experts_flag()
+    #     for expert_idx, output in expert_outputs_dict.items():
+    #         if calibrate_all:
+    #             mask = (topk_indices == expert_idx).any(dim=-1)
+    #             output = output[mask]
+    #         if output.shape[0] == 0:
+    #             continue
+    #         output = output.to(torch.float32)
+    #         stats["sum_output"][expert_idx] += output.sum(dim=0)
+    #         stats["sum_sq_output"][expert_idx] += output.pow(2).sum(dim=0)
+    #         stats["counts"][expert_idx] += output.shape[0]
+
+    # def _routing_score(self, layer_name: str) -> torch.Tensor:
+    #     """``[num_experts]`` frequency-weighted mean gate weight."""
+    #     token_count = self._layer_counts[layer_name]
+    #     sum_gates = self._layer_stats[layer_name]["sum_gates"]
+    #     if token_count <= 0:
+    #         return torch.zeros_like(sum_gates)
+    #     return sum_gates / float(token_count)
+
+    # def _output_fluctuation(self, layer_name: str) -> torch.Tensor:
+    #     """``[num_experts]`` L2 norm (over hidden dims) of the per-dimension
+    #     standard deviation of each expert's output."""
+    #     stats = self._layer_stats[layer_name]
+    #     count = stats["counts"].clamp(min=1.0).unsqueeze(-1)
+    #     mean = stats["sum_output"] / count
+    #     variance = (stats["sum_sq_output"] / count - mean.pow(2)).clamp_min(0.0)
+    #     std = variance.sqrt()
+    #     return torch.linalg.norm(std, dim=1)
+
+    # def _saliency(self, layer_name: str) -> torch.Tensor:
+    #     """The MoNe fusion saliency ``fluctuation * routing_score`` per expert."""
+    #     return self._output_fluctuation(layer_name) * self._routing_score(layer_name)
+
+    # def _compute_novices(self, layer_name: str, dropped: list[int]) -> torch.Tensor:
+    #     """Return the ``(len(dropped), hidden_dim)`` matrix of novice vectors --
+    #     the mean output of each collapsed expert, ordered to match ``dropped``.
+    #     """
+    #     stats = self._layer_stats[layer_name]
+    #     count = stats["counts"].clamp(min=1.0).unsqueeze(-1)
+    #     mean_output = stats["sum_output"] / count
+    #     drop_idx = torch.tensor(dropped, dtype=torch.long, device=mean_output.device)
+    #     return mean_output[drop_idx]
+
+    # # -- collapse --------------------------------------------------------------
+
+    # def _apply_retained_experts(
+    #     self,
+    #     model: torch.nn.Module,
+    #     layer_name: str,
+    #     retained: list[int],
+    # ):
+    #     """Collapse the layer's dropped experts into novices: their mean
+    #     outputs (computed on the source rank, which holds the globally
+    #     reduced statistics, and broadcast to every rank) are installed as
+    #     constant novice vectors while the router keeps its full width."""
+    #     sum_output = self._layer_stats[layer_name]["sum_output"]
+    #     num_experts = sum_output.shape[0]
+    #     retained_set = set(retained)
+    #     dropped = [i for i in range(num_experts) if i not in retained_set]
+
+    #     if is_source_process():
+    #         novices = self._compute_novices(layer_name, dropped)
+    #     else:
+    #         novices = torch.empty(
+    #             len(dropped),
+    #             sum_output.shape[1],
+    #             dtype=torch.float32,
+    #             device=sum_output.device,
+    #         )
+
+    #     if is_distributed():
+    #         dist.broadcast(novices, src=get_source_rank())
+
+    #     collapse_moe_layer(model, layer_name, retained, novices, self._moe_attrs)
+
+    def prune_moe_layer(
         self,
-        layer_name: str,
-        num_experts: int,
-        hidden_dim: int,
-        device: torch.device,
-    ):
-        """Per-layer MoNe accumulators. Output statistics (``sum_output``,
-        ``sum_sq_output``, ``counts``): the mean output is the novice vector,
-        and the per-dimension variance gives the fluctuation term of the
-        saliency metric. Routing statistics (``sum_gates``): the
-        frequency-weighted mean gate weight gives the routing score term."""
-        self._layer_stats[layer_name] = {
-            "counts": torch.zeros(num_experts, dtype=torch.float32, device=device),
-            "sum_gates": torch.zeros(num_experts, dtype=torch.float32, device=device),
-            "sum_output": torch.zeros(
-                num_experts, hidden_dim, dtype=torch.float32, device=device
-            ),
-            "sum_sq_output": torch.zeros(
-                num_experts, hidden_dim, dtype=torch.float32, device=device
-            ),
-        }
-
-    def _update_stats(
-        self,
-        layer_name: str,
-        topk_indices: torch.Tensor,
-        topk_weights: torch.Tensor,
-        expert_outputs_dict: dict[int, torch.Tensor],
-    ):
-        """Combine the router decisions with the captured expert outputs to
-        update the routing and novice accumulators."""
-        self._update_routing(layer_name, topk_indices, topk_weights)
-        self._update_outputs(layer_name, topk_indices, expert_outputs_dict)
-
-    def _update_routing(
-        self,
-        layer_name: str,
-        topk_indices: torch.Tensor,
-        topk_weights: torch.Tensor,
-    ):
-        """
-        Accumulate the frequency-weighted router gate weight per expert.
-
-        ``sum_gates[j]`` collects ``g_j`` summed over the tokens for which ``j`` is
-        in the top-k, and ``_layer_counts[layer_name]`` counts all tokens, so
-        that ``routing_score_j = sum_gates[j] / layer_counts`` equals
-        ``E_tokens[ g_j * 1(j in top-k) ]``.
-
-        :param topk_indices: ``[num_tokens, top_k]`` selected expert ids
-        :param topk_weights: ``[num_tokens, top_k]`` gate weight per selection
-        """
-        flat_idx = topk_indices.reshape(-1).to(torch.long)
-        flat_weights = topk_weights.reshape(-1).to(torch.float32)
-        self._layer_stats[layer_name]["sum_gates"].index_add_(0, flat_idx, flat_weights)
-        self._layer_counts[layer_name] += topk_indices.shape[0]
-
-    def _update_outputs(
-        self,
-        layer_name: str,
-        topk_indices: torch.Tensor,
-        expert_outputs_dict: dict[int, torch.Tensor],
-    ):
-        """
-        Accumulate the sum and sum-of-squares of each expert's output over the
-        tokens routed to it (for the novice mean and the fluctuation term).
-
-        :param topk_indices: ``[num_tokens, top_k]`` selected expert ids, used to
-            mask routed tokens when ``calibrate_all_experts`` is enabled
-        :param expert_outputs_dict: dict mapping expert_idx to that expert's output
-            activations. In sparse mode these are already the routed-token outputs
-            ``[num_routed, hidden_dim]``; in calibrate-all mode they are the
-            dense outputs ``[num_tokens, hidden_dim]`` and are masked here.
-        """
-        if not expert_outputs_dict:
-            return
-
-        stats = self._layer_stats[layer_name]
-        calibrate_all = get_calibrate_all_experts_flag()
-        for expert_idx, output in expert_outputs_dict.items():
-            if calibrate_all:
-                mask = (topk_indices == expert_idx).any(dim=-1)
-                output = output[mask]
-            if output.shape[0] == 0:
-                continue
-            output = output.to(torch.float32)
-            stats["sum_output"][expert_idx] += output.sum(dim=0)
-            stats["sum_sq_output"][expert_idx] += output.pow(2).sum(dim=0)
-            stats["counts"][expert_idx] += output.shape[0]
-
-    def _routing_score(self, layer_name: str) -> torch.Tensor:
-        """``[num_experts]`` frequency-weighted mean gate weight."""
-        token_count = self._layer_counts[layer_name]
-        sum_gates = self._layer_stats[layer_name]["sum_gates"]
-        if token_count <= 0:
-            return torch.zeros_like(sum_gates)
-        return sum_gates / float(token_count)
-
-    def _output_fluctuation(self, layer_name: str) -> torch.Tensor:
-        """``[num_experts]`` L2 norm (over hidden dims) of the per-dimension
-        standard deviation of each expert's output."""
-        stats = self._layer_stats[layer_name]
-        count = stats["counts"].clamp(min=1.0).unsqueeze(-1)
-        mean = stats["sum_output"] / count
-        variance = (stats["sum_sq_output"] / count - mean.pow(2)).clamp_min(0.0)
-        std = variance.sqrt()
-        return torch.linalg.norm(std, dim=1)
-
-    def _saliency(self, layer_name: str) -> torch.Tensor:
-        """The MoNe fusion saliency ``fluctuation * routing_score`` per expert."""
-        return self._output_fluctuation(layer_name) * self._routing_score(layer_name)
-
-    def _compute_novices(self, layer_name: str, dropped: list[int]) -> torch.Tensor:
-        """Return the ``(len(dropped), hidden_dim)`` matrix of novice vectors --
-        the mean output of each collapsed expert, ordered to match ``dropped``.
-        """
-        stats = self._layer_stats[layer_name]
-        count = stats["counts"].clamp(min=1.0).unsqueeze(-1)
-        mean_output = stats["sum_output"] / count
-        drop_idx = torch.tensor(dropped, dtype=torch.long, device=mean_output.device)
-        return mean_output[drop_idx]
-
-    # -- collapse --------------------------------------------------------------
-
-    def _apply_retained_experts(
-        self,
-        model: torch.nn.Module,
-        layer_name: str,
+        moe_name: str,
+        moe_module: torch.nn.Module,
         retained: list[int],
     ):
-        """Collapse the layer's dropped experts into novices: their mean
-        outputs (computed on the source rank, which holds the globally
-        reduced statistics, and broadcast to every rank) are installed as
-        constant novice vectors while the router keeps its full width."""
-        sum_output = self._layer_stats[layer_name]["sum_output"]
-        num_experts = sum_output.shape[0]
-        retained_set = set(retained)
-        dropped = [i for i in range(num_experts) if i not in retained_set]
+        super().prune_moe_layer(moe_name, moe_module, retained)
 
-        if is_source_process():
-            novices = self._compute_novices(layer_name, dropped)
-        else:
-            novices = torch.empty(
-                len(dropped),
-                sum_output.shape[1],
-                dtype=torch.float32,
-                device=sum_output.device,
-            )
-
-        if is_distributed():
-            dist.broadcast(novices, src=get_source_rank())
-
-        collapse_moe_layer(model, layer_name, retained, novices, self._moe_attrs)
+        experts, _router = get_experts_router(moe_name, moe_module)
+        set_novices(experts, self._novices[moe_name])

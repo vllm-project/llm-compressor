@@ -34,13 +34,6 @@ class REAPPruningModifier(ExpertPruningModifierBase):
     - ``f_j`` is expert ``j``'s output activation for that token, so
       ``||f_j||_2`` is its L2 norm.
 
-    The lowest-saliency experts are removed per layer. REAP runs during the
-    sequential calibration pipeline: saliency is accumulated via hooks on the MoE
-    experts, the structural pruning for a layer is executed when it
-    completes (``SEQUENTIAL_EPOCH_END``). The per-layer retained counts are
-    recorded in the checkpoint's ``quantization_config.moe_sparsity_config``
-    with ``method="prune"``.
-
     :param sparsity: fraction of experts to remove per layer, in ``[0, 1)``.
         When ``0.0``, no experts are pruned; saliency is still computed so
         that a ``report_path`` can be written, but the model weights and
@@ -59,11 +52,15 @@ class REAPPruningModifier(ExpertPruningModifierBase):
           sparsity: 0.25
     """
 
+    # subclass configuration
     sparsity_method = MoESparsityMethod.PRUNE
-    stats_to_report = ("saliency", "counts")
 
-    _expert_norms: dict[list[torch.Tensor]] = PrivateAttr(
-        default_factory=defaultdict(list)
+    # per-batch expert output norms, keyed by layer name then expert index.
+    # One slot per expert (None until that expert's hook fires this batch),
+    # populated by the expert hooks and discarded by the experts block hook
+    # at the end of each batch
+    _expert_norms: dict[str, list[torch.Tensor | None]] = PrivateAttr(
+        default_factory=lambda: defaultdict(list)
     )
 
     def init_moe_stats(
@@ -73,13 +70,14 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         hidden_dim: int,
         device: torch.device,
     ):
-        return {
-            "sum_saliency": torch.zeros(
-                num_experts, dtype=self.precision, device=device
-            ),
-            "counts": torch.zeros(num_experts, dtype=torch.int, device=device),
-        }
+        with local_torch_dtype(self.precision), device:
+            self._moe_stats[moe_name] = {
+                "sum_saliency": torch.zeros(num_experts),
+                "count": torch.zeros(num_experts, dtype=torch.int),
+            }
+            self._expert_norms[moe_name] = [None for _ in range(num_experts)]
 
+    @torch.no_grad()
     def expert_hook(
         self,
         moe_name: str,
@@ -88,9 +86,13 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         args: tuple,
         output: torch.Tensor,
     ):
-        norm = torch.linalg.norm(output.float(), dim=-1).reshape(-1)
+        if moe_name not in self._moe_stats:
+            # layer has already been finalized
+            return
+        norm = torch.linalg.norm(output.to(self.precision), dim=-1)
         self._expert_norms[moe_name][expert_idx] = norm
 
+    @torch.no_grad()
     def experts_block_hook(
         self,
         moe_name: str,
@@ -98,16 +100,17 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         args: tuple,
         output: torch.Tensor,
     ):
-        topk_indices: torch.Tensor = args[1].to(self.precision)
+        if moe_name not in self._moe_stats:
+            # layer has already been finalized: stop collecting and discard
+            # any stale norms
+            self._expert_norms.pop(moe_name, None)
+            return
+
+        topk_indices: torch.Tensor = args[1].to(torch.long)
         topk_weights: torch.Tensor = args[2].to(self.precision)
 
-        stats = self._moe_stats[moe_name]
-        sum_saliency = stats["sum_saliency"]
-        counts = stats["counts"]
-        self._moe_stats[moe_name]["counts"] += topk_indices.numel()
-
-        # TODO: I think the "counts" calculations for this function are incorrect
-        # TODO: at some point, `_expert_norms` needs to be discarded
+        sum_saliency = self._moe_stats[moe_name]["sum_saliency"]
+        counts = self._moe_stats[moe_name]["count"]
 
         with local_torch_dtype(self.precision):
             if get_calibrate_all_experts_flag():
@@ -115,7 +118,9 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 flat_idx = topk_indices.reshape(-1)
                 gathered_norms = stacked_norms.gather(1, topk_indices)
                 contrib = topk_weights * gathered_norms
-                counts.index_add_(0, flat_idx, torch.ones_like(flat_idx))
+                counts.index_add_(
+                    0, flat_idx, torch.ones_like(flat_idx, dtype=counts.dtype)
+                )
                 sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
             else:
                 # Flatten in (slot, token) order to match torch.where order
@@ -129,6 +134,18 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 for expert_idx, expert_norms in enumerate(self._expert_norms[moe_name]):
                     mask = flat_idx == expert_idx
 
+                    if expert_norms is None:
+                        # this expert was not executed this batch, so the
+                        # router must not have sent it any tokens
+                        assert mask.sum().item() == 0, (
+                            f"REAP saliency accumulation: router sent "
+                            f"{mask.sum().item()} tokens to expert {expert_idx}, "
+                            f"but its hook never fired. This indicates a bug in "
+                            f"the expert hook registration or routing extraction "
+                            f"logic."
+                        )
+                        continue
+
                     assert len(expert_norms) == mask.sum().item(), (
                         f"REAP saliency accumulation: expert {expert_idx} has "
                         f"{len(expert_norms)} norms but router sent "
@@ -141,9 +158,15 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 # Vectorized computation using index_add_
                 contrib = flat_weights * flat_norms
                 sum_saliency.index_add_(0, flat_idx, contrib)
-                counts.index_add_(0, flat_idx, torch.ones_like(flat_idx))
+                counts.index_add_(
+                    0, flat_idx, torch.ones_like(flat_idx, dtype=counts.dtype)
+                )
+
+        # discard this batch's norms; the next batch's expert hooks
+        # repopulate them
+        self._expert_norms[moe_name] = [None] * len(self._expert_norms[moe_name])
 
     def saliency(self, moe_name: str) -> torch.Tensor:
         """The mean saliency ``S_j`` per expert."""
         stats = self._moe_stats[moe_name]
-        return stats["sum_saliency"] / stats["counts"].clamp(min=1.0)
+        return stats["sum_saliency"] / stats["count"].clamp(min=1.0)

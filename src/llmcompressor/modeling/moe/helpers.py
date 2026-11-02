@@ -12,6 +12,13 @@ from transformers import PreTrainedConfig
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.typing import TorchModuleProtocol
 
+NUM_EXPERTS_CONFIG_KEYS = [
+    "num_local_experts",
+    "moe_num_experts",
+    "num_experts",
+    "n_routed_experts",
+]
+
 
 class FusedExpertsProtocol(TorchModuleProtocol):
     config: PreTrainedConfig
@@ -132,20 +139,12 @@ class MoEConfig:
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
         self = cls(
-            num_experts=_getattr_fallbacks(
-                config,
-                [
-                    "num_local_experts",
-                    "moe_num_experts",
-                    "num_experts",
-                    "n_routed_experts",
-                ],
-            ),
+            num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
             ),
-            n_group=_getattr_fallbacks(config, ["n_group"]),
-            top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"]),
+            n_group=_getattr_fallbacks(config, ["n_group"], None),
+            top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
             group_size=None,
             hidden_dim=_getattr_fallbacks(
                 config, ["moe_latent_size", "hidden_size", "hidden_dim"]
