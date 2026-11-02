@@ -15,6 +15,8 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 
+from llmcompressor.modifiers.utils.pytorch_helpers import apply_loss_mask
+
 GPTQ_PRECISION = torch.float32
 MIN_BATCHED_CHOLESKY_SIZE = 16
 
@@ -55,16 +57,8 @@ def accumulate_hessian(
         the Hessian; the sample counter still counts every sequence in the batch.
         Supported for Linear and Conv1D modules only.
     """
-    if mask is not None:
-        if isinstance(module, torch.nn.Conv2d):
-            raise ValueError("Token masking is not supported for Conv2d modules")
-        if mask.shape != inp.shape[:-1]:
-            raise ValueError(
-                f"Token mask of shape {tuple(mask.shape)} cannot be aligned with "
-                f"module input of shape {tuple(inp.shape)}. Masks are only supported "
-                "for modules which see every token of the batch (e.g. not routed MoE "
-                "experts)"
-            )
+    if mask is not None and isinstance(module, torch.nn.Conv2d):
+        raise ValueError("Token masking is not supported for Conv2d modules")
 
     inp = inp.to(device=hessian.device)
     if len(inp.shape) == 2:
@@ -75,11 +69,8 @@ def accumulate_hessian(
     num_added = inp.shape[0]
     match module:
         case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            if mask is not None:
-                inp = inp[mask.reshape(-1).to(device=inp.device, dtype=torch.bool)]
-            inp = inp.t()
+            # [batch, seq_len, in_features] -> [num_tokens, in_features]
+            inp = apply_loss_mask(inp, mask).t()
         case torch.nn.Conv2d():
             unfold = torch.nn.Unfold(
                 module.kernel_size,
