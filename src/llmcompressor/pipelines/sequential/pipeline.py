@@ -13,6 +13,7 @@ from compressed_tensors.offload.module import (
     subgraph_onload_modules,
     subgraph_stage_modules,
 )
+from compressed_tensors.utils import getattr_chain
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -352,8 +353,7 @@ class SequentialPipeline(CalibrationPipeline):
             LifecycleCallbacks.calibration_end()
 
         if dataset_args.layerwise_compression and any(
-            getattr(getattr(module, "quantization_scheme", None), "weights", None)
-            is not None
+            getattr_chain(module, "quantization_scheme.weights", None) is not None
             for module in model.modules()
         ):
             # Modules outside the traced subgraphs may still have quantized weights.

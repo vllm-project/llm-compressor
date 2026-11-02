@@ -163,12 +163,12 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
 
 
 def _has_weight_quantization(module: Module) -> bool:
-    """Check for weight quantization while tolerating removed metadata."""
+    """Check whether a quantized module has a weight quantization scheme."""
     if not is_module_quantized(module):
         return False
 
     scheme = getattr(module, "quantization_scheme", None)
-    return scheme is None or getattr(scheme, "weights", None) is not None
+    return getattr(scheme, "weights", None) is not None
 
 
 def decompress_subgraph_modules(modules: list[Module]) -> None:
