@@ -123,11 +123,16 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        # mappings are needed to center embeddings and fuse norms, even when the
+        # transforms come from a provided `transform_config`
+        if self.mappings is None:
+            self.mappings = infer_mapping_from_model(state.model)
+        if self.norm_mappings is None:
+            self.norm_mappings = infer_norm_mapping_from_model(state.model)
+
         if self.transform_config is not None:
             return True
 
-        self.mappings = infer_mapping_from_model(state.model)
-        self.norm_mappings = infer_norm_mapping_from_model(state.model)
         head_dim = get_head_dim(state.model.config)
 
         config_groups = {}
