@@ -17,7 +17,7 @@ from compressed_tensors.distributed import (
 )
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
 from compressed_tensors.quantization import QuantizationConfig, QuantizationStatus
-from compressed_tensors.utils import deprecated
+from compressed_tensors.utils import deprecated, getattr_chain
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -105,8 +105,7 @@ def _decompress_compressed_weights(
         module
         for module in model.modules()
         if getattr(module, "quantization_status", None) == QuantizationStatus.COMPRESSED
-        and getattr(getattr(module, "quantization_scheme", None), "weights", None)
-        is not None
+        and getattr_chain(module, "quantization_scheme.weights", None) is not None
     ]
 
     if modules:
