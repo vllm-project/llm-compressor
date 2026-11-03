@@ -10,10 +10,11 @@ model; the per-expert token counts come out bit-identical and the saliency up
 to float32 reduction-order noise). The un-pruned truncated checkpoint is saved
 and the test then verifies that:
 
-1. the retained/pruned expert choice is identical across
+1. the retained/pruned expert choice agrees across
    - oneshot, recovered from the model's post-pruning router weights,
    - ``ExpertPruner``, built from the saliency report which oneshot wrote, and
-   - the expected values recorded in ``test_e2e_expected.json``, and
+   - the expected values recorded in ``test_e2e_expected.json``,
+   up to ``MAX_DIFFERING_EXPERTS`` experts per layer, and
 2. the per-expert saliency statistics of the analyzed layers match the values
    recorded in ``test_e2e_expected.json``.
 
@@ -31,7 +32,10 @@ each modifier has its own recorded values. The retained/pruned boundary is
 decisive (the smallest saliency gap between a retained and a pruned expert
 across all layers is ~0.2%), so the expert lists are only expected to
 reproduce on hardware whose bf16 statistics match the reference run's to
-better than that; re-record the values when that assumption breaks.
+better than that; to absorb a boundary expert swapping places on other
+hardware, each layer's choice may differ from the recorded one in at most
+``MAX_DIFFERING_EXPERTS`` elements. Re-record the values when that assumption
+breaks.
 """
 
 import json
@@ -79,6 +83,11 @@ EXPERT_PATTERN = r"mlp\.experts\.\d+\.(gate|up|down)_proj"
 # depend on the execution hardware; allow for reduction-order differences
 SALIENCY_RTOL = 1e-2
 SALIENCY_ATOL = 1e-2
+
+# likewise, experts near the retained/pruned boundary may swap places on
+# hardware with different bf16 statistics; allow each layer's expert choice to
+# differ from the recorded one in at most this many elements
+MAX_DIFFERING_EXPERTS = 2
 
 # expected expert choices and per-expert statistics, recorded from a reference
 # run of this test (see the module docstring)
@@ -148,6 +157,20 @@ def _match_rows(rows: torch.Tensor, original: torch.Tensor) -> list[int]:
         (matches.sum(dim=1) == 1).all()
     ), "each router row must match exactly one row of the checkpoint"
     return matches.to(torch.uint8).argmax(dim=1).tolist()
+
+
+def _differing_elements(actual: list[int], expected: list[int]) -> list[int]:
+    """The elements that differ between the ``actual`` and ``expected``
+    selections, i.e. the experts present in one selection but not the other.
+
+    Both selections have the same size, so differing elements come in swaps
+    across the retained/pruned boundary: an expert that was kept in place of
+    one that was dropped, and vice versa.
+    """
+    assert len(actual) == len(
+        expected
+    ), f"expected a selection of {len(expected)} experts, got {len(actual)}"
+    return sorted(set(actual) ^ set(expected))
 
 
 def _oneshot_expert_choice(
@@ -236,12 +259,18 @@ def test_oneshot_expert_selection(
     original = _original_router_weights(truncated_model_dir)
     retained, pruned = _oneshot_expert_choice(model, original)
     for layer in range(NUM_LAYERS):
-        assert (
-            retained[layer] == expected_retained[layer]
-        ), f"layer {layer}: oneshot retained experts differ"
-        assert (
-            pruned[layer] == expected_pruned[layer]
-        ), f"layer {layer}: oneshot pruned experts differ"
+        retained_diff = _differing_elements(retained[layer], expected_retained[layer])
+        assert len(retained_diff) <= MAX_DIFFERING_EXPERTS, (
+            f"layer {layer}: oneshot retained experts differ in "
+            f"{len(retained_diff)} elements {retained_diff}, allowed at most "
+            f"{MAX_DIFFERING_EXPERTS}"
+        )
+        pruned_diff = _differing_elements(pruned[layer], expected_pruned[layer])
+        assert len(pruned_diff) <= MAX_DIFFERING_EXPERTS, (
+            f"layer {layer}: oneshot pruned experts differ in "
+            f"{len(pruned_diff)} elements {pruned_diff}, allowed at most "
+            f"{MAX_DIFFERING_EXPERTS}"
+        )
 
     # the model's expert-sparsity config records the per-layer expert counts
     sparsity_config = model._moe_sparsity_config
@@ -259,9 +288,14 @@ def test_oneshot_expert_selection(
         saliency_report_path=report_path,
     )
     for layer in range(NUM_LAYERS):
-        assert (
-            pruner.retained_experts[_router_name(layer)] == expected_retained[layer]
-        ), f"layer {layer}: ExpertPruner retained experts differ"
+        pruner_diff = _differing_elements(
+            pruner.retained_experts[_router_name(layer)], expected_retained[layer]
+        )
+        assert len(pruner_diff) <= MAX_DIFFERING_EXPERTS, (
+            f"layer {layer}: ExpertPruner retained experts differ in "
+            f"{len(pruner_diff)} elements {pruner_diff}, allowed at most "
+            f"{MAX_DIFFERING_EXPERTS}"
+        )
 
     # 2. the saliency statistics of the analyzed layers
     with open(report_path) as f:
