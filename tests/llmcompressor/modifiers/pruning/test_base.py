@@ -1,6 +1,6 @@
 """
-Unit tests for the ``ExpertPruningModifierBase`` template shared by the REAP
-and MoNe expert pruning modifiers.
+Unit tests for the ``ExpertPruningModifierBase`` template shared by the REAP,
+MoNe, and RAZOR expert pruning modifiers.
 
 The base owns the pruning lifecycle: argument validation, MoE layer
 detection, hook attachment, per-layer finalization at
@@ -8,8 +8,8 @@ detection, hook attachment, per-layer finalization at
 recording, and report writing. The lifecycle is driven through
 ``_RecordingModifier``, a minimal concrete subclass whose saliency is the
 per-expert routed-token count, so the template is exercised without any real
-saliency metric. REAP- and MoNe-specific behavior is tested in their own
-modules.
+saliency metric. REAP-, MoNe-, and RAZOR-specific behavior is tested in
+their own modules.
 """
 
 import json
@@ -24,6 +24,7 @@ from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning import (
     ExpertPruningModifierBase,
     MoNePruningModifier,
+    RazorPruningModifier,
     REAPPruningModifier,
 )
 from tests.llmcompressor.modifiers.pruning.fake_moe import (
@@ -112,9 +113,12 @@ def _model(num_experts=8, num_hidden_layers=2, **config_kwargs) -> FakeMoEModel:
 
 @pytest.mark.unit
 @pytest.mark.usefixtures("setup_modifier_factory")
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
+@pytest.mark.parametrize(
+    "modifier_cls",
+    [REAPPruningModifier, MoNePruningModifier, RazorPruningModifier],
+)
 def test_expert_pruning_modifiers_are_registered(modifier_cls):
-    """Both modifiers resolve from their recipe names."""
+    """All expert pruning modifiers resolve from their recipe names."""
     modifier = ModifierFactory.create(
         type_=modifier_cls.__name__,
         allow_experimental=False,
@@ -125,7 +129,9 @@ def test_expert_pruning_modifiers_are_registered(modifier_cls):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
+@pytest.mark.parametrize(
+    "modifier_cls", [REAPPruningModifier, MoNePruningModifier, RazorPruningModifier]
+)
 def test_validates_arguments(modifier_cls):
     # sparsity must be in [0, 1)
     with pytest.raises(ValueError, match="sparsity"):
@@ -151,7 +157,9 @@ def test_validates_arguments(modifier_cls):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
+@pytest.mark.parametrize(
+    "modifier_cls", [REAPPruningModifier, MoNePruningModifier, RazorPruningModifier]
+)
 def test_initialize_rejects_sparsity_that_prunes_no_experts(modifier_cls):
     """A sparsity which rounds to zero experts pruned is a no-op, so it fails
     fast rather than silently doing nothing."""
@@ -161,13 +169,16 @@ def test_initialize_rejects_sparsity_that_prunes_no_experts(modifier_cls):
 
 
 @pytest.mark.unit
-def test_initialize_rejects_overly_aggressive_sparsity():
+@pytest.mark.parametrize(
+    "modifier_cls", [REAPPruningModifier, RazorPruningModifier]
+)
+def test_initialize_rejects_overly_aggressive_sparsity(modifier_cls):
     """Pruning below the router's top_k would leave it unable to route."""
     config = FakeMoEConfig(num_experts=8)
     config.num_experts_per_tok = 5
     model = FakeMoEModel(config)
 
-    modifier = REAPPruningModifier(sparsity=0.75)  # would leave only 2 of 8 experts
+    modifier = modifier_cls(sparsity=0.75)  # would leave only 2 of 8 experts
     with pytest.raises(ValueError, match="too aggressive"):
         modifier.initialize(make_state(model))
 
