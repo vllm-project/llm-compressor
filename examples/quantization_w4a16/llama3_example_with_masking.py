@@ -102,7 +102,8 @@ def tokenize(sample):
     # very large activations; if it is excluded from the Hessian, GPTQ no longer
     # compensates the quantization error on those activations and accuracy drops
     # sharply (gsm8k 0.74 -> 0.69 for W4A16, 0.61 -> 0.37 for W3A16).
-    mask[0] = 1
+    if mask:
+        mask[0] = 1
 
     tokenized["loss_mask"] = torch.tensor(mask)
     return tokenized
