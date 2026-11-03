@@ -158,7 +158,7 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
     raise ValueError(f"Unknown strategy {args.strategy}")
 
 
-def fuse_weight_observers(model: Module):
+def fuse_weight_observers(model: Module, modules: list[Module] | None = None):
     """
     Link weight observers across fused layer groups for shared global_scale.
 
@@ -169,13 +169,22 @@ def fuse_weight_observers(model: Module):
     Fused groups are defined in llmcompressor.observers.fused_mappings.
 
     :param model: model whose weight observers should be linked
+    :param modules: optional subset of modules to search for fused layer groups
     """
     from llmcompressor.observers.fusion import FusionHandler
 
+    allowed_modules = set(modules) if modules is not None else None
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
-            fusion_name_group = tuple(fused_layers.keys())
             layers_to_fuse = list(fused_layers.values())
+            # During layerwise calibration only fuse groups that are wholly
+            # owned by the active subgraph. In particular, do not use observers
+            # from modules that have not been decompressed and initialized yet.
+            if allowed_modules is not None and not set(layers_to_fuse).issubset(
+                allowed_modules
+            ):
+                continue
+            fusion_name_group = tuple(fused_layers.keys())
 
             only_obs = True
             only_tensor_group = True

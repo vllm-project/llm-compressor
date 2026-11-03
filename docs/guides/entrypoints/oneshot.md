@@ -106,6 +106,7 @@ shows how to migrate from `preprocessing_func`.
 | `sequential_offload_device` | `str` | `"cpu"` | Device to offload intermediate activations between sequential layers. Use `"cuda:1"` if a second GPU is available |
 | `quantization_aware_calibration` | `bool` | `True` | Apply quantization during the calibration forward pass in the sequential pipeline |
 | `stage_weights_in_pinned_memory` | `bool` | `False` | Stage offloaded module tensors in pinned CPU memory before onloading them |
+| `use_eager_attention` | `bool` | `False` | Force eager attention during tracing and calibration instead of using the model's configured attention implementation |
 
 ### Miscellaneous Arguments
 
@@ -201,7 +202,9 @@ oneshot(
 
 Use `REAPPruningModifier` to structurally remove low-saliency experts from
 Mixture-of-Experts layers. `sparsity` is the fraction of experts to remove per
-layer, and `report_path` optionally records the retained expert indices.
+layer, and `report_path` optionally writes per-expert statistics (routed-token
+`count` and `saliency`, one inner list per MoE layer) to a `.json` report. Set
+`sparsity=0.0` to only collect the report without modifying the model.
 REAP only needs routed experts for its saliency calculation, so pruning-only
 runs can set `moe_calibrate_all_experts=False`. When REAP is combined with a
 quantization modifier, choose this setting based on whether the quantizer also
@@ -216,7 +219,7 @@ oneshot(
     dataset="perfectblend",
     recipe=REAPPruningModifier(
         sparsity=0.25,
-        report_path="reap_retained_experts.json",
+        report_path="reap_report.json",
     ),
     num_calibration_samples=512,
     max_seq_length=2048,

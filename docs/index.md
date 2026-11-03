@@ -21,19 +21,27 @@ For more information, see [Why use LLM Compressor?](./steps/why-llmcompressor.md
 
 ## New in this release
 
-Review the [LLM Compressor v0.14.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.14.0) for details about new features. New features to be aware of include:
+Review the [LLM Compressor v0.15.0 release notes](https://github.com/vllm-project/llm-compressor/releases/tag/0.15.0) for details about new features. New features to be aware of include:
 
-- **GPTQ Performance Improvements**: The new GPTQ Triton kernel provides an approximately 15x end-to-end speedup on Llama-3-8B. The new batching functionality (useful for MoE models) provides a further approximately 2x end-to-end speedup (approximately 30x total) on Qwen3-30B-A3B.
+- **HIGGS mixed-precision quantization**: HIGGS collects layer-wise MSE sensitivity data and formulates an integer linear program to select an optimal mixed-precision configuration for a target average bitwidth. The resulting config can be passed to `oneshot` or `model_free_ptq`.
 
-- **New NVFP4 Observers**: The `nvfp4_expanded_mse` and `nvfp4_expanded_imatrix` observers utilize key insights from [Four Over Six](https://arxiv.org/abs/2512.02010) to improve accuracy for NVFP4 and NVFP4A16 quantization.
+- **Block-wise QAD**: The new `QADModifier` runs quantization-aware distillation after a weight-quantization modifier in the same recipe. It caches calibration inputs and the unquantized subgraph output as the teacher, then trains the quantized weights through compressed-tensors fake quantization, without loading a separate teacher model.
 
-- **MSE Performance Improvements**: The MSE observer now has a Triton kernel, improving grid-search speed by 10x, including for the new `nvfp4_expanded_mse` observer.
+- **Layerwise compression and sequential offloading**: The sequential pipeline can decompress and compress one layer at a time, avoiding upfront whole-model conversion for large checkpoints. Onload/offload is managed manually with optional CPU staging and pinned memory via `stage_weights_in_pinned_memory=True`.
 
-- **REAP DDP**: REAP expert pruning now supports distributed (DDP) runs, with saliency statistics reduced across ranks before computation on rank 0, along with an optional e-score correction bias.
+- **REAP reports and non-uniform pruning**: REAP now writes per-expert saliency reports, supports calibration-only report generation with `sparsity=0.0`, and accepts per-layer non-uniform expert sparsity. `n_routed_experts` is now recorded in config names.
 
-- **Model-Free PTQ**: Replaced static round-robin GPU assignment with a dynamic, memory-aware scheduler; added mixed-precision and KV-cache quantization support.
+- **MoNe expert pruning**: MoNe collapses low-saliency experts into constant "novice" vectors instead of removing them, keeping the router at full width while reducing expert compute.
 
-- **Expanded MoE Machinery**: Added `patch_moe_mappings()` for overriding 2D load mappings per checkpoint, `repack_moe()` for restoring native fused 3D expert modules after linearization, faster loading for `nemotron_h` (Nemotron 3 Ultra), and GPT-OSS expert linearization.
+- **Faster observers for MXFP4 formats**: The MSE and iMatrix observers gained exponential grid search and magnitude normalization for MXFP4 scales, and the iMatrix observer now shares the MSE Triton kernel, with roughly 1.2-3.4x end-to-end speedups on tested models.
+
+- **MFPTQ SpinQuant rotations**: `SpinQuantConverter` applies offline R1/R2 Hadamard rotations directly to safetensors before model-free quantization, and `model_free_ptq` now accepts converter chains.
+
+- **MXFP6 and MXFP4xFP8 support**: Added MXFP6A8/MXFP6A16 schemes and examples, plus an MXFP4xFP8 example and refreshed quantization documentation.
+
+- **Broader hardware and model support**: The fused GPTQ Triton kernel now runs on Intel XPU, MTP layers load through Transformers `MtpModel`, and new checkpoints and examples include Nemotron 3.5 Super VL FP8, Zyphra Zaya1, Muse Spark, and Qwen3.6 MXFP4xFP8.
+
+- **Docs and community**: Added the Open Research Hub for community experiment results and a full Simplified Chinese README translation.
 
 ## Supported algorithms and techniques
 
@@ -49,6 +57,11 @@ Review the [LLM Compressor v0.14.0 release notes](https://github.com/vllm-projec
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
 | **AutoRound** | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 
+Trying something that is not listed here, such as a new algorithm or an
+unusual combination of techniques? The [Open Research Hub](./research/index.md)
+collects community field reports on exactly that, and it accepts submissions by
+pull request.
+
 ## Supported quantization schemes
 
 LLM Compressor supports applying multiple formats in a given model.
@@ -59,7 +72,9 @@ LLM Compressor supports applying multiple formats in a given model.
 | **W8A8-INT8** | Weights and activations | 7.5 (Turing and up) | Balanced performance and compatibility |
 | **W8A8-FP8** | Weights and activations | 8.9 (Ada Lovelace and up) | High throughput on modern GPUs |
 | **MXFP8** | Weights and activations | 10.0 (Blackwell) | Microscale FP8 |
-| **NVFP4/MXFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
+| **NVFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression on latest hardware |
+| **MXFP4** | Weights and activations | 10.0 (Blackwell) | Maximum compression; MoE experts also run on 9.0 (Hopper) with 16-bit activations |
+| **MXFP4xFP8** | Weights and activations | 9.0 (Hopper and up) | MXFP4 weights with dynamic FP8 activations, typically for MoE experts |
 | **NVFP4A16/MXFP4A16/MXFP8A16** | Weights | 7.5 (Turing and up) | Weight-only microscale compression |
 | **W4AFP8** | Weights and activations  | 9.0 (Hopper and up) | Low-bit weights with dynamic FP8 activations |
 | **W4AINT8** | Weights and activations  | — (Arm CPU) | Low-bit weights with dynamic INT8 activations |

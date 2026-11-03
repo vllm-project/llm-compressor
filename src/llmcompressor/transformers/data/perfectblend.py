@@ -22,6 +22,8 @@ class PerfectBlendDataset(TextGenerationDataset):
     :param processor: processor or tokenizer to use on dataset
     """
 
+    add_special_tokens = False
+
     DEFAULT_CHAT_TEMPLATE = (
         "{% for message in messages %}\n"
         "{% if message['role'] == 'user' %}\n"

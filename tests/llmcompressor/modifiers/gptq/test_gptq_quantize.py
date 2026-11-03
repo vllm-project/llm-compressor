@@ -368,6 +368,7 @@ def _make_spd_hessian(in_features, device, seed):
     ],
 )
 @pytest.mark.parametrize("actorder", [None, ActivationOrdering.WEIGHT])
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
 @requires_gpu
 @torch.no_grad()
 def test_fused_gptq_kernel_matches_eager(
@@ -375,18 +376,23 @@ def test_fused_gptq_kernel_matches_eager(
     expected_scale_dtype,
     has_global_scale,
     actorder,
+    device,
     monkeypatch,
 ):
     """The fused Triton block update must match the eager column loop."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     if actorder is not None:
         quant_args.actorder = actorder
 
-    hessian = _make_spd_hessian(64, "cuda", seed=1)
+    hessian = _make_spd_hessian(64, device, seed=1)
 
     monkeypatch.setenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "1")
     loss_eager, q_eager, rtn_eager = _quantize_module(
         _make_observed_linear(
-            64, 48, quant_args, seed=0, device="cuda", dtype=torch.bfloat16
+            64, 48, quant_args, seed=0, device=device, dtype=torch.bfloat16
         ),
         quant_args,
         hessian.clone(),
@@ -394,7 +400,7 @@ def test_fused_gptq_kernel_matches_eager(
     monkeypatch.delenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON")
     loss_fused, q_fused, rtn_fused = _quantize_module(
         _make_observed_linear(
-            64, 48, quant_args, seed=0, device="cuda", dtype=torch.bfloat16
+            64, 48, quant_args, seed=0, device=device, dtype=torch.bfloat16
         ),
         quant_args,
         hessian.clone(),
@@ -459,7 +465,7 @@ def test_quantize_weight_batch_close_to_single(
     quant_args, actorder, backend, monkeypatch
 ):
     """Batched GPTQ should remain close to per-module solves for both backends."""
-    device = "cuda"
+    device = torch.accelerator.current_accelerator().type
     if backend == "eager":
         monkeypatch.setenv("LLMCOMPRESSOR_DISABLE_GPTQ_TRITON", "1")
     if actorder is not None:
@@ -511,12 +517,13 @@ def test_quantize_weight_batch_close_to_single(
         ), f"module {idx} loss mismatch"
 
 
-@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("device", ["cpu", "cuda", "xpu"])
 @torch.no_grad()
 def test_quantize_weight_batch_singular_hessian_uses_rtn(device):
     """A singular hessian in one batch slice falls back to RTN for that slice."""
-    if device == "cuda" and not torch.accelerator.is_available():
-        pytest.skip("requires CUDA")
+    device_module = getattr(torch, device, None)
+    if device != "cpu" and (device_module is None or not device_module.is_available()):
+        pytest.skip(f"{device} is not available")
     quant_args = QuantizationArgs(
         num_bits=4, symmetric=True, strategy="group", group_size=16
     )

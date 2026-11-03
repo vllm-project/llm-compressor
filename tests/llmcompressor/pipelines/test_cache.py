@@ -1,11 +1,17 @@
 from dataclasses import dataclass, fields, is_dataclass
+from types import SimpleNamespace
 from typing import Optional
 
 import pytest
 import torch
 from torch.utils.data import DataLoader, StackDataset
 
-from llmcompressor.pipelines.cache import IntermediatesCache, OverrideEqMode
+from llmcompressor.pipelines.cache import (
+    IntermediatesCache,
+    IntermediateValue,
+    OverrideEqMode,
+    _supports_record_stream,
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,82 @@ def test_iter_prefetch_matches_iter(sample_cache):
     assert len(via_iter) == len(via_prefetch)
     for i, (b_iter, b_prefetch) in enumerate(zip(via_iter, via_prefetch)):
         assert batch_dicts_equal(b_iter, b_prefetch), f"batch {i} differs"
+
+
+@pytest.mark.unit
+def test_record_stream_skips_unsupported_backend(monkeypatch):
+    """_record_stream must not call record_stream on backends where it is
+    unimplemented (e.g. MPS), otherwise iter_prefetch crashes."""
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.cache._supports_record_stream", lambda device: False
+    )
+
+    def fail(self, stream):
+        raise AssertionError("record_stream must not be called")
+
+    monkeypatch.setattr(torch.Tensor, "record_stream", fail)
+
+    tensor = torch.zeros(1)
+    stream = SimpleNamespace(device=tensor.device)
+    # dict branch exercised as well; must complete without calling record_stream
+    IntermediatesCache._record_stream({"hidden": [tensor]}, stream)
+
+
+@pytest.mark.unit
+def test_supports_record_stream_cpu_unsupported():
+    _supports_record_stream.cache_clear()
+    assert _supports_record_stream(torch.device("cpu")) is False
+
+
+@pytest.mark.unit
+def test_iter_prefetch_onloads_accelerator_tensors(monkeypatch):
+    """Regression test: prefetching tensors which onload to a device without
+    record_stream support (e.g. MPS) must not crash."""
+    accel = torch.accelerator.current_accelerator()
+    if accel is None:
+        pytest.skip("No accelerator available")
+
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.cache._supports_record_stream", lambda device: False
+    )
+    cache = IntermediatesCache.empty(2, torch.device("cpu"))
+    for i in range(2):
+        cache.update(i, {"hidden_states": torch.randn(2, 3, device=accel)})
+
+    batches = list(cache.iter_prefetch())
+    assert len(batches) == 2
+    assert batches[0]["hidden_states"].device.type == accel.type
+
+
+@pytest.mark.unit
+def test_iter_prefetch_non_cuda_onload_stays_on_caller_thread(monkeypatch):
+    """Batches onloading to accelerators without thread-safe op submission
+    (e.g. MPS) must be fetched synchronously: submitting device ops from the
+    prefetch worker thread can abort the process."""
+    # flat and nested (device=None container) non-CUDA targets
+    intermediates = [
+        IntermediateValue(torch.randn(2, 3), torch.device("mps")),
+        IntermediateValue(
+            value=[IntermediateValue(torch.randn(2, 3), torch.device("mps"))],
+            device=None,
+        ),
+    ]
+
+    def fail_on_thread(*args, **kwargs):
+        raise AssertionError("prefetch worker thread must not be used")
+
+    monkeypatch.setattr(
+        "llmcompressor.pipelines.cache.ThreadPoolExecutor", fail_on_thread
+    )
+    monkeypatch.setattr(
+        IntermediatesCache, "fetch", lambda self, idx, names=None: {"i": idx}
+    )
+
+    for intermediate in intermediates:
+        cache = IntermediatesCache.empty(1, torch.device("cpu"))
+        cache.batch_intermediates[0]["hidden_states"] = intermediate
+        assert list(cache.iter_prefetch()) == [{"i": 0}]
+        assert cache._prefetch_stream is None
 
 
 @pytest.mark.unit

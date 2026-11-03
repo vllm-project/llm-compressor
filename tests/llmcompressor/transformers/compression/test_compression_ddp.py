@@ -203,6 +203,8 @@ def _test_ddp_modifier(
         max_kl_div: Maximum allowed mean KL divergence (default 0.1)
         offload_folder: Optional folder for disk offload (default None)
     """
+    torch.use_deterministic_algorithms(True)
+
     # Set deterministic seed for reproducibility
     torch.manual_seed(42)
     torch.get_device_module().manual_seed_all(42)

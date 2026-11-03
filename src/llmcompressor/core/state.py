@@ -104,6 +104,8 @@ class State:
     hardware: Hardware = field(default_factory=Hardware)
     loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
+    sequential_activations: Any = None
+    sequential_propagate_error: bool = True
 
     @property
     def compression_ready(self) -> bool:

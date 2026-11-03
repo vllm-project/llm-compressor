@@ -11,10 +11,10 @@ with warnings.catch_warnings():
     from llmcompressor.modifiers.awq import AWQModifier
 
 from llmcompressor.modifiers.gptq import GPTQModifier
-from llmcompressor.modifiers.pruning.sparsegpt import SparseGPTModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
 from llmcompressor.recipe import Recipe
+from llmcompressor.recipe.utils import append_recipe_dict
 from tests.llmcompressor.helpers import valid_recipe_strings
 
 
@@ -48,12 +48,12 @@ def test_serialization(recipe_str):
 def test_recipe_creates_correct_modifier():
     start = 1
     end = 10
-    targets = "__ALL_PRUNABLE__"
+    targets = "Linear"
 
     yaml_str = f"""
         test_stage:
-            pruning_modifiers:
-                ConstantPruningModifier:
+            quantization_modifiers:
+                GPTQModifier:
                     start: {start}
                     end: {end}
                     targets: {targets}
@@ -63,26 +63,45 @@ def test_recipe_creates_correct_modifier():
 
     stage_modifiers = recipe_instance.modifiers
     assert len(modifiers := stage_modifiers) == 1
-    from llmcompressor.modifiers.pruning.constant import ConstantPruningModifier
+    from llmcompressor.modifiers.gptq import GPTQModifier
 
-    assert isinstance(modifier := modifiers[0], ConstantPruningModifier)
+    assert isinstance(modifier := modifiers[0], GPTQModifier)
     assert modifier.start == start
     assert modifier.end == end
 
 
+@pytest.mark.parametrize("stage_name", ["default", "custom", "custom_stage"])
+def test_recipe_from_dict_loads_numbered_stages(stage_name):
+    first = Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="FP8_DYNAMIC"),
+        modifier_group_name=stage_name,
+    )
+    second = Recipe.from_modifiers(
+        QuantizationModifier(targets="Linear", scheme="W8A8"),
+        modifier_group_name=stage_name,
+    )
+    merged = append_recipe_dict(first.to_dict(), second.to_dict())
+    assert list(merged) == [f"{stage_name}_stage_0", f"{stage_name}_stage_1"]
+
+    recipe = Recipe.from_dict(merged)
+
+    assert [m.scheme for m in recipe.modifiers] == ["FP8_DYNAMIC", "W8A8"]
+    assert recipe.stage == stage_name
+
+
 def test_recipe_can_be_created_from_modifier_instances():
-    modifier = SparseGPTModifier(
-        sparsity=0.5,
-        group="pruning",
+    modifier = QuantizationModifier(
+        scheme="FP8",
+        group="quantization",
     )
     group_name = "dummy"
 
     # for pep8 compliance
     recipe_str = (
         f"{group_name}_stage:\n"
-        "   pruning_modifiers:\n"
-        "       SparseGPTModifier:\n"
-        "           sparsity: 0.5\n"
+        "   quantization_modifiers:\n"
+        "       QuantizationModifier:\n"
+        "           scheme: FP8\n"
     )
 
     expected_recipe_instance = Recipe.create_instance(recipe_str)

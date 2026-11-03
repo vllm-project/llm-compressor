@@ -21,7 +21,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
-from compressed_tensors.utils import getattr_chain
+from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
 from transformers import (
@@ -38,7 +38,14 @@ from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
+from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.recipe import Recipe
+from llmcompressor.transformers.compression.mtp import (
+    has_mtp_in_checkpoint,
+    validate_mtp_copy_source,
+)
+from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -81,7 +88,7 @@ class Oneshot:
               quantization configurations.
         2. **Oneshot Calibration**:
             - Optimizes the model using a global `CompressionSession` and applies
-              recipe-defined modifiers (e.g., `GPTQModifier`, `SparseGPTModifier`)
+              recipe-defined modifiers (e.g., `GPTQModifier`, `QuantizationModifier`)
         3. **Postprocessing**:
             - Saves the model, tokenizer/processor, and configuration to the specified
               `output_dir`.
@@ -181,6 +188,7 @@ class Oneshot:
                 level="DEBUG",
             )
 
+        self.use_eager_attention = kwargs.pop("use_eager_attention", False)
         model_args, dataset_args, recipe_args, output_dir = parse_args(**kwargs)
 
         self.model_args = model_args
@@ -196,7 +204,10 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        self.validate_model(self.model)
+        # Skip model validation if using layerwise decompression
+        # for pre-quantized models
+        if not getattr(self.dataset_args, "layerwise_decompression", False):
+            self.validate_model(self.model)
 
     def __call__(self):
         """
@@ -257,6 +268,15 @@ class Oneshot:
             stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
+            if self.use_eager_attention:
+                stack.enter_context(use_eager_attention(self.model))
+
+            session.state.layerwise_decompression = (
+                self.dataset_args.layerwise_decompression
+            )
+            session.state.layerwise_compression = (
+                self.dataset_args.layerwise_compression
+            )
 
             session.initialize(
                 model=self.model,
@@ -266,6 +286,7 @@ class Oneshot:
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
+                pipeline=self.dataset_args.pipeline,
             )
 
             user_pipeline = self.dataset_args.pipeline
@@ -287,6 +308,34 @@ class Oneshot:
         Raise warning if model is quantized with compressed-tensors quant method.
         Raise error if model is quantized with any other quant method.
         """
+        if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
+            validate_mtp_copy_source(model)
+            logger.warning(
+                "MTP layers are not loaded for quantization and will be copied "
+                "unchanged when saving. Use load_context(load_mtp=True) "
+                "to quantize them when supported by Transformers."
+            )
+        if hasattr(model, "mtp") and self.recipe:
+            recipe = Recipe.create_instance(
+                self.recipe, target_stage=self.recipe_args.stage
+            )
+            for modifier in recipe.modifiers:
+                if (
+                    isinstance(modifier, QuantizationMixin)
+                    and modifier.requires_calibration_data
+                    and any(
+                        name.startswith("mtp.")
+                        for name, _ in match_named_modules(
+                            model, modifier.resolved_targets, modifier.ignore
+                        )
+                    )
+                ):
+                    # TODO: Support MTP forward execution and sequential offloading
+                    # during calibration before allowing data-dependent MTP schemes.
+                    raise ValueError(
+                        "MTP calibration is not supported in oneshot; MTP targets "
+                        "currently support data-free schemes only."
+                    )
         # Check on-disk config first because decompressed models
         # no longer retain quantization_config in memory
         config = AutoConfig.from_pretrained(
@@ -359,6 +408,7 @@ def oneshot(
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
     pipeline: str | None = "independent",
+    use_eager_attention: bool = False,
     tracing_ignore: list[str] = [
         "_update_causal_mask",
         "create_causal_mask",
@@ -403,7 +453,7 @@ def oneshot(
         should be left tied if possible. False means always untie.
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
-    :param save_compressed: Whether to compress sparse models during save.
+    :param save_compressed: Whether to compress quantized weights during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
 
@@ -460,6 +510,9 @@ def oneshot(
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
         ['basic', 'datafree', 'sequential', 'independent']
+    :param use_eager_attention: Whether to force eager attention during tracing and
+        calibration. By default, the model's configured attention implementation is
+        used for both.
     :param tracing_ignore: List of functions to ignore during tracing, either
         {module}.{method_name} or {function_name}
     :param sequential_targets: List of layer targets for the sequential pipeline.

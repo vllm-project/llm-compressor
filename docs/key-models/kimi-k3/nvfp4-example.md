@@ -8,7 +8,7 @@ The example below quantizes the model to NVFP4 using calibration data.
 This model has already been quantized to mxfp4, so we must first dequantize it before
 applying a new quantization
 
-The full example script can be found [here](../../../examples/quantizing_moe/kimi_k3_example.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/kimi_k3_example.py).
 
 ### Code Walkthrough
 

@@ -9,6 +9,8 @@ edit_uri = "edit/main/docs/"
 # nav created using build script based on ./.nav.yml
 nav = []
 
+extra_css = ["stylesheets/research.css"]
+
 [[project.extra_javascript]]
 path = "scripts/mathjax.js"
 

@@ -13,24 +13,23 @@ nav:
     - Installing LLM Compressor: getting-started/install.md
   - Key Models:
     - key-models/index.md
-    - DeepSeek V4:
+    - DeepSeek V4 Flash:
       - key-models/deepseek-v4/index.md
       - NVFP4 + FP8 Example: key-models/deepseek-v4/fp8-nvfp4-example.md
-    - Kimi-K2.6:
-      - key-models/kimi-k26/index.md
-      - NVFP4 Example: key-models/kimi-k26/nvfp4-example.md
-      - FP8 Block Example: key-models/kimi-k26/fp8-block-example.md
     - Kimi-K3:
       - key-models/kimi-k3/index.md
       - NVFP4 Example: key-models/kimi-k3/nvfp4-example.md
       - FP8 Block Example: key-models/kimi-k3/fp8-block-example.md
-    - Qwen3.5:
-      - key-models/qwen3.5/index.md
-      - NVFP4A16 VL Example: key-models/qwen3.5/nvfp4-vl-example.md
-      - NVFP4 MoE Example: key-models/qwen3.5/nvfp4-moe-example.md
-    - Qwen3.6:
-      - key-models/qwen3.6/index.md
-      - NVFP4 MoE Example: key-models/qwen3.6/nvfp4-moe-example.md
+    - Qwen3.8-27B:
+      - key-models/qwen3.8/27b/index.md
+      - 4-bit Example: key-models/qwen3.8/27b/4bit-example.md
+    - Qwen3.8-2.4T-A95B:
+      - key-models/qwen3.8/2.4t-a95b/index.md
+      - NVFP4 + FP8 Example: key-models/qwen3.8/2.4t-a95b/nvfp4-moe-example.md
+      - REAP + NVFP4 Example: key-models/qwen3.8/2.4t-a95b/reap-example.md
+    - Qwen3.8-Flash-Next:
+      - key-models/qwen3.8/flash-next/index.md
+      - NVFP4 Example: key-models/qwen3.8/flash-next/nvfp4-example.md
     - Gemma 4:
       - key-models/gemma4/index.md
       - NVFP4 Example: key-models/gemma4/nvfp4-example.md
@@ -45,9 +44,10 @@ nav:
     - HY-V3:
       - key-models/hy-v3/index.md
       - NVFP4 + FP8 Example: key-models/hy-v3/nvfp4-fp8-example.md
-    - GLM-5.2:
-      - key-models/glm-5.2/index.md
-      - NVFP4 + FP8 Example: key-models/glm-5.2/nvfp4-fp8-example.md
+    - GLM-5.3:
+      - key-models/glm-5.3/index.md
+      - MXFP4 Example: key-models/glm-5.3/mxfp4-example.md
+      - NVFP4 Layerwise Example: key-models/glm-5.3/nvfp4-layerwise-example.md
     - GLM-5.3-Flash:
       - key-models/glm-5.3-flash/index.md
       - NVFP4 Example: key-models/glm-5.3-flash/nvfp4-example.md
@@ -72,6 +72,9 @@ nav:
     - Adding a New Modifier: developer-tutorials/add-modifier.md
     - Adding a New Observer: developer-tutorials/add-observer.md
     - Adding MoE Calibration Support for a New Model: developer-tutorials/add-moe-support.md
+  - Open Research Hub:
+    - research/index.md
+    - research/*
   - Examples:
     - examples/README.md
     - examples/*

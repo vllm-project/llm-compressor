@@ -122,6 +122,13 @@ class TestCase(NamedTuple):
         ),
         pytest.param(
             TestCase(
+                "mtp/qwen3_8_mtp.py",
+                compressed_format=CompressionFormat.float_quantized,
+                prefix="FP8-Dynamic-MTP",
+            ),
+        ),
+        pytest.param(
+            TestCase(
                 "quantization_w8a8_fp8/qwen3_vl_moe_fp8_example.py",
                 compressed_format=CompressionFormat.float_quantized,
                 prefix="235B-A22B-Instruct-FP8-DYNAMIC",
@@ -153,6 +160,13 @@ class TestCase(NamedTuple):
                 "quantization_w4a16_fp4/mxfp4/qwen3_example.py",
                 compressed_format=CompressionFormat.mxfp4_pack_quantized,
                 prefix="MXFP4A16",
+            ),
+        ),
+        pytest.param(
+            TestCase(
+                "quantization_w6a8_mxfp6/qwen3_example_w6a8_mxfp6.py",
+                compressed_format=CompressionFormat.mxfp6_pack_quantized,
+                prefix="MXFP6A8",
             ),
         ),
         pytest.param(

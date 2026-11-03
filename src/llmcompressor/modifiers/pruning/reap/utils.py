@@ -49,7 +49,12 @@ class MoeModelAttrs:
 
 ROUTER_ATTRS = ["router", "gate"]
 EXPERTS_ATTRS = ["experts"]
-NUM_EXPERTS_CONFIG_KEYS = ["num_experts", "num_local_experts", "moe_num_experts"]
+NUM_EXPERTS_CONFIG_KEYS = [
+    "num_experts",
+    "num_local_experts",
+    "moe_num_experts",
+    "n_routed_experts",
+]
 TOP_K_CONFIG_KEYS = ["num_experts_per_tok", "top_k", "moe_top_k"]
 N_GROUP_CONFIG_KEYS = ["n_group"]
 TOP_K_GROUP_CONFIG_KEYS = ["topk_group", "top_k_group"]
@@ -215,57 +220,64 @@ class REAPSaliencyTracker:
     averaged over the tokens routed to expert ``j``, where ``g_j`` is the router
     gate weight and ``f_j`` is the expert output.
 
-    Accumulators live on the device of the incoming data (allocated lazily) to
-    avoid a host sync on every update; they are moved to the host only when
-    ``mean_saliency`` is read.
+    The accumulators are zero-initialized on ``device`` at construction and
+    never move devices: statistics are accumulated and reduced in float32
+    (gpu-backed process groups do not support float64) where the calibration
+    data flows, and a layer which has not seen tokens yet contributes its
+    zeros to every reduction.
     """
 
-    def __init__(self, num_experts: int):
+    def __init__(self, num_experts: int, device: torch.device):
         self.num_experts = num_experts
-        self.sum_saliency: torch.Tensor | None = None
-        self.count: torch.Tensor | None = None
+        self.device = device
+        self.count = torch.zeros(num_experts, dtype=torch.float32, device=device)
+        self.sum_saliency = torch.zeros(num_experts, dtype=torch.float32, device=device)
+        # total selections across all experts; replaced by the count summed
+        # across ranks by reduce_saliency_stats
+        self.total_count: float = 0.0
 
-    def _ensure(self, device: torch.device):
-        if self.sum_saliency is None:
-            self.sum_saliency = torch.zeros(
-                self.num_experts, dtype=torch.float64, device=device
-            )
-            self.count = torch.zeros(
-                self.num_experts, dtype=torch.float64, device=device
-            )
-
-    def reduce_saliency_stats(
-        self,
-        device: torch.device,
-        group: dist.ProcessGroup | None = None,
-    ):
-        """Reduce saliency accumulators to the source rank (rank 0).
+    def reduce_saliency_stats(self):
+        """Reduce saliency accumulators to the source rank (rank 0), in
+        float32 on the device they were accumulated on, over the default
+        process group.
 
         Each rank accumulates statistics over its partition of the calibration
         data. Summing to rank 0 lets it compute a global pruning decision that
-        is then broadcast to all ranks.
+        is then broadcast to all ranks. The total count is all-reduced so that
+        every rank holds the count summed across ranks, from which all ranks
+        decide identically whether the layer collected any samples.
+
+        The accumulators are reduced in place: ``dist.reduce`` only writes
+        its result at the destination, so non-source ranks keep their local
+        statistics, while the source rank's accumulators become the global
+        sums, which their consumers (report, retained-expert selection) read
+        immediately after. A rank whose layer has not seen tokens
+        contributes its zero-initialized accumulators, keeping the
+        collectives aligned across ranks.
         """
-        self._ensure(device)
-        if is_distributed():
-            self.sum_saliency = self.sum_saliency.cpu()
-            self.count = self.count.cpu()
-            pending = [
-                dist.reduce(
-                    self.sum_saliency,
-                    dst=get_source_rank(),
-                    op=dist.ReduceOp.SUM,
-                    async_op=True,
-                    group=group,
-                ),
-                dist.reduce(
-                    self.count,
-                    dst=get_source_rank(),
-                    op=dist.ReduceOp.SUM,
-                    async_op=True,
-                    group=group,
-                ),
-            ]
-            wait_for_comms(pending)
+        if not is_distributed():
+            return
+
+        total_count = torch.tensor(
+            float(self.total_count), dtype=torch.float32, device=self.device
+        )
+        pending = [
+            dist.reduce(
+                self.sum_saliency,
+                dst=get_source_rank(),
+                op=dist.ReduceOp.SUM,
+                async_op=True,
+            ),
+            dist.reduce(
+                self.count,
+                dst=get_source_rank(),
+                op=dist.ReduceOp.SUM,
+                async_op=True,
+            ),
+            dist.all_reduce(total_count, op=dist.ReduceOp.SUM, async_op=True),
+        ]
+        wait_for_comms(pending)
+        self.total_count = float(total_count.item())
 
     @torch.no_grad()
     def update(
@@ -286,7 +298,7 @@ class REAPSaliencyTracker:
         if not expert_norms_dict:
             return
 
-        self._ensure(next(iter(expert_norms_dict.values())).device)
+        self.total_count += topk_indices.numel()
 
         if get_calibrate_all_experts_flag():
             stacked_norms = torch.stack(
@@ -294,17 +306,17 @@ class REAPSaliencyTracker:
             )
             flat_idx = topk_indices.reshape(-1).to(torch.long)
             gathered_norms = stacked_norms.gather(1, topk_indices.to(torch.long))
-            contrib = topk_weights.to(torch.float64) * gathered_norms.to(torch.float64)
-            self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
+            contrib = topk_weights.to(torch.float32) * gathered_norms.to(torch.float32)
             self.count.index_add_(
-                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
+                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32)
             )
+            self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
         else:
             # Flatten in (slot, token) order to match torch.where order
             # in LinearExperts2D torch.where scans row-by-row (slot 0 all
             # tokens, then slot 1 all tokens, etc.)
             flat_idx = topk_indices.T.reshape(-1).to(torch.long)
-            flat_weights = topk_weights.T.reshape(-1).to(torch.float64)
+            flat_weights = topk_weights.T.reshape(-1).to(torch.float32)
 
             # Build flat norms tensor aligned with flat_idx
             flat_norms = torch.zeros_like(flat_weights)
@@ -319,13 +331,13 @@ class REAPSaliencyTracker:
                     f"the expert hook or routing extraction logic."
                 )
 
-                flat_norms[mask] = expert_norms.to(torch.float64)
+                flat_norms[mask] = expert_norms.to(torch.float32)
 
             # Vectorized computation using index_add_
             contrib = flat_weights * flat_norms
             self.sum_saliency.index_add_(0, flat_idx, contrib)
             self.count.index_add_(
-                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float64)
+                0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32)
             )
 
     def compute_retained_experts(
@@ -354,21 +366,11 @@ class REAPSaliencyTracker:
                     i for i in range(lo, lo + moe_attrs.group_size) if i not in drop_set
                 )
 
-        return torch.tensor(retained, dtype=torch.int)
-
-    @property
-    def total_count(self) -> float:
-        if self.count is None:
-            return 0.0
-        return float(self.count.sum().item())
+        return torch.tensor(retained, dtype=torch.int, device=saliency.device)
 
     @property
     def mean_saliency(self) -> torch.Tensor:
-        if self.sum_saliency is None:
-            return torch.zeros(self.num_experts, dtype=torch.float64)
-        sum_saliency = self.sum_saliency.to("cpu", torch.float64)
-        count = self.count.to("cpu", torch.float64)
-        return sum_saliency / count.clamp(min=1.0)
+        return self.sum_saliency / self.count.clamp(min=1.0)
 
 
 # ---------------------------------------------------------------------------

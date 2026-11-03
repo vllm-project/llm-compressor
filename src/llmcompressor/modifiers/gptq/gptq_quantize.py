@@ -10,7 +10,13 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle.forward_helpers import _is_fp8_supported
 from compressed_tensors.utils.impl_backend import ImplBackend
-from compressed_tensors.utils.triton import HAS_TRITON, tl, triton, triton_req
+from compressed_tensors.utils.triton import (
+    HAS_TRITON,
+    tl,
+    tldevice,
+    triton,
+    triton_req,
+)
 
 from llmcompressor.modifiers.gptq.helpers import (
     GPTQ_PRECISION,
@@ -274,7 +280,7 @@ def fused_gptq_block_update(
         raise RuntimeError("Triton is unavailable")
     if (
         work.dim() != 3
-        or work.device.type != "cuda"
+        or work.device.type not in ("cuda", "xpu")
         or work.dtype != torch.float32
         or hinv.dtype != torch.float32
         or quantized.dtype != torch.float32
@@ -311,7 +317,10 @@ def fused_gptq_block_update(
     if has_zp:
         zero_point = zero_point.to(torch.float32)
 
-    block_rows = 16
+    is_xpu = work.device.type == "xpu"
+    block_rows = 8 if is_xpu else 16
+    num_warps = 8 if is_xpu else 4
+    num_stages = 1 if is_xpu else 2
     _gptq_block_update_kernel[(batch, triton.cdiv(out_rows, block_rows))](
         work,
         hinv,
@@ -334,8 +343,8 @@ def fused_gptq_block_update(
         HAS_ZP=has_zp,
         USE_FP8_E4B15=use_fp8_e4b15,
         BLOCK_ROWS=block_rows,
-        num_warps=4,
-        num_stages=2,
+        num_warps=num_warps,
+        num_stages=num_stages,
     )
 
 
@@ -406,7 +415,7 @@ if HAS_TRITON:
                 other=1.0,
             ).to(tl.float32)
             scale = tl.maximum(scale, 1.1754943508222875e-38)
-            normalized = tl.extra.cuda.libdevice.div_rn(weight_column, scale)
+            normalized = tldevice.div_rn(weight_column, scale)
             if HAS_ZP:
                 zp = tl.load(
                     zp_ptr
@@ -420,7 +429,7 @@ if HAS_TRITON:
 
             clamped = tl.clamp(normalized, q_min, q_max)
             if QUANT_TYPE == 0:
-                rounded = tl.extra.cuda.libdevice.rint(clamped)
+                rounded = tldevice.rint(clamped)
             elif QUANT_TYPE == 1:
                 absolute = tl.abs(clamped)
                 magnitude = tl.where(
@@ -478,11 +487,11 @@ if HAS_TRITON:
                 quantized_column = (rounded * scale_value).to(tl.float16).to(tl.float32)
             else:
                 if HAS_ZP:
-                    quantized_column = tl.extra.cuda.libdevice.mul_rn(
-                        tl.extra.cuda.libdevice.sub_rn(rounded, zp), scale
+                    quantized_column = tldevice.mul_rn(
+                        tldevice.sub_rn(rounded, zp), scale
                     )
                 else:
-                    quantized_column = tl.extra.cuda.libdevice.mul_rn(rounded, scale)
+                    quantized_column = tldevice.mul_rn(rounded, scale)
 
             diagonal = tl.load(
                 hinv_ptr
@@ -490,8 +499,8 @@ if HAS_TRITON:
                 + column * stride_h_r
                 + column * stride_h_c,
             ).to(tl.float32)
-            error = tl.extra.cuda.libdevice.div_rn(
-                tl.extra.cuda.libdevice.sub_rn(weight_column, quantized_column),
+            error = tldevice.div_rn(
+                tldevice.sub_rn(weight_column, quantized_column),
                 diagonal,
             )
             q_offsets = (
@@ -510,7 +519,7 @@ if HAS_TRITON:
                 + cols_i64 * stride_h_c,
             ).to(tl.float32)
             tail = cols[None, :] > column
-            update = tl.extra.cuda.libdevice.mul_rn(error[:, None], hinv_row[None, :])
-            work = tl.where(tail, tl.extra.cuda.libdevice.sub_rn(work, update), work)
+            update = tldevice.mul_rn(error[:, None], hinv_row[None, :])
+            work = tl.where(tail, tldevice.sub_rn(work, update), work)
 
         tl.store(work_ptr + work_offsets, work, mask=row_mask[:, None])

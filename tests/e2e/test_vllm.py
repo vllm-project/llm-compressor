@@ -206,6 +206,8 @@ class TestvLLM:
             os.environ.pop("VLLM_TEST_FORCE_FP8_MARLIN", None)
 
         llm_kwargs["gpu_memory_utilization"] = self.config.gpu_memory_utilization
+        if self.config.vllm_moe_backend is not None:
+            llm_kwargs["moe_backend"] = self.config.vllm_moe_backend
 
         json_scheme = json.dumps(self.config.scheme)
         json_llm_kwargs = json.dumps(llm_kwargs)
