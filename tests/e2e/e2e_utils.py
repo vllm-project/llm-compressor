@@ -38,31 +38,41 @@ def cleanup_offload_dir(func):
         try:
             return func(*args, **kwargs)
         finally:
-            if os.path.exists(OFFLOAD_DIR):
-                shutil.rmtree(OFFLOAD_DIR)
+            offload_folders = {OFFLOAD_DIR, kwargs.get("offload_folder")}
+            for offload_folder in offload_folders:
+                if offload_folder and os.path.exists(offload_folder):
+                    shutil.rmtree(offload_folder)
 
     return wrapper
 
 
-def load_model(model: str, model_class: str, max_memory: dict[int | str, int] | None):
+def load_model(
+    model: str,
+    model_class: str,
+    max_memory: dict[int | str, int] | None,
+    device_map: str | None = None,
+    offload_folder: str | None = None,
+):
     pretrained_model_class = getattr(transformers, model_class)
-    device_map = None
-    if max_memory is not None or dist.is_initialized():
+    if device_map is None and (max_memory is not None or dist.is_initialized()):
         device_map = "auto_offload"
 
-    # passing None for max_memory causes accelerate
-    # to offload to various GPU devices if distributed
-    # which can cause problems so instead pick arbitrary large value.
-    if max_memory is None:
+    # Passing None for max_memory causes accelerate to offload to various GPU
+    # devices if distributed, which can cause problems, so instead pick an
+    # arbitrary large value. Explicit disk offloading should not get a max_memory
+    # map: accelerate would use it to build a CPU map instead of a disk map.
+    if max_memory is None and device_map != "disk":
         max_memory = {"cpu": "1000GB"}
 
+    load_kwargs = {
+        "device_map": device_map,
+        "offload_folder": offload_folder or OFFLOAD_DIR,
+    }
+    if max_memory is not None:
+        load_kwargs["max_memory"] = max_memory
+
     with load_context(pretrained_model_class):
-        loaded_model = pretrained_model_class.from_pretrained(
-            model,
-            device_map=device_map,
-            max_memory=max_memory,
-            offload_folder=OFFLOAD_DIR,
-        )
+        loaded_model = pretrained_model_class.from_pretrained(model, **load_kwargs)
     return loaded_model
 
 
@@ -92,6 +102,13 @@ def run_oneshot_for_e2e_testing(
     save_compressed: bool = False,
     shuffle_calibration_samples: bool = True,
     data_collator: str | Callable = DefaultDataCollator(),
+    pipeline: str | None = None,
+    sequential_targets: list[str] | None = None,
+    sequential_targets_per_subgraph: int | str | None = None,
+    layerwise_decompression: bool = False,
+    layerwise_compression: bool = False,
+    device_map: str | None = None,
+    offload_folder: str | None = None,
 ):
     if num_gpus == 1:
         run_oneshot_single(
@@ -110,6 +127,13 @@ def run_oneshot_for_e2e_testing(
             data_collator=data_collator,
             save_dir=save_dir,
             save_compressed=save_compressed,
+            pipeline=pipeline,
+            sequential_targets=sequential_targets,
+            sequential_targets_per_subgraph=sequential_targets_per_subgraph,
+            layerwise_decompression=layerwise_decompression,
+            layerwise_compression=layerwise_compression,
+            device_map=device_map,
+            offload_folder=offload_folder,
         )
     else:
         # this just calls launch_ddp -> subprocess -> run_oneshot_ddp
@@ -131,6 +155,13 @@ def run_oneshot_for_e2e_testing(
             "save_dir": save_dir,
             "save_compressed": save_compressed,
             "shuffle_calibration_samples": shuffle_calibration_samples,
+            "pipeline": pipeline,
+            "sequential_targets": sequential_targets,
+            "sequential_targets_per_subgraph": sequential_targets_per_subgraph,
+            "layerwise_decompression": layerwise_decompression,
+            "layerwise_compression": layerwise_compression,
+            "device_map": device_map,
+            "offload_folder": offload_folder,
         }
         logger.info(f"========== RUNNING DDP oneshot ({num_gpus} GPUs) ==========")
         launch_ddp(num_gpus, config)
@@ -152,6 +183,13 @@ def run_oneshot_single(
     save_compressed: bool = False,
     shuffle_calibration_samples: bool = True,
     data_collator: str | Callable = DefaultDataCollator(),
+    pipeline: str | None = None,
+    sequential_targets: list[str] | None = None,
+    sequential_targets_per_subgraph: int | str | None = None,
+    layerwise_decompression: bool = False,
+    layerwise_compression: bool = False,
+    device_map: str | None = None,
+    offload_folder: str | None = None,
     **kwargs,
 ) -> torch.nn.Module:
     oneshot_kwargs, loaded_model, processor = prepare_oneshot_kwargs(
@@ -167,6 +205,13 @@ def run_oneshot_single(
         quant_type=quant_type,
         scheme=scheme,
         shuffle_calibration_samples=shuffle_calibration_samples,
+        pipeline=pipeline,
+        sequential_targets=sequential_targets,
+        sequential_targets_per_subgraph=sequential_targets_per_subgraph,
+        layerwise_decompression=layerwise_decompression,
+        layerwise_compression=layerwise_compression,
+        device_map=device_map,
+        offload_folder=offload_folder,
     )
     oneshot_kwargs.setdefault("data_collator", data_collator)
 
@@ -207,6 +252,13 @@ def run_oneshot_ddp(config: dict, save_compressed: bool = False):
         quant_type=config.get("quant_type"),
         scheme=config.get("scheme"),
         shuffle_calibration_samples=config.get("shuffle_calibration_samples", True),
+        pipeline=config.get("pipeline"),
+        sequential_targets=config.get("sequential_targets"),
+        sequential_targets_per_subgraph=config.get("sequential_targets_per_subgraph"),
+        layerwise_decompression=config.get("layerwise_decompression", False),
+        layerwise_compression=config.get("layerwise_compression", False),
+        device_map=config.get("device_map"),
+        offload_folder=config.get("offload_folder"),
     )
     _run_oneshot(**oneshot_kwargs)
 
@@ -231,10 +283,19 @@ def prepare_oneshot_kwargs(
     quant_type: str | None,
     scheme: str | None,
     shuffle_calibration_samples: bool = True,
+    pipeline: str | None = None,
+    sequential_targets: list[str] | None = None,
+    sequential_targets_per_subgraph: int | str | None = None,
+    layerwise_decompression: bool = False,
+    layerwise_compression: bool = False,
+    device_map: str | None = None,
+    offload_folder: str | None = None,
 ) -> tuple:
     from llmcompressor.datasets.utils import get_rank_partition
 
-    loaded_model = load_model(model_id, model_class, max_memory)
+    loaded_model = load_model(
+        model_id, model_class, max_memory, device_map, offload_folder
+    )
     processor = AutoProcessor.from_pretrained(model_id)
 
     kwargs = {"model": loaded_model}
@@ -283,6 +344,17 @@ def prepare_oneshot_kwargs(
 
     kwargs["recipe"] = build_recipe(recipe, quant_type, scheme)
     kwargs["shuffle_calibration_samples"] = shuffle_calibration_samples
+
+    if pipeline is not None:
+        kwargs["pipeline"] = pipeline
+    if sequential_targets is not None:
+        kwargs["sequential_targets"] = sequential_targets
+    if sequential_targets_per_subgraph is not None:
+        kwargs["sequential_targets_per_subgraph"] = sequential_targets_per_subgraph
+    if layerwise_decompression:
+        kwargs["layerwise_decompression"] = True
+    if layerwise_compression:
+        kwargs["layerwise_compression"] = True
 
     return kwargs, loaded_model, processor
 

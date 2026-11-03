@@ -1,0 +1,44 @@
+# Weekly test for the Beam layerwise decompression example:
+# examples/layerwise_decompression/beam_1_0_layerwise_example.py
+#
+# The source checkpoint is already FP8-quantized, so there is no dense model to
+# use as the reference. Compare the recalibrated NVFP4 checkpoint against the
+# publicly released NVFP4 checkpoint instead.
+cadence: ["weekly"]
+model: reflection/Beam-1.0-501B-A23B-FP8
+model_class: BeamForCausalLM
+recipe: tests/e2e/recipes/NVFP4/recipe_beam_nvfp4.yaml
+dataset_id: HuggingFaceH4/ultrachat_200k
+dataset_split: "train_sft"
+num_calibration_samples: 100
+max_seq_length: 2048
+# Match the layerwise decompression example.
+pipeline: sequential
+sequential_targets:
+  - BeamDecoderLayer
+sequential_targets_per_subgraph: 1
+layerwise_decompression: true
+layerwise_compression: true
+# Beam has enough expert tensors to exceed the OS mmap limit when offloaded to
+# CPU shared memory, so load the whole model on disk.
+device_map: disk
+offload_folder: "./beam_offload_folder"
+
+num_gpus: 8
+tensor_parallel: true
+gpu_memory_utilization: 0.90
+max_num_seqs: 8
+max_model_len: 8192
+
+lmeval:
+  base_model: reflection/Beam-1.0-501B-A23B-NVFP4
+  apply_chat_template: true
+  add_bos_token: false
+  num_fewshot: 0
+  fewshot_as_multiturn: true
+  task: gsm8k_platinum_cot_llama
+  limit: 250
+  # Beam is a reasoning model; leave room for the analysis channel before the
+  # final answer.
+  max_gen_toks: 32768
+  recovery_threshold: 0.95

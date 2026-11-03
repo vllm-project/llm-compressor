@@ -34,6 +34,10 @@ class LmEvalConfig(BaseModel):
     # Recovery testing (default): compare against base model performance
     # Default threshold is 0.95 (retain ≥95% of base), can be overridden
     recovery_threshold: Union[float, dict] = 0.95
+    # Optional model to compare against instead of the dense source model.
+    # Useful when the source checkpoint is already quantized (e.g. FP8) and the
+    # meaningful reference is an existing quantized checkpoint.
+    base_model: Union[str, None] = None
     # Optional absolute metrics for warnings (not failures)
     metrics: dict = None
     # Optional base model metrics to skip base model evaluation
@@ -97,6 +101,7 @@ class TestLMEval:
     - recovery_threshold: 0.95 (default if not specified)
     - recovery_threshold: 0.93 (override default globally)
     - recovery_threshold: {"metric1": 0.95, "metric2": 0.90} (per-metric)
+    - base_model: "org/model" (optional - compare against another checkpoint)
     - metrics: {...} (optional - used for warnings only, not failures)
     - base_metrics: {...} (optional - skip base model eval, use these values instead)
     """  # noqa: E501
@@ -203,6 +208,15 @@ class TestLMEval:
                     num_gpus=self.config.num_gpus,
                     save_dir=self.config.save_dir,
                     save_compressed=True,
+                    pipeline=self.config.pipeline,
+                    sequential_targets=self.config.sequential_targets,
+                    sequential_targets_per_subgraph=(
+                        self.config.sequential_targets_per_subgraph
+                    ),
+                    layerwise_decompression=self.config.layerwise_decompression,
+                    layerwise_compression=self.config.layerwise_compression,
+                    device_map=self.config.device_map,
+                    offload_folder=self.config.offload_folder,
                 )
 
         logger.info("================= Running LM Eval on COMPRESSED model ==========")
@@ -225,8 +239,13 @@ class TestLMEval:
 
     @cached_lm_eval_run
     def _eval_base_model(self) -> dict:
-        """Evaluate the base (uncompressed) model with caching."""
-        return self._eval_model_with_vllm(self.config.model)
+        """Evaluate the base model with caching.
+
+        Defaults to the dense source model. Configs can set
+        ``lmeval.base_model`` to compare against a different checkpoint.
+        """
+        base_model = self.config.lmeval.base_model or self.config.model
+        return self._eval_model_with_vllm(base_model)
 
     def _eval_compressed_model(self) -> dict:
         """Evaluate the compressed model."""
@@ -321,7 +340,7 @@ class TestLMEval:
         logger.info("ABSOLUTE METRICS CHECK (warnings only, not failures)")
         logger.info("=" * 80)
 
-        for metric_key, expected_val in self.config.lmeval.metrics.items():
+        for metric_key, expected_val in (self.config.lmeval.metrics or {}).items():
             # Skip stderr metrics
 
             compressed_metric = results.get(metric_key)
