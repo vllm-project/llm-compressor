@@ -32,6 +32,7 @@ from compressed_tensors.quantization import (
     QuantizationScheme,
     QuantizationStatus,
 )
+from compressed_tensors.utils import getattr_chain
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
@@ -127,7 +128,7 @@ def _extract_effective_weights(model: torch.nn.Module) -> dict[str, torch.Tensor
         if (
             getattr(module, "quantization_status", None)
             == QuantizationStatus.COMPRESSED
-            and getattr(getattr(module, "quantization_scheme", None), "weights", None)
+            and getattr_chain(module, "quantization_scheme.weights", None)
             is not None
         )
     ]
