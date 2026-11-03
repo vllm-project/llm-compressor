@@ -161,16 +161,30 @@ def test_initialize_rejects_sparsity_that_prunes_no_experts(modifier_cls):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
-def test_initialize_rejects_overly_aggressive_sparsity(modifier_cls):
+def test_initialize_rejects_overly_aggressive_sparsity():
     """Pruning below the router's top_k would leave it unable to route."""
     config = FakeMoEConfig(num_experts=8)
     config.num_experts_per_tok = 5
     model = FakeMoEModel(config)
 
-    modifier = modifier_cls(sparsity=0.75)  # would leave only 2 of 8 experts
+    modifier = REAPPruningModifier(sparsity=0.75)  # would leave only 2 of 8 experts
     with pytest.raises(ValueError, match="too aggressive"):
         modifier.initialize(make_state(model))
+
+
+@pytest.mark.unit
+def test_mone_initialize_accepts_aggressive_sparsity():
+    """MoNe collapses dropped experts into constant novices which stay
+    routable (the router keeps its full width), so no sparsity is too
+    aggressive for it."""
+    config = FakeMoEConfig(num_experts=8)
+    config.num_experts_per_tok = 5
+    model = FakeMoEModel(config)
+
+    modifier = MoNePruningModifier(sparsity=0.75)  # would leave only 2 of 8 experts
+    modifier.initialize(make_state(model))
+    assert modifier.initialized
+    assert modifier._n_experts_to_drop == 6
 
 
 # ---------------------------------------------------------------------------

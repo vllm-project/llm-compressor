@@ -238,7 +238,7 @@ def numeric_sorted_names(names: Iterable[str]) -> list[str]:
 
 def values_by_decoder_layer(
     values: Mapping[str, _T],
-    num_layers: int,
+    num_layers: int | None = None,
 ) -> list[_T | None]:
     """
     Position values keyed by module name onto a per-decoder-layer list.
@@ -252,17 +252,20 @@ def values_by_decoder_layer(
 
     :param values: mapping from module name to that layer's value, where a
         value of ``None`` marks a layer which was tracked but not modified
-    :param num_layers: total number of decoder layers, which sizes the list
-    :return: a ``num_layers``-long list holding each value at its layer index
-        and ``None`` everywhere else
+    :param num_layers: total number of decoder layers, which sizes the list.
+        When ``None``, the list is instead sized to cover the largest layer
+        index parsed from ``values`` (with a warning), leaving any trailing
+        decoder layers unrepresented
+    :return: a list holding each value at its layer index and ``None``
+        everywhere else
     :raises ValueError: if a name carries no ``layers.(\\d+)`` component, if a
         layer index falls outside ``[0, num_layers)``, or if two names map to
         the same layer index -- which can happen when e.g. a vision tower
         holds its own MoE layers named ``layers.N``
     """
-    per_layer: list[_T | None] = [None] * num_layers
-    first_name_at: dict[int, str] = {}
-
+    # parse each name's decoder layer index up front, so that the list can
+    # be sized before values are positioned onto it
+    index_by_name: dict[str, int] = {}
     for name in numeric_sorted_names(values):
         match = _DECODER_LAYER_PATTERN.search(name)
         if match is None:
@@ -270,8 +273,20 @@ def values_by_decoder_layer(
                 f"Could not extract a decoder layer index from '{name}'; "
                 "expected a module name containing a 'layers.N' component"
             )
-        index = int(match.group(1))
+        index_by_name[name] = int(match.group(1))
 
+    if num_layers is None:
+        logger.warning(
+            "num_layers is None; sizing the per-layer list from the largest "
+            "decoder layer index parsed from the given module names, so any "
+            "decoder layers beyond it will not be represented in the result"
+        )
+        num_layers = max(index_by_name.values(), default=-1) + 1
+
+    per_layer: list[_T | None] = [None] * num_layers
+    first_name_at: dict[int, str] = {}
+
+    for name, index in index_by_name.items():
         if not 0 <= index < num_layers:
             raise ValueError(
                 f"Decoder layer index {index} parsed from '{name}' is out of "

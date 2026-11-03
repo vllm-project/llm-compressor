@@ -166,7 +166,13 @@ class REAPPruningModifier(ExpertPruningModifierBase):
 
         with local_torch_dtype(self.precision):
             if get_calibrate_all_experts_flag():
-                stacked_norms = torch.stack(self._expert_norms[moe_name], dim=1)
+                # every expert ran on every token, so stack their per-token
+                # norms into a [num_tokens, num_experts] matrix ordered by
+                # expert index, then gather each token's routed experts
+                norms = self._expert_norms[moe_name]
+                stacked_norms = torch.stack(
+                    [norms[idx] for idx in sorted(norms)], dim=1
+                )
                 flat_idx = topk_indices.reshape(-1)
                 gathered_norms = stacked_norms.gather(1, topk_indices)
                 contrib = topk_weights * gathered_norms

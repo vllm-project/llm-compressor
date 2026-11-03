@@ -25,7 +25,7 @@ from compressed_tensors.utils.match import is_match
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 from torch import distributed as dist
-from transformers import PretrainedConfig, PreTrainedModel
+from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, State
 from llmcompressor.modeling.moe.helpers import MoEConfig
@@ -35,7 +35,11 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     get_experts_router,
     prune_moe_layer,
 )
-from llmcompressor.utils.helpers import numeric_sorted_names, values_by_decoder_layer
+from llmcompressor.utils.helpers import (
+    getattr_fallbacks,
+    numeric_sorted_names,
+    values_by_decoder_layer,
+)
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["ExpertPruningModifierBase"]
@@ -77,11 +81,10 @@ class ExpertPruningModifierBase(Modifier):
     # and which stats to serialize in the report
     sparsity_method: ClassVar[MoESparsityMethod]
     supports_group_limited_routers: ClassVar[bool] = True
-    stats_to_report: ClassVar[tuple[str]] = ("saliency", "count")
+    stats_to_report: ClassVar[tuple[str, ...]] = ("saliency", "count")
 
     # model structure, decided in on_initialize
     _moe_config: MoEConfig = PrivateAttr()
-    _text_config: PretrainedConfig = PrivateAttr()
     _n_experts_to_drop: int = PrivateAttr(default=0)
     _n_experts_to_drop_per_group: int | None = PrivateAttr(default=None)
 
@@ -123,7 +126,6 @@ class ExpertPruningModifierBase(Modifier):
         model: PreTrainedModel = state.model
         config = model.config.get_text_config()
         self._moe_config = MoEConfig.from_config(config)
-        self._text_config = config
         num_experts = self._moe_config.num_experts
         self._n_experts_to_drop = int(num_experts * self.sparsity)
 
@@ -164,21 +166,24 @@ class ExpertPruningModifierBase(Modifier):
                 )
 
         # fail fast (before calibration) if the requested sparsity would
-        # leave the router unable to select top_k experts per token
-        if self._n_experts_to_drop_per_group is not None:
-            available = self._moe_config.top_k_group * (
-                self._moe_config.group_size - self._n_experts_to_drop_per_group
-            )
-        else:
-            available = num_experts - self._n_experts_to_drop
-        if self._moe_config.num_experts_per_tok > available:
-            raise ValueError(
-                f"{type(self).__name__} sparsity is too aggressive: the router selects "
-                f"top_k={self._moe_config.num_experts_per_tok} experts per token, "
-                f"but only {available} experts would remain reachable "
-                f"after pruning (num_experts={num_experts}, "
-                f"dropping≈{self._n_experts_to_drop}). Reduce the sparsity target"
-            )
+        # leave the router unable to select top_k experts per token; not a
+        # limit for subclasses whose dropped experts stay routable
+        if self.sparsity_method == MoESparsityMethod.PRUNE:
+            if self._n_experts_to_drop_per_group is not None:
+                available = self._moe_config.top_k_group * (
+                    self._moe_config.group_size - self._n_experts_to_drop_per_group
+                )
+            else:
+                available = num_experts - self._n_experts_to_drop
+            if self._moe_config.num_experts_per_tok > available:
+                raise ValueError(
+                    f"{type(self).__name__} sparsity is too aggressive: the router "
+                    f"selects top_k={self._moe_config.num_experts_per_tok} experts "
+                    f"per token, but only {available} experts would remain "
+                    f"reachable after pruning (num_experts={num_experts}, "
+                    f"dropping≈{self._n_experts_to_drop}). Reduce the sparsity "
+                    f"target"
+                )
 
         if self._n_experts_to_drop_per_group is not None:
             logger.info(
@@ -251,17 +256,29 @@ class ExpertPruningModifierBase(Modifier):
             self.register_hook(experts, _experts_block_hook, "forward")
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
     ):
         """
         Computes retained experts from layer statistics and records report values
 
         :param state: The current session state
         :param event: The event that triggered this callback
+        :param modules: modules included in the sequential subgraph which
+            just finished calibrating; only MoE layers among them are
+            finalized. When ``None``, every tracked MoE layer is finalized,
+            as when the lifecycle is driven without a sequential pipeline
         """
         model: torch.nn.Module = state.model
-        m_to_n = get_module_to_name_dict(model)  # TODO: refactor `modules` to be a dict
-        moe_names = [m_to_n[m] for m in modules if m_to_n[m] in self._moe_stats]
+        if modules is None:
+            moe_names = list(self._moe_stats)
+        else:
+            # TODO: refactor `modules` to be a dict
+            m_to_n = get_module_to_name_dict(model)
+            moe_names = [m_to_n[m] for m in modules if m_to_n[m] in self._moe_stats]
 
         # sort by layer name to keep the sequence of distributed collectives identical
         pruned_layers = 0
@@ -323,7 +340,7 @@ class ExpertPruningModifierBase(Modifier):
         :param state: The current state of the model
         :return: True, signaling successful finalization
         """
-        model = state.model
+        model: PreTrainedModel = state.model
 
         # Warn and nullify any moe layers which were initialized but never calibrated
         if len(self._moe_stats) > 0:
@@ -338,13 +355,10 @@ class ExpertPruningModifierBase(Modifier):
         # Picked up by the compressed save path and written into
         # config.json's quantization_config.moe_sparsity_config.
         if self._n_experts_to_drop > 0:
-            num_layers = getattr(self._text_config, "num_hidden_layers", None)
-            if num_layers is None:
-                raise ValueError(
-                    "Could not determine num_hidden_layers on "
-                    f"{type(self._text_config).__name__} to build the "
-                    "moe_sparsity_config num_experts list"
-                )
+            config = model.config.get_text_config()
+            # when the config carries no layer count, values_by_decoder_layer
+            # falls back to sizing the list from the pruned layer names
+            num_layers = getattr_fallbacks(config, ["num_hidden_layers"], None)
             num_experts = {
                 moe_name: (
                     len(retained) if retained is not None else None
