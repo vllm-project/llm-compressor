@@ -4,8 +4,6 @@ REAP (Router-weighted Expert Activation Pruning) modifier for MoE models.
 See: https://arxiv.org/abs/2510.13999
 """
 
-from collections import defaultdict
-
 import torch
 from compressed_tensors.config import MoESparsityMethod
 from compressed_tensors.distributed import (
@@ -46,7 +44,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         When ``0.0``, no experts are pruned; saliency is still computed so
         that a ``report_path`` can be written, but the model weights and
         config are never modified.
-    :param ignore: module name patterns to skip during MoE layer detection.
+    :param ignore: module name patterns to skip during MoE layer pruning.
     :param report_path: optional path to a ``.json`` file where the per-expert
         statistics are written after calibration completes. The report is a JSON
         object mapping ``count`` and ``saliency`` to one inner list per MoE layer
@@ -67,8 +65,8 @@ class REAPPruningModifier(ExpertPruningModifierBase):
     # One slot per expert (None until that expert's hook fires this batch),
     # populated by the expert hooks and discarded by the experts block hook
     # at the end of each batch
-    _expert_norms: dict[str, list[torch.Tensor | None]] = PrivateAttr(
-        default_factory=lambda: defaultdict(list)
+    _expert_norms: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
+        default_factory=dict
     )
 
     def init_moe_stats(
@@ -94,7 +92,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 "sum_saliency": torch.zeros(num_experts),
                 "count": torch.zeros(num_experts, dtype=torch.int),
             }
-            self._expert_norms[moe_name] = [None for _ in range(num_experts)]
+            self._expert_norms[moe_name] = {}
 
     @torch.no_grad()
     def expert_hook(
@@ -185,7 +183,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
 
                 # Build flat norms tensor aligned with flat_idx
                 flat_norms = torch.zeros_like(flat_weights)
-                for expert_idx, expert_norms in enumerate(self._expert_norms[moe_name]):
+                for expert_idx, expert_norms in self._expert_norms[moe_name].items():
                     mask = flat_idx == expert_idx
                     flat_norms[mask] = expert_norms
 

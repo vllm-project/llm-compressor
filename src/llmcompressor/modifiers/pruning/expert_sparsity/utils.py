@@ -24,12 +24,22 @@ ROUTER_ATTRS = ["router", "gate"]
 def get_experts_router(
     moe_name: str, moe_module: torch.nn.Module
 ) -> tuple[LinearExperts2D | None, torch.nn.Module | None]:
-    (
-        experts,
-        router,
-    ) = None, None
+    """
+    Get the experts and router layers from an MoE layer
+
+    :param moe_name: fqn of moe module
+    :param moe_module: moe module with router and expert children
+    """
+
+    from llmcompressor.modeling.moe.gpt_oss import GptOssLinearExperts
+    from llmcompressor.modeling.moe.llama4 import Llama4LinearExperts
+
+    experts = None
+    router = None
     for name, child in moe_module.named_children():
-        if isinstance(child, LinearExperts2D):
+        if isinstance(child, (GptOssLinearExperts, Llama4LinearExperts)):
+            raise ValueError(f"Found unsupported MoE layer {child.__class__}")
+        elif isinstance(child, LinearExperts2D):
             experts = child
         elif name in ROUTER_ATTRS:
             router = child

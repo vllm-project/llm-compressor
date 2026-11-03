@@ -64,7 +64,7 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         When ``0.0``, no experts are collapsed; saliency is still computed so
         that a ``report_path`` can be written, but the model weights and
         config are never modified.
-    :param ignore: module name patterns to skip during MoE layer detection.
+    :param ignore: module name patterns to skip during MoE layer pruning.
     :param report_path: optional path to a ``.json`` file where the per-expert
         statistics are written after calibration completes. The report is a JSON
         object mapping ``count`` and ``saliency`` to one inner list per MoE layer

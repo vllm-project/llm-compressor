@@ -36,6 +36,7 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     prune_moe_layer,
 )
 from llmcompressor.utils.helpers import numeric_sorted_names, values_by_decoder_layer
+from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["ExpertPruningModifierBase"]
 
@@ -56,7 +57,7 @@ class ExpertPruningModifierBase(Modifier):
         When ``0.0``, no experts are removed; saliency is still computed so
         that a ``report_path`` can be written, but the model weights and
         config are never modified.
-    :param ignore: module name patterns to skip during MoE layer detection.
+    :param ignore: module name patterns to skip during MoE layer pruning.
     :param report_path: optional path to a ``.json`` file where the per-expert
         statistics are written after calibration completes. The report is a JSON
         object mapping ``count`` and ``saliency`` to one inner list per MoE layer
@@ -141,7 +142,7 @@ class ExpertPruningModifierBase(Modifier):
 
             # report-only path
             logger.info(
-                f"{type(self).__name__} initialized with"
+                f"{type(self).__name__} initialized with "
                 "`sparsity=0.0`, no experts will be pruned, "
                 f"saving report to {self.report_path}"
             )
@@ -253,7 +254,9 @@ class ExpertPruningModifierBase(Modifier):
             _experts_block_hook = partial(self.experts_block_hook, moe_name)
             self.register_hook(experts, _experts_block_hook, "forward")
 
-    def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
         """
         Computes retained experts from layer statistics and records report values
 
@@ -261,15 +264,18 @@ class ExpertPruningModifierBase(Modifier):
         :param event: The event that triggered this callback
         """
         model: torch.nn.Module = state.model
+        m_to_n = get_module_to_name_dict(model)  # TODO: refactor `modules` to be a dict
+        moe_names = [m_to_n[m] for m in modules if m_to_n[m] in self._moe_stats]
 
         # sort by layer name to keep the sequence of distributed collectives identical
         pruned_layers = 0
-        for moe_name in numeric_sorted_names(self._moe_stats):
+        for moe_name in numeric_sorted_names(moe_names):
             moe_module = model.get_submodule(moe_name)
 
             # reduce stats and process any MoEs that were calibrated
             self.reduce_moe_stats(moe_name)
             if self._moe_stats[moe_name]["count"].count_nonzero().item() <= 0:
+                logger.warning(f"Failed to calibrate {moe_name}")
                 continue
 
             # compute saliency and retained experts
@@ -300,7 +306,7 @@ class ExpertPruningModifierBase(Modifier):
         if self._n_experts_to_drop > 0:
             logger.info(
                 f"{type(self).__name__}: pruned {self._n_experts_to_drop} experts "
-                f"from each of {pruned_layers} layers"
+                f"from {pruned_layers} layers each"
             )
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
