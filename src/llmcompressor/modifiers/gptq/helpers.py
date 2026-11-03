@@ -69,7 +69,7 @@ def accumulate_hessian(
     num_added = inp.shape[0]
     match module:
         case torch.nn.Linear() | transformers.Conv1D():
-            # [batch, seq_len, in_features] -> [num_tokens, in_features]
+            # [batch, seq_len, in_features] -> [kept_tokens, in_features]
             inp = apply_loss_mask(inp, mask).t()
         case torch.nn.Conv2d():
             unfold = torch.nn.Unfold(
