@@ -214,71 +214,66 @@ def test_oneshot_expert_selection(
 
     report_path = str(tmp_path / "saliency_report.json")
 
-    model = None
-    try:
-        with load_context():
-            model = AutoModelForCausalLM.from_pretrained(
-                truncated_model_dir, dtype=torch.bfloat16, device_map="auto_offload"
-            )
-
-        oneshot(
-            model=model,
-            dataset="perfectblend",
-            splits=f"train[:{NUM_CALIBRATION_SAMPLES}]",
-            recipe=modifier_cls(sparsity=SPARSITY, report_path=report_path),
-            num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-            max_seq_length=MAX_SEQ_LENGTH,
-            shuffle_calibration_samples=False,
-            pipeline="sequential",
-            moe_calibrate_all_experts=False,
-            propagate_error=False,
+    with load_context():
+        model = AutoModelForCausalLM.from_pretrained(
+            truncated_model_dir, dtype=torch.bfloat16, device_map="auto_offload"
         )
 
-        # 1a. the pruning oneshot applied to the model
-        original = _original_router_weights(truncated_model_dir)
-        retained, pruned = _oneshot_expert_choice(model, original)
-        for layer in range(NUM_LAYERS):
-            assert (
-                retained[layer] == expected_retained[layer]
-            ), f"layer {layer}: oneshot retained experts differ"
-            assert (
-                pruned[layer] == expected_pruned[layer]
-            ), f"layer {layer}: oneshot pruned experts differ"
+    oneshot(
+        model=model,
+        dataset="perfectblend",
+        splits=f"train[:{NUM_CALIBRATION_SAMPLES}]",
+        recipe=modifier_cls(sparsity=SPARSITY, report_path=report_path),
+        num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        max_seq_length=MAX_SEQ_LENGTH,
+        shuffle_calibration_samples=False,
+        pipeline="sequential",
+        moe_calibrate_all_experts=False,
+        propagate_error=False,
+    )
 
-        # the model's expert-sparsity config records the per-layer expert counts
-        sparsity_config = model._moe_sparsity_config
-        assert sparsity_config.method == modifier_cls.sparsity_method
-        assert sparsity_config.num_experts == [NUM_RETAINED] * NUM_LAYERS
-
-        # 1b. the choice ExpertPruner makes from the same saliency report
-        pruner = ExpertPruner.from_pretrained(
-            truncated_model_dir,
-            sparsity=SPARSITY,
-            metric="saliency",
-            uniform=True,
-            router_pattern=ROUTER_PATTERN,
-            expert_pattern=EXPERT_PATTERN,
-            saliency_report_path=report_path,
-        )
-        for layer in range(NUM_LAYERS):
-            assert (
-                pruner.retained_experts[_router_name(layer)] == expected_retained[layer]
-            ), f"layer {layer}: ExpertPruner retained experts differ"
-
-        # 2. the saliency statistics of the analyzed layers
-        with open(report_path) as f:
-            report = json.load(f)
+    # 1a. the pruning oneshot applied to the model
+    original = _original_router_weights(truncated_model_dir)
+    retained, pruned = _oneshot_expert_choice(model, original)
+    for layer in range(NUM_LAYERS):
         assert (
-            len(report["saliency"]) == NUM_LAYERS
-        ), "expected saliency statistics for every layer of the truncated model"
-        for layer in range(NUM_LAYERS):
-            torch.testing.assert_close(
-                torch.tensor(report["saliency"][layer], dtype=torch.float64),
-                torch.tensor(expected_saliency[layer], dtype=torch.float64),
-                rtol=SALIENCY_RTOL,
-                atol=SALIENCY_ATOL,
-                msg=lambda m, i=layer: f"layer {i}: saliency differs\n{m}",
-            )
-    finally:
-        del model
-        torch.accelerator.empty_cache()
+            retained[layer] == expected_retained[layer]
+        ), f"layer {layer}: oneshot retained experts differ"
+        assert (
+            pruned[layer] == expected_pruned[layer]
+        ), f"layer {layer}: oneshot pruned experts differ"
+
+    # the model's expert-sparsity config records the per-layer expert counts
+    sparsity_config = model._moe_sparsity_config
+    assert sparsity_config.method == modifier_cls.sparsity_method
+    assert sparsity_config.num_experts == [NUM_RETAINED] * NUM_LAYERS
+
+    # 1b. the choice ExpertPruner makes from the same saliency report
+    pruner = ExpertPruner.from_pretrained(
+        truncated_model_dir,
+        sparsity=SPARSITY,
+        metric="saliency",
+        uniform=True,
+        router_pattern=ROUTER_PATTERN,
+        expert_pattern=EXPERT_PATTERN,
+        saliency_report_path=report_path,
+    )
+    for layer in range(NUM_LAYERS):
+        assert (
+            pruner.retained_experts[_router_name(layer)] == expected_retained[layer]
+        ), f"layer {layer}: ExpertPruner retained experts differ"
+
+    # 2. the saliency statistics of the analyzed layers
+    with open(report_path) as f:
+        report = json.load(f)
+    assert (
+        len(report["saliency"]) == NUM_LAYERS
+    ), "expected saliency statistics for every layer of the truncated model"
+    for layer in range(NUM_LAYERS):
+        torch.testing.assert_close(
+            torch.tensor(report["saliency"][layer], dtype=torch.float64),
+            torch.tensor(expected_saliency[layer], dtype=torch.float64),
+            rtol=SALIENCY_RTOL,
+            atol=SALIENCY_ATOL,
+            msg=lambda m, i=layer: f"layer {i}: saliency differs\n{m}",
+        )
