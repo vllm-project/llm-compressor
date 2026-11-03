@@ -64,15 +64,21 @@ def load_model(
     if max_memory is None and device_map != "disk":
         max_memory = {"cpu": "1000GB"}
 
-    load_kwargs = {
-        "device_map": device_map,
-        "offload_folder": offload_folder or OFFLOAD_DIR,
-    }
-    if max_memory is not None:
-        load_kwargs["max_memory"] = max_memory
-
     with load_context(pretrained_model_class):
-        loaded_model = pretrained_model_class.from_pretrained(model, **load_kwargs)
+        if max_memory is None:
+            # Explicit disk offload rejects `max_memory`, so omit it.
+            loaded_model = pretrained_model_class.from_pretrained(
+                model,
+                device_map=device_map,
+                offload_folder=offload_folder or OFFLOAD_DIR,
+            )
+        else:
+            loaded_model = pretrained_model_class.from_pretrained(
+                model,
+                device_map=device_map,
+                max_memory=max_memory,
+                offload_folder=offload_folder or OFFLOAD_DIR,
+            )
     return loaded_model
 
 
