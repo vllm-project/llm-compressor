@@ -13,7 +13,7 @@ Observers are designed to be flexible and support a variety of quantization stra
 
 ## Base Class
 
-### [Observer](../../src/llmcompressor/observers/base.py)
+### [Observer](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/base.py)
 Base class for all observers. Subclasses must implement `update_statistics_from_observed` to define how statistics are accumulated. Subclasses that use statistics other than `min_vals`/`max_vals` must also override `get_qparams` and `has_statistics`.
 
 The base class handles:
@@ -53,21 +53,21 @@ class QParamsDict(TypedDict, total=False):
 
 All MinMax observers compute min/max values by tracking the minimum and maximum of the observed tensor. They differ in how they handle state across multiple observations.
 
-#### [memoryless_minmax](../../src/llmcompressor/observers/min_max.py)
+#### [memoryless_minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py)
 Computes min/max from each observed tensor independently, with no memory of past observations. Each observation is handled in isolation.
 
 Best used when:
 - Only a single observation e.g. for weight quantization
 - You want the most recent observation to fully determine the range
 
-#### [static_minmax](../../src/llmcompressor/observers/min_max.py) *(default)*
+#### [static_minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py) *(default)*
 Tracks the running global min/max across all observations. The final range is the union of all observed ranges — the smallest min and largest max seen across all batches.
 
 Best used for:
 - Scenarios where the range must encompass all possible observed values
 - Most standard activation quantization scenarios with static/local quantization (FP8, NVFP4)
 
-#### [minmax](../../src/llmcompressor/observers/min_max.py) 
+#### [minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py)
 Computes min/max using an exponential moving average across observations, controlled by `averaging_constant`. This smooths out batch-to-batch variance while still adapting to new observations.
 
 Best used for:
@@ -78,14 +78,14 @@ Best used for:
 
 MSE observers find the min/max range that minimizes the mean quantization error, using a grid search over candidate scaled min/max factors. They are more expensive than MinMax observers but can yield better accuracy, particularly for integer and low-bit floating point quantization.
 
-#### [memoryless_mse](../../src/llmcompressor/observers/mse.py)
+#### [memoryless_mse](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/mse.py)
 Performs an MSE grid search on each observed tensor independently, with no memory of past observations.
 
 Best used when:
 - A single calibration batch is used
 - Minimizing quantization error is more important than calibration speed
 
-#### [mse](../../src/llmcompressor/observers/mse.py)
+#### [mse](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/mse.py)
 Performs an MSE grid search and maintains a moving average of the resulting min/max values across observations, controlled by `averaging_constant`.
 
 Best used when:
@@ -93,7 +93,7 @@ Best used when:
 - Quantization error needs to be tightly controlled (e.g., 4-bit weight quantization)
 - You are doing NVFP4 (see expanded observer below) or integer quantization
 
-#### [NVFP4 expanded MSE](../../src/llmcompressor/observers/mse.py) (`nvfp4_expanded_mse`)
+#### [NVFP4 expanded MSE](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/mse.py) (`nvfp4_expanded_mse`)
 
 `nvfp4_expanded_mse` is a memoryless MSE observer with defaults tuned for NVFP4
 weight quantization. Its defaults search from 1.8x down to approximately 0.8x of the observed
@@ -123,7 +123,7 @@ Best used when:
 - 4-bit weight quantization accuracy is critical
 - You want to combine with GPTQ for further improvement
 
-#### [NVFP4 expanded IMatrix](../../src/llmcompressor/observers/imatrix.py) (`nvfp4_expanded_imatrix`)
+#### [NVFP4 expanded IMatrix](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py) (`nvfp4_expanded_imatrix`)
 
 `nvfp4_expanded_imatrix` applies the same NVFP4 range expansion and search as
 `nvfp4_expanded_mse`, but weighs each quantization error by per-input-channel
@@ -218,6 +218,12 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 
 ### MSE observers (`mse`, `memoryless_mse`)
 
+Both observers use the same search options described in the
+[`MemorylessMSEObserver` docstring](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/mse.py).
+`mse` additionally smooths successive ranges with `averaging_constant`;
+`memoryless_mse` processes each observed tensor independently. The expanded
+observer inherits these options but overrides some defaults as described above.
+
 | Argument             | Default | Description |
 |----------------------|---------|-------------|
 | `maxshrink`          | `0.20`  | Maximum shrink amount in grid steps. Number of search steps is `int(maxshrink * grid)`. |
@@ -227,10 +233,17 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 | `expand`             | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; the NVFP4 expanded MSE observer defaults to `1.8`. |
 | `triton_error_buffer` | `0.30` for integer/FP8, `1.00` for FP4 | Relative error buffer used by the CUDA Triton implementation when applying per-group patience. The NVFP4 expanded MSE observer defaults to `1.00` i.e. exhaustive search. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
+| `grid_type` | `None` | `"linear"`, `"exponential"`. default spacing is exponential when MX scales are generated (E8M0), linear otherwise. Exponential candidates are `1, 1/2, 1/4, ...`. |
+| `magnitude_normalization` | `False` | Multiply each powered error by `sqrt(w² + group_absmax²)`, where `group_absmax` is the maximum absolute observed weight in the quantization group. |
 
 MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `get_qparams()` from the final min/max values.
 
 ### IMatrix observer (`imatrix_mse`)
+
+The search options and objective are documented once in the
+[`IMatrixMSEObserver` docstring](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py).
+The expanded imatrix observer inherits them and changes the default search
+range, grid, norm, and patience.
 
 | Argument      | Default | Description |
 |---------------|---------|-------------|
@@ -240,6 +253,8 @@ MSE and iMatrix grid searches run with `global_scale=None` — the shrink search
 | `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
 | `expand`      | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; `nvfp4_expanded_imatrix` defaults to `1.8`. |
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
+| `grid_type` | `None` | `"linear"`, `"exponential"`, default spacing is exponential when MX scales are generated (E8M0), linear otherwise. |
+| `magnitude_normalization` | `False` | Multiply each importance-weighted error by `sqrt(w² + group_absmax²)`. |
 
 ## DDP (Distributed) Support
 

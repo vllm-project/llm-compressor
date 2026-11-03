@@ -204,8 +204,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
 
 @pytest.mark.parametrize("kind", ["rtn", "gptq", "awq"])
 @pytest.mark.parametrize("scheme", ["NVFP4A16", "W4A16"])
-@pytest.mark.parametrize("sequential_prefetch", [False, True])
-def test_real_llama_sequential_pipeline(kind, scheme, sequential_prefetch):
+def test_real_llama_sequential_pipeline(kind, scheme):
     if kind == "awq" and not torch.accelerator.is_available():
         pytest.skip("AWQ calibration requires an accelerator for pinned memory")
     torch.manual_seed(21)
@@ -232,7 +231,6 @@ def test_real_llama_sequential_pipeline(kind, scheme, sequential_prefetch):
     args = DatasetArguments(
         sequential_targets=["LlamaDecoderLayer"],
         sequential_targets_per_subgraph=1,
-        sequential_prefetch=sequential_prefetch,
     )
     with create_session() as session:
         recipe = [AWQModifier(n_grid=4)] if kind == "awq" else []
@@ -511,15 +509,13 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
         (3, {"model.layers.0..model.layers.2": 3, "model.layers.3": 3}),
     ],
 )
-@pytest.mark.parametrize("sequential_prefetch", [False, True])
-def test_subgraph_targets_train_jointly(per_subgraph, expected, sequential_prefetch):
+def test_subgraph_targets_train_jointly(per_subgraph, expected):
     torch.manual_seed(23)
     model = _tiny_llama(layers=4).to(get_main_device())
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(4)]
     qad = QADModifier(num_epochs=1, lr=0.001)
     args = DatasetArguments(
         sequential_targets_per_subgraph=per_subgraph,
-        sequential_prefetch=sequential_prefetch,
     )
     with create_session() as session:
         session.initialize(model=model, recipe=[_quantizer("rtn"), qad], start=-1)

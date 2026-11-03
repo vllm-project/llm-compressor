@@ -11,7 +11,8 @@ from compressed_tensors import ModelCompressor, SparsityCompressionConfig
 from compressed_tensors.config import CompressionFormat
 from compressed_tensors.distributed import is_source_process
 from compressed_tensors.offload import OffloadCache, from_accelerate, to_accelerate
-from compressed_tensors.utils import deprecated, save_mtp_tensors_to_checkpoint
+from compressed_tensors.quantization import QuantizationConfig
+from compressed_tensors.utils import deprecated
 from huggingface_hub import hf_hub_download
 from loguru import logger
 from transformers import PretrainedConfig, PreTrainedModel
@@ -21,6 +22,11 @@ from llmcompressor.core import active_session
 from llmcompressor.modifiers.pruning.reap.utils import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.transformers.compression.mtp import (
+    has_mtp_in_checkpoint,
+    save_mtp_tensors,
+    validate_mtp_copy_source,
+)
 from llmcompressor.transformers.utils import RECIPE_FILE_NAME
 from llmcompressor.transformers.utils.helpers import infer_recipe_from_model_path
 from llmcompressor.utils import getitem_fallbacks, hasitem_fallbacks
@@ -132,14 +138,27 @@ def modify_save_pretrained(model: PreTrainedModel):
             save_dir = save_directory
             kwargs.setdefault("max_shard_size", "20GB")
 
+            source_mtp = None
+            if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
+                source_mtp = validate_mtp_copy_source(model)
+
             # without this, quantization format will be inferred from the model
             if not save_compressed and quantization_format is None:
                 quantization_format = CompressionFormat.dense.value
 
-            # compress model using compressor
+            # Use `ModelCompressor` to construct a quantization config
             compressor = ModelCompressor.from_pretrained_model(
                 model, quantization_format=quantization_format
             )
+
+            # Add expert sparsity to quantization config
+            if hasattr(model, "_moe_sparsity_config"):
+                compressor.quantization_config = _apply_expert_sparsity(
+                    model, compressor.quantization_config
+                )
+
+            # TODO: remove use of `ModelCompressor` and instead rely on
+            # modifiers and pipelines to perform layerwise compression
             if save_compressed:
                 compressor.compress_model(model, skip_compressed=True)
 
@@ -156,10 +175,10 @@ def modify_save_pretrained(model: PreTrainedModel):
 
             with suspend_distributed_timeout():
                 if is_source_process():
-                    # save model structure
+                    # save the complete model, including loaded MTP layers
                     original_save_fn.__get__(model, model_class)(save_dir, **kwargs)
 
-                    # resave the config with original structure for better vLLM compat
+                    # resave the config with original structure for vLLM
                     resave_config(model.config, save_dir)
 
                     # update config to reflect quantization
@@ -171,13 +190,12 @@ def modify_save_pretrained(model: PreTrainedModel):
                     # copy python files from cache dir to save_path if any
                     copy_python_files_from_model_cache(model, save_dir)
 
-                    # copy mtp tensors (not loaded by transformers) and update config
-                    text_config = model.config.get_text_config()
-                    has_mtp = getattr(text_config, "num_mtp_layers", 0) or getattr(
-                        text_config, "mtp_num_hidden_layers", 0
-                    )
-                    if has_mtp:
-                        save_mtp_tensors_to_checkpoint(model.name_or_path, save_dir)
+                    if source_mtp is not None:
+                        logger.info(
+                            "Use load_context(load_mtp=True) to quantize MTP "
+                            "when supported by Transformers."
+                        )
+                        save_mtp_tensors(model, save_dir, source_mtp=source_mtp)
 
             # convert back from accelerate to restore model to original form
             from_accelerate(model)
@@ -254,6 +272,22 @@ def update_and_save_recipe(model_stub: str, save_directory: str):
     recipe.yaml(file_path=recipe_path, existing_recipe_path=existing_recipe)
 
 
+def _apply_expert_sparsity(
+    model: PreTrainedModel, quant_config: QuantizationConfig | None
+):
+    """
+    Pick up `model._moe_sparsity_config` which may be applied by a modifier, see
+    `MoNePruningModifier.on_finalize`.
+
+    This lifecycle is hacky and should be replaced in the future
+    """
+    if quant_config is None:
+        quant_config = QuantizationConfig(config_groups={})
+
+    quant_config.moe_sparsity_config = model._moe_sparsity_config
+    return quant_config
+
+
 def resave_config(config: PretrainedConfig, save_dir: str):
     """
     Overwrite the config saved at ``save_dir`` with the original model config,
@@ -286,6 +320,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
             config_path = hf_hub_download(
                 repo_id=name_or_path,
                 filename="config.json",
+                revision=getattr(config, "_commit_hash", None),
                 cache_dir=None,
                 force_download=False,
                 user_agent=http_user_agent(),

@@ -16,9 +16,6 @@ endif
 ifneq ($(findstring examples,$(TARGETS)),examples)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/examples
 endif
-ifneq ($(findstring sparsity,$(TARGETS)),sparsity)
-    PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/sparsity
-endif
 
 # run checks on all files for the repo
 # leaving out mypy src for now

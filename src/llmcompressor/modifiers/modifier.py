@@ -304,3 +304,19 @@ class Modifier(ModifierInterface, HooksMixin):
         :param kwargs: Additional arguments for the calibration epoch end
         """
         pass
+
+    def estimate_sequential_memory(
+        self, module: torch.nn.Module, num_tokens: int
+    ) -> tuple[int, int] | None:
+        """
+        Estimate the device memory this modifier needs for a module, for
+        `sequential_targets_per_subgraph="auto"`. Called under `disable_onloading()`.
+        Modifiers which need calibration data report None (unknown) unless they
+        override this
+
+        :param module: module belonging to the subgraph being calibrated
+        :param num_tokens: number of calibration tokens, including padding
+        :return: (held, scratch) bytes, or None if unknown. Held memory is kept until
+            the subgraph is compressed, scratch only while the module is compressed
+        """
+        return None if self.requires_calibration_data else (0, 0)

@@ -180,9 +180,10 @@ ignore=[
 | Scheme | Description |
 |--------|-------------|
 | `FP8_DYNAMIC` | FP8 weights with dynamic per-token activation quantization |
-| `FP8_BLOCK` | FP8 weights with block-wise scaling (Blackwell-optimized) |
+| `FP8_BLOCK` | FP8 weights with 128x128 block scales and dynamic per-group FP8 activations |
 | `NVFP4A16` | NVFP4 weight-only quantization with FP8 group scales and a global scale |
 | `MXFP4/MXFP8` | MXFP4 or MXFP8 quantization with MX-format microscales |
+| `MXFP4xFP8` | MXFP4 weights with dynamic FP8 activations; commonly paired with FP8 weights on dense layers of MoE models |
 
 Note: Many of these schemes, such as NVFP4 and MXFP4 may potentially lead to improved recovery when applied with a calibration algorithm that requires data, such as GPTQ. Consider comparing performance using oneshot.
 For the full list of supported schemes and formats, see [Compression Schemes](../compression_schemes.md).

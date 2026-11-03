@@ -4,6 +4,7 @@ from compressed_tensors.utils import getattr_chain
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from llmcompressor import oneshot
+from llmcompressor.core import State
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.transform.smoothquant.base import (
     SmoothQuantModifier,
@@ -280,3 +281,33 @@ def test_smoothquant_e2e():
     torch.testing.assert_close(
         before_smooth, after_smooth.to(before_smooth.device), atol=0.1, rtol=0.1
     )
+
+
+@pytest.mark.unit
+def test_estimate_sequential_memory():
+    model = torch.nn.ModuleDict(
+        {
+            "input_layernorm": torch.nn.LayerNorm(64),
+            "q_proj": torch.nn.Linear(64, 128),
+            "k_proj": torch.nn.Linear(64, 32),
+            "o_proj": torch.nn.Linear(128, 64),
+        }
+    )
+    sq = SmoothQuantModifier(
+        mappings=[(["re:.*q_proj", "re:.*k_proj"], "re:.*input_layernorm")]
+    )
+    state = State(model=model)
+    state.data.calib = [None]  # only checked to exist
+    sq.on_initialize(state)
+
+    # per-channel min and max of the smoothed layer's output
+    assert sq.estimate_sequential_memory(model["input_layernorm"], 10) == (
+        2 * 64 * 4,
+        0,
+    )
+    # a copy of each balance layer's weight while smoothing
+    assert sq.estimate_sequential_memory(model["q_proj"], 10) == (0, 128 * 64 * 4)
+    assert sq.estimate_sequential_memory(model["k_proj"], 10) == (0, 32 * 64 * 4)
+    # modules outside the mappings keep nothing
+    assert sq.estimate_sequential_memory(model["o_proj"], 10) == (0, 0)
+    assert sq.estimate_sequential_memory(model, 10) == (0, 0)

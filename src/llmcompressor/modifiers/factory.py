@@ -1,6 +1,8 @@
 import importlib
 import pkgutil
 
+from loguru import logger
+
 from llmcompressor.modifiers.modifier import Modifier
 
 __all__ = ["ModifierFactory"]
@@ -67,6 +69,9 @@ class ModifierFactory:
                             yield from walk_recursive(subpackage.__path__, name + ".")
                     except Exception:
                         # If we can't import the subpackage, skip it
+                        logger.opt(exception=True).debug(
+                            f"Failed to import subpackage {name}, skipping"
+                        )
                         pass
 
         yield from walk_recursive(main_package.__path__, package_path + ".")
@@ -84,8 +89,6 @@ class ModifierFactory:
         deprecated_package_prefixes = [
             "llmcompressor.modifiers.awq",
             "llmcompressor.modifiers.smoothquant",
-            "llmcompressor.modifiers.obcq",
-            "llmcompressor.modifiers.obcq.sgpt_base",
             "llmcompressor.modifiers.quantization.gptq",
             "llmcompressor.modifiers.quantization.gptq.base",
             "llmcompressor.modifiers.quantization.gptq.gptq_quantize",
@@ -119,11 +122,12 @@ class ModifierFactory:
 
                         loaded[attribute_name] = attr
                     except Exception as err:
-                        # TODO: log import error
+                        logger.opt(exception=True).debug(
+                            f"Failed to load modifier {attribute_name} from {modname}"
+                        )
                         ModifierFactory._errors[attribute_name] = err
-            except Exception as module_err:
-                # TODO: log import error
-                print(module_err)
+            except Exception:
+                logger.opt(exception=True).debug(f"Failed to import module {modname}")
 
         return loaded
 
@@ -153,14 +157,16 @@ class ModifierFactory:
             if allow_registered:
                 return ModifierFactory._registered_registry[type_](**kwargs)
             else:
-                # TODO: log warning that modifier was skipped
+                logger.debug(
+                    f"Registered modifier '{type_}' skipped (allow_registered=False)"
+                )
                 pass
 
         if type_ in ModifierFactory._experimental_registry:
             if allow_experimental:
                 return ModifierFactory._experimental_registry[type_](**kwargs)
             else:
-                # TODO: log warning that modifier was skipped
+                logger.debug(f"Experimental modifier '{type_}' skipped")
                 pass
 
         if type_ in ModifierFactory._main_registry:

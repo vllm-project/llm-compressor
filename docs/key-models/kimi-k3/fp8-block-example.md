@@ -5,7 +5,7 @@
 This example uses `model_free_ptq` to quantize Kimi-K3 to FP8 block format without loading the full model into memory.
 The original checkpoint ships pre-quantized, so a `CompressedTensorsDequantizer` is used to dequantize on the fly during conversion.
 
-The full example script can be found [here](../../../examples/model_free_ptq/kimi_k3_fp8_block.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/kimi_k3_fp8_block.py).
 
 ### Code Walkthrough
 
