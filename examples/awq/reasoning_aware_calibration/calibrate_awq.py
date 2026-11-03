@@ -35,7 +35,7 @@ from llmcompressor.modifiers.transform.awq import AWQModifier
 
 
 def read_jsonl(path):
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 
@@ -151,7 +151,13 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16)
 
-    ds = Dataset.from_list(build_rows(args, tokenizer))
+    rows = build_rows(args, tokenizer)
+    if not rows:
+        raise ValueError(
+            f"no calibration samples for arm '{args.arm}'; check the input files "
+            "and --loss-token-budget"
+        )
+    ds = Dataset.from_list(rows)
     num_tokens = sum(len(ids) for ids in ds["input_ids"])
     num_masked = sum(sum(mask) for mask in ds["loss_mask"])
     print(f"[{args.arm}] {len(ds)} samples, {num_tokens} tokens, {num_masked} in mask")

@@ -32,8 +32,10 @@ def prompt_response_pair(example):
     # {"from", "value"} conversations (e.g. open-perfectblend)
     if "messages" in example:
         turns = [(t["role"], t["content"]) for t in example["messages"]]
-    else:
+    elif "conversations" in example:
         turns = [(t["from"], t["value"]) for t in example["conversations"]]
+    else:
+        return None, None
     prompt = next((text for role, text in turns if role in ("user", "human")), None)
     response = next(
         (text for role, text in turns if role in ("assistant", "gpt")), None
@@ -117,6 +119,11 @@ def main():
             enable_thinking=not args.no_thinking,
         )
     )
+    if not selected:
+        raise ValueError(
+            f"no prompts selected from {args.dataset}[{args.split}]; check the "
+            f"dataset format and --max-prompt-tokens ({args.max_prompt_tokens})"
+        )
     # render the prompt exactly as it will be served, including the assistant
     # turn opener (and, for thinking mode, whatever the template adds there)
     prompt_ids = [
@@ -149,7 +156,7 @@ def main():
 
     num_truncated = 0
     num_generated = 0
-    with open(args.output, "w") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         for sample, output in zip(selected, outputs):
             completion = output.outputs[0]
             prompt = list(output.prompt_token_ids)
@@ -167,7 +174,7 @@ def main():
             }
             f.write(json.dumps(record) + "\n")
 
-    with open(args.prompts_output, "w") as f:
+    with open(args.prompts_output, "w", encoding="utf-8") as f:
         for sample in selected:
             f.write(json.dumps(sample) + "\n")
 
