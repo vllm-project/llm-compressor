@@ -121,12 +121,7 @@ class ExpertPruningModifierBase(Modifier):
         :return: True if there are no errors, False otherwise
         """
         model: PreTrainedModel = state.model
-        # composite (e.g. VL) model configs keep the MoE fields on their text
-        # config, so unwrap it before reading them
-        config = model.config
-        get_text_config = getattr(config, "get_text_config", None)
-        if callable(get_text_config):
-            config = get_text_config()
+        config = model.config.get_text_config()
         self._moe_config = MoEConfig.from_config(config)
         self._text_config = config
         num_experts = self._moe_config.num_experts
@@ -185,11 +180,6 @@ class ExpertPruningModifierBase(Modifier):
                 f"dropping≈{self._n_experts_to_drop}). Reduce the sparsity target"
             )
 
-        logger.info(
-            f"{type(self).__name__} initialized: "
-            f"{num_experts} experts/layer, will be pruned "
-            f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
-        )
         if self._n_experts_to_drop_per_group is not None:
             logger.info(
                 f"Group-limited router detected: will prune "
@@ -211,6 +201,12 @@ class ExpertPruningModifierBase(Modifier):
                 self._n_experts_to_drop = (
                     self._n_experts_to_drop_per_group * self._moe_config.n_group
                 )
+
+        logger.info(
+            f"{type(self).__name__} initialized: "
+            f"{num_experts} experts/layer, will be pruned "
+            f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
+        )
 
         return True
 

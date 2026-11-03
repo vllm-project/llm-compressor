@@ -24,10 +24,12 @@ from compressed_tensors.distributed import (
 from loguru import logger
 from pydantic import PrivateAttr
 from torch import distributed as dist
+from transformers import PreTrainedModel
 from transformers.modeling_utils import local_torch_dtype
 
 from llmcompressor.core import State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
+from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
@@ -87,6 +89,42 @@ class MoNePruningModifier(ExpertPruningModifierBase):
     _expert_outputs: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
+
+    def on_initialize(self, state: State, **kwargs) -> bool:
+        """
+        Read the model's MoE structure and fail fast on bad sparsity targets.
+
+        :param state: The current session state
+        :return: True if there are no errors, False otherwise
+        """
+        model: PreTrainedModel = state.model
+        config = model.config.get_text_config()
+        self._moe_config = MoEConfig.from_config(config)
+        self._text_config = config
+        num_experts = self._moe_config.num_experts
+        self._n_experts_to_drop = int(num_experts * self.sparsity)
+
+        # sparsity is too low
+        if self._n_experts_to_drop == 0:
+            if self.sparsity > 0.0:
+                raise ValueError(
+                    f"sparsity={self.sparsity} results in 0 experts to prune "
+                    f"(out of {num_experts}). No pruning will be performed."
+                )
+
+            # report-only path
+            logger.info(
+                f"{type(self).__name__} initialized with "
+                "`sparsity=0.0`, no experts will be pruned, "
+                f"saving report to {self.report_path}"
+            )
+            return True
+
+        logger.info(
+            f"{type(self).__name__} initialized: "
+            f"{num_experts} experts/layer, will be pruned "
+            f"{self._n_experts_to_drop} ({self.sparsity:.0%})"
+        )
 
     def init_moe_stats(
         self,
