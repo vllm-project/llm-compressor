@@ -77,7 +77,7 @@ class ExpertPruningModifierBase(Modifier):
     # and which stats to serialize in the report
     sparsity_method: ClassVar[MoESparsityMethod]
     supports_group_limited_routers: ClassVar[bool] = True
-    stats_to_report: tuple[str] = ("saliency", "count")
+    stats_to_report: ClassVar[tuple[str]] = ("saliency", "count")
 
     # model structure, decided in on_initialize
     _moe_config: MoEConfig = PrivateAttr()

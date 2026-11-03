@@ -195,8 +195,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
                 )
 
         # reset expert norms for next batch
-        num_experts = self._moe_config.num_experts
-        self._expert_norms[moe_name] = [None for _ in range(num_experts)]
+        self._expert_norms[moe_name] = {}
 
     def reduce_moe_stats(self, moe_name: str):
         """
