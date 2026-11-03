@@ -2,7 +2,7 @@
 
 This example quantizes the `google/gemma-4-31B-it` multimodal model to NVFP4 (weights and activations quantized to FP4) using data-driven PTQ with calibration. The vision and audio layers are skipped during quantization.
 
-The full example script can be found [here](../../../examples/multimodal_vision/gemma4_example.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/multimodal_vision/gemma4_example.py).
 
 ### Code Walkthrough
 

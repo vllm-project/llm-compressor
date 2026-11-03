@@ -6,7 +6,6 @@ from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-import numpy
 from torch import Tensor
 from torch.nn import Module
 
@@ -23,8 +22,6 @@ __all__ = [
     "tensors_to_device",
     "tensors_to_precision",
     "tensors_module_forward",
-    "tensor_sparsity",
-    "get_quantized_layers",
 ]
 
 
@@ -168,70 +165,3 @@ def tensors_module_forward(
             raise ValueError(
                 f"unrecognized type for data given of {tensors.__class__.__name__}"
             )
-
-
-def tensor_sparsity(
-    tens: Tensor, dim: None | int | list[int] | tuple[int, ...] = None
-) -> Tensor:
-    """
-    :param tens: the tensor to calculate the sparsity for
-    :param dim: the dimension(s) to split the calculations over;
-        ex, can split over batch, channels, or combos
-    :return: the sparsity of the input tens, ie the fraction of numbers that are zero
-    """
-    if dim is None:
-        zeros = (tens.cpu() == 0).sum()
-        total = tens.numel()
-
-        return zeros.float() / float(total)
-
-    if isinstance(dim, int):
-        dim = [dim]
-
-    if max(dim) >= len(tens.shape):
-        raise ValueError(
-            "Unsupported dim given of {} in {} for tensor shape {}".format(
-                max(dim), dim, tens.shape
-            )
-        )
-
-    sum_dims = [ind for ind in range(len(tens.shape)) if ind not in dim]
-    zeros = (tens == 0).sum(dim=sum_dims) if sum_dims else tens == 0
-    total = numpy.prod(
-        [tens.shape[ind] for ind in range(len(tens.shape)) if ind not in dim]
-    )
-
-    permute_order = sorted(
-        ((d, len(dim) - i - 1) for i, d in enumerate(dim)), reverse=True
-    )
-    permute = [d[1] for d in permute_order]
-
-    if permute != [i for i in range(len(permute))]:
-        # need to permute to get desired dimensions at the front
-        zeros = zeros.permute(*permute).contiguous()
-
-    return zeros.float() / float(total)
-
-
-##############################
-#
-# pytorch module helper functions
-#
-##############################
-
-
-def get_quantized_layers(module: Module) -> list[tuple[str, Module]]:
-    """
-    :param module: the module to get the quantized layers from
-    :return: a list containing the names and modules of the quantized layers
-        (Embedding, Linear, Conv2d, Conv3d)
-    """
-
-    quantized_layers = []
-    for name, mod in module.named_modules():
-        if hasattr(mod, "quantization_scheme"):
-            weight_scheme = getattr(mod.quantization_scheme, "weights", None)
-            if weight_scheme is not None and hasattr(mod, "weight"):
-                quantized_layers.append((name, mod))
-
-    return quantized_layers

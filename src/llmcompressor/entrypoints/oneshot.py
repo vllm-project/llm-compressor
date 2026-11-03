@@ -88,7 +88,7 @@ class Oneshot:
               quantization configurations.
         2. **Oneshot Calibration**:
             - Optimizes the model using a global `CompressionSession` and applies
-              recipe-defined modifiers (e.g., `GPTQModifier`, `SparseGPTModifier`)
+              recipe-defined modifiers (e.g., `GPTQModifier`, `QuantizationModifier`)
         3. **Postprocessing**:
             - Saves the model, tokenizer/processor, and configuration to the specified
               `output_dir`.
@@ -452,7 +452,7 @@ def oneshot(
         should be left tied if possible. False means always untie.
     :param trust_remote_code_model: Whether to allow for custom models to execute
         their own modeling files.
-    :param save_compressed: Whether to compress sparse models during save.
+    :param save_compressed: Whether to compress quantized weights during save.
     :param model_revision: The specific model version to use (can be branch name,
         tag, or commit id).
 

@@ -212,18 +212,18 @@ class LinearExperts2D(torch.nn.ModuleList):
 
     """
 
+    num_experts: int
+    intermediate_size: int
     is_concatenated: ClassVar[bool]
     is_transposed: ClassVar[bool]
     has_bias: ClassVar[bool]
     has_gate: ClassVar[bool]
     _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]]
+    novices: torch.nn.Parameter | None
 
     # override when the generic gate_up_proj split does not fit the model
     expert_cls_with_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithGate
     expert_cls_without_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithoutGate
-
-    num_experts: int
-    intermediate_size: int
 
     # custom model definitions
     _registry: ClassVar[dict[type[torch.nn.Module], type["LinearExperts2D"]]] = dict()
@@ -334,6 +334,10 @@ class LinearExperts2D(torch.nn.ModuleList):
             if self.has_bias:
                 for index in range(self.num_experts):
                     self[index].copy_bias_to_experts_module(fused, index)
+
+        # novices remain identical
+        with torch.device(construction_device):
+            fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
 
         offload_kwargs = get_cache_init_kwargs(self)
         offload_module(fused, **offload_kwargs)
@@ -495,6 +499,9 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.limit = moe_config.limit
         self.swiglu_limit = moe_config.limit
 
+        # MoNe novices
+        self.register_parameter("novices", None)
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -503,9 +510,14 @@ class LinearExperts2D(torch.nn.ModuleList):
     ) -> torch.Tensor:
         final_hidden_states = torch.zeros_like(hidden_states)
 
+        # collect shapes
+        num_tokens = top_k_index.shape[0]
+        num_novices = 0 if self.novices is None else self.novices.shape[0]
+        total_experts = self.num_experts + num_novices
+
         # create tokens mask
         with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(top_k_index, self.num_experts)
+            expert_mask = torch.nn.functional.one_hot(top_k_index, total_experts)
             expert_mask = expert_mask.permute(2, 1, 0)
 
         for expert_index in range(self.num_experts):
@@ -527,5 +539,20 @@ class LinearExperts2D(torch.nn.ModuleList):
             final_hidden_states.index_add_(
                 0, token_indices, weighted_output.to(final_hidden_states.dtype)
             )
+
+        # Add MoNe novices
+        if self.novices is not None:
+            novice_top_k_index = (top_k_index - self.num_experts).clamp_min(0)
+            novice_top_k_weights = torch.where(
+                top_k_index >= self.num_experts,
+                top_k_weights,
+                0,
+            ).to(self.novices.dtype)
+
+            novice_weights = self.novices.new_zeros(num_tokens, num_novices)
+            novice_weights.scatter_add_(1, novice_top_k_index, novice_top_k_weights)
+
+            novice_weighted_output = novice_weights @ self.novices
+            final_hidden_states += novice_weighted_output.to(final_hidden_states.dtype)
 
         return final_hidden_states
