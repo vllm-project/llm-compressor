@@ -114,7 +114,13 @@ class ExpertPruningModifierBase(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         model: PreTrainedModel = state.model
-        self._moe_config = MoEConfig.from_config(model.config)
+        # composite (e.g. VL) model configs keep the MoE fields on their text
+        # config, so unwrap it before reading them
+        config = model.config
+        get_text_config = getattr(config, "get_text_config", None)
+        if callable(get_text_config):
+            config = get_text_config()
+        self._moe_config = MoEConfig.from_config(config)
         num_experts = self._moe_config.num_experts
         self._n_experts_to_drop = int(num_experts * self.sparsity)
 
@@ -283,9 +289,6 @@ class ExpertPruningModifierBase(Modifier):
         self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
-        """Record the expert-sparsity config on the model and write the
-        saliency report."""
-
         model = state.model
 
         # Warn and nullify any moe layers which were initialized but never calibrated

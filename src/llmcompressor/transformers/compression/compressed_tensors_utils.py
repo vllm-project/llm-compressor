@@ -19,9 +19,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 from transformers.utils import http_user_agent
 
 from llmcompressor.core import active_session
-from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
-    NUM_EXPERTS_CONFIG_KEYS,
-)
+from llmcompressor.modeling.moe.helpers import NUM_EXPERTS_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.compression.mtp import (
