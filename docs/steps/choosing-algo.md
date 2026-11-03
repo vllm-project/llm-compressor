@@ -30,6 +30,7 @@ Weight and activation quantization is best for maximum throughput on modern hard
 |-----------|----------|-------------|
 | REAP | Reducing the memory footprint of MoE models | Uses calibration data to score experts by router-weighted activation saliency, then structurally removes the least-salient experts from each MoE layer |
 | HOPE | Expert pruning at aggressive sparsities | Second-order extension of REAP which also accounts for pairwise expert co-selection when choosing which experts to remove per MoE layer |
+| RAZOR | Pruning MoE models while better preserving model behavior | Uses calibration data to score experts by the damage their deletion would do to the routed mixture output (accounting for survivor renormalization and router refill), then structurally removes the least replaceable experts from each MoE layer |
 
 REAP (`REAPPruningModifier`) is intended for Mixture-of-Experts models. Its
 `sparsity` value is the fraction of experts to remove per MoE layer; it does
@@ -81,6 +82,33 @@ oneshot(
     moe_calibrate_all_experts=False,
 )
 ```
+
+RAZOR (`RazorPruningModifier`) takes the same `sparsity` (and supports the
+same report / checkpoint-space pruning workflow) but scores each expert by
+the output change its deletion would cause, which depends on how the
+surviving experts and the router-promoted replacement compensate for the
+removed contribution. Its `criterion` argument selects the token-level
+damage quantity: `"refill"` (the default, which credits the replacement
+expert), `"rcs_loo"` (leave-one-out, without replacement), or `"rcs"` (the
+plain routing-weighted consensus residual).
+
+```python
+from llmcompressor import oneshot
+from llmcompressor.modifiers.pruning import RazorPruningModifier
+
+oneshot(
+    model=model,
+    dataset="perfectblend",
+    recipe=RazorPruningModifier(sparsity=0.25),
+    num_calibration_samples=512,
+    max_seq_length=2048,
+    moe_calibrate_all_experts=False,
+)
+```
+
+See the [RAZOR examples](../../examples/razor_expert_pruning/README.md) for
+details, including the score-function options for different router
+architectures.
 
 ## KV cache and attention quantization
 
