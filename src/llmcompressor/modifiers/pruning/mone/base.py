@@ -88,11 +88,6 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         default_factory=dict
     )
 
-    def on_finalize(self, state: State, **kwargs) -> bool:
-        ret = super().on_finalize(state, **kwargs)
-        self._expert_outputs.clear()
-        return ret
-
     def init_moe_stats(
         self,
         moe_name: str,
@@ -100,17 +95,26 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         hidden_dim: int,
         device: torch.device,
     ):
-        """Per-layer MoNe accumulators. Output statistics (``sum_output``,
-        ``sum_sq_output``, ``count``): the mean output is the novice vector,
-        and the per-dimension variance gives the fluctuation term of the
-        saliency metric. Routing statistics (``sum_gates``, ``token_count``):
-        the frequency-weighted mean gate weight gives the routing score term.
+        """
+        Allocate the per-layer MoNe accumulators.
+
+        Output statistics (``sum_output``, ``sum_sq_output``, ``count``):
+        the mean output is the novice vector, and the per-dimension variance
+        gives the fluctuation term of the saliency metric. Routing statistics
+        (``sum_gates``, ``token_count``): the frequency-weighted mean gate
+        weight gives the routing score term.
 
         ``count`` (per-expert routed-token counts) is all-reduced by
         :meth:`reduce_moe_stats` so that every rank decides identically
         whether a layer saw calibration data; the remaining accumulators,
         including the scalar ``token_count``, are reduced to the source rank,
         which is the only rank that consumes them (saliency, novices, report).
+
+        :param moe_name: Name of the MoE layer
+        :param num_experts: Number of experts in the layer
+        :param hidden_dim: Hidden dimension of the layer, sizing the output
+            accumulators
+        :param device: The layer's execution device
         """
         with local_torch_dtype(self.precision), device:
             self._moe_stats[moe_name] = {
@@ -131,8 +135,19 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         args: tuple,
         output: torch.Tensor,
     ):
-        """Record expert ``f_j``'s full output for every token this batch (for
-        the novice mean and the output-fluctuation term)."""
+        """
+        Record the expert's full output for every token in this batch.
+
+        Captures expert ``f_j``'s output for :meth:`experts_block_hook` to
+        consume at the end of the batch; it feeds the novice mean and the
+        output-fluctuation term of the saliency.
+
+        :param moe_name: Name of the MoE layer the expert belongs to
+        :param expert_idx: Index of the expert within its layer
+        :param module: The expert module the hook is attached to
+        :param args: The expert's forward arguments
+        :param output: The expert's output for the current batch
+        """
         if moe_name not in self._moe_stats:
             logger.warning(
                 f"Attempted to calibrate layer {moe_name} which was never "
@@ -152,8 +167,18 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         args: tuple,
         output: torch.Tensor,
     ):
-        """Combine the router's top-k decisions with the captured expert
-        outputs to update the routing and novice accumulators."""
+        """
+        Update the routing and novice accumulators for the batch.
+
+        Combines the router's top-k decisions with the captured expert
+        outputs, then resets the per-batch output buffers.
+
+        :param moe_name: Name of the MoE layer the block belongs to
+        :param module: The experts block the hook is attached to
+        :param args: The block's forward arguments, where ``args[1]`` and
+            ``args[2]`` are the router's top-k indices and weights
+        :param output: The block's output for the current batch
+        """
         if moe_name not in self._moe_stats:
             logger.warning(
                 f"Attempted to calibrate layer {moe_name} which was never "
@@ -191,11 +216,17 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         self._expert_outputs[moe_name] = {}
 
     def reduce_moe_stats(self, moe_name: str):
-        """All-reduce the per-expert counts, which the base reads to decide
+        """
+        Reduce a layer's statistics across ranks, in place.
+
+        All-reduces the per-expert counts, which the base reads to decide
         whether the layer saw calibration data, so every rank makes the same
-        decision; reduce the remaining accumulators (including the scalar
+        decision; reduces the remaining accumulators (including the scalar
         ``token_count``) to the source rank, which is the only rank that
-        consumes them (saliency, novices, report)."""
+        consumes them (saliency, novices, report).
+
+        :param moe_name: Name of the MoE layer whose stats to reduce
+        """
         if not is_distributed():
             return
 
@@ -210,11 +241,21 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         wait_for_comms(pending)
 
     def saliency(self, moe_name: str) -> torch.Tensor:
-        """The MoNe fusion saliency ``fluctuation * routing_score`` per expert."""
+        """
+        Return the MoNe fusion saliency ``fluctuation * routing_score``.
+
+        :param moe_name: Name of the MoE layer
+        :return: Per-expert saliency, indexed by expert
+        """
         return self._output_fluctuation(moe_name) * self._routing_score(moe_name)
 
     def _routing_score(self, moe_name: str) -> torch.Tensor:
-        """``[num_experts]`` frequency-weighted mean gate weight."""
+        """
+        Return the ``[num_experts]`` frequency-weighted mean gate weight.
+
+        :param moe_name: Name of the MoE layer
+        :return: Per-expert routing score, zero when the layer saw no tokens
+        """
         stats = self._moe_stats[moe_name]
         token_count = stats["token_count"]
         if token_count <= 0:
@@ -222,8 +263,15 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         return stats["sum_gates"] / token_count
 
     def _output_fluctuation(self, moe_name: str) -> torch.Tensor:
-        """``[num_experts]`` L2 norm (over hidden dims) of the per-dimension
-        standard deviation of each expert's output."""
+        """
+        Return the ``[num_experts]`` output fluctuation of each expert.
+
+        The L2 norm (over hidden dims) of the per-dimension standard
+        deviation of each expert's output.
+
+        :param moe_name: Name of the MoE layer
+        :return: Per-expert output fluctuation
+        """
         stats = self._moe_stats[moe_name]
         count = stats["count"].clamp(min=1.0).unsqueeze(-1)
         mean = stats["sum_output"] / count
@@ -237,10 +285,18 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         moe_module: torch.nn.Module,
         retained: list[int],
     ):
-        """Collapse the layer's dropped experts into novices: their mean
-        outputs (computed on the source rank, which holds the globally
-        reduced statistics, and broadcast to every rank) are installed as
-        constant novice vectors while the router keeps its full width."""
+        """
+        Collapse the layer's dropped experts into novices.
+
+        Their mean outputs (computed on the source rank, which holds the
+        globally reduced statistics, and broadcast to every rank) are
+        installed as constant novice vectors while the router keeps its
+        full width.
+
+        :param moe_name: Name of the MoE layer to collapse
+        :param moe_module: The MoE block module to collapse
+        :param retained: Indices of the experts to keep, in their new order
+        """
         num_experts = self._moe_config.num_experts
         retained_set = set(retained)
         dropped = [i for i in range(num_experts) if i not in retained_set]
@@ -264,11 +320,23 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         collapse_moe_layer(moe_name, moe_module, retained, dropped, novices)
 
     def _compute_novices(self, moe_name: str, dropped: list[int]) -> torch.Tensor:
-        """Return the ``(len(dropped), hidden_dim)`` matrix of novice vectors --
-        the mean output of each collapsed expert, ordered to match ``dropped``.
+        """
+        Return the novice vectors for the dropped experts.
+
+        Each novice is its collapsed expert's mean output; rows are ordered
+        to match ``dropped``.
+
+        :param moe_name: Name of the MoE layer
+        :param dropped: Indices of the experts being collapsed
+        :return: The ``(len(dropped), hidden_dim)`` matrix of novice vectors
         """
         stats = self._moe_stats[moe_name]
         count = stats["count"].clamp(min=1.0).unsqueeze(-1)
         mean_output = stats["sum_output"] / count
         drop_idx = torch.tensor(dropped, dtype=torch.long, device=mean_output.device)
         return mean_output[drop_idx]
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        ret = super().on_finalize(state, **kwargs)
+        self._expert_outputs.clear()
+        return ret

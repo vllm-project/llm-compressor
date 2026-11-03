@@ -113,6 +113,12 @@ class ExpertPruningModifierBase(Modifier):
     # -- lifecycle ------------------------------------------------------------
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        """
+        Read the model's MoE structure and fail fast on bad sparsity targets.
+
+        :param state: The current session state
+        :return: True if there are no errors, False otherwise
+        """
         model: PreTrainedModel = state.model
         # composite (e.g. VL) model configs keep the MoE fields on their text
         # config, so unwrap it before reading them
@@ -208,6 +214,16 @@ class ExpertPruningModifierBase(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        """
+        Detect the model's MoE layers and prepare them for calibration.
+
+        Initializes each layer's statistics on its execution device (keeping
+        calibration offload-safe) and registers the calibration hooks on each
+        MoE layer.
+
+        :param state: The current session state
+        :param event: The event that triggered this callback
+        """
         model: torch.nn.Module = state.model
         num_experts = self._moe_config.num_experts
         hidden_dim = self._moe_config.hidden_dim
@@ -238,11 +254,12 @@ class ExpertPruningModifierBase(Modifier):
             self.register_hook(experts, _experts_block_hook, "forward")
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        """Finalize each layer whose statistics are complete: reduce them
-        across ranks, record the report values, and prune its lowest-saliency
-        experts (when ``sparsity > 0``). Layers which have not seen any
-        calibration tokens anywhere keep their statistics, in case data
-        arrives in a later epoch."""
+        """
+        Computes retained experts from layer statistics and records report values
+
+        :param state: The current session state
+        :param event: The event that triggered this callback
+        """
         model: torch.nn.Module = state.model
 
         # sort by layer name to keep the sequence of distributed collectives identical
@@ -290,6 +307,20 @@ class ExpertPruningModifierBase(Modifier):
         self.remove_hooks()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
+        """
+        Record the pruning outputs and clean up all internal state.
+
+        Attaches an ``ExpertSparsityConfig`` to the model as
+        ``_moe_sparsity_config``, which the compressed save path writes into
+        the checkpoint's ``quantization_config.moe_sparsity_config``. Writes
+        the JSON report on the source rank, with one inner list per stat
+        ordered by layer index. Layers which were initialized but never
+        calibrated are recorded as unpruned (``None``) in both the
+        retained-experts map and the report, with a warning.
+
+        :param state: The current state of the model
+        :return: True, signaling successful finalization
+        """
         model = state.model
 
         # Warn and nullify any moe layers which were initialized but never calibrated
@@ -361,6 +392,22 @@ class ExpertPruningModifierBase(Modifier):
         args: tuple,
         output: Any,
     ):
+        """
+        Forward hook fired on a single expert MLP.
+
+        Receives that expert's ``output`` for the current batch. Record
+        whatever per-batch data :meth:`experts_block_hook` needs to update
+        the layer statistics; that hook consumes and resets it at the end of
+        the batch. Implementations must tolerate layers which were never
+        initialized or have already been finalized (e.g. pruned by an
+        earlier modifier), typically by warning and returning early.
+
+        :param layer_name: Name of the MoE layer the expert belongs to
+        :param expert_idx: Index of the expert within its layer
+        :param module: The expert module the hook is attached to
+        :param args: The expert's forward arguments
+        :param output: The expert's output for the current batch
+        """
         raise NotImplementedError()
 
     @abstractmethod
@@ -371,6 +418,20 @@ class ExpertPruningModifierBase(Modifier):
         args: tuple,
         output: Any,
     ):
+        """
+        Forward hook fired on the experts block, once per batch.
+
+        Runs after that batch's :meth:`expert_hook` calls. Combine the
+        router's top-k indices and weights (carried in ``args``) with the
+        per-batch data recorded by the expert hooks to update the layer's
+        statistics, then reset that data for the next batch.
+
+        :param layer_name: Name of the MoE layer the block belongs to
+        :param module: The experts block the hook is attached to
+        :param args: The block's forward arguments, including the router's
+            top-k indices and weights
+        :param output: The block's output for the current batch
+        """
         raise NotImplementedError()
 
     # -- statistics and saliency -----------------------------------------------
@@ -383,27 +444,54 @@ class ExpertPruningModifierBase(Modifier):
         hidden_dim: int,
         device: torch.device,
     ):
+        """
+        Allocate a layer's statistics, stored in ``_moe_stats``.
+
+        Must include a ``count`` stat of per-expert routed-token counts,
+        which the base reads to decide whether the layer saw calibration
+        data (and therefore when to finalize it).
+
+        :param layer_name: Name of the MoE layer
+        :param num_experts: Number of experts in the layer
+        :param hidden_dim: Hidden dimension of the layer, for stats which
+            track per-dimension values
+        :param device: The layer's execution device
+        """
         raise NotImplementedError()
 
     @abstractmethod
     def reduce_moe_stats(self, layer_name: str):
-        """Reduce a layer's statistics across ranks, in place.
+        """
+        Reduce a layer's statistics across ranks, in place.
 
-        Subclasses own the reduction semantics of their accumulators. Any stat
-        the base reads to decide whether the layer saw calibration data
-        (conventionally the ``count`` stat) must be *all*-reduced, so that every
-        rank makes the same decision and joins the same collectives; stats
-        which only the source rank consumes (saliency inputs, report values)
-        may be reduced to it.
+        Subclasses own the reduction semantics of their accumulators. Any
+        stat the base reads to decide whether the layer saw calibration data
+        (conventionally the ``count`` stat) must be *all*-reduced, so that
+        every rank makes the same decision and joins the same collectives;
+        stats which only the source rank consumes (saliency inputs, report
+        values) may be reduced to it.
 
         Every rank must reduce every tracked layer, in
-        :func:`~llmcompressor.utils.helpers.numeric_sorted_names` order, so the
-        collectives stay aligned across ranks.
+        :func:`~llmcompressor.utils.helpers.numeric_sorted_names` order, so
+        the collectives stay aligned across ranks.
+
+        :param layer_name: Name of the MoE layer whose stats to reduce
         """
         raise NotImplementedError()
 
     @abstractmethod
     def saliency(self, layer_name: str) -> torch.Tensor:
+        """
+        Return the ``[num_experts]`` saliency of a layer.
+
+        Higher values mark experts as more important, i.e. more likely to be
+        retained. Called only on the source rank, after
+        :meth:`reduce_moe_stats`; the base replaces NaNs with ``-inf``, so
+        experts with undefined saliency are dropped first.
+
+        :param layer_name: Name of the MoE layer
+        :return: Per-expert saliency, indexed by expert
+        """
         raise NotImplementedError()
 
     # -- saliency and pruning -------------------------------
@@ -411,6 +499,20 @@ class ExpertPruningModifierBase(Modifier):
     def compute_retained_experts(
         self, moe_name: str, device: torch.device
     ) -> tuple[list[int], torch.Tensor]:
+        """
+        Decide which experts a layer retains.
+
+        Drops the layer's ``_n_experts_to_drop`` lowest-saliency experts, an
+        equal number per router group for group-limited routers. The decision
+        is made on the source rank only and broadcast, so every rank prunes
+        the layer identically; non-source ranks allocate placeholder tensors
+        which the broadcast fills.
+
+        :param moe_name: Name of the MoE layer whose stats to read
+        :param device: Device on which to allocate the returned tensors
+        :return: The retained expert indices in ascending order, and the
+            layer's full ``[num_experts]`` saliency
+        """
         num_experts = self._moe_config.num_experts
         expected = num_experts - self._n_experts_to_drop
 
@@ -460,4 +562,15 @@ class ExpertPruningModifierBase(Modifier):
         moe_module: torch.nn.Module,
         retained: list[int],
     ):
+        """
+        Structurally prune the layer down to its ``retained`` experts.
+
+        Shrinks the router to match. A subclass customization point: MoNe
+        overrides it to collapse the dropped experts into constant novices
+        while keeping the router at full width.
+
+        :param moe_name: Name of the MoE layer to prune
+        :param moe_module: The MoE block module to prune
+        :param retained: Indices of the experts to keep, in their new order
+        """
         prune_moe_layer(moe_name, moe_module, retained, prune_router=True)

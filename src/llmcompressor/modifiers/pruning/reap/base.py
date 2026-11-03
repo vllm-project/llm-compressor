@@ -18,6 +18,7 @@ from pydantic import PrivateAttr
 from torch import distributed as dist
 from transformers.modeling_utils import local_torch_dtype
 
+from llmcompressor.core import State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
@@ -77,6 +78,17 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         hidden_dim: int,
         device: torch.device,
     ):
+        """
+        Allocate the REAP accumulators for a layer.
+
+        Creates the per-expert saliency sums and routed-token counts, plus
+        the per-batch expert-norm buffers filled by :meth:`expert_hook`.
+
+        :param moe_name: Name of the MoE layer
+        :param num_experts: Number of experts in the layer
+        :param hidden_dim: Unused by REAP
+        :param device: The layer's execution device
+        """
         with local_torch_dtype(self.precision), device:
             self._moe_stats[moe_name] = {
                 "sum_saliency": torch.zeros(num_experts),
@@ -93,6 +105,19 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         args: tuple,
         output: torch.Tensor,
     ):
+        """
+        Record the per-token L2 norm of the expert's output.
+
+        Upcasts to the modifier's precision and stores into the layer's
+        per-batch norm buffer, for :meth:`experts_block_hook` to consume at
+        the end of the batch.
+
+        :param moe_name: Name of the MoE layer the expert belongs to
+        :param expert_idx: Index of the expert within its layer
+        :param module: The expert module the hook is attached to
+        :param args: The expert's forward arguments
+        :param output: The expert's output for the current batch
+        """
         if moe_name not in self._moe_stats:
             logger.warning(
                 f"Attempted to calibrate layer {moe_name} which was never "
@@ -111,6 +136,23 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         args: tuple,
         output: torch.Tensor,
     ):
+        """
+        Add each routed token's contribution to the layer's statistics.
+
+        Accumulates ``topk_weight * ||f_j||`` into the per-expert saliency
+        sums and bumps the per-expert routed-token counts. Two token layouts
+        are handled: under the calibrate-all-experts flag every expert is
+        evaluated for every token, so norms are gathered by top-k index;
+        otherwise indices are flattened in (slot, token) order to match the
+        ``torch.where`` scatter order of ``LinearExperts2D``. Resets the
+        per-batch norm buffers afterwards.
+
+        :param moe_name: Name of the MoE layer the block belongs to
+        :param module: The experts block the hook is attached to
+        :param args: The block's forward arguments, where ``args[1]`` and
+            ``args[2]`` are the router's top-k indices and weights
+        :param output: The block's output for the current batch
+        """
         if moe_name not in self._moe_stats:
             logger.warning(
                 f"Attempted to calibrate layer {moe_name} which was never "
@@ -159,10 +201,16 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         self._expert_norms[moe_name] = [None for _ in range(num_experts)]
 
     def reduce_moe_stats(self, moe_name: str):
-        """Reduce the saliency sums to the source rank, which alone computes
-        the pruning decision and report from them, and all-reduce the
+        """
+        Reduce a layer's statistics across ranks, in place.
+
+        Reduces the saliency sums to the source rank, which alone computes
+        the pruning decision and report from them, and all-reduces the
         per-expert counts so every rank agrees on whether the layer saw
-        calibration data."""
+        calibration data.
+
+        :param moe_name: Name of the MoE layer whose stats to reduce
+        """
         if not is_distributed():
             return
 
@@ -179,6 +227,19 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         wait_for_comms(pending)
 
     def saliency(self, moe_name: str) -> torch.Tensor:
-        """The mean saliency ``S_j`` per expert."""
+        """
+        Return the mean saliency ``S_j`` per expert.
+
+        The router-weighted mean of the expert's output norms over the
+        tokens routed to it.
+
+        :param moe_name: Name of the MoE layer
+        :return: Per-expert saliency, indexed by expert
+        """
         stats = self._moe_stats[moe_name]
         return stats["sum_saliency"] / stats["count"].clamp(min=1.0)
+
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        ret = super().on_finalize(state, **kwargs)
+        self._expert_norms.clear()
+        return ret
