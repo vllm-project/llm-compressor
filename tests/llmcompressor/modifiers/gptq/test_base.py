@@ -1,9 +1,13 @@
 from contextlib import nullcontext
 
 import pytest
+import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
+from llmcompressor.core import State
+from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.quantization import QuantizationModifier
 
 
 @pytest.fixture
@@ -207,3 +211,71 @@ def test_resolved_targets(
         )
 
         assert modifier.resolved_targets == resolved_targets
+
+
+@pytest.mark.parametrize("batched_quantization", ["auto", None, 4])
+def test_estimate_sequential_memory(batched_quantization):
+    model = torch.nn.Sequential(
+        torch.nn.Linear(256, 128), torch.nn.Linear(128, 64), torch.nn.ReLU()
+    )
+    modifier = GPTQModifier(
+        targets="Linear",
+        scheme="W4A16",
+        ignore=["1"],
+        block_size=128,
+        batched_quantization=batched_quantization,
+    )
+    modifier.initialize(State(model=model))
+
+    # fp32 Hessian of the input width, and the activation ordering peak:
+    # (3 * 256 * 256 + 2 * 128 * 256) * 4 bytes for one module
+    batch_size = 4 if batched_quantization == 4 else 1
+    held, scratch = modifier.estimate_sequential_memory(model[0], num_tokens=64)
+    assert held == 256 * 256 * 4
+    assert scratch == batch_size * (3 * 256 * 256 + 2 * 128 * 256) * 4
+
+    assert modifier.estimate_sequential_memory(model[1], 64) == (0, 0)  # ignored
+    assert modifier.estimate_sequential_memory(model[2], 64) == (0, 0)  # not targeted
+
+
+def test_estimate_sequential_memory_non_2d_weights():
+    model = torch.nn.Sequential(torch.nn.Linear(256, 128))
+    modifier = GPTQModifier(targets="Linear", scheme="W4A16", block_size=128)
+    modifier.initialize(State(model=model))
+
+    # e.g. a convolution's weight is estimated rather than disabling "auto": the
+    # Hessian GPTQ allocates from the second dimension (see `make_empty_hessian`),
+    # and the quantization peak of the weight flattened to [128, 64 * 3 * 3]
+    model[0].weight = torch.nn.Parameter(torch.zeros(128, 64, 3, 3))
+    held, scratch = modifier.estimate_sequential_memory(model[0], num_tokens=64)
+    assert held == 64 * 64 * 4
+    assert scratch == (3 * 576 * 576 + 2 * 128 * 576) * 4
+
+
+def test_estimate_sequential_memory_quantization_modifier():
+    model = torch.nn.Sequential(torch.nn.Linear(256, 128), torch.nn.Linear(128, 64))
+    modifier = QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["1"])
+    modifier.initialize(State(model=model))
+
+    # observing the weight may need a full precision copy of it
+    assert modifier.estimate_sequential_memory(model[0], 64) == (0, 128 * 256 * 4)
+    assert modifier.estimate_sequential_memory(model[1], 64) == (0, 0)  # not quantized
+
+
+def test_estimate_sequential_memory_unknown_by_default():
+    linear = torch.nn.Linear(256, 128)
+
+    # calibration modifiers which don't estimate their memory report it as unknown
+    class CalibrationModifier(Modifier):
+        requires_calibration_data: bool = True
+
+        def on_initialize(self, state, **kwargs):
+            return True
+
+    assert CalibrationModifier().estimate_sequential_memory(linear, 64) is None
+
+    class DataFreeModifier(Modifier):
+        def on_initialize(self, state, **kwargs):
+            return True
+
+    assert DataFreeModifier().estimate_sequential_memory(linear, 64) == (0, 0)

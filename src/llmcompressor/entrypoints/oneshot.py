@@ -330,7 +330,6 @@ class Oneshot:
                     raise ValueError(
                         "streaming_save requires the sequential calibration pipeline"
                     )
-                assert self.output_dir is not None
                 self.async_writer = AsyncWriter(
                     output_dir=self.output_dir,
                     streaming_save=True,

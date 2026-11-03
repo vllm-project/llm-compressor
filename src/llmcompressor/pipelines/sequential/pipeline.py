@@ -32,10 +32,11 @@ from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
     create_distributed_writeback_group,
     decompress_subgraph_modules,
-    find_modules_outside_subgraphs,
+    find_modules_outside_graph,
     flush_async_writer,
     handle_sequential_oom,
-    trace_subgraphs,
+    partition_subgraphs,
+    trace_graph,
     validate_streaming_checkpoint,
 )
 from llmcompressor.utils.dev import get_main_device
@@ -53,7 +54,7 @@ def _submit_subgraph_staging(
     modules: dict[str, torch.nn.Module],
     current_modules: dict[str, torch.nn.Module],
     pin_memory: bool,
-    async_writer: AsyncWriter | None = None,
+    async_writer: AsyncWriter,
     distributed_group=None,
 ) -> tuple[dict[str, torch.nn.Module], Future] | None:
     """Stage disjoint next-subgraph modules in the background."""
@@ -161,15 +162,8 @@ class SequentialPipeline(CalibrationPipeline):
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(
-            model,
-            sample_input,
-            sequential_targets,
-            ignore,
-            dataset_args.sequential_targets_per_subgraph,
-        )
-        num_subgraphs = len(subgraphs)
-        persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        graph, targets = trace_graph(model, sample_input, sequential_targets, ignore)
+        persistent_modules = find_modules_outside_graph(model, graph)
         if persistent_modules:
             warnings.warn(
                 "Found persistent modules outside of subgraphs. "
@@ -180,6 +174,19 @@ class SequentialPipeline(CalibrationPipeline):
             subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
+
+        # partitioned once modifiers have started, so that "auto" can estimate the
+        # memory they need
+        subgraphs = partition_subgraphs(
+            model,
+            graph,
+            targets,
+            dataset_args.sequential_targets_per_subgraph,
+            dataloader,
+            modifiers,
+            dataset_args,
+        )
+        num_subgraphs = len(subgraphs)
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -232,18 +239,26 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
-            # Keep disk serialization off the calibration thread when this model
-            # has disk-backed weights or streaming checkpoint output is enabled.
-            if async_writer is not None or _has_disk_cache(model):
-                distributed_writeback_group = create_distributed_writeback_group(stack)
-                if async_writer is None:
-                    async_writer = AsyncWriter(
-                        defer_errors=distributed_writeback_group is not None
-                    )
-                    stack.enter_context(async_writer)
-                    stack.callback(_detach_async_writer, model, async_writer)
-            else:
-                distributed_writeback_group = None
+            # Give the pipeline one writer for every subgraph. Streaming runs
+            # reuse the writer owned by OneShot; other runs create a disk-cache
+            # writer here, even when no modules currently need disk offload.
+            has_disk_cache = _has_disk_cache(model)
+            needs_distributed_writeback = has_disk_cache or (
+                async_writer is not None and async_writer.streaming_save
+            )
+            distributed_writeback_group = (
+                create_distributed_writeback_group(stack)
+                if needs_distributed_writeback
+                else None
+            )
+            if async_writer is None:
+                async_writer = AsyncWriter(
+                    defer_errors=distributed_writeback_group is not None
+                )
+                # ExitStack unwinds in reverse order: close the writer before
+                # detaching it from disk caches retained by the model.
+                stack.callback(_detach_async_writer, model, async_writer)
+                stack.enter_context(async_writer)
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -395,11 +410,9 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Finalization may read/update disk-backed parameters directly, so
             # submit the final partial checkpoint shard before running callbacks.
-            if async_writer is not None:
-                flush_async_writer(async_writer, distributed_writeback_group)
+            flush_async_writer(async_writer, distributed_writeback_group)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
             # Check coverage without materializing disk-offloaded parameters.
-            if async_writer is not None:
-                validate_streaming_checkpoint(model, async_writer)
+            validate_streaming_checkpoint(model, async_writer)

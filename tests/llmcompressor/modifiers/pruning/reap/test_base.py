@@ -1095,6 +1095,12 @@ def test_reap_distributed_uneven_data():
 def test_reap_distributed_nccl_reduces_on_gpu():
     """The saliency reduction runs on the gpu (float32) over the default
     nccl-backed process group, rather than on host copies."""
+    # nccl is a cuda-only backend; other accelerators (e.g. xpu) use ccl
+    if not torch.accelerator.is_available() or (
+        torch.accelerator.current_accelerator().type != "cuda"
+    ):
+        pytest.skip("nccl-backed process group requires a CUDA gpu")
+
     device = torch.device("cuda", dist.get_rank())
     assert dist.get_backend() == "nccl"
 

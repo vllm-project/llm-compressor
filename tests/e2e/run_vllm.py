@@ -34,6 +34,10 @@ def run_vllm(llm_kwargs: dict, prompts: list[str]) -> None:
             metric.name == "vllm:spec_decode_num_draft_tokens" and metric.value > 0
             for metric in llm.get_metrics()
         ), "MTP did not draft any tokens"
+        assert any(
+            metric.name == "vllm:spec_decode_num_accepted_tokens" and metric.value > 0
+            for metric in llm.get_metrics()
+        ), "MTP did not accept any draft tokens"
 
     print("================= vLLM GENERATION =================")
     for output in outputs:

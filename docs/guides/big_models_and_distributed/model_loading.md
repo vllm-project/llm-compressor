@@ -75,6 +75,8 @@ The [MTP examples](https://github.com/vllm-project/llm-compressor/tree/main/exam
 3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP must use a data-free scheme such as `FP8_DYNAMIC`; methods requiring calibration are rejected. The recipe then applies to matching backbone and MTP modules.
 4. `save_pretrained()` serializes loaded MTP with the rest of the model.
 
+Temporary Transformers architecture adapters live in `transformers/compression/mtp_compat/`, with config aliases and checkpoint mappings in a separate module per architecture. The shared loader selects an adapter by model type and otherwise uses upstream `MtpModel`; each adapter can be removed once upstream supports loading and round-trip saving for that architecture.
+
 Recipe targets select the loaded Hugging Face modules. Saving restores checkpoint names for weights and ignore entries, but leaves quantization targets unchanged. For example, a target such as `re:^mtp\.layers\.` can select MTP during quantization while the saved weights use `model.layers.N.*` or `model.mtp.layers.*`.
 
 If named targets no longer match after saving, update the targets in `config.json` to cover the checkpoint names and any prefix changes made by vLLM while preserving each module's scheme. Ensure backbone and MTP targets do not overlap when their schemes differ. The shared `FP8_DYNAMIC` scheme with `Linear` targets in the GLM-4.5-Air example does not require this correction.
