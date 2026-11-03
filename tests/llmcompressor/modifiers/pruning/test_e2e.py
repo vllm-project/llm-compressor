@@ -1,8 +1,9 @@
 """
 End-to-end oneshot test for expert pruning modifiers on a real MoE checkpoint.
 
-Each parameterization runs oneshot with ``REAPPruningModifier`` or
-``MoNePruningModifier`` on ``Qwen/Qwen1.5-MoE-A2.7B`` over 2048 ``perfectblend``
+Each parameterization runs oneshot with ``REAPPruningModifier``,
+``MoNePruningModifier``, or ``RazorPruningModifier`` on
+``Qwen/Qwen1.5-MoE-A2.7B`` over 2048 ``perfectblend``
 calibration samples. To keep calibration cheap, the model is cut down to its
 first three decoder layers before oneshot (decoder layers are independent, so
 the retained layers see exactly the activations they would see in the full
@@ -27,12 +28,12 @@ the execution hardware.
 The expected values live in ``test_e2e_expected.json``, recorded from a
 reference run of this very test (single A100-80GB, bf16 weights); to
 regenerate them, read the written report and the recovered expert choices back
-into that file. REAP and MoNe rank experts with different saliency metrics, so
-each modifier has its own recorded values. The retained/pruned boundary is
-decisive (the smallest saliency gap between a retained and a pruned expert
-across all layers is ~0.2%), so the expert lists are only expected to
-reproduce on hardware whose bf16 statistics match the reference run's to
-better than that; to absorb a boundary expert swapping places on other
+into that file. REAP, MoNe, and RAZOR rank experts with different saliency
+metrics, so each modifier has its own recorded values. The retained/pruned
+boundary is decisive (the smallest saliency gap between a retained and a
+pruned expert across all layers is ~0.2%), so the expert lists are only
+expected to reproduce on hardware whose bf16 statistics match the reference
+run's to better than that; to absorb a boundary expert swapping places on other
 hardware, each layer's choice may differ from the recorded one in at most
 ``MAX_DIFFERING_EXPERTS`` elements. Re-record the values when that assumption
 breaks.
@@ -53,6 +54,7 @@ from transformers import AutoConfig, AutoModelForCausalLM, AutoProcessor
 from llmcompressor import oneshot
 from llmcompressor.entrypoints.converter import ExpertPruner
 from llmcompressor.modifiers.pruning.mone import MoNePruningModifier
+from llmcompressor.modifiers.pruning.razor import RazorPruningModifier
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.utils import load_context
 from tests.testing_utils import requires_gpu
@@ -209,8 +211,9 @@ def _oneshot_expert_choice(
     [
         (REAPPruningModifier, EXPECTED["reap"]),
         (MoNePruningModifier, EXPECTED["mone"]),
+        (RazorPruningModifier, EXPECTED["razor"]),
     ],
-    ids=["reap", "mone"],
+    ids=["reap", "mone", "razor"],
 )
 def test_oneshot_expert_selection(
     modifier_cls,
