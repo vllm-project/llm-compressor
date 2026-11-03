@@ -51,11 +51,6 @@ def accumulate_hessian(
     The Hessian and sample counter are updated in place and returned for the
     hook caller to retain. Linear, Conv1D, and Conv2d inputs are reshaped into
     the common ``[input_features, observations]`` representation first.
-
-    :param mask: optional token mask with shape ``inp.shape[:-1]`` (e.g.
-        ``[batch, seq_len]``). Only tokens where the mask is nonzero contribute to
-        the Hessian; the sample counter still counts every sequence in the batch.
-        Supported for Linear and Conv1D modules only.
     """
     if mask is not None and isinstance(module, torch.nn.Conv2d):
         raise ValueError("Token masking is not supported for Conv2d modules")
