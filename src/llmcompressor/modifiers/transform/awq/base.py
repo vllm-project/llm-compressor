@@ -767,12 +767,11 @@ class AWQModifier(Modifier):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
-                balance_scales = scales
                 if mapping.is_gqa:
-                    balance_scales = _expand_scales_for_gqa(
+                    scales = _expand_scales_for_gqa(
                         scales, mapping.balance_layers[0].in_features, mapping.gqa_dim
                     )
-                _scalesview = balance_scales.view(1, -1).to(device)
+                _scalesview = scales.view(1, -1).to(device)
 
                 # (W * s)
                 for balance_layer in balance_layers_to_patch:
