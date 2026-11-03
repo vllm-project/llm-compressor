@@ -19,6 +19,7 @@ from compressed_tensors.distributed import (
     get_source_rank,
     is_distributed,
     is_source_process,
+    wait_for_comms,
 )
 from loguru import logger
 from pydantic import PrivateAttr
@@ -87,19 +88,39 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         default_factory=dict
     )
 
-    # -- lifecycle ------------------------------------------------------------
-
     def on_finalize(self, state: State, **kwargs) -> bool:
-        complete = super().on_finalize(state, **kwargs)
-
-        # free any per-batch output buffers left by layers which were never
-        # calibrated (layers which were calibrated reset their buffer with
-        # each batch and had their stats released at finalization)
+        ret = super().on_finalize(state, **kwargs)
         self._expert_outputs.clear()
+        return ret
 
-        return complete
+    def init_moe_stats(
+        self,
+        moe_name: str,
+        num_experts: int,
+        hidden_dim: int,
+        device: torch.device,
+    ):
+        """Per-layer MoNe accumulators. Output statistics (``sum_output``,
+        ``sum_sq_output``, ``count``): the mean output is the novice vector,
+        and the per-dimension variance gives the fluctuation term of the
+        saliency metric. Routing statistics (``sum_gates``, ``token_count``):
+        the frequency-weighted mean gate weight gives the routing score term.
 
-    # -- calibration hooks ---------------------------------------------------
+        ``count`` (per-expert routed-token counts) is all-reduced by
+        :meth:`reduce_moe_stats` so that every rank decides identically
+        whether a layer saw calibration data; the remaining accumulators,
+        including the scalar ``token_count``, are reduced to the source rank,
+        which is the only rank that consumes them (saliency, novices, report).
+        """
+        with local_torch_dtype(self.precision), device:
+            self._moe_stats[moe_name] = {
+                "count": torch.zeros(num_experts),
+                "sum_gates": torch.zeros(num_experts),
+                "sum_output": torch.zeros(num_experts, hidden_dim),
+                "sum_sq_output": torch.zeros(num_experts, hidden_dim),
+                "token_count": torch.zeros(()),
+            }
+        self._expert_outputs[moe_name] = {}
 
     @torch.no_grad()
     def expert_hook(
@@ -169,36 +190,24 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         # reset the per-batch output buffers
         self._expert_outputs[moe_name] = {}
 
-    # -- statistics and saliency ----------------------------------------------
+    def reduce_moe_stats(self, moe_name: str):
+        """All-reduce the per-expert counts, which the base reads to decide
+        whether the layer saw calibration data, so every rank makes the same
+        decision; reduce the remaining accumulators (including the scalar
+        ``token_count``) to the source rank, which is the only rank that
+        consumes them (saliency, novices, report)."""
+        if not is_distributed():
+            return
 
-    def init_moe_stats(
-        self,
-        moe_name: str,
-        num_experts: int,
-        hidden_dim: int,
-        device: torch.device,
-    ):
-        """Per-layer MoNe accumulators. Output statistics (``sum_output``,
-        ``sum_sq_output``, ``count``): the mean output is the novice vector,
-        and the per-dimension variance gives the fluctuation term of the
-        saliency metric. Routing statistics (``sum_gates``, ``token_count``):
-        the frequency-weighted mean gate weight gives the routing score term.
-
-        ``count`` (per-expert routed-token counts) is all-reduced by
-        :meth:`reduce_moe_stats` so that every rank decides identically
-        whether a layer saw calibration data; the remaining accumulators,
-        including the scalar ``token_count``, are reduced to the source rank,
-        which is the only rank that consumes them (saliency, novices, report).
-        """
-        with local_torch_dtype(self.precision), device:
-            self._moe_stats[moe_name] = {
-                "count": torch.zeros(num_experts),
-                "sum_gates": torch.zeros(num_experts),
-                "sum_output": torch.zeros(num_experts, hidden_dim),
-                "sum_sq_output": torch.zeros(num_experts, hidden_dim),
-                "token_count": torch.zeros(()),
-            }
-        self._expert_outputs[moe_name] = {}
+        stats = self._moe_stats[moe_name]
+        src_rank = get_source_rank()
+        pending = [dist.all_reduce(stats["count"], op=dist.ReduceOp.SUM, async_op=True)]
+        pending += [
+            dist.reduce(tensor, dst=src_rank, op=dist.ReduceOp.SUM, async_op=True)
+            for name, tensor in stats.items()
+            if name != "count"
+        ]
+        wait_for_comms(pending)
 
     def saliency(self, moe_name: str) -> torch.Tensor:
         """The MoNe fusion saliency ``fluctuation * routing_score`` per expert."""
@@ -221,8 +230,6 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         variance = (stats["sum_sq_output"] / count - mean.pow(2)).clamp_min(0.0)
         std = variance.sqrt()
         return torch.linalg.norm(std, dim=1)
-
-    # -- collapse --------------------------------------------------------------
 
     def prune_moe_layer(
         self,

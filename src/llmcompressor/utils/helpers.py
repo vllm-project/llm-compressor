@@ -6,7 +6,7 @@ Common functions for interfacing with python primitives and directories/files.
 import contextlib
 import importlib
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping, TypeVar
 
 import torch
 from compressed_tensors.offload import disable_onloading
@@ -27,11 +27,18 @@ __all__ = [
     "calibration_forward_context",
     "disable_lm_head",
     "numeric_sorted_names",
+    "values_by_decoder_layer",
     "hasattr_fallbacks",
     "getattr_fallbacks",
     "hasitem_fallbacks",
     "getitem_fallbacks",
 ]
+
+_T = TypeVar("_T")
+
+# module names of decoder layers follow the `layers.N` convention, e.g.
+# `model.layers.12.mlp.experts`
+_DECODER_LAYER_PATTERN = re.compile(r"layers\.(\d+)")
 
 
 def import_from_path(path: str) -> str:
@@ -227,6 +234,61 @@ def numeric_sorted_names(names: Iterable[str]) -> list[str]:
         )
 
     return sorted(names, key=sort_key)
+
+
+def values_by_decoder_layer(
+    values: Mapping[str, _T],
+    num_layers: int,
+) -> list[_T | None]:
+    """
+    Position values keyed by module name onto a per-decoder-layer list.
+
+    Each name is matched against ``layers.(\\d+)`` to find the decoder layer
+    its module belongs to, and its value is placed at that index of the
+    returned list; every other index holds ``None`` (e.g. for dense layers).
+    The result is matched positionally against the model's layer order, as
+    required by per-layer checkpoint fields such as
+    ``ExpertSparsityConfig.num_experts``.
+
+    :param values: mapping from module name to that layer's value, where a
+        value of ``None`` marks a layer which was tracked but not modified
+    :param num_layers: total number of decoder layers, which sizes the list
+    :return: a ``num_layers``-long list holding each value at its layer index
+        and ``None`` everywhere else
+    :raises ValueError: if a name carries no ``layers.(\\d+)`` component, if a
+        layer index falls outside ``[0, num_layers)``, or if two names map to
+        the same layer index -- which can happen when e.g. a vision tower
+        holds its own MoE layers named ``layers.N``
+    """
+    per_layer: list[_T | None] = [None] * num_layers
+    first_name_at: dict[int, str] = {}
+
+    for name in numeric_sorted_names(values):
+        match = _DECODER_LAYER_PATTERN.search(name)
+        if match is None:
+            raise ValueError(
+                f"Could not extract a decoder layer index from '{name}'; "
+                "expected a module name containing a 'layers.N' component"
+            )
+        index = int(match.group(1))
+
+        if not 0 <= index < num_layers:
+            raise ValueError(
+                f"Decoder layer index {index} parsed from '{name}' is out of "
+                f"range for a model with {num_layers} decoder layers"
+            )
+        if index in first_name_at:
+            raise ValueError(
+                f"Modules '{first_name_at[index]}' and '{name}' both map to "
+                f"decoder layer {index}, so their values cannot be positioned "
+                "unambiguously on a per-layer list. This can happen when e.g. "
+                "a vision tower holds its own MoE layers named 'layers.N'"
+            )
+
+        first_name_at[index] = name
+        per_layer[index] = values[name]
+
+    return per_layer
 
 
 def hasattr_fallbacks(

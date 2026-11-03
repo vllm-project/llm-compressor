@@ -14,7 +14,7 @@ from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
 __all__ = [
     "get_experts_router",
     "prune_moe_layer",
-    "prune_router",
+    "reorder_router",
 ]
 
 
@@ -51,13 +51,23 @@ def prune_moe_layer(
     moe_name: str,
     moe_module: torch.nn.Module,
     retained: list[int],
+    prune_router: bool = True,
 ) -> list[int]:
     """
     Structurally prune a MoE block to keep only ``retained`` experts: slice the
-    expert ``ModuleList``, shrink the router, and update expert-count attributes.
-    Offload-safe: experts are kept as existing module objects (offload state
-    travels with them) and the small router is resized under
-    ``align_module_device``.
+    expert ``ModuleList`` and update expert-count attributes. Offload-safe:
+    experts are kept as existing module objects, so offload state travels with
+    them.
+
+    :param moe_name: name of the MoE block, used for error reporting
+    :param moe_module: the MoE block module
+    :param retained: indices of the experts to keep, in their new order
+    :param prune_router: also shrink the router, any score-correction bias, and
+        the router's expert-count attributes to the retained experts. When
+        False, the router is left untouched for callers which keep routing to
+        the dropped experts -- e.g. MoNe, which collapses them into novices and
+        reorders the router rows itself
+    :return: the retained expert indices
     """
     assert retained is not None, "Attempted to prune an moe that was ignored"
     experts, router = get_experts_router(moe_name, moe_module)
@@ -76,18 +86,22 @@ def prune_moe_layer(
     new_modules.update(non_expert_modules)
     experts._modules = new_modules
 
-    # Rebuild router with retained experts
-    prune_router(router, retained)
+    if prune_router:
+        # Rebuild router with retained experts
+        reorder_router(router, retained)
 
-    # Some models (e.g., Hy3) place e_score_correction_bias on the MoE block
-    # rather than on the router; prune it here
-    e_bias = getattr(moe_module, "e_score_correction_bias", None)
-    if e_bias is not None:
-        e_bias = to_tensor(e_bias[retained].contiguous(), e_bias)
-        moe_module.e_score_correction_bias = e_bias
+        # Some models (e.g., Hy3) place e_score_correction_bias on the MoE block
+        # rather than on the router; prune it here
+        e_bias = getattr(moe_module, "e_score_correction_bias", None)
+        if e_bias is not None:
+            e_bias = to_tensor(e_bias[retained].contiguous(), e_bias)
+            moe_module.e_score_correction_bias = e_bias
 
-    # Update num_experts for any other modules in the layer that may track it
-    for holder in (moe_module, experts, router):
+    # Update num_experts for any other modules in the layer that may track it.
+    # The router is excluded when it is not pruned: it keeps its full width so
+    # the dropped experts stay routable
+    holders = (moe_module, experts, router) if prune_router else (moe_module, experts)
+    for holder in holders:
         for key in ["num_experts", "n_experts", "n_routed_experts"]:
             if isinstance(getattr(holder, key, None), int):
                 setattr(holder, key, len(retained))
@@ -95,7 +109,17 @@ def prune_moe_layer(
     return retained
 
 
-def prune_router(router: nn.Module, retained: list[int]):
+def reorder_router(router: nn.Module, order: list[int]):
+    """
+    Reorder a router's rows to ``order``: its weight (plus any bias or
+    score-correction bias) is indexed by ``order``, and ``out_features`` is set
+    to ``len(order)``.
+
+    Passing a subset of the experts shrinks the router to those rows (plain
+    expert pruning); passing a full permutation keeps its width while
+    reordering the rows, so e.g. MoNe's novices can keep occupying the rows
+    which follow the retained experts.
+    """
     router_weight: torch.nn.Parameter | None = getattr(router, "weight", None)
     router_bias: torch.nn.Parameter | None = getattr(router, "bias", None)
     router_escore: torch.nn.Parameter | None = getattr(
@@ -105,7 +129,7 @@ def prune_router(router: nn.Module, retained: list[int]):
     if not isinstance(router_weight, nn.Parameter):
         raise ValueError("Unexpected MoE router. Router must have `weight` attribute")
 
-    retained_t = torch.tensor(retained, dtype=torch.long, device=router_weight.device)
+    retained_t = torch.tensor(order, dtype=torch.long, device=router_weight.device)
 
     new_weight = router_weight.detach()[retained_t].contiguous()
     router.weight = torch.nn.Parameter(
@@ -123,4 +147,4 @@ def prune_router(router: nn.Module, retained: list[int]):
             new_escore, requires_grad=router_escore.requires_grad
         )
     if router_out_features is not None:
-        router.out_features = len(retained)
+        router.out_features = len(order)

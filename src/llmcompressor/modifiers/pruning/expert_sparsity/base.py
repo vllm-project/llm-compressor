@@ -18,7 +18,6 @@ from compressed_tensors.distributed import (
     get_source_rank,
     is_distributed,
     is_source_process,
-    wait_for_comms,
 )
 from compressed_tensors.offload import get_execution_device
 from compressed_tensors.utils import TorchDtype
@@ -26,7 +25,7 @@ from compressed_tensors.utils.match import is_match
 from loguru import logger
 from pydantic import Field, PrivateAttr, model_validator
 from torch import distributed as dist
-from transformers import PreTrainedModel
+from transformers import PretrainedConfig, PreTrainedModel
 
 from llmcompressor.core import Event, State
 from llmcompressor.modeling.moe.helpers import MoEConfig
@@ -36,7 +35,7 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     get_experts_router,
     prune_moe_layer,
 )
-from llmcompressor.utils.helpers import numeric_sorted_names
+from llmcompressor.utils.helpers import numeric_sorted_names, values_by_decoder_layer
 
 __all__ = ["ExpertPruningModifierBase"]
 
@@ -81,6 +80,7 @@ class ExpertPruningModifierBase(Modifier):
 
     # model structure, decided in on_initialize
     _moe_config: MoEConfig = PrivateAttr()
+    _text_config: PretrainedConfig = PrivateAttr()
     _n_experts_to_drop: int = PrivateAttr(default=0)
     _n_experts_to_drop_per_group: int | None = PrivateAttr(default=None)
 
@@ -121,6 +121,7 @@ class ExpertPruningModifierBase(Modifier):
         if callable(get_text_config):
             config = get_text_config()
         self._moe_config = MoEConfig.from_config(config)
+        self._text_config = config
         num_experts = self._moe_config.num_experts
         self._n_experts_to_drop = int(num_experts * self.sparsity)
 
@@ -304,14 +305,22 @@ class ExpertPruningModifierBase(Modifier):
         # Picked up by the compressed save path and written into
         # config.json's quantization_config.moe_sparsity_config.
         if self._n_experts_to_drop > 0:
+            num_layers = getattr(self._text_config, "num_hidden_layers", None)
+            if num_layers is None:
+                raise ValueError(
+                    "Could not determine num_hidden_layers on "
+                    f"{type(self._text_config).__name__} to build the "
+                    "moe_sparsity_config num_experts list"
+                )
+            num_experts = {
+                moe_name: (
+                    len(retained) if retained is not None else None
+                )  # None marks a layer which was not pruned (dense or ignored)
+                for moe_name, retained in self._retained_experts.items()
+            }
             model._moe_sparsity_config = ExpertSparsityConfig(
                 method=self.sparsity_method,
-                num_experts=[
-                    len(self._retained_experts[moe_name])
-                    if self._retained_experts[moe_name] is not None
-                    else None
-                    for moe_name in numeric_sorted_names(self._retained_experts)
-                ],
+                num_experts=values_by_decoder_layer(num_experts, num_layers),
             )
 
         # Report needs to be reconstructed, using the sorted moe names
@@ -376,20 +385,22 @@ class ExpertPruningModifierBase(Modifier):
     ):
         raise NotImplementedError()
 
+    @abstractmethod
     def reduce_moe_stats(self, layer_name: str):
-        if not is_distributed():
-            return
+        """Reduce a layer's statistics across ranks, in place.
 
-        src_rank = get_source_rank()
-        pending = [
-            (
-                dist.reduce(tensor, dst=src_rank, op=dist.ReduceOp.SUM, async_op=True)
-                if name != "count"
-                else dist.all_reduce(tensor, op=dist.ReduceOp.SUM, async_op=True)
-            )
-            for name, tensor in self._moe_stats[layer_name].items()
-        ]
-        wait_for_comms(pending)
+        Subclasses own the reduction semantics of their accumulators. Any stat
+        the base reads to decide whether the layer saw calibration data
+        (conventionally the ``count`` stat) must be *all*-reduced, so that every
+        rank makes the same decision and joins the same collectives; stats
+        which only the source rank consumes (saliency inputs, report values)
+        may be reduced to it.
+
+        Every rank must reduce every tracked layer, in
+        :func:`~llmcompressor.utils.helpers.numeric_sorted_names` order, so the
+        collectives stay aligned across ranks.
+        """
+        raise NotImplementedError()
 
     @abstractmethod
     def saliency(self, layer_name: str) -> torch.Tensor:
@@ -449,4 +460,4 @@ class ExpertPruningModifierBase(Modifier):
         moe_module: torch.nn.Module,
         retained: list[int],
     ):
-        prune_moe_layer(moe_name, moe_module, retained)
+        prune_moe_layer(moe_name, moe_module, retained, prune_router=True)

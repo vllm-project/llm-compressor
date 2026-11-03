@@ -8,8 +8,14 @@ from collections import defaultdict
 
 import torch
 from compressed_tensors.config import MoESparsityMethod
+from compressed_tensors.distributed import (
+    get_source_rank,
+    is_distributed,
+    wait_for_comms,
+)
 from loguru import logger
 from pydantic import PrivateAttr
+from torch import distributed as dist
 from transformers.modeling_utils import local_torch_dtype
 
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
@@ -151,6 +157,26 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         # reset expert norms for next batch
         num_experts = self._moe_config.num_experts
         self._expert_norms[moe_name] = [None for _ in range(num_experts)]
+
+    def reduce_moe_stats(self, moe_name: str):
+        """Reduce the saliency sums to the source rank, which alone computes
+        the pruning decision and report from them, and all-reduce the
+        per-expert counts so every rank agrees on whether the layer saw
+        calibration data."""
+        if not is_distributed():
+            return
+
+        stats = self._moe_stats[moe_name]
+        pending = [
+            dist.reduce(
+                stats["sum_saliency"],
+                dst=get_source_rank(),
+                op=dist.ReduceOp.SUM,
+                async_op=True,
+            ),
+            dist.all_reduce(stats["count"], op=dist.ReduceOp.SUM, async_op=True),
+        ]
+        wait_for_comms(pending)
 
     def saliency(self, moe_name: str) -> torch.Tensor:
         """The mean saliency ``S_j`` per expert."""
