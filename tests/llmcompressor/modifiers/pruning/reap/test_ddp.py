@@ -110,22 +110,25 @@ def test_reap_ddp_qwen3():
                 f"  ref: {len(ref_saliency)}\n"
                 f"  ddp: {len(ddp_saliency)}"
             )
+            mismatched_layers = []
             for layer_idx, (ref_layer, ddp_layer) in enumerate(
                 zip(ref_saliency, ddp_saliency)
             ):
-                torch.testing.assert_close(
-                    torch.tensor(ref_layer, dtype=torch.float64),
-                    torch.tensor(ddp_layer, dtype=torch.float64),
-                    # statistics are accumulated in float32, so the single-gpu
-                    # and ddp runs sum the same contributions in a different
-                    # order; allow small differences
-                    rtol=1e-5,
-                    atol=1e-3,
-                    msg=lambda m, i=layer_idx: (
-                        f"Saliency scores differ between single-GPU and DDP "
-                        f"at layer {i}.\n{m}"
-                    ),
+                ref = torch.tensor(ref_layer, dtype=torch.float64)
+                ddp = torch.tensor(ddp_layer, dtype=torch.float64)
+                # Statistics are accumulated in float32, so the single-GPU
+                # and DDP runs sum the same contributions in a different
+                # order; allow small differences.
+                matches = ref.shape == ddp.shape and bool(
+                    torch.isclose(ref, ddp, rtol=1e-5, atol=1e-3).all()
                 )
+                if not matches:
+                    mismatched_layers.append(layer_idx)
+
+            assert not mismatched_layers, (
+                "Saliency scores differ between single-GPU and DDP at layers "
+                f"{mismatched_layers}."
+            )
 
         del model_ddp
         torch.accelerator.empty_cache()
