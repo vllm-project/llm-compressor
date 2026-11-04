@@ -26,7 +26,7 @@ from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
 from llmcompressor.modifiers.pruning.mone import MoNePruningModifier
-from llmcompressor.modifiers.pruning.mone.utils import collapse_moe_layer
+from llmcompressor.modifiers.pruning.mone.utils import mone_collapse_moe_layer
 from tests.llmcompressor.modifiers.pruning.fake_moe import (
     FakeLinearExperts2D,
     FakeMoEConfig,
@@ -196,7 +196,7 @@ def test_linear_experts_serves_novices():
 
 
 # ---------------------------------------------------------------------------
-# Tests: collapse_moe_layer
+# Tests: mone_collapse_moe_layer
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ def test_collapse_keeps_router_width_and_sets_novices():
         len(dropped), 16
     )
 
-    collapse_moe_layer("layers.0", layer, retained, dropped, novices)
+    mone_collapse_moe_layer("layers.0", layer, retained, dropped, novices)
 
     # retained experts left-shifted (same module objects)
     pruned = [
@@ -255,7 +255,7 @@ def test_collapse_forward_preserves_retained_experts():
     baseline = layer.experts(hidden, top_k_index, top_k_weights)
 
     novices = torch.randn(2, 8)
-    collapse_moe_layer("layers.0", layer, retained, [4, 5], novices)
+    mone_collapse_moe_layer("layers.0", layer, retained, [4, 5], novices)
 
     # after collapse, retained experts occupy rows 0..3 unchanged
     out = layer.experts(hidden, top_k_index, top_k_weights)
@@ -382,7 +382,7 @@ def _linearized_and_collapsed(retained=(0, 2)):
 
     dropped = [i for i in range(4) if i not in retained]
     novices = torch.randn(len(dropped), 64)
-    collapse_moe_layer(moe_name, block, list(retained), dropped, novices)
+    mone_collapse_moe_layer(moe_name, block, list(retained), dropped, novices)
     return model, moe_name, block
 
 

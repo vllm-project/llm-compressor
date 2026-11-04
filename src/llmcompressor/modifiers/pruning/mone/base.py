@@ -32,7 +32,7 @@ from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
 )
-from llmcompressor.modifiers.pruning.mone.utils import collapse_moe_layer
+from llmcompressor.modifiers.pruning.mone.utils import mone_collapse_moe_layer
 
 __all__ = ["MoNePruningModifier"]
 
@@ -317,7 +317,7 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         if is_distributed():
             dist.broadcast(novices, src=get_source_rank())
 
-        collapse_moe_layer(moe_name, moe_module, retained, dropped, novices)
+        mone_collapse_moe_layer(moe_name, moe_module, retained, dropped, novices)
 
     def _compute_novices(self, moe_name: str, dropped: list[int]) -> torch.Tensor:
         """
@@ -331,6 +331,13 @@ class MoNePruningModifier(ExpertPruningModifierBase):
         :return: The ``(len(dropped), hidden_dim)`` matrix of novice vectors
         """
         stats = self._moe_stats[moe_name]
+        num_uncalibrated = (stats["count"] == 0).sum().item()
+        if num_uncalibrated > 0:
+            logger.warning(
+                f"Found {num_uncalibrated} uncalibrated experts, using "
+                "zero-vector novices for these experts"
+            )
+
         count = stats["count"].clamp(min=1.0).unsqueeze(-1)
         mean_output = stats["sum_output"] / count
         drop_idx = torch.tensor(dropped, dtype=torch.long, device=mean_output.device)

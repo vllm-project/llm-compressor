@@ -19,10 +19,10 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     reorder_router,
 )
 
-__all__ = ["collapse_moe_layer", "set_novices"]
+__all__ = ["mone_collapse_moe_layer", "set_novices"]
 
 
-def collapse_moe_layer(
+def mone_collapse_moe_layer(
     moe_name: str,
     moe_module: nn.Module,
     retained: list[int],
@@ -55,11 +55,11 @@ def collapse_moe_layer(
     experts, router = get_experts_router(moe_name, moe_module)
 
     assert novices.shape[0] == len(dropped), (
-        f"collapse_moe_layer: got {novices.shape[0]} novices but "
+        f"mone_collapse_moe_layer: got {novices.shape[0]} novices but "
         f"{len(dropped)} experts were collapsed"
     )
     assert len(retained) + len(dropped) == router.weight.shape[0], (
-        f"collapse_moe_layer: {len(retained)} retained + {len(dropped)} dropped "
+        f"mone_collapse_moe_layer: {len(retained)} retained + {len(dropped)} dropped "
         f"experts do not cover the router's {router.weight.shape[0]} rows"
     )
 
