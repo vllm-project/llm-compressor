@@ -81,8 +81,8 @@ oneshot(
 ```
 
 See the [RAZOR examples](../../examples/razor_expert_pruning/README.md) for
-details, including the score-function options for different router
-architectures.
+details, including how the router's native score function is read from the
+model config.
 
 ## KV cache and attention quantization
 

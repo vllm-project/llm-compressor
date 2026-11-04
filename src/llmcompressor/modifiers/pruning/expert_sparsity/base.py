@@ -252,7 +252,7 @@ class ExpertPruningModifierBase(Modifier):
                 self.register_hook(expert, _expert_hook, "forward")
 
             # add hook to experts
-            _experts_block_hook = partial(self.experts_block_hook, moe_name)
+            _experts_block_hook = partial(self.experts_block_hook, moe_name, moe)
             self.register_hook(experts, _experts_block_hook, "forward")
 
     def on_sequential_epoch_end(
@@ -430,6 +430,7 @@ class ExpertPruningModifierBase(Modifier):
     def experts_block_hook(
         self,
         layer_name: str,
+        moe: torch.nn.Module,
         module: torch.nn.Module,
         args: tuple,
         output: Any,
@@ -443,6 +444,9 @@ class ExpertPruningModifierBase(Modifier):
         statistics, then reset that data for the next batch.
 
         :param layer_name: Name of the MoE layer the block belongs to
+        :param moe: The MoE layer the hooked experts block belongs to, from
+            which the layer's experts and router are reachable (e.g. via
+            :func:`~llmcompressor.modifiers.pruning.expert_sparsity.utils.get_experts_router`)
         :param module: The experts block the hook is attached to
         :param args: The block's forward arguments, including the router's
             top-k indices and weights
