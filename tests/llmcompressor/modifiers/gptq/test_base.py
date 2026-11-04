@@ -143,9 +143,9 @@ def test_config_resolution(strategies, actorder):
     }
 
     modifier = GPTQModifier(config_groups=config_groups, actorder=actorder)
-    modifier.resolve_quantization_config()
+    resolved = modifier.resolve_quantization_config()
 
-    for config_group in modifier.config_groups.values():
+    for config_group in resolved.config_groups.values():
         assert config_group.weights.actorder == actorder
 
 

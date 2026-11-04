@@ -76,7 +76,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
                 "QuantizationModifier requires that quantization fields be specified"
             )
         if not getattr(state, "layerwise_decompression", False):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            QuantizationMixin.initialize_quantization(self, state)
 
         return True
 
