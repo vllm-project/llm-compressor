@@ -28,6 +28,8 @@ from tests.testing_utils import requires_gpu, torchrun
 
 QWEN_MODEL = "inference-optimization/Qwen3.8-1.0B-A0.6B"
 NUM_SAMPLES = 16
+# PerfectBlend only has a train split; compare the next 16 training samples.
+SAMPLE_OFFSET = 16
 MAX_SEQ_LENGTH = 512
 
 
@@ -58,7 +60,7 @@ def test_reap_ddp_qwen3():
         oneshot(
             model=model_ref,
             dataset="perfectblend",
-            splits=f"train[:{NUM_SAMPLES}]",
+            splits=f"train[{SAMPLE_OFFSET}:{SAMPLE_OFFSET + NUM_SAMPLES}]",
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ref_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
@@ -76,6 +78,12 @@ def test_reap_ddp_qwen3():
 
         ddp_report = f"{tmpdir}/ddp_report.json"
 
+        ddp_split = get_rank_partition("train", NUM_SAMPLES)
+        split_start, split_end = map(
+            int, ddp_split.split("[", 1)[1].removesuffix("]").split(":")
+        )
+        ddp_split = f"train[{SAMPLE_OFFSET + split_start}:{SAMPLE_OFFSET + split_end}]"
+
         torch.manual_seed(42)
         torch.get_device_module().manual_seed_all(42)
 
@@ -87,7 +95,7 @@ def test_reap_ddp_qwen3():
         oneshot(
             model=model_ddp,
             dataset="perfectblend",
-            splits=get_rank_partition("train", NUM_SAMPLES),
+            splits=ddp_split,
             recipe=REAPPruningModifier(sparsity=0.25, report_path=ddp_report),
             num_calibration_samples=NUM_SAMPLES,
             max_seq_length=MAX_SEQ_LENGTH,
