@@ -312,9 +312,9 @@ class REAPSaliencyTracker:
             )
             self.sum_saliency.index_add_(0, flat_idx, contrib.reshape(-1))
         else:
-            # Flatten in (slot, token) order to match torch.where order
-            # in LinearExperts2D torch.where scans row-by-row (slot 0 all
-            # tokens, then slot 1 all tokens, etc.)
+            # Flatten in (slot, token) order. LinearExperts2D feeds each
+            # expert tokens in that order: a stable sort of slot-major ids
+            # (slot 0 across tokens, then slot 1, and so on).
             flat_idx = topk_indices.T.reshape(-1).to(torch.long)
             flat_weights = topk_weights.T.reshape(-1).to(torch.float32)
 
