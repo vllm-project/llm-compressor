@@ -202,6 +202,8 @@ class Oneshot:
                 raise ValueError("streaming_save requires output_dir")
             if not dataset_args.layerwise_compression:
                 raise ValueError("streaming_save requires layerwise_compression=True")
+            if not dataset_args.pipeline == "sequential":
+                raise ValueError("streaming_save requires pipeline=sequential")
             if not model_args.save_compressed:
                 raise ValueError("streaming_save requires save_compressed=True")
 
@@ -209,6 +211,10 @@ class Oneshot:
         # streaming shard writes and post-processing metadata share the same path.
         if output_dir is not None and recipe_args.stage is not None:
             output_dir = os.path.join(output_dir, recipe_args.stage)
+            logger.info(
+                f"Oneshot output_dir resolved to {output_dir} for stage "
+                f"{recipe_args.stage}"
+            )
         self.output_dir = output_dir
 
         # initialize the model and processor
@@ -324,17 +330,6 @@ class Oneshot:
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
-
-            if self.model_args.streaming_save:
-                if pipeline.__class__.__name__ != "SequentialPipeline":
-                    raise ValueError(
-                        "streaming_save requires the sequential calibration pipeline"
-                    )
-                self.async_writer = AsyncWriter(
-                    output_dir=self.output_dir,
-                    streaming_save=True,
-                )
-                session.state.async_writer = self.async_writer
 
             pipeline(
                 self.model,
