@@ -224,6 +224,8 @@ class Oneshot:
                 raise ValueError("streaming_save requires output_dir")
             if not dataset_args.layerwise_compression:
                 raise ValueError("streaming_save requires layerwise_compression=True")
+            if not dataset_args.pipeline == "sequential":
+                raise ValueError("streaming_save requires pipeline=sequential")
             if not model_args.save_compressed:
                 raise ValueError("streaming_save requires save_compressed=True")
 
@@ -231,6 +233,10 @@ class Oneshot:
         # streaming shard writes and post-processing metadata share the same path.
         if output_dir is not None and recipe_args.stage is not None:
             output_dir = os.path.join(output_dir, recipe_args.stage)
+            logger.info(
+                f"Oneshot output_dir resolved to {output_dir} for stage "
+                f"{recipe_args.stage}"
+            )
         self.output_dir = output_dir
 
         # initialize the model and processor
