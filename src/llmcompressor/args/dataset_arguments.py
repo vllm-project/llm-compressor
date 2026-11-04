@@ -320,7 +320,8 @@ class DatasetArguments(CustomDatasetArguments):
         metadata={
             "help": "Whether to use the 'loss_mask' field from the batch during "
             "calibration. When True, only tokens where loss_mask=1 contribute "
-            "to the AWQ optimization objective and to the GPTQ Hessian."
+            "to the AWQ optimization objective, the GPTQ Hessian and the "
+            "activation and KV-cache scales."
         },
     )
     dataloader_num_workers: int = field(
