@@ -34,7 +34,7 @@ from transformers import (
 )
 
 from llmcompressor import oneshot, reset_session
-from llmcompressor.entrypoints.oneshot import _calibrated_names
+from llmcompressor.entrypoints.oneshot import _calibrated_names, _quantized_names
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.modifiers.qad import QADModifier
@@ -815,8 +815,10 @@ def test_mtp_calibration_accepts_inputs_embeds(tmp_path):
 
 
 def test_mtp_calibration_rejects_embeds_for_own_mtp_embedding(tmp_path):
-    # Inkling's MTP normalizes embeddings with its own weights
+    # Whether Inkling's MTP keeps its own embedding norm depends on the
+    # Transformers version, so the MTP is given its own embedding explicitly
     model = _loaded_mtp_model(tmp_path, "dedicated")
+    model.mtp.embed_tokens = deepcopy(model.get_input_embeddings())
     input_ids = torch.tensor(_calibration_dataset(num_samples=1)["input_ids"])
     with torch.no_grad():
         inputs_embeds = model.get_input_embeddings()(input_ids)
@@ -827,8 +829,13 @@ def test_mtp_calibration_rejects_embeds_for_own_mtp_embedding(tmp_path):
 _BACKBONE = r"re:^model\.layers\.\d+\."
 
 
+_ALL_AWQ = AWQModifier(
+    mappings=[AWQMapping("re:.*input_layernorm$", ["re:.*self_attn.q_proj$"])]
+)
+
+
 @pytest.mark.parametrize(
-    "modifier,calibrates_mtp",
+    "modifier,quantizes_mtp,calibrates_mtp",
     [
         (
             SmoothQuantModifier(
@@ -836,12 +843,14 @@ _BACKBONE = r"re:^model\.layers\.\d+\."
                     [[f"{_BACKBONE}self_attn.q_proj$"], f"{_BACKBONE}input_layernorm$"]
                 ],
             ),
+            True,
             False,
         ),
         (
             SmoothQuantModifier(
                 mappings=[[["re:.*self_attn.q_proj$"], "re:.*input_layernorm$"]]
             ),
+            True,
             True,
         ),
         (
@@ -853,26 +862,26 @@ _BACKBONE = r"re:^model\.layers\.\d+\."
                     )
                 ]
             ),
+            True,
             False,
         ),
-        (
-            AWQModifier(
-                mappings=[
-                    AWQMapping("re:.*input_layernorm$", ["re:.*self_attn.q_proj$"])
-                ]
-            ),
-            True,
-        ),
-        (REAPPruningModifier(sparsity=0.5, ignore=[r"^mtp\."]), False),
-        (REAPPruningModifier(sparsity=0.5), True),
-        (QADModifier(), False),
+        (_ALL_AWQ, True, True),
+        # AWQ skips mappings without a quantized layer
+        (_ALL_AWQ, False, False),
+        (REAPPruningModifier(sparsity=0.5, ignore=[r"^mtp\."]), True, False),
+        (REAPPruningModifier(sparsity=0.5), True, True),
+        # QAD distills what the recipe quantizes
+        (QADModifier(), True, True),
+        (QADModifier(), False, False),
     ],
 )
-def test_calibrated_names_resolve_mtp(tmp_path, modifier, calibrates_mtp):
+def test_calibrated_names_resolve_mtp(
+    tmp_path, modifier, quantizes_mtp, calibrates_mtp
+):
     model = _loaded_mtp_model(tmp_path, "trailing")
-    names = _calibrated_names(model, modifier)
-    # QAD only distills what a preceding modifier quantized
-    assert bool(names) != isinstance(modifier, QADModifier)
+    ignore = ["lm_head"] if quantizes_mtp else ["lm_head", r"re:^mtp\."]
+    quantizer = QuantizationModifier(scheme="W4A16", ignore=ignore)
+    names = _calibrated_names(model, modifier, _quantized_names(model, [quantizer]))
     assert any(name.startswith("mtp.") for name in names) == calibrates_mtp
 
 
@@ -896,6 +905,94 @@ def test_mtp_does_not_run_for_backbone_only_mappings(tmp_path):
         num_calibration_samples=4,
     )
     assert not calls
+
+
+def test_mtp_does_not_run_for_awq_when_quantization_ignores_it(tmp_path):
+    # The AWQ mapping matches MTP, but no MTP layer is quantized
+    model = _loaded_mtp_model(tmp_path, "trailing")
+    calls = []
+    model.mtp.layers[0].register_forward_hook(lambda *_: calls.append(1))
+    recipe = [
+        AWQModifier(
+            mappings=[AWQMapping("re:.*input_layernorm$", ["re:.*self_attn.q_proj$"])]
+        ),
+        QuantizationModifier(
+            config_groups={"group_0": _w4a16_scheme(["Linear"])},
+            ignore=["lm_head", r"re:^mtp\."],
+        ),
+    ]
+    oneshot(
+        model=model,
+        recipe=recipe,
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+    )
+    assert not calls
+    assert not hasattr(model.mtp.layers[0].eh_proj, "quantization_scheme")
+
+
+def _w4a16_scheme(targets):
+    # W4A16 with a group size that divides the tiny models' hidden sizes
+    return QuantizationScheme(
+        targets=targets,
+        weights=QuantizationArgs(
+            num_bits=4, type="int", symmetric=True, strategy="group", group_size=16
+        ),
+    )
+
+
+@pytest.mark.parametrize("layout", ["dedicated", "trailing"])
+@pytest.mark.parametrize("method", ["gptq", "rtn"])
+def test_qad_distills_mtp(tmp_path, layout, method):
+    from llmcompressor.modifiers.gptq import GPTQModifier
+
+    model = _loaded_mtp_model(tmp_path, layout)
+    calls = []
+    model.mtp.layers[0].register_forward_hook(lambda *_: calls.append(1))
+    config_groups = {"group_0": _w4a16_scheme([r"re:^mtp\.layers\..*proj$"])}
+    # RTN W4A16 needs no calibration data, so only QAD requires MTP to run
+    quantizer = (
+        GPTQModifier(config_groups=config_groups)
+        if method == "gptq"
+        else QuantizationModifier(config_groups=config_groups)
+    )
+    # QAD raises unless it distilled every target, and the MTP layer's nested
+    # decoder block would otherwise fail its chain validation
+    oneshot(
+        model=model,
+        recipe=[quantizer, QADModifier(num_epochs=1, lr=1e-3)],
+        processor=_tokenizer(),
+        dataset=_calibration_dataset(),
+        num_calibration_samples=4,
+        pipeline="sequential",
+    )
+
+    assert calls
+    assert torch.isfinite(model.mtp.layers[0].eh_proj.weight_scale).all()
+
+
+def test_mtp_calibration_rejects_sequences_shorter_than_mtp_depth(tmp_path):
+    model = _source_model(tmp_path, load_mtp=True, num_mtp_layers=2)
+    calls = []
+    model.model.layers[0].register_forward_hook(lambda *_: calls.append(1))
+    recipe = QuantizationModifier(scheme={"NVFP4": [r"re:^mtp\.layers\..*proj$"]})
+    # Fails before calibrating anything
+    with pytest.raises(ValueError, match="longer than the 2 MTP layer"):
+        oneshot(
+            model=model,
+            recipe=recipe,
+            processor=_tokenizer(),
+            dataset=_calibration_dataset(seq_len=2),
+            num_calibration_samples=4,
+        )
+    assert not calls
+
+    input_ids = torch.tensor(
+        _calibration_dataset(num_samples=1, seq_len=2)["input_ids"]
+    )
+    with pytest.raises(ValueError, match="longer than the 2 MTP layer"):
+        _mtp_layer_outputs(model, input_ids=input_ids)
 
 
 @pytest.mark.parametrize("layout", ["dedicated", "trailing"])

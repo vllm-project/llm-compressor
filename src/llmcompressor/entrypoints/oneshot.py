@@ -54,6 +54,7 @@ from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     mtp_calibration_context,
+    validate_mtp_calibration_lengths,
     validate_mtp_copy_source,
 )
 from llmcompressor.utils.helpers import use_eager_attention
@@ -278,6 +279,7 @@ class Oneshot:
         with ExitStack() as stack:
             stack.enter_context(norm_calibration_context(self.model))
             if self._calibrates_mtp(recipe_stage):
+                validate_mtp_calibration_lengths(self.model, calibration_dataloader)
                 stack.enter_context(mtp_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
@@ -323,11 +325,12 @@ class Oneshot:
         if not hasattr(self.model, "mtp") or not self.recipe:
             return False
         recipe = Recipe.create_instance(self.recipe, target_stage=recipe_stage)
+        quantized = _quantized_names(self.model, recipe.modifiers)
         return any(
             modifier.requires_calibration_data
             and any(
                 name.startswith("mtp.")
-                for name in _calibrated_names(self.model, modifier)
+                for name in _calibrated_names(self.model, modifier, quantized)
             )
             for modifier in recipe.modifiers
         )
@@ -380,11 +383,27 @@ class Oneshot:
             )
 
 
-def _calibrated_names(model: PreTrainedModel, modifier) -> list[str]:
+def _quantized_names(model: PreTrainedModel, modifiers) -> set[str]:
+    """Names of the modules targeted by the recipe's quantization modifiers"""
+    return {
+        name
+        for modifier in modifiers
+        if isinstance(modifier, QuantizationMixin)
+        for name, _ in match_named_modules(
+            model, modifier.resolved_targets, modifier.ignore
+        )
+    }
+
+
+def _calibrated_names(
+    model: PreTrainedModel, modifier, quantized: set[str]
+) -> list[str]:
     """
     Names of the modules a calibration modifier observes, resolved from its
     targets, mappings or MoE detection before it is initialized. A modifier whose
     modules cannot be resolved is assumed to observe every module.
+
+    :param quantized: names of the modules the recipe quantizes
     """
     if isinstance(modifier, QuantizationMixin):
         matches = match_named_modules(model, modifier.resolved_targets, modifier.ignore)
@@ -395,7 +414,12 @@ def _calibrated_names(model: PreTrainedModel, modifier) -> list[str]:
             for mapping in mappings
             for pattern in (mapping.smooth_layer, *mapping.balance_layers)
         ]
-        matches = match_named_modules(model, patterns)
+        # AWQ skips mappings without a quantized layer
+        return [
+            name
+            for name, _ in match_named_modules(model, patterns)
+            if name in quantized
+        ]
     elif isinstance(modifier, SmoothQuantModifier):
         patterns = tree_leaves(modifier._infer_mappings_from_model(model))
         matches = match_named_modules(model, patterns, modifier.ignore or [])
@@ -403,8 +427,9 @@ def _calibrated_names(model: PreTrainedModel, modifier) -> list[str]:
         moe_attrs = get_moe_attrs(model, modifier.ignore)
         return moe_attrs.moe_layer_names if moe_attrs is not None else []
     elif isinstance(modifier, QADModifier):
-        # Distills only modules quantized by a preceding modifier, checked on its own
-        return []
+        # Distills the modules quantized by a preceding modifier, which may itself
+        # need no calibration data, such as W4A16
+        return sorted(quantized)
     else:
         matches = model.named_modules()
     return [name for name, _ in matches]

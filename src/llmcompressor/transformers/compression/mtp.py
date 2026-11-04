@@ -314,6 +314,8 @@ def mtp_calibration_context(model: PreTrainedModel):
                 "MTP calibration requires `input_ids` when the MTP layers have "
                 "their own embedding, since backbone `inputs_embeds` differ from it"
             )
+        tokens = input_ids if input_ids is not None else inputs_embeds
+        _check_mtp_sequence_length(mtp, tokens.shape[1])
         last_hidden_state = (
             outputs.last_hidden_state
             if hasattr(outputs, "last_hidden_state")
@@ -339,6 +341,31 @@ def mtp_calibration_context(model: PreTrainedModel):
             yield
         finally:
             handle.remove()
+
+
+def validate_mtp_calibration_lengths(model: PreTrainedModel, dataloader) -> None:
+    """Fail before calibration if a calibration sample is too short for MTP.
+
+    Only tokenized datasets are checked; other inputs are checked as they run.
+    """
+    dataset = getattr(dataloader, "dataset", None)
+    column_names = getattr(dataset, "column_names", None) or []
+    if "input_ids" not in column_names:
+        return
+    shortest = min(map(len, dataset["input_ids"]), default=None)
+    if shortest is not None:
+        _check_mtp_sequence_length(model.mtp, shortest)
+
+
+def _check_mtp_sequence_length(mtp, seq_len: int):
+    # Layer `i` sees the sequence shifted by `i + 1`, so the last layer needs a
+    # token left after shifting
+    if seq_len <= len(mtp.layers):
+        raise ValueError(
+            f"MTP calibration requires sequences longer than the {len(mtp.layers)} "
+            f"MTP layer(s), but got a sequence of {seq_len} token(s). Filter out "
+            "short calibration samples, or ignore MTP in the recipe."
+        )
 
 
 def _mtp_teacher_forced_forward(

@@ -153,10 +153,19 @@ class QADModifier(Modifier):
         seq_target_patterns = infer_sequential_targets(
             state.model, kwargs.get("sequential_targets")
         )
-        self._seq_target_names = {
-            module: name or type(module).__name__
+        seq_targets = [
+            (name, module)
             for name, module in match_named_modules(state.model, seq_target_patterns)
             if _modules_to_quantize(module.modules())
+        ]
+        # A target nested in another, such as the decoder block inside an MTP
+        # layer, trains as part of its outer target rather than as a chain link
+        self._seq_target_names = {
+            module: name or type(module).__name__
+            for name, module in seq_targets
+            if not any(
+                outer and name.startswith(f"{outer}.") for outer, _ in seq_targets
+            )
         }
         return True
 
