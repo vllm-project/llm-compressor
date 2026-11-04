@@ -1,7 +1,9 @@
 from copy import deepcopy
+from datetime import timedelta
 
 import pytest
 import torch
+import torch.distributed as dist
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
@@ -22,8 +24,10 @@ from llmcompressor.modifiers.quantization.calibration import (
     calibrate_query_hook,
     calibrate_value_hook,
     initialize_observer,
+    update_qparams,
 )
 from llmcompressor.pipelines.basic import BasicPipeline
+from tests.testing_utils import torchrun
 
 INPUT_ARGS = [
     QuantizationArgs(num_bits=8, type="int", symmetric=True, strategy="tensor"),
@@ -314,3 +318,60 @@ def test_all_ones_mask_matches_no_masking():
     assert masked.keys() == unmasked.keys()
     for name, value in masked.items():
         torch.testing.assert_close(value, unmasked[name], rtol=0, atol=0)
+
+
+@torchrun(world_size=2)
+def test_sync_with_a_fully_masked_rank():
+    """
+    With DDP, rank 1's samples are fully masked, so its observers hold no
+    statistics. Both ranks must still join the same all-reduces (a mismatch hangs
+    or fails), and both must end with rank 0's statistics and scales.
+    """
+    dist.init_process_group(
+        backend="gloo", init_method="env://", timeout=timedelta(seconds=30)
+    )
+    try:
+        rank = dist.get_rank()
+        torch.manual_seed(rank)
+        value = torch.randn(1, 4, 8)
+        static = QuantizationArgs(
+            num_bits=8, type="int", symmetric=True, observer="static_minmax"
+        )
+        moving = QuantizationArgs(num_bits=8, type="int", symmetric=True)
+        masked = [_linear(static), _linear(moving)]
+        unmasked, unused = _linear(static), _linear(static)
+
+        with create_session() as session:
+            session.state.loss_masks = [torch.full((1, 4), 1 - rank)]
+            session.state.current_batch_idx = 0
+            for module in masked:
+                calibrate_input_hook(module, (value,))
+        unmasked.input_observer(value)
+        if rank == 0:
+            unused.input_observer(value)  # e.g. an expert routed no tokens on rank 1
+        assert masked[0].input_observer.has_statistics == (rank == 0)
+
+        modules = masked + [unmasked, unused]
+        QuantizationModifier(targets="Linear", scheme="W8A8").sync_obs_act_stats(
+            modules
+        )
+        update_qparams(modules, "input")
+
+        for module in modules:
+            scale = module.input_scale.detach().clone()
+            gathered = [torch.empty_like(scale) for _ in range(2)]
+            dist.all_gather(gathered, scale)
+            torch.testing.assert_close(gathered[0], gathered[1], rtol=0, atol=0)
+
+        # the masked and unused modules take rank 0's statistics alone
+        expected = _linear(static)
+        rank0_value = torch.randn(1, 4, 8, generator=torch.Generator().manual_seed(0))
+        expected.input_observer(rank0_value)
+        update_qparams([expected], "input")
+        for module in masked + [unused]:
+            torch.testing.assert_close(
+                module.input_scale, expected.input_scale, rtol=0, atol=0
+            )
+        dist.barrier()
+    finally:
+        dist.destroy_process_group()

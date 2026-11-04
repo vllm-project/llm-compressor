@@ -99,6 +99,9 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
     ) as sync_mock2, patch(
         "llmcompressor.modifiers.quantization.quantization.mixin.is_distributed",
         return_value=True,
+    ), patch(
+        "llmcompressor.modifiers.quantization.quantization.mixin._fill_missing_act_stats",
+        return_value=[],
     ):
         # Process chunks sequentially
         modifier.on_sequential_epoch_end(
