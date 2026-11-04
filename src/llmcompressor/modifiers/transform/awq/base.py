@@ -767,11 +767,14 @@ class AWQModifier(Modifier):
                 scales = scales / (scales.max() * scales.min()).sqrt()
                 scales[torch.isinf(scales)] = 1
                 scales[torch.isnan(scales)] = 1
+                balance_scales = scales
                 if mapping.is_gqa:
-                    scales = _expand_scales_for_gqa(
-                        scales, mapping.balance_layers[0].in_features, mapping.gqa_dim
+                    balance_scales = _expand_scales_for_gqa(
+                        scales,
+                        mapping.balance_layers[0].in_features,
+                        mapping.gqa_dim,
                     )
-                _scalesview = scales.view(1, -1).to(device)
+                _scalesview = balance_scales.view(1, -1).to(device)
 
                 # (W * s)
                 for balance_layer in balance_layers_to_patch:
@@ -816,6 +819,8 @@ class AWQModifier(Modifier):
                 if loss < best_error:
                     best_error = loss
                     best_ratio = ratio
+                    # Keep scales in the smooth layer's KV coordinates. They
+                    # are expanded to query coordinates when updating o_proj.
                     best_scales = scales.clone()
                 pbar.set_postfix({"best_error": f"{best_error:.3e}"})
 
