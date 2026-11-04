@@ -69,12 +69,34 @@ class MockMLPModule(Module):
             initialize_module_for_quantization(proj, scheme)
 
 
+class MockGatedDeltaNetModule(Module):
+    """Mock Qwen3.5 gated delta net with its four input projections."""
+
+    def __init__(self, scheme: QuantizationScheme):
+        super().__init__()
+        self.in_proj_qkv = Linear(64, 192, bias=False)
+        self.in_proj_z = Linear(64, 64, bias=False)
+        self.in_proj_b = Linear(64, 16, bias=False)
+        self.in_proj_a = Linear(64, 16, bias=False)
+
+        torch.manual_seed(7)
+        self.in_proj_qkv.weight.data = torch.randn(192, 64) * 1.0
+        self.in_proj_z.weight.data = torch.randn(64, 64) * 2.5
+        self.in_proj_b.weight.data = torch.randn(16, 64) * 0.5
+        self.in_proj_a.weight.data = torch.randn(16, 64) * 4.0
+
+        for proj in [self.in_proj_qkv, self.in_proj_z, self.in_proj_b, self.in_proj_a]:
+            initialize_module_for_quantization(proj, scheme)
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "module_class,layer_names",
     [
         (MockAttentionModule, ["q_proj", "k_proj", "v_proj"]),
         (MockMLPModule, ["gate_proj", "up_proj"]),
+        (MockGatedDeltaNetModule, ["in_proj_qkv", "in_proj_z"]),
+        (MockGatedDeltaNetModule, ["in_proj_b", "in_proj_a"]),
     ],
 )
 def test_fused_observers_produce_identical_global_scale(module_class, layer_names):
@@ -127,6 +149,8 @@ def test_fused_observers_produce_identical_global_scale(module_class, layer_name
     [
         (MockAttentionModule, ["q_proj", "k_proj", "v_proj"]),
         (MockMLPModule, ["gate_proj", "up_proj"]),
+        (MockGatedDeltaNetModule, ["in_proj_qkv", "in_proj_z"]),
+        (MockGatedDeltaNetModule, ["in_proj_b", "in_proj_a"]),
     ],
 )
 def test_unfused_observers_produce_different_global_scale(module_class, layer_names):
