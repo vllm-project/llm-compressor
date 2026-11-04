@@ -42,7 +42,7 @@ class _FakeModifier:
     def __init__(self, events):
         self.events = events
 
-    def start_layerwise_calibration(self, model, modules):
+    def start_layerwise_calibration(self, state, model, modules):
         self.events.append(("start_layerwise_calibration", modules))
 
 
