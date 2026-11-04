@@ -47,10 +47,11 @@ when the vacated slot is *not* refilled), or `"rcs"` (the plain
 routing-weighted consensus residual).
 
 The router scores are recomputed each batch from the router's linear
-projection of the experts-block input, transformed by the router's score
-function (`softmax`, `sigmoid`, or `sqrt_softplus`). When left unset, the
-score function is inferred from the model config, falling back to `softmax`.
-An `e_score_correction_bias` (e.g. DeepSeek-V3, Hy3) steers which unselected
+projection of the experts-block input, transformed by the router's native
+score function (`softmax`, `sigmoid`, or `sqrt_softplus`, e.g.
+DeepSeek-V4's `sqrt(softplus(z))`), which is read from the model config and
+falls back to `softmax` when the architecture does not declare one. An
+`e_score_correction_bias` (e.g. DeepSeek-V3, Hy3) steers which unselected
 expert is promoted -- matching the router's selection rule -- but is not
 added to the mixture weights. Under group-limited routing (`n_group > 1`,
 e.g. DeepSeek-V3), the promoted expert is approximated by the globally

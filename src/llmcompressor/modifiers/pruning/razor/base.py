@@ -20,13 +20,15 @@ from pydantic import PrivateAttr
 from torch import distributed as dist
 from transformers.modeling_utils import local_torch_dtype
 
-from llmcompressor.core import Event, State
+from llmcompressor.core import State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
+from llmcompressor.modeling.moe.helpers import ScoreFunction
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
 )
 from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
+from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 __all__ = ["RazorPruningModifier"]
 
@@ -37,19 +39,6 @@ __all__ = ["RazorPruningModifier"]
 # ``refill`` under conditional RMS aggregation
 DamageCriterion = Literal["rcs", "rcs_loo", "refill"]
 
-# router score transformations (paper appendix A.4.3). The mixture weights
-# fed to the damage formula are the selected scores renormalized to sum to
-# one, per the paper's fixed-input deletion counterfactual
-ScoreFunction = Literal["softmax", "sigmoid", "sqrt_softplus"]
-
-# config fields which describe a model's native router score transformation,
-# checked in this order when inferring ``score_function``
-_SCORE_FUNCTION_CONFIG_KEYS = (
-    "scoring_func",
-    "score_func",
-    "moe_router_activation_func",
-)
-
 # lower bound for the deletion denominators (paper appendix A.4.1 clamps
 # them from below by 1e-6)
 _DENOM_CLAMP = 1e-6
@@ -59,7 +48,9 @@ _DENOM_CLAMP = 1e-6
 _SCORE_SUM_CLAMP = 1e-20
 
 
-def _apply_score_function(logits: torch.Tensor, score_function: str) -> torch.Tensor:
+def _apply_score_function(
+    logits: torch.Tensor, score_function: ScoreFunction
+) -> torch.Tensor:
     """
     Transform raw router logits into nonnegative mixture scores.
 
@@ -168,12 +159,14 @@ class RazorPruningModifier(ExpertPruningModifierBase):
 
     The router scores are recomputed each batch from the router's linear
     projection of the experts-block input (the activations the router itself
-    consumed), transformed by ``score_function``. Router linear biases are
-    not modeled; an ``e_score_correction_bias``, when present on the router
-    or the MoE block, steers which unselected expert is promoted -- matching
-    the router's selection rule -- but is not added to the mixture weights.
-    Under group-limited routing (``n_group > 1``) the promoted expert is
-    approximated by the globally highest-ranked unselected expert.
+    consumed), transformed by the router's native score function, which is
+    read from the model config (defaulting to ``softmax``). Router linear
+    biases are not modeled; an ``e_score_correction_bias``, when present on
+    the router or the MoE block, steers which unselected expert is promoted
+    -- matching the router's selection rule -- but is not added to the
+    mixture weights. Under group-limited routing (``n_group > 1``) the
+    promoted expert is approximated by the globally highest-ranked
+    unselected expert.
 
     :param sparsity: fraction of experts to remove per layer, in ``[0, 1)``.
         When ``0.0``, no experts are removed; saliency is still computed so
@@ -181,11 +174,6 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         config are never modified.
     :param criterion: the token-level deletion damage to aggregate,
         ``"refill"`` (RAZOR), ``"rcs_loo"``, or ``"rcs"``.
-    :param score_function: the router's score transformation,
-        ``"softmax"``, ``"sigmoid"``, or ``"sqrt_softplus"``. When ``None``
-        (the default), it is inferred from the model config's
-        ``scoring_func`` / ``score_func`` / ``moe_router_activation_func``
-        field, falling back to ``"softmax"``.
     :param ignore: module name patterns to skip during MoE layer detection.
     :param report_path: optional path to a ``.json`` file where the per-expert
         statistics are written after calibration completes. The report is a JSON
@@ -204,7 +192,6 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     sparsity_method = MoESparsityMethod.PRUNE
 
     criterion: DamageCriterion = "refill"
-    score_function: ScoreFunction | None = None
 
     # per-batch expert outputs, keyed by layer name then expert index,
     # populated by the expert hooks and consumed and reset by the experts
@@ -212,73 +199,6 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     _expert_outputs: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
-
-    # the router of each MoE layer, from which the full (unselected
-    # included) score vector is recomputed each batch
-    _routers: dict[str, torch.nn.Module] = PrivateAttr(default_factory=dict)
-
-    # each layer's selection-only score correction bias (e.g. DeepSeek-V3's
-    # ``e_score_correction_bias``, found on the router or the MoE block), or
-    # None when the architecture does not use one
-    _score_biases: dict[str, torch.Tensor | None] = PrivateAttr(default_factory=dict)
-
-    # score function resolved from the model config at initialization
-    _resolved_score_function: str = PrivateAttr("softmax")
-
-    # guards the expert hooks against recording the refill forwards issued
-    # by the experts block hook, whose outputs it consumes directly
-    _resolving_refill: bool = PrivateAttr(False)
-
-    def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        Read the model's MoE structure and resolve the score function.
-
-        :param state: The current session state
-        :return: True if there are no errors, False otherwise
-        """
-        initialized = super().on_initialize(state, **kwargs)
-
-        if self.score_function is not None:
-            self._resolved_score_function = self.score_function
-        else:
-            # infer the model's native router score transformation from its
-            # config, defaulting to softmax
-            for key in _SCORE_FUNCTION_CONFIG_KEYS:
-                value = getattr(self._text_config, key, None)
-                if isinstance(value, str) and value in ("softmax", "sigmoid"):
-                    self._resolved_score_function = value
-                    break
-
-        return initialized
-
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        """
-        Detect the model's MoE layers and prepare them for calibration.
-
-        Extends the base implementation by capturing each layer's router
-        (from which the full score vector is recomputed each batch) and its
-        selection-only score correction bias, when present.
-
-        :param state: The current session state
-        :param event: The event that triggered this callback
-        """
-        super().on_calibration_start(state, event, **kwargs)
-
-        model: torch.nn.Module = state.model
-        for moe_name, moe in model.named_modules():
-            _, router = get_experts_router(moe_name, moe)
-            if router is None:
-                continue
-
-            self._routers[moe_name] = router
-            # the correction bias steers selection only; some architectures
-            # (e.g. Hy3) place it on the MoE block rather than the router
-            bias = getattr(router, "e_score_correction_bias", None)
-            if not isinstance(bias, torch.Tensor):
-                bias = getattr(moe, "e_score_correction_bias", None)
-            self._score_biases[moe_name] = (
-                bias if isinstance(bias, torch.Tensor) else None
-            )
 
     # -- statistics and saliency ---------------------------------------------
 
@@ -382,11 +302,6 @@ class RazorPruningModifier(ExpertPruningModifierBase):
             )
             return
 
-        if self._resolving_refill:
-            # forward issued by the experts block hook to evaluate a
-            # promoted expert; its output is consumed directly there
-            return
-
         if isinstance(output, tuple):
             output = output[0]
         self._expert_outputs[moe_name][expert_idx] = output.detach()
@@ -395,6 +310,7 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     def experts_block_hook(
         self,
         moe_name: str,
+        moe: torch.nn.Module,
         module: torch.nn.Module,
         args: tuple,
         output: torch.Tensor,
@@ -413,8 +329,8 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         statistics. Resets the per-batch output buffers afterwards.
 
         :param moe_name: Name of the MoE layer the block belongs to
-        :param module: The experts block the hook is attached to, whose
-            children are the layer's experts
+        :param moe: The MoE layer the hooked experts block belongs to
+        :param module: The experts block the hook is attached to
         :param args: The block's forward arguments, where ``args[0]`` is the
             block input, and ``args[1]`` and ``args[2]`` are the router's
             top-k indices and weights
@@ -438,12 +354,12 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         # recompute the full score vector (unselected experts included) from
         # the router's linear projection of the block input, which is what
         # the router itself consumed
-        router_weight = self._routers[moe_name].weight
+        experts, router = get_experts_router(moe_name, moe)
         logits = F.linear(
             hidden_states.to(self.precision),
-            router_weight.to(device=hidden_states.device, dtype=self.precision),
+            router.weight.to(device=hidden_states.device, dtype=self.precision),
         )
-        scores = _apply_score_function(logits, self._resolved_score_function)
+        scores = _apply_score_function(logits, self._moe_config.score_function)
 
         # renormalized mixture weights over the selected experts: the damage
         # formula models the normalized mixture, so the selected unmodified
@@ -460,10 +376,13 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         refill_outputs: torch.Tensor | None = None
         if self.criterion == "refill" and num_experts > top_k:
             selection_scores = scores
-            bias = self._score_biases.get(moe_name)
-            if bias is not None:
-                # the correction bias steers selection only; it is not added
-                # to the mixture weights
+            # the correction bias steers selection only; it is not added to
+            # the mixture weights, and some architectures (e.g. Hy3) place
+            # it on the MoE block rather than the router
+            bias = getattr(router, "e_score_correction_bias", None)
+            if not isinstance(bias, torch.Tensor):
+                bias = getattr(moe, "e_score_correction_bias", None)
+            if isinstance(bias, torch.Tensor):
                 selection_scores = selection_scores + bias.to(selection_scores)
 
             selected = torch.zeros_like(scores, dtype=torch.bool)
@@ -485,17 +404,17 @@ class RazorPruningModifier(ExpertPruningModifierBase):
                     tokens = promoted == expert_idx
                     refill_outputs[tokens] = expert_output[tokens]
             else:
-                self._resolving_refill = True
-                try:
+                # the refill forwards are issued by this hook, so disable the
+                # expert hooks (including this modifier's) against recording
+                # them; their outputs are consumed directly here
+                with HooksMixin.disable_hooks():
                     for expert_idx in promoted.unique().tolist():
                         tokens = promoted == expert_idx
-                        if expert_idx >= len(module):
+                        if expert_idx >= len(experts):
                             continue  # expert no longer exists (already pruned)
-                        refill_outputs[tokens] = module[expert_idx](
+                        refill_outputs[tokens] = experts[expert_idx](
                             hidden_states[tokens]
                         )
-                finally:
-                    self._resolving_refill = False
 
         # -- consensus ---------------------------------------------------------
         # the original routed mixture output of each token,
@@ -559,6 +478,4 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     def on_finalize(self, state: State, **kwargs) -> bool:
         ret = super().on_finalize(state, **kwargs)
         self._expert_outputs.clear()
-        self._routers.clear()
-        self._score_biases.clear()
         return ret
