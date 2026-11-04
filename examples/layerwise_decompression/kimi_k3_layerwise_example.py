@@ -42,7 +42,7 @@ with load_context(KimiK3ForConditionalGeneration):
         config=config,
         device_map="auto_offload",
         # max_memory={"cpu": "500GiB"},
-        offload_folder="/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder",
+        offload_folder="./offload",
         dtype="auto",
         trust_remote_code=True,
     )
@@ -99,10 +99,6 @@ oneshot(
     layerwise_compression=True,
 )
 
-SAVE_DIR = (
-    "/mnt/nfs-preprod-1/machine/Roderick-Wu/offload_folder/"
-    + MODEL_ID.rstrip("/").split("/")[-1]
-    + "-NVFP4-Layerwise"
-)
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
