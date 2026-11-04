@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
@@ -15,6 +16,7 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
+    NUM_EXPERTS_CONFIG_KEYS,
     FusedExpertsProtocol,
     MoEConfig,
     get_use_experts_implementation_args,
@@ -341,8 +343,13 @@ class LinearExperts2D(torch.nn.ModuleList):
         and fuse any extra qparams alongside. Compressed experts (no
         ``weight``, packed tensors present) replace those Parameters with
         serialization-only nested modules.
+
+        The fused module is rebuilt at this module's *current* expert count,
+        which may be narrower than the source config's (e.g. after expert
+        pruning), so no expert slots are left uninitialized.
         """
         experts_cls, config = self._require_source_metadata()
+        config = _narrowed_config(config, self.num_experts)
         pack_mode = self._expert_pack_mode()
 
         # ``self.parameters()`` may yield meta tensors for a disk-offloaded module.
@@ -373,9 +380,11 @@ class LinearExperts2D(torch.nn.ModuleList):
                 for index in range(self.num_experts):
                     self[index].copy_bias_to_experts_module(fused, index)
 
-        # novices remain identical
-        with torch.device(construction_device):
-            fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
+        # novices remain identical; skip the assignment for modules without
+        # them, so e.g. REAP-pruned layers don't serialize an empty tensor
+        if self.novices is not None:
+            with torch.device(construction_device):
+                fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
 
         offload_kwargs = get_cache_init_kwargs(self)
         offload_module(fused, **offload_kwargs)
@@ -602,3 +611,14 @@ class LinearExperts2D(torch.nn.ModuleList):
             final_hidden_states += novice_weighted_output.to(final_hidden_states.dtype)
 
         return final_hidden_states
+
+
+def _narrowed_config(config: PreTrainedConfig, num_experts: int) -> PreTrainedConfig:
+    """Copy ``config`` with its expert-count fields set to ``num_experts``, so
+    a fused experts module can be rebuilt at a (possibly pruned) width without
+    mutating the config it was recorded from."""
+    narrowed = copy.copy(config)
+    for key in NUM_EXPERTS_CONFIG_KEYS:
+        if hasattr(narrowed, key):
+            setattr(narrowed, key, num_experts)
+    return narrowed
