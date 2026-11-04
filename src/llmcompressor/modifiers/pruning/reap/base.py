@@ -130,6 +130,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
     def experts_block_hook(
         self,
         moe_name: str,
+        moe: torch.nn.Module,
         module: torch.nn.Module,
         args: tuple,
         output: torch.Tensor,
@@ -146,6 +147,7 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         per-batch norm buffers afterwards.
 
         :param moe_name: Name of the MoE layer the block belongs to
+        :param moe: The MoE layer the hooked experts block belongs to
         :param module: The experts block the hook is attached to
         :param args: The block's forward arguments, where ``args[1]`` and
             ``args[2]`` are the router's top-k indices and weights

@@ -72,6 +72,7 @@ class _RecordingModifier(ExpertPruningModifierBase):
     def experts_block_hook(
         self,
         layer_name: str,
+        moe: torch.nn.Module,
         module: torch.nn.Module,
         args: tuple,
         output: torch.Tensor,
@@ -169,9 +170,7 @@ def test_initialize_rejects_sparsity_that_prunes_no_experts(modifier_cls):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "modifier_cls", [REAPPruningModifier, RazorPruningModifier]
-)
+@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, RazorPruningModifier])
 def test_initialize_rejects_overly_aggressive_sparsity(modifier_cls):
     """Pruning below the router's top_k would leave it unable to route."""
     config = FakeMoEConfig(num_experts=8)

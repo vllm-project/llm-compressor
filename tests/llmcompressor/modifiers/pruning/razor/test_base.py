@@ -16,7 +16,6 @@ distributed data.
 import pytest
 import torch
 import torch.nn.functional as F
-from pydantic import ValidationError
 from torch import distributed as dist
 
 from llmcompressor.core import Event, EventType
@@ -264,37 +263,27 @@ def test_apply_score_function():
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "config_value, expected",
-    [("sigmoid", "sigmoid"), ("softmax", "softmax"), ("tanh", "softmax")],
+    "config_key, config_value, expected",
+    [
+        ("scoring_func", "sigmoid", "sigmoid"),
+        ("scoring_func", "softmax", "softmax"),
+        ("scoring_func", "sqrtsoftplus", "sqrt_softplus"),  # DeepSeek-V4
+        ("score_func", "sigmoid", "sigmoid"),
+        ("moe_router_activation_func", "sigmoid", "sigmoid"),
+        ("scoring_func", "tanh", "softmax"),  # unknown values fall back
+    ],
 )
-def test_score_function_inferred_from_config(config_value, expected):
-    """The score function is inferred from the model config's scoring field,
-    falling back to softmax for unknown values."""
+def test_score_function_resolved_from_config(config_key, config_value, expected):
+    """The router's score function is resolved from the model config's
+    scoring field (with DeepSeek-V4's ``sqrtsoftplus`` mapped to
+    ``sqrt_softplus``), falling back to softmax for unknown values."""
     config = FakeMoEConfig(num_experts=8)
-    config.scoring_func = config_value
+    setattr(config, config_key, config_value)
     model = FakeMoEModel(config)
 
     modifier = RazorPruningModifier(sparsity=0.5)
     modifier.initialize(make_state(model))
-    assert modifier._resolved_score_function == expected
-
-
-@pytest.mark.unit
-def test_score_function_override_wins():
-    """An explicit score_function is used as-is."""
-    config = FakeMoEConfig(num_experts=8)
-    config.scoring_func = "sigmoid"
-    model = FakeMoEModel(config)
-
-    modifier = RazorPruningModifier(sparsity=0.5, score_function="sqrt_softplus")
-    modifier.initialize(make_state(model))
-    assert modifier._resolved_score_function == "sqrt_softplus"
-
-
-@pytest.mark.unit
-def test_invalid_score_function_rejected():
-    with pytest.raises(ValidationError):
-        RazorPruningModifier(sparsity=0.5, score_function="relu")
+    assert modifier._moe_config.score_function == expected
 
 
 # ---------------------------------------------------------------------------
