@@ -36,7 +36,11 @@ OFFSET_NORM_IMPORTS = [
 
 
 def _load_norm_cls(module_path: str, class_name: str):
-    return getattr(importlib.import_module(module_path), class_name)
+    # Older transformers releases may not ship every model; skip, don't fail.
+    try:
+        return getattr(importlib.import_module(module_path), class_name)
+    except (ImportError, AttributeError) as e:
+        pytest.skip(f"{class_name} not available in installed transformers: {e}")
 
 
 @pytest.mark.unit
