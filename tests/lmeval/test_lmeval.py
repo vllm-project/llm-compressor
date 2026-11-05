@@ -240,6 +240,11 @@ class TestLMEval:
         env = os.environ.copy()
         venv_bin = os.path.dirname(VLLM_PYTHON_ENV)
         env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+
+        # apply vLLM-specific environment variables from the test config
+        for key, value in self.config.vllm_env_variables.items():
+            env[str(key)] = str(value)
+
         result = subprocess.Popen(
             [
                 VLLM_PYTHON_ENV,
