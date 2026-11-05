@@ -524,7 +524,6 @@ def _assert_imatrix_eager_triton_parity(
     grid,
     norm,
     expand,
-    triton_error_buffer,
     magnitude_normalization=False,
     grid_type=None,
 ):
@@ -533,7 +532,6 @@ def _assert_imatrix_eager_triton_parity(
     search_kwargs = {
         "expand": expand,
         "importance_weights": importance,
-        "triton_error_buffer": triton_error_buffer,
         "magnitude_normalization": magnitude_normalization,
         "grid_type": grid_type,
     }
@@ -598,22 +596,16 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
     )
     # Zero patience should scan the same full grid for eager and Triton.
     search_args = (observed, args, 0.8, 0, 10.0, norm)
-    common_kwargs = {"triton_error_buffer": 1.0}
-
-    eager_mse = ImplBackend.call("_grid_search_observer", *search_args, **common_kwargs)
+    eager_mse = ImplBackend.call("_grid_search_observer", *search_args)
     eager_imatrix = ImplBackend.call(
         "_grid_search_observer",
         *search_args,
-        **common_kwargs,
         importance_weights=importance,
     )
-    triton_mse = ImplBackend.call(
-        "_grid_search_observer_triton", *search_args, **common_kwargs
-    )
+    triton_mse = ImplBackend.call("_grid_search_observer_triton", *search_args)
     triton_imatrix = ImplBackend.call(
         "_grid_search_observer_triton",
         *search_args,
-        **common_kwargs,
         importance_weights=importance,
     )
 
@@ -709,7 +701,6 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         grid=grid,
         norm=norm,
         expand=expand,
-        triton_error_buffer=1.0,
         magnitude_normalization=magnitude_normalization,
         grid_type=grid_type,
     )
@@ -723,7 +714,6 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         search_kwargs = {
             "expand": expand,
             "importance_weights": importance,
-            "triton_error_buffer": 1.0,
             "magnitude_normalization": magnitude_normalization,
         }
         linear_bounds = ImplBackend.call(
@@ -791,7 +781,6 @@ def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     importance = torch.linspace(0.5, 2.0, group_size, device="cuda")
     search_args = (observed, args, 0.9, 2, 5.0, 2.0)
     search_kwargs = {
-        "triton_error_buffer": 0.3,
         "importance_weights": importance,
     }
     expected = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
@@ -836,7 +825,6 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     importance = torch.linspace(0.5, 2.0, 32, device="cuda")
     search_args = (observed, args, 0.9, 2, 5.0, 2.0)
     search_kwargs = {
-        "triton_error_buffer": 0.3,
         "importance_weights": importance,
     }
 
@@ -915,7 +903,6 @@ def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm, device):
         grid=200.0,
         norm=norm,
         expand=1.8,
-        triton_error_buffer=1.0,
     )
 
 
@@ -981,5 +968,4 @@ def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm, device):
         grid=200.0,
         norm=norm,
         expand=1.8,
-        triton_error_buffer=1.0,
     )
