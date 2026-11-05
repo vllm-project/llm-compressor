@@ -154,6 +154,7 @@ This design eliminates the need to explicitly observe all fused modules before c
 
 The fused layer groups are defined in `FUSED_MODULE_MAPPINGS` (`llmcompressor.observers.fused_mappings`), which `model_free_ptq` uses as well. A group applies to a parent module when all of its required layers are present, and its optional layers join when present:
 - `gate_proj` / `up_proj`, `w1` / `w3` (MLP and MoE expert layers)
+- `c_fc_0` / `c_fc_1` (EXAONE 3 and 3.5 MLP)
 - `q_proj` / `k_proj`, optional `v_proj` (attention; Gemma 4 `attention_k_eq_v` layers have no `v_proj`)
 - `q_proj` / `k_proj` / `v_proj` / `b_proj` / `f_a_proj`, optional `g_proj` (Kimi delta attention)
 - `in_proj_qkv` / `in_proj_z` and `in_proj_b` / `in_proj_a` (Qwen3.5 gated delta net)

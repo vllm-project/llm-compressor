@@ -38,6 +38,8 @@ def test_fused_mappings_well_formed():
         ({"q_proj", "k_proj", "v_proj", "o_proj"}, [("q_proj", "k_proj", "v_proj")]),
         ({"gate_proj", "up_proj", "down_proj"}, [("gate_proj", "up_proj")]),
         ({"w1", "w2", "w3"}, [("w1", "w3")]),
+        # exaone 3 and 3.5 mlp
+        ({"c_fc_0", "c_fc_1", "c_proj"}, [("c_fc_0", "c_fc_1")]),
         # gemma 4 attention_k_eq_v layer: no v_proj
         ({"q_proj", "k_proj", "o_proj"}, [("q_proj", "k_proj")]),
         # kimi delta attention, with and without use_full_rank_gate
@@ -150,6 +152,17 @@ def test_fuse_weight_observers_nested_layer():
         model.b_proj,
     }
     assert not model.forget_gate.f_b_proj.weight_observer.fusion_handler.is_fused
+
+
+def test_fuse_weight_observers_exaone_mlp():
+    """vLLM packs EXAONE 3 and 3.5 c_fc_0 and c_fc_1 into gate_up_proj"""
+    model = _module_with("c_fc_0", "c_fc_1", "c_proj")
+
+    fuse_weight_observers(model)
+
+    assert _fused_partners(model.c_fc_0) == {model.c_fc_1}
+    assert _fused_partners(model.c_fc_1) == {model.c_fc_0}
+    assert not model.c_proj.weight_observer.fusion_handler.is_fused
 
 
 def test_fuse_weight_observers_requires_same_quantization():
