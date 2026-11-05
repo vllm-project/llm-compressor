@@ -1,5 +1,4 @@
 import io
-import json
 from collections import Counter
 
 import pytest
@@ -8,6 +7,7 @@ from loguru import logger
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.transformers.data import RazorCalDataset, TextGenerationDataset
+from llmcompressor.transformers.data.razorcal import _clean_messages, _clean_tools
 
 RAZORCAL_SAMPLES = 2048
 RAZORCAL_DOMAINS = {
@@ -21,9 +21,8 @@ RAZORCAL_DOMAINS = {
 }
 
 
-def _load_manager(tiny_llama_tokenizer, **dataset_kwargs):
-    split = dataset_kwargs.pop("split", "train")
-    dataset_args = DatasetArguments(dataset="razorcal", **dataset_kwargs)
+def _load_manager(tiny_llama_tokenizer, split="train"):
+    dataset_args = DatasetArguments(dataset="razorcal")
     return TextGenerationDataset.load_from_registry(
         "razorcal",
         dataset_args=dataset_args,
@@ -42,7 +41,7 @@ def test_razorcal_initializes(tiny_llama_tokenizer):
         processor=tiny_llama_tokenizer,
     )
     assert isinstance(manager, RazorCalDataset)
-    assert manager.dataset_args.dataset == "Nickyang/RazorCal"
+    assert manager.dataset_args.dataset == "inference-optimization/RazorCal"
     assert manager.dataset_args.text_column == "messages"
     assert not manager.padding
     assert manager.max_seq_length == dataset_args.max_seq_length
@@ -61,9 +60,8 @@ def test_razorcal_sets_default_chat_template(tiny_llama_tokenizer):
 
 
 @pytest.mark.unit
-def test_razorcal_flattens_corpus(tiny_llama_tokenizer):
-    """The corpus is published as a single JSON object; the samples stored
-    under its `data` field must be flattened into one row per sample."""
+def test_razorcal_loads_one_row_per_sample(tiny_llama_tokenizer):
+    """The corpus defines a single `train` split holding one row per sample."""
     manager = _load_manager(tiny_llama_tokenizer)
 
     dataset = manager.load_dataset()
@@ -77,16 +75,13 @@ def test_razorcal_flattens_corpus(tiny_llama_tokenizer):
         "messages",
         "tools",
     }
+    assert dict(Counter(dataset["domain"])) == RAZORCAL_DOMAINS
 
-    # attribution columns are preserved and chat payloads are carried as json
-    # strings, since their free-form contents cannot form a single arrow schema
-    counts = Counter(dataset["domain"])
-    assert dict(counts) == RAZORCAL_DOMAINS
-    for sample in dataset.select(range(8)):
-        messages = json.loads(sample["messages"])
-        assert messages and isinstance(messages, list)
-        assert all("role" in message and "content" in message for message in messages)
-        assert isinstance(json.loads(sample["tools"]), list)
+    sample = dataset[0]
+    assert sample["messages"]
+    assert all(
+        "role" in message and "content" in message for message in sample["messages"]
+    )
 
 
 @pytest.mark.unit
@@ -103,8 +98,6 @@ def test_razorcal_flattens_corpus(tiny_llama_tokenizer):
     ],
 )
 def test_razorcal_split_slicing(tiny_llama_tokenizer, split, expected):
-    """Slicing bounds are resolved against the flattened samples, following the
-    resolution of `datasets.load_dataset` slicing instructions."""
     manager = _load_manager(tiny_llama_tokenizer, split=split)
 
     dataset = manager.load_dataset()
@@ -113,21 +106,58 @@ def test_razorcal_split_slicing(tiny_llama_tokenizer, split, expected):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize(
-    "split",
-    [
-        "train[0:0]",  # empty selection
-        "train[5:3]",  # inverted bounds
-        "train[:101%]",  # percent boundary out of range
-        "train[:8](pct1_dropremainder)",  # rounding instructions unsupported
-        "train[:abc]",  # unparseable bound
-    ],
-)
-def test_razorcal_invalid_split_raises(tiny_llama_tokenizer, split):
-    manager = _load_manager(tiny_llama_tokenizer, split=split)
+def test_razorcal_decodes_json_payloads():
+    """Tool call arguments and tool parameters are recorded as JSON strings
+    and must be decoded back into objects, with undecodable values kept."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "call_0",
+                    "type": "function",
+                    "function": {
+                        "name": "get_balance",
+                        "arguments": '{"address": "0x00"}',
+                    },
+                },
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "broken",
+                        "arguments": "{not json",
+                    },
+                },
+            ],
+        },
+        {"role": "tool", "content": "result", "tool_calls": None},
+    ]
 
-    with pytest.raises(ValueError):
-        manager.load_dataset()
+    cleaned = _clean_messages(messages)
+
+    assert cleaned[0]["tool_calls"][0]["function"]["arguments"] == {"address": "0x00"}
+    # undecodable arguments are left unchanged
+    assert cleaned[0]["tool_calls"][1]["function"]["arguments"] == "{not json"
+    # empty optional fields are dropped
+    assert "tool_calls" not in cleaned[1]
+    assert "content" in cleaned[1]
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_balance",
+                "description": "query a balance",
+                "parameters": '{"type": "object"}',
+            },
+        }
+    ]
+    cleaned_tools = _clean_tools(tools)
+    assert cleaned_tools[0]["function"]["parameters"] == {"type": "object"}
+    assert _clean_tools(None) is None
+    assert _clean_tools([]) is None
 
 
 @pytest.mark.unit
@@ -140,7 +170,7 @@ def test_razorcal_template_renders_messages(tiny_llama_tokenizer):
     assert set(result.keys()) == {"text"}
     # the default chat template renders the content of every message role,
     # including tool messages
-    for message in json.loads(raw_dataset[0]["messages"]):
+    for message in raw_dataset[0]["messages"]:
         if message["content"]:
             assert message["content"] in result["text"]
 
@@ -153,12 +183,12 @@ def test_razorcal_template_renders_tool_messages(tiny_llama_tokenizer):
     sample = next(
         sample
         for sample in raw_dataset
-        if any(message["role"] == "tool" for message in json.loads(sample["messages"]))
+        if any(message["role"] == "tool" for message in sample["messages"])
     )
 
     result = manager.dataset_template(sample)
 
-    for message in json.loads(sample["messages"]):
+    for message in sample["messages"]:
         if message["content"]:
             assert message["content"] in result["text"]
 
@@ -171,13 +201,11 @@ def test_razorcal_forwards_tools_to_chat_template(tiny_llama_tokenizer):
     manager = _load_manager(tiny_llama_tokenizer)
 
     raw_dataset = manager.load_dataset()
-    tool_sample = next(sample for sample in raw_dataset if json.loads(sample["tools"]))
-    plain_sample = next(
-        sample for sample in raw_dataset if not json.loads(sample["tools"])
-    )
+    tool_sample = next(sample for sample in raw_dataset if sample["tools"])
+    plain_sample = next(sample for sample in raw_dataset if not sample["tools"])
 
     assert manager.dataset_template(tool_sample)["text"] == str(
-        len(json.loads(tool_sample["tools"]))
+        len(tool_sample["tools"])
     )
     assert manager.dataset_template(plain_sample)["text"] == "no-tools"
 
@@ -201,6 +229,7 @@ def test_razorcal_template_fallback(tiny_llama_tokenizer):
         logger.remove(handler_id)
 
     for result, sample in zip((first, second), (raw_dataset[0], raw_dataset[1])):
-        messages = json.loads(sample["messages"])
-        assert result["text"] == "\n".join(message["content"] for message in messages)
+        assert result["text"] == "\n".join(
+            message["content"] for message in sample["messages"]
+        )
     assert log_output.getvalue().count("falling back") == 1
