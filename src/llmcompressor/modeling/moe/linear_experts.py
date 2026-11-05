@@ -4,6 +4,7 @@ from typing import Any, Callable, ClassVar
 
 import torch
 from compressed_tensors.offload import (
+    disable_onloading,
     get_cache_init_kwargs,
     get_execution_device,
     offload_module,
@@ -326,6 +327,94 @@ class LinearExperts2D(torch.nn.ModuleList):
             offload_module(module, **offload_kwargs)
 
         return self
+
+    @classmethod
+    @torch.no_grad()
+    def meta_from_experts_module(
+        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+    ):
+        """Create the linearized module structure without copying expert weights.
+
+        The original experts module is retained outside the registered module tree.
+        Sequential calibration can onload it with its owning subgraph and materialize
+        its weights into this module after modifiers have attached hooks and qparams.
+        """
+        offload_kwargs = get_cache_init_kwargs(experts)
+        with torch.device("meta"), skip_weights_initialize():
+            self = cls(config)
+
+        # Exercise the real model-specific slicing/transposition path against meta
+        # tensors now. This catches incompatible source layouts during initialization
+        # without onloading or copying expert data.
+        with disable_onloading():
+            for index in range(self.num_experts):
+                self[index].copy_from_experts_module(experts, index)
+
+        self._record_source_metadata(experts, config)
+        # Keep the source out of ``named_modules`` and ``state_dict``. It is only a
+        # temporary backing store until the owning sequential subgraph is onloaded.
+        object.__setattr__(self, "_pending_source_experts", experts)
+        object.__setattr__(self, "_pending_offload_kwargs", offload_kwargs)
+        return self
+
+    @torch.no_grad()
+    def materialize_pending_experts(self) -> dict:
+        """Fill this module's meta tensors from its onloaded fused source module."""
+        experts = getattr(self, "_pending_source_experts", None)
+        if experts is None:
+            return {}
+
+        offload_kwargs = self._pending_offload_kwargs
+        preserved_tensors = []
+        for module in self.modules():
+            for mapping_name in ("_parameters", "_buffers"):
+                tensor_mapping = getattr(module, mapping_name)
+                for name, tensor in tensor_mapping.items():
+                    if tensor is not None and tensor.device.type != "meta":
+                        preserved_tensors.append(
+                            (
+                                module,
+                                mapping_name,
+                                name,
+                                tensor,
+                                tensor.detach().clone(),
+                            )
+                        )
+
+        # ``to_empty`` uses the swap conversion path to keep Parameter objects stable.
+        # Weight hooks and modifiers may retain references to those objects.
+        swap_params = torch.__future__.get_swap_module_params_on_conversion()
+        torch.__future__.set_swap_module_params_on_conversion(True)
+        try:
+            self.to_empty(device=offload_kwargs["onload_device"])
+        finally:
+            torch.__future__.set_swap_module_params_on_conversion(swap_params)
+
+        for module, mapping_name, name, original, saved_value in preserved_tensors:
+            tensor_mapping = getattr(module, mapping_name)
+            materialized = tensor_mapping[name]
+            if materialized is not original:
+                torch.utils.swap_tensors(original, materialized)
+                tensor_mapping[name] = original
+                materialized = original
+            materialized.copy_(
+                saved_value.to(device=materialized.device, dtype=materialized.dtype)
+            )
+
+        # Quantization initializes zero points to zero before calibration. They were
+        # created on meta and need that initial value restored after materialization.
+        for module in self.modules():
+            for name, tensor in module._parameters.items():
+                if tensor is not None and name.endswith("_zero_point"):
+                    tensor.zero_()
+
+        for index in range(self.num_experts):
+            expert: ExpertMLP = self[index]
+            expert.copy_from_experts_module(experts, index)
+
+        object.__delattr__(self, "_pending_source_experts")
+        object.__delattr__(self, "_pending_offload_kwargs")
+        return offload_kwargs
 
     def _record_source_metadata(
         self, experts: FusedExpertsProtocol, config: PreTrainedConfig
