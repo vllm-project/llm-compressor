@@ -226,7 +226,7 @@ def image_to_np(
     """Convert an image to a numpy array.
 
     Args:
-        content: The image to convert.
+        image: The image to convert.
         resize_to: The size to resize the image to.
         mode: The mode to resize the image to.
         raise_error_for_ill_resize: Whether to raise an error for ill-sized resize.
