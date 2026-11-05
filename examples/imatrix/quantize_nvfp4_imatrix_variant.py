@@ -612,7 +612,7 @@ def main() -> int:
     temp_dir.mkdir(parents=True)
     model.save_pretrained(temp_dir, save_compressed=True)
     preprocessor.save_pretrained(temp_dir)
-    torch.cuda.synchronize()
+    torch.accelerator.synchronize()
 
     violations = _checkpoint_violations(
         temp_dir,
