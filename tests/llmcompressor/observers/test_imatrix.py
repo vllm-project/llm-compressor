@@ -275,6 +275,81 @@ class TestBasicFunctionality:
         assert torch.equal(qparams_i["zero_point"], qparams_u["zero_point"])
 
 
+class TestGroupmaxObjectives:
+    @pytest.fixture(autouse=True)
+    def preserve_global_rng_state(self):
+        with torch.random.fork_rng(devices=[]):
+            yield
+
+    def test_groupmax_divides_by_the_whole_group_magnitude_term(self):
+        module = _make_linear(in_features=8, out_features=4)
+        importance = torch.arange(1, 9, dtype=torch.float32)
+        observer = _make_observer(
+            module,
+            strategy="group",
+            group_size=4,
+            importance=importance,
+            objective="groupmax_div",
+        )
+        observed = torch.tensor(
+            [
+                [1, 2, 3, 4, -2, 0, 0, 1],
+                [0, 0, 0, 0, 2, -1, 3, -4],
+                [1, -3, 2, -2, 4, 2, -1, 3],
+                [-2, 1, 4, 3, -3, -2, 1, 2],
+            ],
+            dtype=torch.float32,
+        ).reshape(1, 4, 2, 4)
+
+        actual = observer._prepare_importance(observed)
+        normalized = importance / importance.mean()
+        broadcast_importance = normalized.reshape(1, 1, 2, 4).expand_as(observed)
+        groupmax = observed.abs().amax(dim=-1, keepdim=True)
+        denominator = torch.sqrt(observed.square() + groupmax.square()).clamp_min(
+            torch.finfo(torch.float32).tiny
+        )
+        expected = broadcast_importance / denominator
+
+        assert torch.isfinite(actual).all()
+        assert torch.allclose(actual, expected)
+        assert actual[0, 1, 0].max() > 1e30  # zero group uses a finite denominator
+        module.weight.data.copy_(observed.reshape_as(module.weight))
+        qparams = observer(module.weight).get_qparams()
+        assert torch.isfinite(qparams["scale"]).all()
+
+    def test_existing_groupmax_objective_still_multiplies(self):
+        module = _make_linear(in_features=8, out_features=4)
+        importance = torch.arange(1, 9, dtype=torch.float32)
+        observer = _make_observer(
+            module,
+            strategy="group",
+            group_size=4,
+            importance=importance,
+            objective="groupmax",
+        )
+        observed = torch.arange(1, 33, dtype=torch.float32).reshape(1, 4, 2, 4)
+
+        actual = observer._prepare_importance(observed)
+        normalized = importance / importance.mean()
+        broadcast_importance = normalized.reshape(1, 1, 2, 4).expand_as(observed)
+        groupmax = observed.abs().amax(dim=-1, keepdim=True)
+        expected = broadcast_importance * torch.sqrt(
+            observed.square() + groupmax.square()
+        )
+
+        assert torch.allclose(actual, expected)
+
+    def test_groupmax_div_requires_grouped_weight_strategy(self):
+        module = _make_linear(in_features=8, out_features=4)
+        with pytest.raises(NotImplementedError, match="grouped weight observer"):
+            _make_observer(
+                module,
+                strategy="channel",
+                importance=torch.ones(8),
+                objective="groupmax_div",
+            )
+
+
 # ---------------------------------------------------------------------------
 # Weight-only guard
 # ---------------------------------------------------------------------------
