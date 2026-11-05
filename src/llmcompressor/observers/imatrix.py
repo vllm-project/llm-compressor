@@ -166,9 +166,7 @@ class IMatrixMSEObserver(Observer):
 
         out_features = observed.shape[1]
         imp_2d = imp.unsqueeze(0).expand(out_features, -1)
-        importance_weights = flatten_for_calibration(
-            imp_2d, self.base_name, self.args
-        )
+        importance_weights = flatten_for_calibration(imp_2d, self.base_name, self.args)
         if self.objective in ("groupmax", "groupmax_div"):
             # The group maximum is measured from the original weight values and
             # remains fixed while the grid search evaluates candidate ranges.
