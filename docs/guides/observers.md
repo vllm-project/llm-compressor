@@ -156,6 +156,7 @@ The fused layer groups are defined in `FUSED_MODULE_MAPPINGS` (`llmcompressor.ob
 - `gate_proj` / `up_proj`, `w1` / `w3` (MLP and MoE expert layers)
 - `q_proj` / `k_proj`, optional `v_proj` (attention; Gemma 4 `attention_k_eq_v` layers have no `v_proj`)
 - `q_proj` / `k_proj` / `v_proj` / `b_proj` / `f_a_proj`, optional `g_proj` (Kimi delta attention)
+- `in_proj_qkv` / `in_proj_z` and `in_proj_b` / `in_proj_a` (Qwen3.5 gated delta net)
 - `q_a_proj` / `kv_a_proj_with_mqa`, optional `g_proj` (multi-latent attention; Kimi MLA output gate)
 - `wq_a` / `wkv_a_with_mqa` (multi-latent attention, Mistral checkpoint names)
 - `q_a_proj` / `kv_proj` and `kv_proj` / `gate_proj` (DeepSeek V4 attention and compressors; checkpoint names `wq_a` / `wkv` and `wkv` / `wgate`)

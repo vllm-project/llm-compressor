@@ -65,7 +65,7 @@ The [MTP examples](https://github.com/vllm-project/llm-compressor/tree/main/exam
 
 - [GLM-4.7-Flash](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/glm4_7_flash_copy_mtp.py): quantize the backbone to FP8 with `load_context(load_mtp=False)` and copy the source BF16 MTP tensors unchanged when saving.
 - [GLM-4.5-Air](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/glm4_5_air_mtp.py): load MTP with `load_context(load_mtp=True)` and apply the same `FP8_DYNAMIC` scheme to the backbone and MTP.
-- [DeepSeek V3](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/deepseek_v3_fp8_int4_mtp.py): use separate `QuantizationModifier` instances for an FP8 backbone and INT4 MTP decoder, then update the exported scheme targets to match checkpoint names without overlap.
+- [DeepSeek V3](https://github.com/vllm-project/llm-compressor/blob/main/examples/mtp/deepseek_v3_nvfp4_fp8_mtp.py): use separate `QuantizationModifier` instances and the independent pipeline to calibrate the backbone to NVFP4, then quantize the MTP decoder to `FP8_DYNAMIC` without calibration data. Treat `MtpModel` as a tracing boundary and update the exported scheme targets to match checkpoint names without overlap.
 - [GLM-5.3](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/glm_5_3_mxfp4.py): use `model_free_ptq` to convert source FP8 checkpoint weights and quantize the backbone and MTP to MXFP4. `FP8BlockDequantizer.from_pretrained()` identifies source FP8 tensors from their scale entries.
 
 ### Loading and quantizing MTP
@@ -74,6 +74,8 @@ The [MTP examples](https://github.com/vllm-project/llm-compressor/tree/main/exam
 2. `_finalize_mtp_weight_conversions()` preserves the mapping between MTP module names and checkpoint names after MoE conversion, so saving can restore the original checkpoint names.
 3. Before applying the recipe, `oneshot()` calls `validate_model()` to check its targets and ignores. Quantization targeting MTP must use a data-free scheme such as `FP8_DYNAMIC`; methods requiring calibration are rejected. The recipe then applies to matching backbone and MTP modules.
 4. `save_pretrained()` serializes loaded MTP with the rest of the model.
+
+Temporary Transformers architecture adapters live in `transformers/compression/mtp_compat/`, with config aliases and checkpoint mappings in a separate module per architecture. The shared loader selects an adapter by model type and otherwise uses upstream `MtpModel`; each adapter can be removed once upstream supports loading and round-trip saving for that architecture.
 
 Recipe targets select the loaded Hugging Face modules. Saving restores checkpoint names for weights and ignore entries, but leaves quantization targets unchanged. For example, a target such as `re:^mtp\.layers\.` can select MTP during quantization while the saved weights use `model.layers.N.*` or `model.mtp.layers.*`.
 

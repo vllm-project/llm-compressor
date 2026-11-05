@@ -5,6 +5,7 @@ from typing import Literal
 import torch
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling.kvcache import QuantizedKVCache
+from compressed_tensors.offload import disable_onloading
 from compressed_tensors.offload.dist_utils import as_broadcastable, is_distributed
 from compressed_tensors.quantization import (
     QuantizationStrategy,
@@ -150,6 +151,10 @@ class AWQModifier(Modifier):
 
     # Private vars set during initialization, cleared during finalization
     _resolved_mappings: list[ResolvedMapping] = PrivateAttr(default_factory=list)
+    # Resolved mappings grouped by their parent module, for memory estimates
+    _mappings_by_parent: dict[Module, list[ResolvedMapping]] = PrivateAttr(
+        default_factory=dict
+    )
     # Cache list of forward input args for each parent module, one dict for each batch
     _parent_args_cache: dict[Module, IntermediatesCache] = PrivateAttr(
         default_factory=dict
@@ -190,6 +195,12 @@ class AWQModifier(Modifier):
                 # For non-MoE models, convert sentinel to None
                 # (no offloading by default)
                 self.offload_device = None
+
+        # Automatic sequential grouping needs mapping parents and layer sizes before
+        # any individual subgraph is onloaded. Resolve metadata without requiring
+        # quantization schemes to have been attached yet.
+        with disable_onloading():
+            self._set_resolved_mappings(state.model, require_targets=False)
 
         return True
 
@@ -236,6 +247,53 @@ class AWQModifier(Modifier):
             if modules is not None and mapping.smooth_layer not in modules
         ]
 
+    def estimate_sequential_memory(
+        self, module: Module, num_tokens: int
+    ) -> tuple[int, int]:
+        """
+        Estimate the inputs cached for a mapping parent until it is smoothed (held,
+        unless `offload_device` is the cpu), and its outputs before and after
+        quantization and the balance weights copied while smoothing (scratch). Cached
+        keyword arguments such as position embeddings are not counted
+
+        :param module: module belonging to the subgraph being calibrated
+        :param num_tokens: number of calibration tokens, including padding
+        :return: tuple of (held, scratch) bytes
+        """
+        mappings = self._mappings_by_parent.get(module, [])
+        if len(mappings) == 0:
+            return 0, 0
+
+        # read shapes from the offloaded weights rather than onloading them
+        with disable_onloading():
+            # the parent's input is the input of its balance layers
+            balance_weight = mappings[0].balance_layers[0].weight
+            in_features = balance_weight.shape[-1]
+            out_features = (
+                module.weight.shape[0]
+                if isinstance(module, torch.nn.Linear)
+                else in_features
+            )
+            value_bytes = balance_weight.element_size()
+            weight_copies = max(
+                sum(
+                    layer.weight.numel() * layer.weight.element_size()
+                    for layer in m.balance_layers
+                )
+                for m in mappings
+            )
+
+        # cached inputs stay on the device unless they are offloaded to the cpu
+        offload_device = self.offload_device
+        offloaded_to_cpu = (
+            isinstance(offload_device, (str, torch.device))
+            and torch.device(offload_device).type == "cpu"
+        )
+        held = 0 if offloaded_to_cpu else num_tokens * in_features * value_bytes
+        scratch = 2 * num_tokens * out_features * value_bytes + weight_copies
+
+        return held, scratch
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the activations and mapping data
@@ -253,6 +311,7 @@ class AWQModifier(Modifier):
         self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
+        self._mappings_by_parent.clear()
         self._error_metrics.clear()
 
         return True
@@ -282,6 +341,7 @@ class AWQModifier(Modifier):
         self,
         model: Module,
         modules: list[Module] | None = None,
+        require_targets: bool = True,
     ) -> list[ResolvedMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -348,7 +408,7 @@ class AWQModifier(Modifier):
                     continue
 
                 # Warn that mappings or quantization config are malformed for model
-                if (not any_targeted) or len(balance_layers) == 0:
+                if (require_targets and not any_targeted) or len(balance_layers) == 0:
                     skip_message = (
                         "no balance layers were found."
                         if len(balance_layers) == 0
@@ -403,9 +463,21 @@ class AWQModifier(Modifier):
 
         if modules is None:
             self._resolved_mappings = resolved_mappings
-            return resolved_mappings
+            self._mappings_by_parent = {}
 
-        self._resolved_mappings.extend(resolved_mappings)
+        existing_names = {mapping.smooth_name for mapping in self._resolved_mappings}
+        for mapping in resolved_mappings:
+            if mapping.smooth_name not in existing_names:
+                self._resolved_mappings.append(mapping)
+                existing_names.add(mapping.smooth_name)
+
+            parent_mappings = self._mappings_by_parent.setdefault(mapping.parent, [])
+            if all(
+                existing.smooth_name != mapping.smooth_name
+                for existing in parent_mappings
+            ):
+                parent_mappings.append(mapping)
+
         return resolved_mappings
 
     def _setup_activation_cache_hooks(

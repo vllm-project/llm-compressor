@@ -5,11 +5,15 @@ from typing import Literal
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import wait_for_comms
-from compressed_tensors.offload import align_modules, update_offload_parameter
+from compressed_tensors.offload import (
+    align_modules,
+    disable_onloading,
+    update_offload_parameter,
+)
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, PrivateAttr
 from torch.nn import Module
 from torch.utils._pytree import tree_leaves
 
@@ -115,6 +119,9 @@ class SmoothQuantModifier(Modifier):
         default=None, repr=False
     )
     scales_: dict | None = Field(default=None, repr=False)
+    # layers of the resolved mappings, for memory estimates
+    _smooth_layers: set[Module] = PrivateAttr(default_factory=set)
+    _balance_layers: set[Module] = PrivateAttr(default_factory=set)
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
@@ -144,6 +151,12 @@ class SmoothQuantModifier(Modifier):
         # Mapping definitions are model-wide metadata. Resolve them to live module
         # references only once the relevant modules are onloaded by the pipeline.
         self.resolved_mappings_ = []
+        # Resolve once for memory estimates used by automatic sequential grouping.
+        estimate_mappings = self._resolve_mappings(state.model)
+        self._smooth_layers = {m.smooth_layer for m in estimate_mappings}
+        self._balance_layers = {
+            layer for m in estimate_mappings for layer in m.balance_layers
+        }
         self.scales_ = {}
 
         return True
@@ -171,6 +184,30 @@ class SmoothQuantModifier(Modifier):
         modules = kwargs.get("modules")
         self.remove_hooks(modules=modules)
 
+    def estimate_sequential_memory(
+        self, module: Module, num_tokens: int
+    ) -> tuple[int, int]:
+        """
+        Estimate the per-channel minimum and maximum kept for a smoothed layer (held),
+        and the copy of a balance layer's weight made while smoothing (scratch)
+
+        :param module: module belonging to the subgraph being calibrated
+        :param num_tokens: number of calibration tokens, unused
+        :return: tuple of (held, scratch) bytes
+        """
+        with disable_onloading():
+            weight = getattr(module, "weight", None)
+            if weight is None:
+                return 0, 0
+
+            held, scratch = 0, 0
+            if module in self._smooth_layers:
+                held = 2 * weight.shape[0] * weight.element_size()
+            if module in self._balance_layers:
+                scratch = weight.numel() * weight.element_size()
+
+        return held, scratch
+
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
         Clean up by clearing the scale and mapping data
@@ -185,6 +222,8 @@ class SmoothQuantModifier(Modifier):
             self.scales_.clear()
         if self.resolved_mappings_ is not None:
             self.resolved_mappings_.clear()
+        self._smooth_layers.clear()
+        self._balance_layers.clear()
 
         return True
 
