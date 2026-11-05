@@ -10,12 +10,17 @@ modules, which transformers' quantizer would otherwise detach from the
 checkpoint by rewriting its sources to `weight_packed`-style names.
 """
 
+import contextlib
+
 import pytest
 import torch
+from transformers import AutoConfig
+from transformers.conversion_mapping import get_model_conversion_mapping
 from transformers.core_model_loading import (
     Concatenate,
     MergeModulelist,
     WeightConverter,
+    WeightRenaming,
 )
 from transformers.quantizers.quantizer_compressed_tensors import (
     CompressedTensorsHfQuantizer,
@@ -258,6 +263,83 @@ def test_conv1d_keys_still_load(key, expected):
         assert renamed == expected and renamed in state_dict
 
 
+@contextlib.contextmanager
+def _shrunk_glm5_next_with_linearized_experts():
+    """
+    Mirror a load of RedHatAI/GLM-5.3-Flash-NVFP4 under `load_quantizable_moe`:
+    register the linearized glm5_next conversion mapping under every model
+    type of the config tree (as `_load_linearized` does), build a shrunk
+    meta-device model with linearized experts, and apply the checkpoint's
+    expert-only NVFP4 quantizer to it.
+
+    Yields the model and quantizer while the linearized mappings are
+    registered, so that `get_model_conversion_mapping` resolves them.
+    """
+    pytest.importorskip("transformers.models.glm5_next")
+    try:
+        config = AutoConfig.from_pretrained("RedHatAI/GLM-5.3-Flash-NVFP4")
+    except Exception as error:
+        pytest.skip(f"could not fetch glm5_next config: {error}")
+
+    from transformers import Glm5NextForConditionalGeneration
+    from transformers.monkey_patching import (
+        clear_patch_mapping,
+        register_patch_mapping,
+    )
+    from transformers.quantizers.auto import AutoHfQuantizer
+
+    from llmcompressor.modeling.moe.conversion_mappings import (
+        get_conversion_mapping_names,
+        get_linearize_load_mappings,
+        temporary_checkpoint_conversion_mappings,
+    )
+    from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
+
+    experts_cls, load_map, _ = get_linearize_load_mappings(config.model_type)
+    linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
+    register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
+
+    try:
+        with temporary_checkpoint_conversion_mappings() as register:
+            for name in get_conversion_mapping_names(config.model_type, config):
+                register(name, load_map)
+
+            # shrink the config so the model fits on the meta device; the
+            # module and parameter names are what matter here, not the shapes
+            text_config = config.text_config
+            text_config.num_hidden_layers = 4
+            text_config.hidden_size = 64
+            text_config.intermediate_size = 128
+            text_config.moe_intermediate_size = 64
+            if getattr(text_config, "num_local_experts", None):
+                text_config.num_local_experts = 2
+            for attr in ("hidden_size", "intermediate_size", "num_hidden_layers"):
+                if hasattr(config.vision_config, attr):
+                    setattr(config.vision_config, attr, 32)
+
+            with torch.device("meta"):
+                model = Glm5NextForConditionalGeneration._from_config(config)
+
+            quantizer = AutoHfQuantizer.from_config(
+                config.quantization_config, pre_quantized=True
+            )
+            quantizer.validate_environment()
+            quantizer.preprocess_model(model=model)
+
+            yield model, quantizer
+    finally:
+        clear_patch_mapping()
+
+
+def _collect_conversions(model, quantizer):
+    with checkpoint_aware_weight_conversions(checkpoint_keys=CHECKPOINT_KEYS):
+        conversions = get_model_conversion_mapping(model, None, quantizer)
+
+    renamings = [entry for entry in conversions if isinstance(entry, WeightRenaming)]
+    converters = [entry for entry in conversions if isinstance(entry, WeightConverter)]
+    return renamings, converters
+
+
 def test_load_quantizable_moe_activates_patch():
     """
     The patch must be active while `load_quantizable_moe` performs its load:
@@ -265,71 +347,87 @@ def test_load_quantizable_moe_activates_patch():
     linearized conversion mapping to renaming checkpoint keys, against the
     (hub) config of the model which exposed the bug.
     """
-    pytest.importorskip("transformers.models.glm5_next")
-    try:
-        from transformers import AutoConfig
+    from transformers.core_model_loading import rename_source_key
 
-        config = AutoConfig.from_pretrained("RedHatAI/GLM-5.3-Flash-NVFP4")
-    except Exception as error:
-        pytest.skip(f"could not fetch glm5_next config: {error}")
+    with _shrunk_glm5_next_with_linearized_experts() as (model, quantizer):
+        renamings, converters = _collect_conversions(model, quantizer)
+        state_dict = model.state_dict()
 
-    from transformers import Glm5NextForConditionalGeneration
-    from transformers.conversion_mapping import (
-        get_model_conversion_mapping,
-        register_checkpoint_conversion_mapping,
-    )
-    from transformers.core_model_loading import WeightRenaming, rename_source_key
-    from transformers.monkey_patching import register_patch_mapping
-    from transformers.quantizers.auto import AutoHfQuantizer
+        # attention conv1d keys of dense (unquantized) modules load into the
+        # fused parameter instead of being left UNEXPECTED/MISSING
+        for layer in range(2):
+            for proj in ("q", "k", "v"):
+                prefix = f"model.language_model.layers.{layer}.self_attn"
+                key = f"{prefix}.{proj}_conv1d.weight"
+                renamed, _ = rename_source_key(
+                    key, renamings, converters, model.base_model_prefix, state_dict
+                )
+                assert (
+                    renamed == f"{prefix}.conv1d.weight"
+                ), f"{key} was renamed to {renamed}"
+                assert renamed in state_dict
 
-    from llmcompressor.modeling.moe.conversion_mappings import (
-        get_linearize_load_mappings,
-    )
-    from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 
-    experts_cls, load_map, _ = get_linearize_load_mappings(config.model_type)
-    linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
-    register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-    register_checkpoint_conversion_mapping(config.model_type, load_map, overwrite=True)
+def test_no_stale_scoped_fusion_converters():
+    """
+    Regression test for registering the linearized mapping under every model
+    type of the loaded config tree: the text backbone of a glm5_next model
+    resolves conversions by its own model_type (`glm5_next_text`), whose
+    built-in cache entry is a snapshot of the original (3D-fused) mapping.
+    Without registering the linearized mapping under it too, that stale
+    scoped mapping participates in the load alongside the linearized one, and
+    per-expert checkpoint keys only load through transformers' rename
+    fallback.
+    """
+    from transformers.core_model_loading import rename_source_key
 
-    # shrink the config so the model fits on the meta device; the module and
-    # parameter names are what matter here, not the shapes
-    text_config = config.text_config
-    text_config.num_hidden_layers = 4
-    text_config.hidden_size = 64
-    text_config.intermediate_size = 128
-    text_config.moe_intermediate_size = 64
-    if getattr(text_config, "num_local_experts", None):
-        text_config.num_local_experts = 2
-    for attr in ("hidden_size", "intermediate_size", "num_hidden_layers"):
-        if hasattr(config.vision_config, attr):
-            setattr(config.vision_config, attr, 32)
+    with _shrunk_glm5_next_with_linearized_experts() as (model, quantizer):
+        renamings, converters = _collect_conversions(model, quantizer)
+        state_dict = model.state_dict()
 
-    with torch.device("meta"):
-        model = Glm5NextForConditionalGeneration._from_config(config)
+        # the scoped 3D expert fusions are gone
+        fusion_targets = ("mlp.experts.gate_up_proj", "mlp.experts.down_proj")
+        stale = [
+            converter
+            for converter in converters
+            if any(target in fusion_targets for target in converter.target_patterns)
+        ]
+        assert not stale, f"stale 3D fusion converters: {stale}"
 
-    quantizer = AutoHfQuantizer.from_config(
-        config.quantization_config, pre_quantized=True
-    )
-    quantizer.validate_environment()
-    quantizer.preprocess_model(model=model)
+        # the scoped `language_model` transforms are the 2D identity renamings
+        # and the (intact) conv1d fusion
+        scoped = [
+            transform
+            for transform in [*renamings, *converters]
+            if getattr(transform, "scope_prefix", None) == "language_model"
+        ]
+        scoped_converters = [
+            transform for transform in scoped if isinstance(transform, WeightConverter)
+        ]
+        assert len(scoped_converters) == 1, scoped_converters
+        assert scoped_converters[0].target_patterns == ["self_attn.conv1d.weight"]
+        assert scoped_converters[0].source_patterns == [
+            "self_attn.q_conv1d.weight",
+            "self_attn.k_conv1d.weight",
+            "self_attn.v_conv1d.weight",
+        ]
+        scoped_expert_renamings = [
+            transform
+            for transform in scoped
+            if isinstance(transform, WeightRenaming)
+            and "experts" in str(transform.source_patterns)
+        ]
+        assert len(scoped_expert_renamings) == 3, scoped_expert_renamings
 
-    with checkpoint_aware_weight_conversions(checkpoint_keys=CHECKPOINT_KEYS):
-        conversions = get_model_conversion_mapping(model, None, quantizer)
-
-    renamings = [entry for entry in conversions if isinstance(entry, WeightRenaming)]
-    converters = [entry for entry in conversions if isinstance(entry, WeightConverter)]
-    state_dict = model.state_dict()
-
-    # attention conv1d keys of dense (unquantized) modules load into the
-    # fused parameter instead of being left UNEXPECTED/MISSING
-    for layer in range(2):
-        for proj in ("q", "k", "v"):
-            key = f"model.language_model.layers.{layer}.self_attn.{proj}_conv1d.weight"
+        # per-expert (packed) checkpoint keys load through the identity
+        # renamings rather than being renamed to 3D fused names and relying on
+        # transformers' loading-loop fallback
+        for key in (
+            "model.language_model.layers.3.mlp.experts.0.gate_proj.weight_packed",
+            "model.language_model.layers.3.mlp.experts.1.down_proj.weight_packed",
+        ):
             renamed, _ = rename_source_key(
                 key, renamings, converters, model.base_model_prefix, state_dict
             )
-            assert renamed == (
-                f"model.language_model.layers.{layer}.self_attn.conv1d.weight"
-            ), f"{key} was renamed to {renamed}"
+            assert renamed == key, f"{key} was renamed to {renamed}"
             assert renamed in state_dict

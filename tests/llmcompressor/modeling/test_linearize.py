@@ -6,7 +6,7 @@ import torch
 from compressed_tensors.utils import patch_attr
 from huggingface_hub.errors import StrictDataclassError
 from safetensors import safe_open
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForImageTextToText
 from transformers import initialization as init
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
@@ -65,7 +65,7 @@ def patch_deepseek_fp32_modules():
 @torch.no_grad()
 @requires_gpu
 @pytest.mark.parametrize(
-    "model_stub,exp_keys",
+    "model_stub,exp_keys,model_cls",
     [
         (
             "inference-optimization/DSV4-tiny-empty",
@@ -74,6 +74,7 @@ def patch_deepseek_fp32_modules():
                 "model.layers.1.ffn.experts.0.w1.weight",
                 "model.layers.2.ffn.experts.1.w2.weight",
             ],
+            AutoModelForCausalLM,
         ),
         (
             "inference-optimization/Qwen3-1.6B-A0.9B",
@@ -82,6 +83,7 @@ def patch_deepseek_fp32_modules():
                 "model.layers.1.mlp.experts.0.gate_proj.weight",
                 "model.layers.2.mlp.experts.1.down_proj.weight",
             ],
+            AutoModelForCausalLM,
         ),
         (
             "inference-optimization/GLM-5.2-0.8B-A0.8B",
@@ -90,6 +92,7 @@ def patch_deepseek_fp32_modules():
                 "model.layers.3.mlp.experts.0.gate_proj.weight",
                 "model.layers.4.mlp.experts.1.down_proj.weight",
             ],
+            AutoModelForCausalLM,
         ),
         (
             "inference-optimization/NemotronH-0.3B-A0.3B",
@@ -99,11 +102,25 @@ def patch_deepseek_fp32_modules():
                 "backbone.layers.4.mixer.experts.2.up_proj.weight",
                 "backbone.layers.4.mixer.experts.2.down_proj.weight",
             ],
+            AutoModelForCausalLM,
+        ),
+        # a multimodal glm5_next model: its text backbone resolves conversion
+        # mappings by its own model_type (glm5_next_text), so loading it
+        # exercises the registration of the linearized mapping under every
+        # model type of the loaded config tree
+        (
+            "inference-optimization/GLM-5.3-Flash-0.1B-A0.1B",
+            [
+                "model.language_model.layers.3.mlp.experts.0.gate_proj.weight",
+                "model.language_model.layers.4.mlp.experts.7.up_proj.weight",
+                "model.language_model.layers.4.mlp.experts.5.down_proj.weight",
+            ],
+            AutoModelForImageTextToText,
         ),
     ],
 )
 def test_load_quantizable_moe(
-    model_stub, exp_keys, tmp_path, patch_deepseek_fp32_modules
+    model_stub, exp_keys, model_cls, tmp_path, patch_deepseek_fp32_modules
 ):
     try:
         AutoConfig.from_pretrained(model_stub)
@@ -111,12 +128,12 @@ def test_load_quantizable_moe(
         pytest.skip("Could not import model, please upgrade your transformers version")
 
     input_ids = torch.randint(1024, size=(1, NUM_TEST_TOKENS), device="cuda")
-    model = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
+    model = model_cls.from_pretrained(model_stub, device_map="cuda")
     true_outputs = model(input_ids=input_ids).logits
     del model
 
-    with load_quantizable_moe():
-        model2 = AutoModelForCausalLM.from_pretrained(model_stub, device_map="cuda")
+    with load_quantizable_moe(model_cls):
+        model2 = model_cls.from_pretrained(model_stub, device_map="cuda")
 
     select_exp_outputs = model2(input_ids=input_ids).logits
 
