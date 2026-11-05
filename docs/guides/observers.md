@@ -127,7 +127,7 @@ Best used when:
 
 `nvfp4_expanded_imatrix` applies the same NVFP4 range expansion and search as
 `nvfp4_expanded_mse`, but weighs each quantization error by per-input-channel
-importance like the normal ImatrixObserver
+importance like the normal ImatrixObserver.
 
 Both `imatrix_mse` and `nvfp4_expanded_imatrix` accept an `objective` observer
 keyword. Set `observer_kwargs={"norm": 2.4, "objective": "groupmax_div"}` on the
