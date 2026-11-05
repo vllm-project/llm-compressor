@@ -20,6 +20,7 @@ KDA = ("q_proj", "k_proj", "v_proj", "b_proj", "f_a_proj")
 MLA = ("q_a_proj", "kv_a_proj_with_mqa")
 GDN_QKVZ = ("in_proj_qkv", "in_proj_z")
 GDN_BA = ("in_proj_b", "in_proj_a")
+OLMO_GDN = ("q_proj", "k_proj", "v_proj", "g_proj")
 
 
 def test_fused_mappings_well_formed():
@@ -27,6 +28,7 @@ def test_fused_mappings_well_formed():
         all_names = mapping.names + mapping.optional_names
         assert len(mapping.names) >= 2, mapping
         assert len(set(all_names)) == len(all_names), mapping
+        assert set(mapping.context_names).isdisjoint(all_names), mapping
 
 
 @pytest.mark.parametrize(
@@ -56,6 +58,15 @@ def test_fused_mappings_well_formed():
         ({*GDN_QKVZ, *GDN_BA, "out_proj"}, [GDN_QKVZ, GDN_BA]),
         # qwen3-next gated delta net: stored pre-fused, nothing to link
         ({"in_proj_qkvz", "in_proj_ba", "out_proj"}, []),
+        # olmo-hybrid gated delta net: a_proj and b_proj stay separate
+        ({*OLMO_GDN, "a_proj", "b_proj", "o_proj"}, [OLMO_GDN]),
+        # gated attention (e.g. laguna, step 3.5): g_proj is not packed
+        ({*OLMO_GDN, "o_proj"}, [("q_proj", "k_proj", "v_proj")]),
+        # bailing hybrid delta attention: g_proj is not packed
+        (
+            {*OLMO_GDN, "b_proj", "o_proj", "forget_gate.f_proj"},
+            [("q_proj", "k_proj", "v_proj")],
+        ),
         # multi-latent attention, with and without the kimi output gate
         ({*MLA, "q_b_proj", "kv_b_proj", "o_proj", "g_proj"}, [(*MLA, "g_proj")]),
         ({*MLA, "q_b_proj", "kv_b_proj", "o_proj"}, [MLA]),
@@ -263,3 +274,54 @@ def test_qwen3_5_oneshot_and_model_free_agree():
             frozenset(f"model.layers.0.linear_attn.{name}.weight" for name in names)
             in checkpoint_groups
         )
+
+
+def test_olmo_hybrid_oneshot_and_model_free_agree():
+    """
+    The oneshot (module) and model_free_ptq (checkpoint) paths resolve the same
+    fused groups on the OLMo-Hybrid model definition, including the gated delta
+    net projections that vLLM packs into in_proj_qkvg
+    """
+    try:
+        from transformers import OlmoHybridConfig, OlmoHybridForCausalLM
+    except ImportError:
+        pytest.skip("installed transformers has no OLMo-Hybrid model definition")
+
+    from llmcompressor.entrypoints.model_free.microscale import get_fused_names
+
+    config = OlmoHybridConfig(
+        vocab_size=128,
+        hidden_size=64,
+        intermediate_size=64,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        pad_token_id=0,
+        layer_types=["linear_attention", "full_attention"],
+    )
+    with torch.device("meta"):
+        model = OlmoHybridForCausalLM(config)
+
+    module_groups = {
+        frozenset(f"{name}.{layer_name}.weight" for layer_name in fused_layers)
+        for name, module in model.named_modules()
+        for fused_layers in get_fused_layers(module)
+    }
+
+    weight_names = [name for name, _ in model.named_parameters()]
+    checkpoint_groups = {
+        frozenset(group.values()) for group in get_fused_names(weight_names)
+    }
+
+    assert module_groups == checkpoint_groups
+    assert (
+        frozenset(f"model.layers.0.linear_attn.{name}.weight" for name in OLMO_GDN)
+        in checkpoint_groups
+    )
+    assert (
+        frozenset(
+            f"model.layers.1.self_attn.{name}.weight"
+            for name in ("q_proj", "k_proj", "v_proj")
+        )
+        in checkpoint_groups
+    )
