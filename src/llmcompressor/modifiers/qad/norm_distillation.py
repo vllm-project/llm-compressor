@@ -181,8 +181,12 @@ class NormDistillationModifier(Modifier):
         try:
             # The first forward pass decompresses an already-compressed student,
             # which may change how it is offloaded
-            initial_loss = self._evaluate(student, teacher, validation)
+            with torch.no_grad():
+                _log_probs(student, validation[0])
             with _onloaded(student):
+                # Evaluate onloaded: an offloaded module's fake-quantized forward
+                # pass can onload its weight again without quantization
+                initial_loss = self._evaluate(student, teacher, validation)
                 # Match again: oneshot swaps offset norms for standard norms during
                 # calibration and restores the original modules before finalization
                 modules = self._match_gains(student) if self.tune_norms else []

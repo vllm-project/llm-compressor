@@ -78,8 +78,9 @@ def _dataset(batches):
 def _kl(student, teacher, batches):
     total = 0.0
     for batch in batches:
-        target = teacher(**batch).logits.float().log_softmax(-1)
-        prediction = student(**batch).logits.float().log_softmax(-1)
+        # oneshot leaves models onloading to the accelerator, if there is one
+        target = teacher(**batch).logits.float().cpu().log_softmax(-1)
+        prediction = student(**batch).logits.float().cpu().log_softmax(-1)
         total += F.kl_div(prediction, target, log_target=True, reduction="batchmean")
     return total / len(batches)
 
@@ -328,12 +329,11 @@ def test_offset_norms_through_oneshot(tmp_path):
     )
 
     assert isinstance(student.model.norm, type(teacher.model.norm))
+    trained = dict(student.named_parameters(remove_duplicate=False))
     changed = {
         name
-        for (name, param), ref in zip(
-            student.named_parameters(), reference.parameters(), strict=True
-        )
-        if not torch.equal(param, ref)
+        for name, ref in reference.named_parameters(remove_duplicate=False)
+        if not torch.equal(trained[name].cpu(), ref)
     }
     assert changed and all(name.endswith("norm.weight") for name in changed)
     assert _kl(student, teacher, batches) < _kl(reference, teacher, batches)
