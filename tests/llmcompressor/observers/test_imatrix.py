@@ -227,50 +227,6 @@ class TestBasicFunctionality:
         qparams = observer(module.weight).get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
 
-    def test_reobserve_after_qparams_keeps_importance(self):
-        """Weights can be re-observed after statistics are consumed.
-
-        ``get_qparams`` deletes the min/max statistics it consumed. The
-        imatrix importance is accumulated from activations rather than from
-        the observed weight, so it must survive that deletion and be reused
-        when the weight is re-observed (e.g. by QADModifier after
-        distillation).
-        """
-        module = _make_linear(in_features=8, out_features=4)
-        observer = _make_observer(
-            module, strategy="channel", importance=_make_importance(in_features=8)
-        )
-
-        first = observer(module.weight).get_qparams()
-        assert not observer.has_statistics  # min/max consumed
-        assert observer._imatrix_count.item() > 0  # importance kept
-
-        # re-observation must not crash and must reuse the kept importance:
-        # the accumulated sum and count both double, so the importance
-        # (their ratio) is unchanged and the resulting scales are identical
-        observer._imatrix_sum = observer._imatrix_sum * 2.0
-        observer._imatrix_count = observer._imatrix_count * 2
-        second = observer(module.weight).get_qparams()
-        assert torch.isfinite(second["scale"]).all()
-        assert torch.equal(first["scale"], second["scale"])
-
-    def test_missing_importance_accumulators_fall_back(self):
-        """Missing importance accumulators must fall back, not crash.
-
-        Simulates an observer whose accumulators were removed without going
-        through ``attach`` (e.g. state restored from a snapshot).
-        """
-        module = _make_linear(in_features=8, out_features=4)
-        observer = _make_observer(module, strategy="channel")
-
-        observer(module.weight).get_qparams()
-        del observer._imatrix_sum
-        del observer._imatrix_count
-
-        # falls back to uniform MSE rather than raising AttributeError
-        qparams = observer(module.weight).get_qparams()
-        assert torch.isfinite(qparams["scale"]).all()
-
     def test_importance_changes_result(self):
         """Non-uniform importance must produce different scales than uniform."""
         torch.manual_seed(123)
@@ -472,31 +428,29 @@ class TestValidation:
 
 
 class TestStatisticsCleanup:
-    """Verify statistics cleanup after get_qparams.
+    """Verify that imatrix stats are cleaned up after get_qparams."""
 
-    Weight statistics (min/max) are consumed by ``get_qparams``. The imatrix
-    importance accumulators are derived from activations rather than from
-    the observed weight, so they are retained for later re-observation of
-    the weight (e.g. by QADModifier after distillation).
-    """
-
-    def test_get_qparams_deletes_weight_stats(self):
+    def test_get_qparams_deletes_imatrix_stats(self):
         module = _make_linear(in_features=8, out_features=4)
         observer = _make_observer(
             module, strategy="channel", importance=_make_importance(in_features=8)
         )
         observer(module.weight)
 
+        assert hasattr(observer, "_imatrix_sum")
+        assert hasattr(observer, "_imatrix_count")
         assert hasattr(observer, "min_vals")
         assert hasattr(observer, "max_vals")
 
         qparams = observer.get_qparams()
         assert torch.isfinite(qparams["scale"]).all()
 
+        assert not hasattr(observer, "_imatrix_sum")
+        assert not hasattr(observer, "_imatrix_count")
         assert not hasattr(observer, "min_vals")
         assert not hasattr(observer, "max_vals")
 
-    def test_get_qparams_keeps_importance_accumulators(self):
+    def test_get_qparams_deletes_imatrix_stats_group_strategy(self):
         module = _make_linear(in_features=8, out_features=4)
         observer = _make_observer(
             module,
@@ -507,10 +461,10 @@ class TestStatisticsCleanup:
         observer(module.weight)
         observer.get_qparams()
 
+        assert not hasattr(observer, "_imatrix_sum")
+        assert not hasattr(observer, "_imatrix_count")
         assert not hasattr(observer, "min_vals")
         assert not hasattr(observer, "max_vals")
-        assert observer._imatrix_sum is not None
-        assert observer._imatrix_count.item() > 0
 
     def test_has_statistics_false_after_cleanup(self):
         module = _make_linear(in_features=8, out_features=4)
