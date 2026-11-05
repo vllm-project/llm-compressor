@@ -43,8 +43,10 @@ it trains after every other modifier has finalized.
 Norm tuning is enabled by default. To tune only scales, use
 `NormDistillationModifier(teacher=..., tune_norms=False, tune_scales=True)`.
 Set both switches to `True` to tune norms and scales together. Scale tuning
-updates `weight_scale` and, when present, `weight_global_scale` while retaining
-the packed quantized values.
+trains each `weight_scale` as a multiplier of its original value, for channel,
+group, tensor-group and block strategies, while the quantized weight values stay
+fixed. Global scales (`weight_global_scale`) are not trained, since fused
+projections must share them.
 
 ## How it works
 
@@ -60,8 +62,9 @@ the packed quantized values.
   original parameters are a candidate, so a run that does not help leaves the
   model unchanged.
 - Memory: the student and teacher run full forward and backward passes and must
-  both fit on the execution device. The calibration batches are read from the
-  dataloader; no calibration forward passes are needed.
+  both fit on the execution device. An offloaded student is onloaded for
+  training and offloaded again afterwards. The calibration batches are read from
+  the dataloader; no calibration forward passes are needed.
 
 Distill against the unquantized model's distribution, not the language-modeling
 loss: tuning norms on a next-token loss mostly adapts the model to the

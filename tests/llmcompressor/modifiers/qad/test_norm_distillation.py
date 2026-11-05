@@ -4,6 +4,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 import yaml
+from compressed_tensors.offload import get_offloaded_device, set_onload_device
+from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from datasets import Dataset
 from safetensors.torch import load_file
 from tokenizers import Tokenizer
@@ -20,8 +22,10 @@ from transformers import (
 from llmcompressor import oneshot
 from llmcompressor.core import State
 from llmcompressor.modifiers.qad import NormDistillationModifier
+from llmcompressor.modifiers.qad.norm_distillation import _ScaledWeight
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.recipe import Recipe
+from tests.testing_utils import requires_gpu
 
 
 def _tiny_llama():
@@ -87,45 +91,69 @@ def _load_tensors(path):
     return tensors
 
 
-def test_compressed_checkpoint_changes_only_norm_gains(tmp_path):
+def _scale_projections(model, factor):
+    # Scaled projections, which the norm gains or weight scales can undo
+    with torch.no_grad():
+        for name, module in model.named_modules():
+            if name.endswith(("q_proj", "k_proj", "v_proj", "gate_proj", "up_proj")):
+                module.weight.mul_(factor)
+    return model
+
+
+def _compressed_checkpoint(tmp_path, recipe, factor=1.0):
     teacher = _tiny_llama()
     source = tmp_path / "source"
     teacher.save_pretrained(source)
     teacher.config.name_or_path = str(source)
-    tokenizer = _tokenizer()
-    batches = _batches()
-
-    # An already-compressed W4A16 checkpoint
     compressed = tmp_path / "compressed"
     oneshot(
-        model=deepcopy(teacher),
-        processor=tokenizer,
-        recipe=QuantizationModifier(
-            targets="Linear", scheme="W4A16", ignore=["lm_head"]
-        ),
+        model=_scale_projections(deepcopy(teacher), factor),
+        processor=_tokenizer(),
+        recipe=recipe,
         output_dir=str(compressed),
     )
-    student = AutoModelForCausalLM.from_pretrained(compressed)
-    assert hasattr(student.model.layers[0].mlp.up_proj, "weight_packed")
+    return teacher, compressed
 
+
+def _distill_checkpoint(tmp_path, teacher, compressed, batches, **kwargs):
     distilled = tmp_path / "distilled"
     oneshot(
-        model=student,
-        processor=tokenizer,
+        model=AutoModelForCausalLM.from_pretrained(compressed),
+        processor=_tokenizer(),
         dataset=_dataset(batches),
-        recipe=NormDistillationModifier(teacher=teacher, num_epochs=4, lr=0.01),
+        recipe=NormDistillationModifier(teacher=teacher, **kwargs),
         output_dir=str(distilled),
         num_calibration_samples=len(batches),
     )
+    return distilled
 
-    before, after = _load_tensors(compressed), _load_tensors(distilled)
+
+def _changed_tensors(before, after):
     assert before.keys() == after.keys()
-    changed = {
+    return {
         name
         for name in before
         if before[name].dtype != after[name].dtype
         or not torch.equal(before[name], after[name])
     }
+
+
+def test_compressed_checkpoint_changes_only_norm_gains(tmp_path):
+    # An already-compressed W4A16 checkpoint
+    teacher, compressed = _compressed_checkpoint(
+        tmp_path,
+        QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+    )
+    student = AutoModelForCausalLM.from_pretrained(compressed)
+    assert hasattr(student.model.layers[0].mlp.up_proj, "weight_packed")
+    batches = _batches()
+
+    distilled = _distill_checkpoint(
+        tmp_path, teacher, compressed, batches, num_epochs=4, lr=0.01
+    )
+
+    before, after = _load_tensors(compressed), _load_tensors(distilled)
+    changed = _changed_tensors(before, after)
     norms = {name for name in before if name.endswith("norm.weight")}
     # Two layers with two norms each, plus the final norm
     assert changed == norms and len(norms) == 5
@@ -135,6 +163,136 @@ def test_compressed_checkpoint_changes_only_norm_gains(tmp_path):
     reloaded = AutoModelForCausalLM.from_pretrained(distilled)
     assert hasattr(reloaded.model.layers[0].mlp.up_proj, "weight_packed")
     assert _kl(reloaded, teacher, batches) < _kl(original, teacher, batches)
+
+
+_FP8_BLOCK_WEIGHTS = {
+    "group_0": {
+        "targets": ["Linear"],
+        "weights": {
+            "num_bits": 8,
+            "type": "float",
+            "symmetric": True,
+            "strategy": "block",
+            "block_structure": [32, 64],
+        },
+    }
+}
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"]),
+        QuantizationModifier(config_groups=_FP8_BLOCK_WEIGHTS, ignore=["lm_head"]),
+    ],
+    ids=["w4a16", "fp8-block"],
+)
+def test_compressed_checkpoint_changes_only_weight_scales(tmp_path, recipe):
+    teacher, compressed = _compressed_checkpoint(tmp_path, recipe, factor=0.8)
+    batches = _batches()
+
+    distilled = _distill_checkpoint(
+        tmp_path,
+        teacher,
+        compressed,
+        batches,
+        tune_norms=False,
+        tune_scales=True,
+        num_epochs=4,
+        lr=0.01,
+    )
+
+    before, after = _load_tensors(compressed), _load_tensors(distilled)
+    changed = _changed_tensors(before, after)
+    scales = {name for name in before if name.endswith("weight_scale")}
+    # Seven projections in each of two layers
+    assert changed and changed <= scales and len(scales) == 14
+
+    original = AutoModelForCausalLM.from_pretrained(compressed)
+    reloaded = AutoModelForCausalLM.from_pretrained(distilled)
+    assert _kl(reloaded, teacher, batches) < _kl(original, teacher, batches)
+
+
+def test_scale_tuning_after_quantization_in_one_recipe(tmp_path):
+    # After a quantization modifier the forward pass fake-quantizes the weights:
+    # scale tuning must keep the quantized values that compression produces
+    teacher = _tiny_llama()
+    teacher.save_pretrained(tmp_path / "source")
+    teacher.config.name_or_path = str(tmp_path / "source")
+    batches = _batches()
+
+    outputs = {}
+    for name, extra in (("quantized", []), ("tuned", ["distill"])):
+        recipe = [
+            QuantizationModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+        ]
+        if extra:
+            recipe.append(
+                NormDistillationModifier(
+                    teacher=teacher,
+                    tune_norms=False,
+                    tune_scales=True,
+                    num_epochs=4,
+                    lr=0.01,
+                )
+            )
+        outputs[name] = tmp_path / name
+        oneshot(
+            model=deepcopy(teacher),
+            processor=_tokenizer(),
+            dataset=_dataset(batches),
+            recipe=recipe,
+            output_dir=str(outputs[name]),
+            num_calibration_samples=len(batches),
+        )
+
+    before = _load_tensors(outputs["quantized"])
+    after = _load_tensors(outputs["tuned"])
+    changed = _changed_tensors(before, after)
+    assert changed and all(name.endswith("weight_scale") for name in changed)
+
+    original = AutoModelForCausalLM.from_pretrained(outputs["quantized"])
+    tuned = AutoModelForCausalLM.from_pretrained(outputs["tuned"])
+    assert _kl(tuned, teacher, batches) < _kl(original, teacher, batches)
+
+
+@pytest.mark.parametrize(
+    "weights,shape",
+    [
+        ({"strategy": "tensor"}, (1,)),
+        ({"strategy": "channel"}, (96, 1)),
+        ({"strategy": "group", "group_size": 32}, (96, 4)),
+        (
+            {
+                "strategy": "tensor_group",
+                "group_size": 16,
+                "type": "float",
+                "num_bits": 4,
+            },
+            (96, 8),
+        ),
+        # Blocks that do not divide the weight
+        ({"strategy": "block", "block_structure": [64, 48]}, (2, 3)),
+    ],
+)
+def test_scale_gradient_matches_autograd(weights, shape):
+    module = torch.nn.Linear(128, 96, bias=False)
+    module.quantization_scheme = QuantizationScheme(
+        targets=["Linear"], weights=QuantizationArgs(**weights)
+    )
+    module.weight_scale = torch.nn.Parameter(
+        torch.rand(shape) + 0.5, requires_grad=False
+    )
+    scaled = _ScaledWeight(module)
+    scaled.snap()
+    module.weight.grad = torch.randn_like(module.weight)
+
+    # The forward pass uses the dequantized weight times the expanded multiplier
+    ratio = torch.rand(shape, requires_grad=True)
+    (
+        module.weight.grad * module.weight.detach() * scaled.expand(ratio)
+    ).sum().backward()
+    torch.testing.assert_close(scaled.ratio_grad(), ratio.grad)
 
 
 def test_offset_norms_through_oneshot(tmp_path):
@@ -157,10 +315,7 @@ def test_offset_norms_through_oneshot(tmp_path):
     teacher.save_pretrained(tmp_path / "source")
     teacher.config.name_or_path = str(tmp_path / "source")
     student = deepcopy(teacher)
-    with torch.no_grad():
-        for name, module in student.named_modules():
-            if name.endswith(("q_proj", "k_proj", "v_proj", "gate_proj", "up_proj")):
-                module.weight.mul_(0.8)
+    _scale_projections(student, 0.8)
     reference = deepcopy(student)
     batches = _batches()
 
@@ -197,11 +352,7 @@ def _distill(model, teacher, batches, **kwargs):
 def test_trains_only_targeted_gains(dtype):
     teacher = _tiny_llama().to(dtype)
     student = deepcopy(teacher)
-    # Scaled projections after each norm, which the norm gains can undo
-    with torch.no_grad():
-        for name, module in student.named_modules():
-            if name.endswith(("q_proj", "k_proj", "v_proj", "gate_proj", "up_proj")):
-                module.weight.mul_(0.8)
+    _scale_projections(student, 0.8)
     reference = deepcopy(student)
     batches = _batches()
 
@@ -228,6 +379,41 @@ def test_trains_only_targeted_gains(dtype):
     assert _kl(student, teacher, batches) < _kl(reference, teacher, batches)
 
 
+@requires_gpu
+def test_offloaded_student():
+    # oneshot onloads a CPU model to the accelerator on every forward pass, which
+    # gradients do not reach: the modifier onloads it for training
+    teacher = _tiny_llama()
+    teacher.config.tie_word_embeddings = True
+    teacher.tie_weights()
+    student = deepcopy(teacher)
+    _scale_projections(student, 0.8)
+    reference = deepcopy(student)
+    batches = _batches()
+    device = torch.accelerator.current_accelerator()
+    set_onload_device(student, device)
+
+    def tied():
+        return (
+            student.lm_head._parameters.offloaded_values["weight"]
+            is student.model.embed_tokens._parameters.offloaded_values["weight"]
+        )
+
+    assert tied()
+
+    _distill(student, teacher.to(device), batches, num_epochs=4, lr=0.01)
+
+    assert get_offloaded_device(student.model.norm).type == "cpu"
+    assert tied()
+    trained = dict(student.named_parameters(remove_duplicate=False))
+    changed = {
+        name
+        for name, ref in reference.named_parameters(remove_duplicate=False)
+        if not torch.equal(trained[name].cpu(), ref)
+    }
+    assert changed and all(name.endswith("norm.weight") for name in changed)
+
+
 def test_keeps_original_gains_without_validation_improvement():
     teacher = _tiny_llama()
     student = deepcopy(teacher)
@@ -245,6 +431,11 @@ def test_keeps_original_gains_without_validation_improvement():
 def test_requires_calibration_data():
     with pytest.raises(ValueError, match="calibration dataset"):
         _distill(_tiny_llama(), _tiny_llama(), None)
+
+
+def test_requires_norms_or_scales():
+    with pytest.raises(ValueError, match="norms, scales, or both"):
+        _distill(_tiny_llama(), _tiny_llama(), _batches(), tune_norms=False)
 
 
 def test_requires_targets():
