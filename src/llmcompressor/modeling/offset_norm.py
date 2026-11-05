@@ -100,7 +100,9 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         current = self.weight.data
         restored = (current.float() - 1.0).to(self._orig_dtype)
         unchanged = current == self._init_effective
-        restored = torch.where(unchanged, self._orig_offset.to(restored.device), restored)
+        restored = torch.where(
+            unchanged, self._orig_offset.to(restored.device), restored
+        )
         original.weight = torch.nn.Parameter(restored)
         return original
 
