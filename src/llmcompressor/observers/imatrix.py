@@ -78,12 +78,7 @@ class IMatrixMSEObserver(Observer):
         "_imatrix_count": dist.ReduceOp.SUM,
     }
 
-    # importance is accumulated from activations rather than from the observed
-    # weight, so it is deliberately excluded from the statistics which are
-    # consumed by ``delete_statistics``. This allows weights to be re-observed
-    # (e.g. by QADModifier after distillation) with the importance that was
-    # accumulated during calibration
-    _stats_attrs = ["min_vals", "max_vals"]
+    _stats_attrs = ["min_vals", "max_vals", "_imatrix_sum", "_imatrix_count"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -232,12 +227,7 @@ class IMatrixMSEObserver(Observer):
             )
             return None
 
-        # read via getattr rather than attribute access so that missing
-        # accumulators (e.g. removed without going through `attach`) fall
-        # back gracefully instead of raising
-        imatrix_sum = getattr(self, "_imatrix_sum", None)
-        imatrix_count = getattr(self, "_imatrix_count", None)
-        if imatrix_sum is None or imatrix_count is None or imatrix_count.item() == 0:
+        if self._imatrix_sum is None or self._imatrix_count.item() == 0:
             if self.strict:
                 raise ValueError("imatrix_mse: no importance data available")
             logger.warning(
@@ -247,7 +237,7 @@ class IMatrixMSEObserver(Observer):
             )
             return None
 
-        imp = imatrix_sum / imatrix_count.float()
+        imp = self._imatrix_sum / self._imatrix_count.float()
 
         if not torch.isfinite(imp).all():
             if self.strict:
