@@ -51,7 +51,7 @@ Choosing sequential targets with higher granularity (for example "Linear" instea
 For a guide on adding smoothquant mappings for your dataset, see the [SmoothQuant Guide](../../src/llmcompressor/modifiers/transform/smoothquant/README.md).
 
 ## Adding Your Own Data Collator ##
-Most examples utilize a generic `data_collator` which correctly correlates data for most multimodal datasets. If you find that your model needs custom data collation (as is the case with [pixtral](../../examples/multimodal_vision/pixtral_example.py)), you can modify this function to reflect these model-specific requirements.
+Most examples utilize a generic `data_collator` which correctly correlates data for most multimodal datasets. If you find that your model needs custom data collation (as is the case with [pixtral](pixtral_example.py)), you can modify this function to reflect these model-specific requirements.
 
 ## Sample Image Provided Under a Creative Commons Attribution License ##
 https://creativecommons.org/licenses/by/4.0/legalcode
