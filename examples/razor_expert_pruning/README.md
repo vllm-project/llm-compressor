@@ -86,3 +86,25 @@ evaluates only the routed experts, and the modifier itself evaluates the one
 additional expert per token that the refill criterion needs) or `True` (every
 expert runs on every token, and the refill expert's output is already
 available). Both execution paths produce the same saliency.
+
+## GLM-5.3-Flash example
+
+`glm53_flash_example.py` calibrates
+[`RedHatAI/GLM-5.3-Flash-NVFP4`](https://huggingface.co/RedHatAI/GLM-5.3-Flash-NVFP4)
+in report-only mode (`sparsity=0.0`), writing per-expert statistics for the 42
+backbone MoE layers without modifying or saving the model. The model is loaded
+with `load_context(Glm5NextForConditionalGeneration, load_mtp=False)`: MTP
+calibration is not supported, so the MTP layer (`layers.45`, one past the 45
+backbone decoder layers) is left out of the report. Since the checkpoint's
+experts are already NVFP4-quantized, `layerwise_decompression=True` decompresses
+each layer just before calibrating it, and the run is single-process: the
+decompressed expert weights (~600 GB) accumulate in host RAM, where a
+distributed run would instead need that much `/dev/shm`.
+
+`glm53_flash_prune_from_report.py` then prunes 20% of the experts directly
+from the safetensors checkpoint with `ExpertPruner`, producing a
+`GLM-5.3-Flash-NVFP4-Sparse20` model in `HF_HUB_CACHE`. The patterns passed to
+`ExpertPruner.from_pretrained` exclude the uncalibrated MTP layer, and
+`uniform=False` records the per-layer retained expert counts in
+`quantization_config.moe_sparsity_config` while `n_routed_experts` keeps its
+original value of 288, which still matches the untouched MTP layer.
