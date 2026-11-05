@@ -21,6 +21,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import AsyncWriter
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -194,6 +195,26 @@ class Oneshot:
         self.model_args = model_args
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
+        self.async_writer: AsyncWriter | None = None
+
+        if model_args.streaming_save:
+            if output_dir is None:
+                raise ValueError("streaming_save requires output_dir")
+            if not dataset_args.layerwise_compression:
+                raise ValueError("streaming_save requires layerwise_compression=True")
+            if not dataset_args.pipeline == "sequential":
+                raise ValueError("streaming_save requires pipeline=sequential")
+            if not model_args.save_compressed:
+                raise ValueError("streaming_save requires save_compressed=True")
+
+        # Stage runs save to a stage-specific subdirectory. Resolve this once so
+        # streaming shard writes and post-processing metadata share the same path.
+        if output_dir is not None and recipe_args.stage is not None:
+            output_dir = os.path.join(output_dir, recipe_args.stage)
+            logger.info(
+                f"Oneshot output_dir resolved to {output_dir} for stage "
+                f"{recipe_args.stage}"
+            )
         self.output_dir = output_dir
 
         # initialize the model and processor
@@ -203,6 +224,11 @@ class Oneshot:
         self.model = self.model_args.model
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
+
+        if model_args.streaming_save and getattr(
+            self.model, "_hf_peft_config_loaded", False
+        ):
+            raise ValueError("streaming_save does not support PEFT adapter checkpoints")
 
         # Skip model validation if using layerwise decompression
         # for pre-quantized models
@@ -220,18 +246,28 @@ class Oneshot:
 
         """
 
-        calibration_dataloader = get_calibration_dataloader(
-            self.dataset_args, self.processor
-        )
-        self.apply_recipe_modifiers(
-            calibration_dataloader=calibration_dataloader,
-            recipe_stage=self.recipe_args.stage,
-        )
-        post_process(
-            model_args=self.model_args,
-            recipe_args=self.recipe_args,
-            output_dir=self.output_dir,
-        )
+        try:
+            calibration_dataloader = get_calibration_dataloader(
+                self.dataset_args, self.processor
+            )
+            self.apply_recipe_modifiers(
+                calibration_dataloader=calibration_dataloader,
+                recipe_stage=self.recipe_args.stage,
+            )
+            post_process(
+                model_args=self.model_args,
+                recipe_args=self.recipe_args,
+                output_dir=self.output_dir,
+                async_writer=self.async_writer,
+            )
+            if self.async_writer is not None:
+                # The source rank closes during publish; other ranks only use the
+                # shared worker for their local offload-cache writes.
+                self.async_writer.close()
+        except BaseException:
+            if self.async_writer is not None:
+                self.async_writer.abort()
+            raise
 
     def apply_recipe_modifiers(
         self,
@@ -253,6 +289,7 @@ class Oneshot:
 
         session = active_session()
         session.reset()
+        session.state.async_writer = None
 
         if len(get_non_linearized_moes(self.model)) > 0:
             logger.warning(
