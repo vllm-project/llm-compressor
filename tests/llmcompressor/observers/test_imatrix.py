@@ -518,7 +518,6 @@ def _assert_imatrix_eager_triton_parity(
     grid,
     norm,
     expand,
-    triton_error_buffer,
     magnitude_normalization=False,
     grid_type=None,
 ):
@@ -527,7 +526,6 @@ def _assert_imatrix_eager_triton_parity(
     search_kwargs = {
         "expand": expand,
         "importance_weights": importance,
-        "triton_error_buffer": triton_error_buffer,
         "use_imatrix_error": True,
         "magnitude_normalization": magnitude_normalization,
         "grid_type": grid_type,
@@ -575,7 +573,7 @@ def _assert_imatrix_eager_triton_parity(
             "W4A16",
             (16, 128),
             0.95,
-            5,
+            0,
             20.0,
             1.0,
             3.0,
@@ -645,7 +643,6 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         grid=grid,
         norm=norm,
         expand=expand,
-        triton_error_buffer=1.0,
         magnitude_normalization=magnitude_normalization,
         grid_type=grid_type,
     )
@@ -659,7 +656,6 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         search_kwargs = {
             "expand": expand,
             "importance_weights": importance,
-            "triton_error_buffer": 1.0,
             "use_imatrix_error": True,
             "magnitude_normalization": magnitude_normalization,
         }
@@ -762,7 +758,6 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
         grid=200.0,
         norm=3.0,
         expand=1.8,
-        triton_error_buffer=1.0,
     )
 
 
@@ -823,5 +818,4 @@ def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
         grid=200.0,
         norm=3.0,
         expand=1.8,
-        triton_error_buffer=1.0,
     )
