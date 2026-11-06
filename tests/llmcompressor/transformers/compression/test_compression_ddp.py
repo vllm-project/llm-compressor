@@ -162,9 +162,12 @@ def _compare_weights(ref_weights: dict, ddp_weights: dict, atol: float = 1e-4):
     mismatches = []
     for name in ref_weights:
         try:
-            torch.testing.assert_close(
-                ref_weights[name], ddp_weights[name], atol=atol, rtol=1e-4
-            )
+            ref = ref_weights[name]
+            ddp = ddp_weights[name]
+            if ref.is_floating_point() or ddp.is_floating_point():
+                ref = ref.float()
+                ddp = ddp.float()
+            torch.testing.assert_close(ref, ddp, atol=atol, rtol=1e-4)
         except AssertionError as e:
             mismatches.append(f"  {name}: {e}")
 
@@ -494,9 +497,9 @@ def test_ddp_smoke_awq():
 @torchrun(world_size=2)
 def test_ddp_smoke_gptq():
     _test_ddp_modifier(
-        "gptq",
+        "gptq_nvfp4a16",
         lambda: GPTQModifier(
-            scheme={"W4A16": ["Linear"]},
+            scheme={"NVFP4A16": ["Linear"]},
             ignore=["lm_head"],
             block_size=128,
         ),

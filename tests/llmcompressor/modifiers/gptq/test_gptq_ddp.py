@@ -15,11 +15,12 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from compressed_tensors.offload import align_module_device, set_onload_device
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.core import State
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.gptq.base import _GPTQ_Q_PARAMS
 from tests.testing_utils import requires_gpu, torchrun
 
 HIDDEN = 64
@@ -80,16 +81,27 @@ def test_gptq_distributed_global_scale_writeback():
     # weight_global_scale must be consistently shaped across ranks, asserted
     # before any collective so a regression fails fast rather than deadlocking
     for module in modules:
+        assert torch.all(module.weight_scale > 0), "weight_scale must be positive"
         assert module.weight_global_scale.shape == torch.Size([1])
         assert module.weight_global_scale.dtype == torch.float32
+        assert torch.all(
+            module.weight_global_scale > 0
+        ), "weight_global_scale must be positive"
 
-    # quantized weights are broadcast, so they must be identical on every rank
+    # Every GPTQ parameter broadcast from the owning rank must match on all ranks.
     world_size = dist.get_world_size()
+    qparam_names = [*_GPTQ_Q_PARAMS]
+    if "weight_global_scale" not in qparam_names:
+        # Keep this regression check independent of the production broadcast list.
+        qparam_names.append("weight_global_scale")
     for module in modules:
-        with align_module_device(module):
-            weight = module.weight.detach().to(device=device, dtype=torch.float32)
-        gathered = [torch.empty_like(weight) for _ in range(world_size)]
-        dist.all_gather(gathered, weight)
-        assert all(torch.equal(gathered[0], other) for other in gathered[1:])
+        for qparam_name in qparam_names:
+            qparam = getattr(module, qparam_name).detach().to(device=device)
+            gathered_qparams = [torch.empty_like(qparam) for _ in range(world_size)]
+            dist.all_gather(gathered_qparams, qparam)
+            assert all(
+                torch.equal(gathered_qparams[0], other)
+                for other in gathered_qparams[1:]
+            ), f"{qparam_name} differs across ranks"
 
     dist.destroy_process_group()

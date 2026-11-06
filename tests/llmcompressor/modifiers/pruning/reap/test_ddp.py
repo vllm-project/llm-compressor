@@ -26,6 +26,7 @@ from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.utils import load_context
+from llmcompressor.utils.helpers import numeric_sorted_names
 from tests.testing_utils import requires_gpu, torchrun
 
 QWEN_MODEL = "inference-optimization/Qwen3.8-1.0B-A0.6B"
@@ -43,14 +44,15 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
     _routing_trace: dict = PrivateAttr(default_factory=dict)
     _pre_reduce_saliency: dict = PrivateAttr(default_factory=dict)
     _calibration_samples: list = PrivateAttr(default_factory=list)
+    _layer_names: list = PrivateAttr(default_factory=list)
 
-    def _experts_block_hook(self, layer_name, module, args, output):
+    def experts_block_hook(self, layer_name, module, args, output):
         indices = args[1].detach().to(device="cpu").clone()
         weights = args[2].detach().to(device="cpu", dtype=torch.float32).clone()
         self._routing_trace.setdefault(layer_name, []).append(
             {"indices": indices, "weights": weights}
         )
-        return super()._experts_block_hook(layer_name, module, args, output)
+        return super().experts_block_hook(layer_name, module, args, output)
 
     def on_calibration_start(self, state, event, **kwargs):
         # shuffle_calibration_samples=False uses LengthAwareSampler, which sorts
@@ -72,18 +74,21 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
                 }
                 for dataset_idx in sample_order
             ]
-        return super().on_calibration_start(state, event, **kwargs)
+        result = super().on_calibration_start(state, event, **kwargs)
+        # The base now discovers layers into _moe_stats; the old _moe_attrs
+        # list was removed when expert pruning was moved into its shared base.
+        self._layer_names = numeric_sorted_names(self._moe_stats)
+        return result
 
-    def on_sequential_epoch_end(self, state, event, **kwargs):
-        # Snapshot before REAP's dist.reduce calls mutate the source rank's
-        # accumulators into global sums.
-        for layer_name, tracker in self._saliency_trackers.items():
-            self._pre_reduce_saliency[layer_name] = {
-                "sum": tracker.sum_saliency.detach().cpu().clone(),
-                "count": tracker.count.detach().cpu().clone(),
-                "total_count": float(tracker.total_count),
-            }
-        return super().on_sequential_epoch_end(state, event, **kwargs)
+    def reduce_moe_stats(self, layer_name):
+        # Capture local accumulators before the source-rank reduce and count
+        # all-reduce. REAP now stores these in _moe_stats rather than trackers.
+        stats = self._moe_stats[layer_name]
+        self._pre_reduce_saliency[layer_name] = {
+            "sum": stats["sum_saliency"].detach().cpu().clone(),
+            "count": stats["count"].detach().cpu().clone(),
+        }
+        return super().reduce_moe_stats(layer_name)
 
 
 def _modifier_diagnostics(modifier, rank, sample_range):
@@ -531,7 +536,7 @@ def test_reap_ddp_qwen3():
                 ddp_report_data,
                 reference_debug,
                 ddp_debug_by_rank,
-                list(ref_modifier._moe_attrs.moe_layer_names),
+                ref_modifier._layer_names,
             )
             diagnostic_json = json.dumps(diagnostics, indent=2, sort_keys=True)
             print(f"REAP_DDP_DIAGNOSTICS={diagnostic_json}", flush=True)

@@ -9,6 +9,9 @@ from compressed_tensors.quantization import (
     QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle import fake_quantize
+from compressed_tensors.quantization.lifecycle.forward_helpers import (
+    _is_fp8_supported,
+)
 from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
 from compressed_tensors.quantization.utils.mxfp_utils import (
     should_generate_mx_scales,
@@ -342,6 +345,11 @@ def _grid_search_observer_triton(
 
     observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
+    use_fp8_e4b15 = (
+        args.type == QuantizationType.FLOAT
+        and args.num_bits == 8
+        and not _is_fp8_supported(observed.device)
+    )
     if magnitude_normalization:
         group_absmax = observed.float().abs().amax(dim=(0, -1)).reshape(-1).contiguous()
     else:
@@ -420,6 +428,7 @@ def _grid_search_observer_triton(
             SYMMETRIC=args.symmetric,
             SCALE_ROUND_TYPE=scale_round_type,
             OBSERVED_DTYPE=observed_dtype,
+            USE_FP8_E4B15=use_fp8_e4b15,
         )
     else:
         num_chunks = triton.cdiv(total_values, tile_values)
@@ -459,6 +468,7 @@ def _grid_search_observer_triton(
             SYMMETRIC=args.symmetric,
             SCALE_ROUND_TYPE=scale_round_type,
             OBSERVED_DTYPE=observed_dtype,
+            USE_FP8_E4B15=use_fp8_e4b15,
         )
         _grid_search_observer_triton_split_reduce_kernel[(num_qparams,)](
             partial_errors,
@@ -507,6 +517,7 @@ def _grid_search_observer_triton_packed_kernel(
     SYMMETRIC: tl.constexpr,
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr,
 ):
     """Pack complete qparams so each program handles about 512 values."""
     tile_offsets = tl.arange(0, TILE_QPARAMS)
@@ -596,6 +607,7 @@ def _grid_search_observer_triton_packed_kernel(
                 NUM_BITS=NUM_BITS,
                 HAS_ZP=HAS_ZP,
                 COMPUTE_DTYPE=OBSERVED_DTYPE,
+                USE_FP8_E4B15=USE_FP8_E4B15,
             )
             diff_pow = calculate_observer_error(
                 values,
@@ -675,6 +687,7 @@ def _grid_search_observer_triton_split_kernel(
     SYMMETRIC: tl.constexpr,
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr,
 ):
     """Compute every candidate's partial error for one 512-value qparam chunk."""
     pid = tl.program_id(0)
@@ -737,6 +750,7 @@ def _grid_search_observer_triton_split_kernel(
             NUM_BITS=NUM_BITS,
             HAS_ZP=HAS_ZP,
             COMPUTE_DTYPE=OBSERVED_DTYPE,
+            USE_FP8_E4B15=USE_FP8_E4B15,
         )
         diff_pow = calculate_observer_error(
             values,

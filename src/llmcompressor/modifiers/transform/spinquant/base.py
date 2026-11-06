@@ -123,11 +123,16 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return value
 
     def on_initialize(self, state: State, **kwargs) -> bool:
+        # Infer only when unset so user-provided mappings are kept, and so a
+        # caller-supplied transform_config still has mappings for calibration.
+        if self.mappings is None:
+            self.mappings = infer_mapping_from_model(state.model)
+        if self.norm_mappings is None:
+            self.norm_mappings = infer_norm_mapping_from_model(state.model)
+
         if self.transform_config is not None:
             return True
 
-        self.mappings = infer_mapping_from_model(state.model)
-        self.norm_mappings = infer_norm_mapping_from_model(state.model)
         head_dim = get_head_dim(state.model.config)
 
         config_groups = {}

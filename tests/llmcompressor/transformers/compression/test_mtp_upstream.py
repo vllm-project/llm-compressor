@@ -719,6 +719,7 @@ def _source_glm_model(tmp_path, model_cls=Glm4MoeForCausalLM, first_k_dense_repl
         v_head_dim=16,
         n_routed_experts=2,
         num_experts_per_tok=1,
+        n_group=1,
         first_k_dense_replace=first_k_dense_replace,
         num_nextn_predict_layers=1,
         num_mtp_layers=1,
