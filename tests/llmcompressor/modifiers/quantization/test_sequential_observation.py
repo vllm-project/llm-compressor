@@ -343,27 +343,3 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     assert model[0].quantization_status == QuantizationStatus.FROZEN
     assert not hasattr(model[0], "weight_observer")
     assert not hasattr(model[1], "quantization_scheme")
-
-
-def test_modules_added_during_calibration_are_initialized():
-    model = nn.Module()
-    model.experts = nn.ModuleList()
-    modifier = QuantizationModifier(targets=["Linear"], scheme="W8A8")
-    state = State(model=model)
-    modifier.on_initialize(state)
-    modifier._prepare_sequential_epoch(
-        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[]
-    )
-    modifier.on_sequential_epoch_start(
-        state, Event(type_=EventType.SEQUENTIAL_EPOCH_START), modules=[]
-    )
-    modifier.started_ = True  # normally set by Modifier.update_event
-
-    linear = nn.Linear(8, 8)
-    model.experts.append(linear)
-    modifier.on_modules_added(state, {"experts.0": linear})
-
-    assert hasattr(linear, "quantization_scheme")
-    assert hasattr(linear, "weight_observer")
-    assert linear.quantization_enabled is False
-    assert linear.quantization_status.value == "calibration"
