@@ -729,7 +729,7 @@ def quantize_one(
         },
     )
 
-    torch.cuda.reset_peak_memory_stats()
+    torch.accelerator.reset_peak_memory_stats()
     started = time.monotonic()
     oneshot(
         model=model,
@@ -748,7 +748,7 @@ def quantize_one(
         moe_calibrate_all_experts=True,
     )
     elapsed_s = time.monotonic() - started
-    peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    peak_memory_gb = torch.accelerator.max_memory_allocated() / (1024**3)
     model_files = list(checkpoint_dir.glob("*.safetensors"))
     if not model_files:
         raise RuntimeError(f"No compressed safetensors found in {checkpoint_dir}")
