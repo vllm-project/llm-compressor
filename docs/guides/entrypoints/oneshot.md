@@ -170,7 +170,6 @@ oneshot(
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
-from llmcompressor.modeling.llama4 import SequentialLlama4TextMoe  # noqa: F401
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-4-Scout-17B-16E-Instruct")
