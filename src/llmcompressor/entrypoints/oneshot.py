@@ -262,29 +262,6 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        recipe = (
-            Recipe.create_instance(self.recipe, target_stage=recipe_stage)
-            if self.recipe
-            else Recipe()
-        )
-        pipeline = CalibrationPipeline.from_modifiers(
-            recipe.modifiers,
-            user=self.dataset_args.pipeline,
-        )
-        pipeline_name = pipeline.__name__.removesuffix("Pipeline").lower()
-        supports_lazy_moe = pipeline_name in {"sequential", "independent"}
-        if supports_lazy_moe:
-            self.dataset_args.pipeline = pipeline_name
-
-        # Prepare eager MoE modules before modifiers initialize against the model.
-        if supports_lazy_moe:
-            resolve_eager_moe_linearization(self.model, self.dataset_args)
-        if (
-            not self.dataset_args.moe_lazy_linearization_and_repack
-            or not supports_lazy_moe
-        ) and get_non_linearized_moes(self.model):
-            linearize_moe(self.model)
-
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
@@ -304,13 +281,33 @@ class Oneshot:
             session.initialize(
                 model=self.model,
                 start=-1,
-                recipe=recipe,
+                recipe=self.recipe,
                 recipe_stage=recipe_stage,
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
                 pipeline=self.dataset_args.pipeline,
             )
+
+            # Initialization resolves the recipe; infer the calibration pipeline
+            # from that resolved modifier list.
+            pipeline = CalibrationPipeline.from_modifiers(
+                session.lifecycle.recipe.modifiers,
+                user=self.dataset_args.pipeline,
+            )
+            pipeline_name = pipeline.__name__.removesuffix("Pipeline").lower()
+            supports_lazy_moe = pipeline_name in {"sequential", "independent"}
+            if supports_lazy_moe:
+                self.dataset_args.pipeline = pipeline_name
+                resolve_eager_moe_linearization(self.model, self.dataset_args)
+
+            # Model-local modifier setup happens when the pipeline starts a
+            # calibration scope, so eager linearization can follow global init.
+            if (
+                not self.dataset_args.moe_lazy_linearization_and_repack
+                or not supports_lazy_moe
+            ) and get_non_linearized_moes(self.model):
+                linearize_moe(self.model)
 
             pipeline(
                 self.model,
