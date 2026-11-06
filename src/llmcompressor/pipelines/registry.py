@@ -36,12 +36,6 @@ class CalibrationPipeline(ABC, RegistryMixin):
         :param user: pipeline name passed by user
         :return: CalibrationPipeline instance to be called with data (if not datafree)
         """
-        pipeline = cls.resolve_name(modifiers, user)
-        return cls.load_from_registry(pipeline)
-
-    @classmethod
-    def resolve_name(cls, modifiers: list[Modifier], user: str | None = None) -> str:
-        """Resolve the effective pipeline name from modifiers and user input."""
         user = standardize_lookup_name(user) if user else None
         inferred = standardize_lookup_name(cls._infer_pipeline(modifiers))
         independent = standardize_lookup_name("independent")
@@ -55,7 +49,8 @@ class CalibrationPipeline(ABC, RegistryMixin):
                 f"use `{inferred}`"
             )
 
-        return user or inferred
+        pipeline = user or inferred
+        return cls.load_from_registry(pipeline)
 
     @staticmethod
     def _infer_pipeline(modifiers: list[Modifier]) -> str:
