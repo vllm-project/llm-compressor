@@ -103,6 +103,7 @@ def quantize_dequantize(
     NUM_BITS: tl.constexpr,
     HAS_ZP: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr,
 ):
     """GPTQ-style QDQ shared by MSE and importance-weighted observer kernels."""
     normalized = tldevice.div_rn(values, scale)
@@ -123,7 +124,12 @@ def quantize_dequantize(
     elif NUM_BITS == 4:
         rounded = _round_to_fp4(normalized)
     else:
-        rounded = normalized.to(tl.float8e4nv).to(tl.float32)
+        if USE_FP8_E4B15:
+            rounded = (normalized * 0.00390625).to(tl.float8e4b15).to(
+                tl.float32
+            ) * 256.0
+        else:
+            rounded = normalized.to(tl.float8e4nv).to(tl.float32)
     if HAS_ZP:
         rounded -= zero_point
     return tldevice.mul_rn(rounded, scale)

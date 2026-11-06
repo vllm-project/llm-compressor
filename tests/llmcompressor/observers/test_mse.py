@@ -157,6 +157,7 @@ def _qdq_kernel(
         NUM_BITS=NUM_BITS,
         HAS_ZP=HAS_ZP,
         COMPUTE_DTYPE=COMPUTE_DTYPE,
+        USE_FP8_E4B15=False,
     )
     tl.store(out_ptr + offsets, result, mask=mask)
 
