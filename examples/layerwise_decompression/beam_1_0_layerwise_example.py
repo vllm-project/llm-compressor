@@ -1,9 +1,4 @@
-# ruff: noqa: E402
-
 import os
-
-# The FP8 checkpoint is ~500 GB. Keep the Hugging Face cache on the data volume.
-os.environ.setdefault("HF_HOME", "/data/playground/dsikka/.cache/huggingface")
 
 import torch
 from datasets import load_dataset
@@ -14,8 +9,8 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
 MODEL_ID = "reflection/Beam-1.0-501B-A23B-FP8"
-SAVE_DIR = "/data/playground/dsikka/Beam-1.0-501B-A23B-FP8-NVFP4"
-OFFLOAD_DIR = "/data/playground/dsikka/beam-offload"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4"
+OFFLOAD_DIR = "./beam-offload"
 
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
