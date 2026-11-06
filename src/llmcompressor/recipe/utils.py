@@ -5,6 +5,7 @@ from typing import Any
 import yaml
 
 from llmcompressor.modifiers import Modifier
+from llmcompressor.sentinel import Sentinel
 
 
 def _load_json_or_yaml_string(content: str) -> dict[str, Any]:
@@ -82,10 +83,15 @@ def get_yaml_serializable_dict(modifiers: list[Modifier], stage: str) -> dict[st
         group_name = f"{group}_modifiers"
         modifier_type = modifier.__class__.__name__
 
+        # keep a None the user set explicitly, and leave sentinel defaults out
+        # so they are resolved again on load rather than read back as set values
         args = {
             k: v
             for k, v in modifier.model_dump().items()
-            if v is not None and not k.endswith("_") and k != "group"
+            if (v is not None or k in modifier.model_fields_set)
+            and not isinstance(getattr(modifier, k, None), Sentinel)
+            and not k.endswith("_")
+            and k != "group"
         }
 
         if group_name not in stage_dict[stage_name]:
