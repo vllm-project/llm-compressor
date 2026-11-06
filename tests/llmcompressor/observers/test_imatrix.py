@@ -1,11 +1,16 @@
 import pytest
 import torch
-from compressed_tensors.quantization import QuantizationStrategy, preset_name_to_scheme
+from compressed_tensors.quantization import (
+    QuantizationStrategy,
+    QuantizationType,
+    preset_name_to_scheme,
+)
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 from compressed_tensors.quantization.utils import calculate_qparams
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
+from compressed_tensors.utils.triton import triton
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
@@ -703,6 +708,49 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
                     ).to(observed.dtype)
                 )
         assert torch.equal(qdq_weights[0], qdq_weights[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+@pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
+def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
+    """FP8 grid search must compile on A100 even without native E4M3 support."""
+    device_capability = torch.cuda.get_device_capability()
+    if device_capability < (8, 0):
+        pytest.skip("SM80 is the minimum architecture used by this regression")
+
+    args = QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        symmetric=True,
+        strategy=QuantizationStrategy.CHANNEL,
+    )
+    observed = torch.randn(2, 1, group_size, device="cuda", dtype=torch.bfloat16)
+    importance = torch.linspace(0.5, 2.0, group_size, device="cuda")
+    search_args = (observed, args, 0.9, 2, 5.0, 2.0)
+    search_kwargs = {
+        "triton_error_buffer": 0.3,
+        "importance_weights": importance,
+        "use_imatrix_error": True,
+    }
+    expected = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
+
+    # Compile as if this were an A100, including when the test runs on a newer GPU.
+    monkeypatch.setattr(triton.knobs.runtime, "override_arch", "sm80")
+    monkeypatch.setattr(
+        torch.cuda, "get_device_capability", lambda *args, **kwargs: (8, 0)
+    )
+    try:
+        actual = ImplBackend.call(
+            "_grid_search_observer_triton", *search_args, **search_kwargs
+        )
+    except RuntimeError as error:
+        # On newer GPUs, the SM80 target compiles but its binary cannot run.
+        if device_capability > (8, 0) and "no kernel image" in str(error):
+            return
+        raise
+
+    assert torch.equal(expected[0], actual[0])
+    assert torch.equal(expected[1], actual[1])
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
