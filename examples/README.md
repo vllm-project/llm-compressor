@@ -17,6 +17,7 @@ Other examples are grouped by algorithm, such as:
 
 ## How to find the right example
 
+- To convert a checkpoint that has already been quantized by an external framework, see the [checkpoint conversion guide](https://docs.vllm.ai/projects/llm-compressor/en/latest/guides/entrypoints/convert/) and `examples/convert_checkpoint/autoawq_example.py`.
 - If you are interested in quantizing a specific model, start by browsing the model-type folders (for example, `multimodal_audio`, `multimodal_vision`, or `quantizing_moe`).
 - If you don’t see your model there, decide which quantization scheme you want to use (e.g., FP8, FP4, INT4, INT8, or KV cache / attention quantization) and look in the corresponding `quantization_***` folder.
 - Each quantization scheme folder contains at least one LLaMA 3 example, which can be used as a general reference for other models.
