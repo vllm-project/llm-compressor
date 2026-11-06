@@ -20,6 +20,7 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.core import State
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.gptq.base import _GPTQ_Q_PARAMS
 from tests.testing_utils import requires_gpu, torchrun
 
 HIDDEN = 64
@@ -83,24 +84,17 @@ def test_gptq_distributed_global_scale_writeback():
         assert module.weight_global_scale.shape == torch.Size([1])
         assert module.weight_global_scale.dtype == torch.float32
 
-    # quantized weights are broadcast, so they must be identical on every rank
+    # Every GPTQ parameter broadcast from the owning rank must match on all ranks.
     world_size = dist.get_world_size()
     for module in modules:
-        with align_module_device(module):
-            global_scale = module.weight_global_scale.detach().to(device=device)
-        gathered_global_scales = [
-            torch.empty_like(global_scale) for _ in range(world_size)
-        ]
-        dist.all_gather(gathered_global_scales, global_scale)
-        assert all(
-            torch.equal(gathered_global_scales[0], other)
-            for other in gathered_global_scales[1:]
-        )
-
-        with align_module_device(module):
-            weight = module.weight.detach().to(device=device, dtype=torch.float32)
-        gathered = [torch.empty_like(weight) for _ in range(world_size)]
-        dist.all_gather(gathered, weight)
-        assert all(torch.equal(gathered[0], other) for other in gathered[1:])
+        for qparam_name in _GPTQ_Q_PARAMS:
+            with align_module_device(module):
+                qparam = getattr(module, qparam_name).detach().to(device=device)
+            gathered_qparams = [torch.empty_like(qparam) for _ in range(world_size)]
+            dist.all_gather(gathered_qparams, qparam)
+            assert all(
+                torch.equal(gathered_qparams[0], other)
+                for other in gathered_qparams[1:]
+            ), f"{qparam_name} differs across ranks"
 
     dist.destroy_process_group()
