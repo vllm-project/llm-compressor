@@ -183,7 +183,9 @@ IMPLEMENTATION_FILES = (
 # Revisions captured by the completed MXFP4A16 runs. Keeping these pinned makes
 # a rerun reproducible even when model cards or calibration data are updated.
 PINNED_MODEL_REVISIONS = {
-    "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": "a9904d24bcc1d289a1950fa9d2b978c47cf903b9",
+    "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": (
+        "a9904d24bcc1d289a1950fa9d2b978c47cf903b9"
+    ),
     "Qwen/Qwen2.5-7B-Instruct": "a09a35458c702b33eeacc393d103063234e8bc28",
     "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
     "Qwen/Qwen3-30B-A3B": "ad44e777bcd18fa416d9da3bd8f70d33ebb85d39",
@@ -277,7 +279,9 @@ if _EXCLUDED_MODELS:
     unknown = _EXCLUDED_MODELS - MODELS.keys()
     if unknown:
         raise ValueError(f"Unknown excluded models: {sorted(unknown)}")
-    MODELS = {key: value for key, value in MODELS.items() if key not in _EXCLUDED_MODELS}
+    MODELS = {
+        key: value for key, value in MODELS.items() if key not in _EXCLUDED_MODELS
+    }
 
 
 def utc_now() -> str:
@@ -813,11 +817,10 @@ def _run_quant_reserved(root: Path, spec: dict[str, Any], checkpoint_dir: Path) 
         "--checkpoint-dir",
         str(checkpoint_dir),
     ]
-    log = (
-        root
-        / "quantization_logs"
-        / f"{job_key(spec['model'], spec['power'], spec['objective'], spec['observer_variant'])}.log"
+    key = job_key(
+        spec["model"], spec["power"], spec["objective"], spec["observer_variant"]
     )
+    log = root / "quantization_logs" / f"{key}.log"
     return _run_logged(command, log)
 
 
@@ -1607,7 +1610,9 @@ def run_smoke_phase(root: Path, workers: int) -> list[dict[str, Any]]:
         }
         futures.update(
             {
-                pool.submit(run_prequantize_job, root, spec): f"prequantize:{spec['model']}"
+                pool.submit(run_prequantize_job, root, spec): (
+                    f"prequantize:{spec['model']}"
+                )
                 for spec in warm_specs
             }
         )
@@ -1669,7 +1674,11 @@ def _collect_with_monitor(
             try:
                 result = future.result()
             except Exception as exc:
-                result = {"job": futures[future], "status": "failed", "error": repr(exc)}
+                result = {
+                    "job": futures[future],
+                    "status": "failed",
+                    "error": repr(exc),
+                }
             results.append(result)
             print(json.dumps(result, sort_keys=True), flush=True)
         _record_gpu_monitoring(root, phase, seed)
@@ -2209,7 +2218,8 @@ def write_grid180_comparison_report(
         "0.05 in 0.01 steps. The reused grid=100 baseline is expand=1.0, "
         "maxshrink=0.95 and its half-open search ends at 0.06.",
         "",
-        "| Model | pow | obj | grid | avg GSM8K strict | avg MMLU strict | avg Math500 | avg GPQA |",
+        "| Model | pow | obj | grid | avg GSM8K strict | avg MMLU strict | "
+        "avg Math500 | avg GPQA |",
         "|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for setting in sorted(scores, key=lambda item: (item[0], item[1])):
@@ -2295,7 +2305,8 @@ def write_grid200_fullrange_comparison_report(
         "the last two candidates are 0.054 and 0.045 because 0.05 is not on "
         "that grid. Scores below are means across the two seeds.",
         "",
-        "| Model | pow | obj | search | avg GSM8K strict | avg MMLU strict | avg Math500 | avg GPQA |",
+        "| Model | pow | obj | search | avg GSM8K strict | avg MMLU strict | "
+        "avg Math500 | avg GPQA |",
         "|---|---:|---|---|---:|---:|---:|---:|",
     ]
     for setting in sorted(scores, key=lambda item: (item[0], item[1])):
@@ -2419,7 +2430,8 @@ def write_summary(
             out.write("No completed benchmark scores yet.\n")
         else:
             out.write(
-                "| Model | Observer | Power | Objective | Task | Metric | Mean | Seeds |\n"
+                "| Model | Observer | Power | Objective | Task | Metric | "
+                "Mean | Seeds |\n"
                 "|---|---|---:|---|---|---|---:|---:|\n"
             )
             for row in rows:
@@ -2454,7 +2466,10 @@ def parse_args() -> argparse.Namespace:
     full_parser.add_argument("--workers", type=int, default=8)
     full_parser.add_argument(
         "--seeds",
-        help="Comma-separated eval-agent seeds; defaults to the first three registry seeds",
+        help=(
+            "Comma-separated eval-agent seeds; defaults to the first three "
+            "registry seeds"
+        ),
     )
     compare_parser = subparsers.add_parser(
         "compare-grid180",
