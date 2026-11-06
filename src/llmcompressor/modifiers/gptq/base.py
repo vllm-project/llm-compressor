@@ -46,7 +46,12 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
-_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point"]
+_GPTQ_Q_PARAMS = [
+    "weight",
+    "weight_scale",
+    "weight_zero_point",
+    "weight_global_scale",
+]
 
 
 class GPTQModifier(Modifier, QuantizationMixin):

@@ -1,12 +1,4 @@
-"""
-Multi-GPU regression test for distributed GPTQ.
-
-Drives ``GPTQModifier`` directly (without ``oneshot``) so the distributed
-compression path is exercised in isolation. Without the source fix, the owning
-rank writes back a mis-shaped ``weight_global_scale``, leaving ranks disagreeing
-on its shape/dtype and hanging the collectives that broadcast/save it. The
-process group uses a low timeout so any residual deadlock fails fast.
-"""
+"""Multi-GPU regression test for distributed GPTQ global-scale synchronization."""
 
 import datetime
 import os
@@ -16,7 +8,6 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from compressed_tensors.offload import align_module_device, set_onload_device
-from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.core import State
 from llmcompressor.modifiers.gptq import GPTQModifier
@@ -41,7 +32,7 @@ class _ToyModel(nn.Module):
 @pytest.mark.multi_gpu
 @requires_gpu(2)
 @torchrun(world_size=2)
-def test_gptq_distributed_global_scale_writeback():
+def test_gptq_distributed_global_scale_broadcast():
     # blocking wait so a stuck collective raises on timeout instead of hanging
     os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -53,18 +44,7 @@ def test_gptq_distributed_global_scale_writeback():
     model = _ToyModel()
     set_onload_device(model, device)  # CPU offload, GPU onload
 
-    # tensor_group float weights are the case that produces weight_global_scale
-    scheme = QuantizationScheme(
-        targets=["Linear"],
-        weights=QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=16,
-        ),
-    )
-    modifier = GPTQModifier(config_groups={"group_0": scheme}, block_size=16)
+    modifier = GPTQModifier(scheme="NVFP4A16", targets=["Linear"], block_size=16)
 
     state = State(model=model)
     modifier.on_initialize(state)
@@ -77,15 +57,26 @@ def test_gptq_distributed_global_scale_writeback():
 
     modifier.on_sequential_epoch_end(state, None, modules)
 
-    # weight_global_scale must be consistently shaped across ranks, asserted
-    # before any collective so a regression fails fast rather than deadlocking
+    # Check shape and dtype before gathering values so mismatched parameters fail
+    # before entering a tensor collective.
     for module in modules:
         assert module.weight_global_scale.shape == torch.Size([1])
         assert module.weight_global_scale.dtype == torch.float32
 
-    # quantized weights are broadcast, so they must be identical on every rank
     world_size = dist.get_world_size()
     for module in modules:
+        with align_module_device(module):
+            global_scale = module.weight_global_scale.detach().to(device=device)
+        gathered_global_scales = [
+            torch.empty_like(global_scale) for _ in range(world_size)
+        ]
+        dist.all_gather(gathered_global_scales, global_scale)
+        assert all(
+            torch.equal(gathered_global_scales[0], other)
+            for other in gathered_global_scales[1:]
+        ), "weight_global_scale differs across ranks"
+
+        # Quantized weights must also be identical on every rank.
         with align_module_device(module):
             weight = module.weight.detach().to(device=device, dtype=torch.float32)
         gathered = [torch.empty_like(weight) for _ in range(world_size)]
