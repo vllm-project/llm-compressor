@@ -15,7 +15,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import torch.nn as nn
-from compressed_tensors.offload import align_module_device, set_onload_device
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.core import State
@@ -88,8 +88,7 @@ def test_gptq_distributed_global_scale_writeback():
     world_size = dist.get_world_size()
     for module in modules:
         for qparam_name in _GPTQ_Q_PARAMS:
-            with align_module_device(module):
-                qparam = getattr(module, qparam_name).detach().to(device=device)
+            qparam = getattr(module, qparam_name).detach().to(device=device)
             gathered_qparams = [torch.empty_like(qparam) for _ in range(world_size)]
             dist.all_gather(gathered_qparams, qparam)
             assert all(
