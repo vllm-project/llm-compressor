@@ -231,17 +231,6 @@ def freeze_module_quantization(module: Module):
 
     :param module: module to freeze quantization for
     """
-    scheme = getattr(module, "quantization_scheme", None)
-    if not scheme:
-        # no quantization scheme nothing to do
-        return
-
-    if module.quantization_status in (
-        QuantizationStatus.FROZEN,
-        QuantizationStatus.COMPRESSED,
-    ):
-        return
-
     # remove observers
     for name in ("input", "weight", "output", "q", "k", "v"):
         obs_name = f"{name}_observer"
@@ -249,7 +238,12 @@ def freeze_module_quantization(module: Module):
             getattr(module, obs_name).detach(module)
             delattr(module, obs_name)
 
-    module.quantization_status = QuantizationStatus.FROZEN
+    if not getattr(module, "quantization_scheme", None):
+        return
+
+    # Keep compressed modules compressed while still removing calibration state.
+    if getattr(module, "quantization_status", None) != QuantizationStatus.COMPRESSED:
+        module.quantization_status = QuantizationStatus.FROZEN
 
 
 def reset_quantization_status(model: Module):

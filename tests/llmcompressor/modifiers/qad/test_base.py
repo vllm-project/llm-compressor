@@ -231,6 +231,8 @@ def test_real_llama_sequential_pipeline(kind, scheme):
     args = DatasetArguments(
         sequential_targets=["LlamaDecoderLayer"],
         sequential_targets_per_subgraph=1,
+        # This test runs the model after calibration, which requires unpacked weights.
+        layerwise_compression=False,
     )
     with create_session() as session:
         recipe = [AWQModifier(n_grid=4)] if kind == "awq" else []
@@ -454,7 +456,9 @@ def test_oneshot_accepts_sequential_qad(pipeline, tmp_path):
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(2)]
     with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
-            model=model, recipe=[_quantizer("rtn"), qad], pipeline=pipeline
+            model=model,
+            recipe=[_quantizer("rtn"), qad],
+            pipeline=pipeline,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
@@ -493,7 +497,10 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
     quantizer = QuantizationModifier(targets="Linear", scheme="NVFP4A16")
     with patch.object(oneshot_module, "pre_process"):
         entrypoint = Oneshot(
-            model=model, recipe=[quantizer, qad], pipeline="sequential"
+            model=model,
+            recipe=[quantizer, qad],
+            pipeline="sequential",
+            layerwise_compression=False,
         )
     with create_session(), _capture_logs() as logs:
         entrypoint.apply_recipe_modifiers(calibration_dataloader=data)
