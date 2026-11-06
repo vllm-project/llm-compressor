@@ -430,6 +430,8 @@ class ResolvedMapping:
         caching. When set, the activation cache hook is placed on this module
         instead of ``balance_layers[0]``. Populated from
         ``AWQMapping.activation_hook_target``.
+    :param gqa_dim: validated head size for GQA repeat groups. Set only for GQA
+        mappings; None for ordinary mappings.
     """
 
     smooth_name: str
@@ -439,3 +441,9 @@ class ResolvedMapping:
     parent: Module
     parent_name: str
     activation_hook_target: Module | None = None
+    gqa_dim: int | None = None
+
+    @property
+    def is_gqa(self) -> bool:
+        """Whether this mapping smooths over validated grouped-query repeat groups."""
+        return self.gqa_dim is not None
