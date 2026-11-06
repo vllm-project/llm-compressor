@@ -394,13 +394,27 @@ def test_no_stale_scoped_fusion_converters():
         ]
         assert not stale, f"stale 3D fusion converters: {stale}"
 
-        # the scoped `language_model` transforms are the 2D identity renamings
-        # and the (intact) conv1d fusion
+        # the scoped `language_model` transforms are the GLM-specific renames
+        # of the original mapping (the linearized mapping is derived from it,
+        # not a replacement), the 2D identity renamings, and the (intact)
+        # conv1d fusion
         scoped = [
             transform
             for transform in [*renamings, *converters]
             if getattr(transform, "scope_prefix", None) == "language_model"
         ]
+        scoped_renaming_sources = [
+            pattern
+            for transform in scoped
+            if isinstance(transform, WeightRenaming)
+            for pattern in transform.source_patterns
+        ]
+        for glm_rename in (
+            r"self_attn\.f_a_proj\.",
+            r"self_attn\.dt_bias",
+            "hc_ffn_fn",
+        ):
+            assert glm_rename in scoped_renaming_sources, glm_rename
         scoped_converters = [
             transform for transform in scoped if isinstance(transform, WeightConverter)
         ]

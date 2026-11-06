@@ -128,6 +128,24 @@ def test_get_conversion_mapping_names_excludes_absent_aliases():
     ]
 
 
+def test_text_model_type_loads_linearized():
+    # a text-only glm5_next stub resolves its own model_type, which must take
+    # the linearized fast path rather than falling back to a post-load
+    # conversion of fused 3D experts
+    modeling = pytest.importorskip("transformers.models.glm5_next.modeling_glm5_next")
+
+    assert has_linearize_load_mappings("glm5_next_text")
+
+    experts_cls, load_map, _save = get_linearize_load_mappings("glm5_next_text")
+    assert experts_cls is modeling.Glm5NextTextExperts
+
+    # the same mapping the multimodal model type resolves
+    _experts_cls, multimodal_map, _save = get_linearize_load_mappings("glm5_next")
+    assert [repr(transform) for transform in load_map] == [
+        repr(transform) for transform in multimodal_map
+    ]
+
+
 def test_temporary_checkpoint_conversion_mappings_restores_previous_entry():
     # glm5_next_text is an alias entry held by transformers' built-in cache
     before = _mapping_reprs("glm5_next_text")

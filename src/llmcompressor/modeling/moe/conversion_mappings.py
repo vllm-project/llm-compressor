@@ -82,6 +82,13 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.glm5_next.configuration_glm5_next.Glm5NextTextConfig",
         "transformers.models.glm5_next.modeling_glm5_next.Glm5NextTextExperts",
     ),
+    # text-only stub of glm5_next (Glm5NextTextModel), whose loads resolve
+    # conversions through their own model_type rather than the multimodal
+    # root's, and whose checkpoints share the glm5_next layout
+    "glm5_next_text": (
+        "transformers.models.glm5_next.configuration_glm5_next.Glm5NextTextConfig",
+        "transformers.models.glm5_next.modeling_glm5_next.Glm5NextTextExperts",
+    ),
     "glm_moe_dsa": (
         "transformers.models.glm_moe_dsa.configuration_glm_moe_dsa.GlmMoeDsaConfig",
         [
