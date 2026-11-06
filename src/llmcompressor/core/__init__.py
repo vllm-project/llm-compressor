@@ -8,7 +8,6 @@ process.
 
 from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.lifecycle import CompressionLifecycle
-from llmcompressor.core.model_layer import ModelParameterizedLayer
 from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.session_functions import (
     LifecycleCallbacks,
@@ -26,7 +25,6 @@ __all__ = [
     "Data",
     "Hardware",
     "ModifiedState",
-    "ModelParameterizedLayer",
     "CompressionLifecycle",
     "CompressionSession",
     "create_session",

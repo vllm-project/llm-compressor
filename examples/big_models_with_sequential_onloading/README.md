@@ -10,7 +10,7 @@ Sequential onloading is a memory-efficient approach for compressing large langua
 For more information, see the [RedHat AI blog post](https://developers.redhat.com/articles/2025/05/09/llm-compressor-optimize-llms-low-latency-deployments#generalizing_to_multimodal_and_moe_architectures) or the [LLM Compressor Office Hours Recording](https://www.youtube.com/watch?v=GrhuqQDmBk8).
 
 ## Using Sequential Onloading ##
-Sequential onloading is enabled by default within LLM Compressor. To disable sequential onloading, add the `pipeline="basic"` argument to the LLM Compressor `oneshot` function call.
+Sequential onloading is enabled by default within LLM Compressor. Use `pipeline="basic"` in `oneshot` to calibrate the whole model without tracing. The model and calibration memory must fit in the available VRAM.
 
 ## Running Llama 3.3 70b ##
 The Llama 3.3 70b is larger than 80 GB, surpassing the size of 1 A100. However, with sequential onloading, this model can still be quantized seamlessly using a single GPU.

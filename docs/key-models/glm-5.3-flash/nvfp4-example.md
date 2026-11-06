@@ -7,7 +7,7 @@ GLM-5.3-Flash is a vision-language MoE model whose original [checkpoint](https:/
 
 ### 1. Decompress the Model
 
-The original checkpoint is quantized with FP8-block, so we first convert it to a dense bfloat16 checkpoint using `convert_checkpoint` with the `FP8BlockDequantizer`. The full script can be found in the examples [here](../../../examples/model_free_ptq/decompress_glm53_flash.py).
+The original checkpoint is quantized with FP8-block, so we first convert it to a dense bfloat16 checkpoint using `convert_checkpoint` with the `FP8BlockDequantizer`. The full script can be found in the examples [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/model_free_ptq/decompress_glm53_flash.py).
 
 ```python
 from compressed_tensors.entrypoints.convert import (
@@ -29,7 +29,7 @@ This produces a `GLM-5.3-Flash-BF16` checkpoint locally. If you'd rather skip th
 
 ### 2. Apply NVFP4 Quantization
 
-Once you have the bfloat16 checkpoint (either the local `GLM-5.3-Flash-BF16` directory or `RedHatAI/GLM-5.3-Flash-BF16`), quantize the MoE expert weights to NVFP4 via oneshot. NVFP4 uses static activation quantization, so a calibration dataset is required. Because the model is large, we run calibration distributed via DDP with CPU offloading. The full script can be found in the examples [here](../../../examples/quantizing_moe/glm53_flash_example.py).
+Once you have the bfloat16 checkpoint (either the local `GLM-5.3-Flash-BF16` directory or `RedHatAI/GLM-5.3-Flash-BF16`), quantize the MoE expert weights to NVFP4 via oneshot. NVFP4 uses static activation quantization, so a calibration dataset is required. Because the model is large, we run calibration distributed via DDP with CPU offloading. The full script can be found in the examples [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantizing_moe/glm53_flash_example.py).
 
 Launch with `torchrun`, e.g. `torchrun --nproc-per-node N glm53_flash_example.py`.
 

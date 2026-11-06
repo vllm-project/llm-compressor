@@ -101,8 +101,8 @@ class Recipe(BaseModel):
         Using a recipe string or file is supported:
         >>> recipe_str = '''
         ... test_stage:
-        ...     pruning_modifiers:
-        ...         ConstantPruningModifier:
+        ...     quantization_modifiers:
+        ...         GPTQModifier:
         ...             start: 0.0
         ...             end: 2.0
         ...             targets: ['re:.*weight']

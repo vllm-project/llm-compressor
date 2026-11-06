@@ -168,49 +168,27 @@ def calculate_mse_error(
 
 
 @triton.jit
-def calculate_weighted_error(
-    values,
-    quantized,
-    importance,
-    norm: tl.constexpr,
-    COMPUTE_DTYPE: tl.constexpr,
-    ROUND_ERROR: tl.constexpr,
-):
-    """Calculate the powered QDQ error and apply imatrix weights."""
-    diff_pow = calculate_mse_error(
-        values,
-        quantized,
-        norm,
-        COMPUTE_DTYPE=COMPUTE_DTYPE,
-        ROUND_ERROR=ROUND_ERROR,
-    )
-    return diff_pow * importance
-
-
-@triton.jit
 def calculate_observer_error(
     values,
     quantized,
     importance,
+    group_absmax,
     norm: tl.constexpr,
     HAS_IMPORTANCE: tl.constexpr,
+    HAS_MAGNITUDE_NORMALIZATION: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
     ROUND_ERROR: tl.constexpr,
 ):
     """Calculate MSE or importance-weighted QDQ error for observer search."""
-    if HAS_IMPORTANCE:
-        return calculate_weighted_error(
-            values,
-            quantized,
-            importance,
-            norm,
-            COMPUTE_DTYPE=COMPUTE_DTYPE,
-            ROUND_ERROR=ROUND_ERROR,
-        )
-    return calculate_mse_error(
+    error = calculate_mse_error(
         values,
         quantized,
         norm,
         COMPUTE_DTYPE=COMPUTE_DTYPE,
         ROUND_ERROR=ROUND_ERROR,
     )
+    if HAS_IMPORTANCE:
+        error = error * importance
+    if HAS_MAGNITUDE_NORMALIZATION:
+        error = error * tl.sqrt(values * values + group_absmax * group_absmax)
+    return error

@@ -10,6 +10,9 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.lifecycle import fake_quantize
 from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
+from compressed_tensors.quantization.utils.mxfp_utils import (
+    should_generate_mx_scales,
+)
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import tl, triton
@@ -27,6 +30,17 @@ from llmcompressor.utils.triton_utils import (
 # grid-point parity.
 
 _GRID_SEARCH_TILE_SIZE = 512
+
+
+def _resolve_grid_type(grid_type: str | None, args: QuantizationArgs) -> str:
+    """Resolve automatic grid spacing from the quantized scale format."""
+    if grid_type is None:
+        return "exponential" if should_generate_mx_scales(args) else "linear"
+    if grid_type not in ("linear", "exponential"):
+        raise ValueError(
+            f"grid_type must be None, 'linear', or 'exponential', got {grid_type!r}"
+        )
+    return grid_type
 
 
 # -----------------------------------------------------------------------------
@@ -48,8 +62,10 @@ def _grid_search_observer(
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
     use_imatrix_error: bool = False,
+    magnitude_normalization: bool = False,
+    grid_type: str | None = None,
 ) -> MinMaxTuple:
-    """Eagerly search candidate ranges using MSE or weighted imatrix error."""
+    """Search candidate ranges using linear or exponential shrinkage."""
     # Eager uses strict best-error improvements; Triton uses this tolerance to
     # reset patience, so it has no effect in this implementation.
     del triton_error_buffer
@@ -58,6 +74,8 @@ def _grid_search_observer(
         and args.scale_dtype is not None
     ):
         args = args.model_copy(update={"scale_dtype": None})
+
+    grid_type = _resolve_grid_type(grid_type, args)
 
     min_vals = torch.amin(observed, dim=(0, -1)) * expand
     max_vals = torch.amax(observed, dim=(0, -1)) * expand
@@ -81,6 +99,13 @@ def _grid_search_observer(
         error_dtype = min_vals.dtype
         error_norm = norm
 
+    group_absmax = None
+    if magnitude_normalization:
+        # Weight groups have shape (num_observations, *qparam_shape, group_size).
+        # Retain one scalar per qparam group rather than another full-size weight
+        # tensor; the error paths broadcast it over the group's elements.
+        group_absmax = observed.float().abs().amax(dim=(0, -1), keepdim=True)
+
     best_error = torch.full(
         min_vals.shape,
         torch.finfo(error_dtype).max,
@@ -93,8 +118,8 @@ def _grid_search_observer(
     # resets the counter for every qparam. Triton tracks stale counts per qparam.
     no_improve_count = 0
 
-    for i in range(int(maxshrink * grid)):
-        p = 1 - i / grid
+    grid_points = _make_grid_points(maxshrink, grid, grid_type)
+    for p in grid_points:
         shrink_min = min_vals * p
         shrink_max = max_vals * p
         if use_imatrix_error:
@@ -107,6 +132,7 @@ def _grid_search_observer(
                 error_dtype,
                 importance_weights,
                 total_values,
+                group_absmax,
             )
         else:
             error = _calculate_mse_error(
@@ -115,6 +141,7 @@ def _grid_search_observer(
                 shrink_min,
                 shrink_max,
                 norm,
+                group_absmax,
             )
 
         improved = error < best_error
@@ -139,6 +166,7 @@ def _calculate_mse_error(
     shrink_min: torch.Tensor,
     shrink_max: torch.Tensor,
     norm: float,
+    group_absmax: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Calculate eager MSE error using the observer's established QDQ path."""
     scales, zero_points = calculate_qparams(
@@ -150,7 +178,38 @@ def _calculate_mse_error(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
-    return (quantized - observed).abs().pow(norm).sum(dim=(0, -1))
+    error = (quantized - observed).abs().pow(norm)
+    if group_absmax is not None:
+        error = error * torch.sqrt(observed.float().square() + group_absmax.square())
+    return error.sum(dim=(0, -1))
+
+
+def _make_grid_points(maxshrink: float, grid: float, grid_type: str) -> list[float]:
+    """Return range multipliers relative to the expanded observed range.
+
+    The linear grid preserves the historical ``1 - i / grid`` spacing. The
+    exponential grid halves the range at each candidate (1, 1/2, 1/4, ...),
+    stopping before it exceeds ``maxshrink`` or the configured point budget.
+    """
+    total_steps = int(maxshrink * grid)
+    if total_steps <= 0:
+        return []
+    if grid_type == "linear":
+        return [1.0 - step / grid for step in range(total_steps)]
+    if grid_type == "exponential":
+        min_multiplier = 1.0 - maxshrink
+        points = []
+        for step in range(total_steps):
+            multiplier = 2.0**-step
+            if multiplier < min_multiplier or multiplier <= 0.0:
+                break
+            points.append(multiplier)
+        last_linear_multiplier = 1.0 - (total_steps - 1) / grid
+        if last_linear_multiplier not in points:
+            points.append(last_linear_multiplier)
+            points.sort(reverse=True)
+        return points
+    raise ValueError(f"grid_type must be 'linear' or 'exponential', got {grid_type!r}")
 
 
 def _fake_quantize_with_observer_qparams(
@@ -182,6 +241,7 @@ def _calculate_imatrix_error(
     error_dtype: torch.dtype,
     importance_weights: torch.Tensor | None,
     total_values: int,
+    group_absmax: torch.Tensor | None,
 ) -> torch.Tensor:
     """Calculate imatrix error with Triton-matched rounding and reduction."""
     scales, zero_points = calculate_qparams(
@@ -199,6 +259,8 @@ def _calculate_imatrix_error(
         error = error.to(error_dtype).float()
     if importance_weights is not None:
         error.mul_(importance_weights)
+    if group_absmax is not None:
+        error.mul_(torch.sqrt(observed.float().square() + group_absmax.square()))
 
     # Match Triton's packed reduction for one tile; larger qparams are summed
     # in the same 512-value FP32 chunks as the split kernel.
@@ -250,6 +312,8 @@ def _grid_search_observer_triton(
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
     use_imatrix_error: bool = False,
+    magnitude_normalization: bool = False,
+    grid_type: str | None = None,
 ) -> MinMaxTuple:
     """Shared Triton implementation of buffered MSE and imatrix search."""
     # Weight presence selects the Triton error formula. The mode flag preserves
@@ -259,6 +323,8 @@ def _grid_search_observer_triton(
         and args.scale_dtype is not None
     ):
         args = args.model_copy(update={"scale_dtype": None})
+
+    grid_type = _resolve_grid_type(grid_type, args)
 
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
@@ -276,6 +342,10 @@ def _grid_search_observer_triton(
 
     observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
+    if magnitude_normalization:
+        group_absmax = observed.float().abs().amax(dim=(0, -1)).reshape(-1).contiguous()
+    else:
+        group_absmax = observed.reshape(-1)[:num_qparams]
     has_importance = importance_weights is not None
     if importance_weights is not None:
         importance_weights = importance_weights.to(
@@ -293,15 +363,14 @@ def _grid_search_observer_triton(
     else:
         # The constexpr guard removes all importance loads in the MSE specialization.
         importance_weights = observed
-    total_steps = int(maxshrink * grid)
+    grid_values = _make_grid_points(maxshrink, grid, grid_type)
+    total_steps = len(grid_values)
     if total_steps == 0:
         # There is no candidate to index, so retain the expanded observed range.
         return min_val, max_val
     kernel_patience = total_steps if use_imatrix_error and patience == 0 else patience
-    # This half-open step range matches eager: the final point is generally
-    # above the exact 1 - maxshrink endpoint.
     grid_points = torch.tensor(
-        [1.0 - step / grid for step in range(total_steps)],
+        grid_values,
         device=observed.device,
         dtype=torch.float32,
     )
@@ -327,6 +396,7 @@ def _grid_search_observer_triton(
             max_base,
             zp_base,
             importance_weights,
+            group_absmax,
             best_step,
             num_observations,
             num_qparams,
@@ -346,6 +416,7 @@ def _grid_search_observer_triton(
             NUM_BITS=args.num_bits,
             HAS_ZP=not args.symmetric,
             HAS_IMPORTANCE=has_importance,
+            HAS_MAGNITUDE_NORMALIZATION=magnitude_normalization,
             SYMMETRIC=args.symmetric,
             SCALE_ROUND_TYPE=scale_round_type,
             OBSERVED_DTYPE=observed_dtype,
@@ -367,6 +438,7 @@ def _grid_search_observer_triton(
             max_base,
             zp_base,
             importance_weights,
+            group_absmax,
             partial_errors,
             num_observations,
             num_qparams,
@@ -383,6 +455,7 @@ def _grid_search_observer_triton(
             NUM_BITS=args.num_bits,
             HAS_ZP=not args.symmetric,
             HAS_IMPORTANCE=has_importance,
+            HAS_MAGNITUDE_NORMALIZATION=magnitude_normalization,
             SYMMETRIC=args.symmetric,
             SCALE_ROUND_TYPE=scale_round_type,
             OBSERVED_DTYPE=observed_dtype,
@@ -410,6 +483,7 @@ def _grid_search_observer_triton_packed_kernel(
     max_base_ptr,
     zp_base_ptr,
     importance_ptr,
+    group_absmax_ptr,
     best_step_ptr,
     num_observations,
     num_qparams,
@@ -429,6 +503,7 @@ def _grid_search_observer_triton_packed_kernel(
     NUM_BITS: tl.constexpr,
     HAS_ZP: tl.constexpr,
     HAS_IMPORTANCE: tl.constexpr,
+    HAS_MAGNITUDE_NORMALIZATION: tl.constexpr,
     SYMMETRIC: tl.constexpr,
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
@@ -466,6 +541,12 @@ def _grid_search_observer_triton_packed_kernel(
         ).to(tl.float32)
     else:
         importance = 0.0
+    if HAS_MAGNITUDE_NORMALIZATION:
+        group_absmax = tl.load(
+            group_absmax_ptr + qparams, mask=qparam_mask, other=0.0
+        ).to(tl.float32)
+    else:
+        group_absmax = tl.zeros((TILE_QPARAMS,), tl.float32)
     if OBSERVED_DTYPE == 1:
         best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float16)
     elif OBSERVED_DTYPE == 2:
@@ -520,8 +601,10 @@ def _grid_search_observer_triton_packed_kernel(
                 values,
                 quantized,
                 importance,
+                group_absmax[:, None],
                 norm,
                 HAS_IMPORTANCE=HAS_IMPORTANCE,
+                HAS_MAGNITUDE_NORMALIZATION=HAS_MAGNITUDE_NORMALIZATION,
                 COMPUTE_DTYPE=OBSERVED_DTYPE,
                 ROUND_ERROR=True,
             )
@@ -571,6 +654,7 @@ def _grid_search_observer_triton_split_kernel(
     max_base_ptr,
     zp_base_ptr,
     importance_ptr,
+    group_absmax_ptr,
     partial_error_ptr,
     num_observations,
     num_qparams,
@@ -587,6 +671,7 @@ def _grid_search_observer_triton_split_kernel(
     NUM_BITS: tl.constexpr,
     HAS_ZP: tl.constexpr,
     HAS_IMPORTANCE: tl.constexpr,
+    HAS_MAGNITUDE_NORMALIZATION: tl.constexpr,
     SYMMETRIC: tl.constexpr,
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
@@ -623,6 +708,12 @@ def _grid_search_observer_triton_split_kernel(
         ).to(tl.float32)
     else:
         importance = 0.0
+    if HAS_MAGNITUDE_NORMALIZATION:
+        group_absmax = tl.load(
+            group_absmax_ptr + qparam, mask=qparam_mask, other=0.0
+        ).to(tl.float32)
+    else:
+        group_absmax = 0.0
 
     for step in tl.static_range(0, TOTAL_STEPS):
         scale = calculate_candidate_scale(
@@ -651,8 +742,10 @@ def _grid_search_observer_triton_split_kernel(
             values,
             quantized,
             importance,
+            group_absmax,
             norm,
             HAS_IMPORTANCE=HAS_IMPORTANCE,
+            HAS_MAGNITUDE_NORMALIZATION=HAS_MAGNITUDE_NORMALIZATION,
             COMPUTE_DTYPE=OBSERVED_DTYPE,
             ROUND_ERROR=False,
         )

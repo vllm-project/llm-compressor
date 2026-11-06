@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
@@ -15,6 +16,7 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
+    NUM_EXPERTS_CONFIG_KEYS,
     FusedExpertsProtocol,
     MoEConfig,
     get_use_experts_implementation_args,
@@ -203,6 +205,44 @@ class ExpertMLPWithoutGate(ExpertMLP):
         return self.down_proj(self.act_fn(self.up_proj(hidden_states)))
 
 
+def _group_tokens_by_expert(
+    top_k_index: torch.Tensor, num_experts: int
+) -> tuple[torch.Tensor, torch.Tensor, list[int]]:
+    """Group routed tokens by expert with one host read of the counts.
+
+    ``top_k_index`` is ``[num_tokens, top_k]``. Per-expert ``torch.where``
+    synchronizes because the number of hits is data-dependent. Sorting once
+    and reading a fixed-size histogram back once is a single sync per layer.
+
+    Assignments are laid out slot-major (slot 0 across tokens, then slot 1,
+    ...) and stable-sorted by expert id. Each expert's slice then matches
+    ``torch.where`` on a ``[top_k, num_tokens]`` mask. ``index_add_`` and
+    REAP saliency both depend on that order.
+
+    :return: token indices, top-k slots, and one count per expert, including
+        zeros
+    """
+    num_tokens, top_k = top_k_index.shape
+    # [top_k, num_tokens] flattened in row-major order, matching torch.where.
+    expert_ids = top_k_index.transpose(0, 1).reshape(-1).to(dtype=torch.long)
+    token_indices = torch.arange(num_tokens, device=expert_ids.device).repeat(top_k)
+    top_k_pos = torch.arange(top_k, device=expert_ids.device).repeat_interleave(
+        num_tokens
+    )
+
+    order = torch.argsort(expert_ids, stable=True)
+    token_indices = token_indices[order]
+    top_k_pos = top_k_pos[order]
+
+    # Fixed-length histogram. CUDA bincount still runs aminmax and copies the
+    # min and max expert id back to the host to size its output, even with
+    # minlength set, so it would sync before this count read.
+    counts = torch.zeros(num_experts, dtype=torch.long, device=expert_ids.device)
+    if expert_ids.numel() > 0:
+        counts.scatter_add_(0, expert_ids, torch.ones_like(expert_ids))
+    return token_indices, top_k_pos, counts.tolist()
+
+
 class LinearExperts2D(torch.nn.ModuleList):
     """
 
@@ -212,18 +252,18 @@ class LinearExperts2D(torch.nn.ModuleList):
 
     """
 
+    num_experts: int
+    intermediate_size: int
     is_concatenated: ClassVar[bool]
     is_transposed: ClassVar[bool]
     has_bias: ClassVar[bool]
     has_gate: ClassVar[bool]
     _apply_gate: ClassVar[Callable[[torch.Tensor], torch.Tensor]]
+    novices: torch.nn.Parameter | None
 
     # override when the generic gate_up_proj split does not fit the model
     expert_cls_with_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithGate
     expert_cls_without_gate: ClassVar[type[ExpertMLP]] = ExpertMLPWithoutGate
-
-    num_experts: int
-    intermediate_size: int
 
     # custom model definitions
     _registry: ClassVar[dict[type[torch.nn.Module], type["LinearExperts2D"]]] = dict()
@@ -303,8 +343,13 @@ class LinearExperts2D(torch.nn.ModuleList):
         and fuse any extra qparams alongside. Compressed experts (no
         ``weight``, packed tensors present) replace those Parameters with
         serialization-only nested modules.
+
+        The fused module is rebuilt at this module's *current* expert count,
+        which may be narrower than the source config's (e.g. after expert
+        pruning), so no expert slots are left uninitialized.
         """
         experts_cls, config = self._require_source_metadata()
+        config = _narrowed_config(config, self.num_experts)
         pack_mode = self._expert_pack_mode()
 
         # ``self.parameters()`` may yield meta tensors for a disk-offloaded module.
@@ -334,6 +379,12 @@ class LinearExperts2D(torch.nn.ModuleList):
             if self.has_bias:
                 for index in range(self.num_experts):
                     self[index].copy_bias_to_experts_module(fused, index)
+
+        # novices remain identical; skip the assignment for modules without
+        # them, so e.g. REAP-pruned layers don't serialize an empty tensor
+        if self.novices is not None:
+            with torch.device(construction_device):
+                fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
 
         offload_kwargs = get_cache_init_kwargs(self)
         offload_module(fused, **offload_kwargs)
@@ -495,6 +546,9 @@ class LinearExperts2D(torch.nn.ModuleList):
         self.limit = moe_config.limit
         self.swiglu_limit = moe_config.limit
 
+        # MoNe novices
+        self.register_parameter("novices", None)
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -503,29 +557,68 @@ class LinearExperts2D(torch.nn.ModuleList):
     ) -> torch.Tensor:
         final_hidden_states = torch.zeros_like(hidden_states)
 
-        # create tokens mask
+        # Novice ids sit above the real experts. Group the whole id space so
+        # those ids sort after the experts, then only walk the expert prefix.
+        num_tokens = top_k_index.shape[0]
+        num_novices = 0 if self.novices is None else self.novices.shape[0]
+        total_experts = self.num_experts + num_novices
+
         with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(top_k_index, self.num_experts)
-            expert_mask = expert_mask.permute(2, 1, 0)
-
-        for expert_index in range(self.num_experts):
-            # select tokens for this expert
-            top_k_pos, token_indices = torch.where(expert_mask[expert_index])
-
-            # apply expert
-            expert = self[expert_index]
-            if get_calibrate_all_experts_flag():
-                expert_output = expert(hidden_states)[token_indices]
-            else:
-                expert_output = expert(hidden_states[token_indices])
-
-            # apply weighting to outputs
-            expert_weights = top_k_weights[token_indices, top_k_pos, None]
-            weighted_output = expert_output * expert_weights
-
-            # accumulate using index_add_ to match eager implementation exactly
-            final_hidden_states.index_add_(
-                0, token_indices, weighted_output.to(final_hidden_states.dtype)
+            token_indices, top_k_pos, counts = _group_tokens_by_expert(
+                top_k_index, total_experts
             )
 
+        calibrate_all = get_calibrate_all_experts_flag()
+        offset = 0
+        for expert_index, count in enumerate(counts[: self.num_experts]):
+            expert_tokens = token_indices[offset : offset + count]
+            expert_slots = top_k_pos[offset : offset + count]
+            offset += count
+
+            # An expert with no routed tokens contributes nothing. Skip it
+            # unless calibration must run every expert on the full batch.
+            if count == 0 and not calibrate_all:
+                continue
+
+            expert = self[expert_index]
+            if calibrate_all:
+                expert_output = expert(hidden_states)[expert_tokens]
+            else:
+                expert_output = expert(hidden_states[expert_tokens])
+
+            expert_weights = top_k_weights[expert_tokens, expert_slots, None]
+            weighted_output = expert_output * expert_weights
+
+            # Experts run in index order. Within an expert, tokens stay in the
+            # slot-major where-scan order so repeated hits accumulate the same way.
+            final_hidden_states.index_add_(
+                0, expert_tokens, weighted_output.to(final_hidden_states.dtype)
+            )
+
+        # Add MoNe novices
+        if self.novices is not None:
+            novice_top_k_index = (top_k_index - self.num_experts).clamp_min(0)
+            novice_top_k_weights = torch.where(
+                top_k_index >= self.num_experts,
+                top_k_weights,
+                0,
+            ).to(self.novices.dtype)
+
+            novice_weights = self.novices.new_zeros(num_tokens, num_novices)
+            novice_weights.scatter_add_(1, novice_top_k_index, novice_top_k_weights)
+
+            novice_weighted_output = novice_weights @ self.novices
+            final_hidden_states += novice_weighted_output.to(final_hidden_states.dtype)
+
         return final_hidden_states
+
+
+def _narrowed_config(config: PreTrainedConfig, num_experts: int) -> PreTrainedConfig:
+    """Copy ``config`` with its expert-count fields set to ``num_experts``, so
+    a fused experts module can be rebuilt at a (possibly pruned) width without
+    mutating the config it was recorded from."""
+    narrowed = copy.copy(config)
+    for key in NUM_EXPERTS_CONFIG_KEYS:
+        if hasattr(narrowed, key):
+            setattr(narrowed, key, num_experts)
+    return narrowed

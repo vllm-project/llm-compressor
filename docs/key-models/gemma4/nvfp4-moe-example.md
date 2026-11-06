@@ -2,7 +2,7 @@
 
 This example quantizes the `google/gemma-4-26B-A4B-it` sparse MoE model to NVFP4 (weights and activations quantized to FP4) using data-driven PTQ with calibration. The `SequentialGemma4TextExperts` modules are applied automatically by the pipeline to enable proper expert handling and vLLM compatibility.
 
-The full example script can be found [here](../../../examples/quantization_w4a4_fp4/gemma4_example.py).
+The full example script can be found [here](https://github.com/vllm-project/llm-compressor/blob/main/examples/quantization_w4a4_fp4/gemma4_example.py).
 
 ### Code Walkthrough
 
