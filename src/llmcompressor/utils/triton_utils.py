@@ -103,7 +103,7 @@ def quantize_dequantize(
     NUM_BITS: tl.constexpr,
     HAS_ZP: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
-    USE_FP8_E4B15: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr = False,
 ):
     """GPTQ-style QDQ shared by MSE and importance-weighted observer kernels."""
     normalized = tldevice.div_rn(values, scale)
