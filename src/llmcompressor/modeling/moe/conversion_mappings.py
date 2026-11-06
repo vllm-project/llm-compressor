@@ -171,23 +171,9 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
 }
 
 ARCH_TO_2D_MAPPINGS = {
-    "beam": (
-        ["mlp.experts.gate_up_proj", "mlp.experts.down_proj"],
-        [
-            WeightRenaming(
-                source_patterns=r"\.experts\.(\d+)\.gate_proj\.",
-                target_patterns=r".experts.\1.gate_proj.",
-            ),
-            WeightRenaming(
-                source_patterns=r"\.experts\.(\d+)\.up_proj\.",
-                target_patterns=r".experts.\1.up_proj.",
-            ),
-            WeightRenaming(
-                source_patterns=r"\.experts\.(\d+)\.down_proj\.",
-                target_patterns=r".experts.\1.down_proj.",
-            ),
-        ],
-    ),
+    # Beam checkpoints already store per-expert 2D projections, so only the default
+    # fuse-to-3D converters need to be dropped.
+    "beam": (["mlp.experts.gate_up_proj", "mlp.experts.down_proj"], []),
     "deepseek_v4": (
         [".experts.gate_up_proj", ".experts.down_proj"],
         [
