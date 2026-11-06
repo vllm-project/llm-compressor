@@ -12,17 +12,16 @@ from transformers import (
     PreTrainedConfig,
     PreTrainedModel,
 )
-from transformers.conversion_mapping import (
-    register_checkpoint_conversion_mapping,
-)
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
+    get_conversion_mapping_names,
     get_linearize_load_mappings,
     has_linearize_load_mappings,
     set_save_conversion_mapping,
+    temporary_checkpoint_conversion_mappings,
 )
 from .linear_experts import LinearExperts2D
 
@@ -67,6 +66,14 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
     2. Post-load conversion: If no conversion mappings exist, the model is loaded
         normally and then linearized via `linearize_moe`.
 
+    Under the first pathway, the linearized conversion mapping is registered under
+    every model type present in the loaded config tree which shares the loaded
+    model type's conversion pattern (e.g. both `glm5_next` and its text backbone's
+    `glm5_next_text`), since Transformers resolves conversion mappings per
+    sub-model. These registrations are undone when the context exits, so loads of
+    checkpoints with the architecture's original (e.g. fused 3D) layout are
+    unaffected.
+
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     """
     # Patch replace_with_fp8_linear to skip expert modules
@@ -83,35 +90,32 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         config = AutoConfig.from_pretrained(*args, **kwargs)
         model_type = config.model_type
+        model_stub = args[0] if args else kwargs.get("pretrained_model_name_or_path")
 
-        # model is 3d (or otherwise doesn't have mappings)
-        # fall back to post-load conversion
-        if not has_linearize_load_mappings(model_type):
-            model = original_from_pretrained(*args, **kwargs)
-            linearize_moe(model)
-            return model
+        # pre-quantized compressed-tensors checkpoints may rewrite conversion
+        # mappings in ways which detach them from unquantized modules (e.g. the
+        # glm5_next conv1d fusion of NVFP4 expert-only checkpoints); guard
+        # against that for the checkpoint being loaded
+        from llmcompressor.transformers.compression.quantized_loading import (
+            checkpoint_aware_weight_conversions,
+        )
 
-        # prepare to load linearized weights
-        experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
-        linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
-        register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
-        register_checkpoint_conversion_mapping(model_type, load_map, overwrite=True)
+        with checkpoint_aware_weight_conversions(
+            model_stub, revision=kwargs.get("revision")
+        ):
+            return _load_linearized(
+                original_from_pretrained,
+                model_type,
+                args,
+                kwargs,
+                config=config,
+                register_mapping=register_mapping,
+            )
 
-        # load model
-        model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
-
-        # prepare for saving to be called later
-        clear_patch_mapping()
-        set_save_conversion_mapping(model, save_map)
-        register_checkpoint_conversion_mapping(model_type, save_map, overwrite=True)
-
-        for _, module in get_linearized_moes(model):
-            module._source_experts_cls = experts_cls
-            module._source_config = _experts_config(module, model)
-
-        return model
-
-    with patch_attr(model_cls, "from_pretrained", patched):
+    with (
+        patch_attr(model_cls, "from_pretrained", patched),
+        temporary_checkpoint_conversion_mappings() as register_mapping,
+    ):
         try:
             yield
         finally:
@@ -121,6 +125,55 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                     f"are loading with a model class other than {model_cls.__name__}, "
                     "please pass as argument to `load_quantizable_moe`"
                 )
+
+
+def _load_linearized(
+    original_from_pretrained,
+    model_type,
+    args,
+    kwargs,
+    config,
+    register_mapping,
+):
+    """
+    Load a model with linearized (2D) experts when mappings are registered for
+    its architecture, falling back to a post-load conversion otherwise.
+    """
+    # model is 3d (or otherwise doesn't have mappings)
+    # fall back to post-load conversion
+    if not has_linearize_load_mappings(model_type):
+        model = original_from_pretrained(*args, **kwargs)
+        linearize_moe(model)
+        return model
+
+    # prepare to load linearized weights
+    experts_cls, load_map, save_map = get_linearize_load_mappings(model_type)
+    linear_experts_2d_cls = LinearExperts2D.get_linear_experts_cls(experts_cls)
+    register_patch_mapping({experts_cls.__name__: linear_experts_2d_cls})
+
+    # sub-models resolve conversion mappings by their own model_type (e.g. the
+    # `glm5_next_text` text backbone of a `glm5_next` model), so the mapping
+    # must be registered under every model type of the config tree which
+    # shares the loaded model_type's conversion pattern; the registrations are
+    # undone when the surrounding `load_quantizable_moe` context exits
+    mapping_names = get_conversion_mapping_names(model_type, config)
+    for name in mapping_names:
+        register_mapping(name, load_map)
+
+    # load model
+    model: PreTrainedModel = original_from_pretrained(*args, **kwargs)
+
+    # prepare for saving to be called later
+    clear_patch_mapping()
+    set_save_conversion_mapping(model, save_map)
+    for name in mapping_names:
+        register_mapping(name, save_map)
+
+    for _, module in get_linearized_moes(model):
+        module._source_experts_cls = experts_cls
+        module._source_config = _experts_config(module, model)
+
+    return model
 
 
 def linearize_moe(model: PreTrainedModel):

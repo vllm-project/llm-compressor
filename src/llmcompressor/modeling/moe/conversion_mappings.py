@@ -1,9 +1,15 @@
+import contextlib
+from collections.abc import Callable, Iterator
+
 import torch
 from loguru import logger
-from transformers import PreTrainedModel
+from transformers import PreTrainedConfig, PreTrainedModel
+from transformers import conversion_mapping as _conversion_mapping
 from transformers.conversion_mapping import (
     _MODEL_TO_CONVERSION_PATTERN,
+    USER_REGISTERED_MAPPINGS,
     get_checkpoint_conversion_mapping,
+    register_checkpoint_conversion_mapping,
 )
 from transformers.core_model_loading import (
     WeightConverter,
@@ -16,6 +22,8 @@ from .helpers import import_or_none
 __all__ = [
     "has_linearize_load_mappings",
     "get_linearize_load_mappings",
+    "get_conversion_mapping_names",
+    "temporary_checkpoint_conversion_mappings",
     "set_save_conversion_mapping",
     "patch_moe_mappings",
 ]
@@ -71,6 +79,13 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         ],
     ),
     "glm5_next": (
+        "transformers.models.glm5_next.configuration_glm5_next.Glm5NextTextConfig",
+        "transformers.models.glm5_next.modeling_glm5_next.Glm5NextTextExperts",
+    ),
+    # text-only stub of glm5_next (Glm5NextTextModel), whose loads resolve
+    # conversions through their own model_type rather than the multimodal
+    # root's, and whose checkpoints share the glm5_next layout
+    "glm5_next_text": (
         "transformers.models.glm5_next.configuration_glm5_next.Glm5NextTextConfig",
         "transformers.models.glm5_next.modeling_glm5_next.Glm5NextTextExperts",
     ),
@@ -293,6 +308,120 @@ def get_linearize_load_mappings(
             )
 
     return experts_cls, load_mappings, save_mappings
+
+
+def _config_tree_model_types(config: PreTrainedConfig) -> set[str]:
+    """
+    The ``model_type`` of ``config`` together with that of every
+    ``PreTrainedConfig`` nested within it (e.g. ``config.text_config``,
+    ``config.vision_config``, recursively).
+
+    Transformers resolves conversion mappings per sub-model: every
+    ``PreTrainedModel`` submodule is looked up by its class name and then by
+    its own ``config.model_type`` (see transformers'
+    ``get_model_conversion_mapping``), so a mapping must be registered under
+    each of these model types in order to reach every submodule of a load of
+    ``config``.
+    """
+    model_types = set()
+    seen = set()
+    pending = [config]
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        model_types.add(current.model_type)
+        for value in vars(current).values():
+            values = value if isinstance(value, (list, tuple)) else (value,)
+            pending.extend(
+                item for item in values if isinstance(item, PreTrainedConfig)
+            )
+    return model_types
+
+
+def get_conversion_mapping_names(
+    model_type: str, config: PreTrainedConfig
+) -> list[str]:
+    """
+    Cache names under which the conversion mapping of ``model_type`` should be
+    registered in order to cover a load of ``config``.
+
+    These are the model types present in the config tree of ``config`` which
+    resolve to the same conversion pattern as ``model_type``. Every pattern
+    alias present in the config must be registered explicitly: the alias
+    entries which Transformers' global conversion cache holds (e.g.
+    ``glm5_next_text`` for the ``glm5_next`` pattern) are snapshot copies of
+    the architecture's original mapping, taken when the cache is first built,
+    and are never updated by a registration performed for ``model_type``
+    alone.
+
+    Aliases which are not present in the config tree being loaded are
+    excluded, so cross-family aliases of a pattern (e.g. ``qwen3_omni_moe_text``,
+    whose pattern ``qwen2_moe`` belongs to a different family of
+    architectures) are never registered.
+    """
+    pattern = _MODEL_TO_CONVERSION_PATTERN.get(model_type, model_type)
+    return [model_type] + sorted(
+        nested_type
+        for nested_type in _config_tree_model_types(config)
+        if nested_type != model_type
+        and _MODEL_TO_CONVERSION_PATTERN.get(nested_type, nested_type) == pattern
+    )
+
+
+@contextlib.contextmanager
+def temporary_checkpoint_conversion_mappings() -> (
+    Iterator[Callable[[str, list[WeightTransform]], None]]
+):
+    """
+    Context manager which yields a function to register conversion mappings
+    into Transformers' global checkpoint conversion cache, undoing on exit
+    every registration performed through it.
+
+    Follows the snapshot/restore pattern of :class:`patch_moe_mappings`: a
+    linearized mapping is only a property of the load which registered it, so
+    restoring the previous entries keeps a later load of a checkpoint with the
+    architecture's original (e.g. fused 3D) layout, in the same process,
+    unaffected. Saving is unaffected either way, since ``save_pretrained``
+    reads the conversions set directly on the model by
+    :func:`set_save_conversion_mapping` rather than the global cache.
+
+    The prior entry of a name (which may be none) is captured the first time
+    the name is registered, so a name registered several times (e.g. with its
+    load mapping and then its save mapping) is restored to its pre-context
+    entry.
+
+    :yield: ``register(name, mapping)`` function which registers ``mapping``
+        under ``name``, snapshotting the name's prior entry on first
+        registration
+    """
+    # name -> (prior cache entry, which may be None when absent, and whether
+    # the name was in transformers' USER_REGISTERED_MAPPINGS bookkeeping)
+    saved: dict[str, tuple[list[WeightTransform] | None, bool]] = {}
+
+    def register(name: str, mapping: list[WeightTransform]) -> None:
+        if name not in saved:
+            saved[name] = (
+                get_checkpoint_conversion_mapping(name),
+                name in USER_REGISTERED_MAPPINGS,
+            )
+        register_checkpoint_conversion_mapping(name, mapping, overwrite=True)
+
+    try:
+        yield register
+    finally:
+        cache = _conversion_mapping._checkpoint_conversion_mapping_cache
+        if cache is not None:
+            for name, (previous, user_registered) in saved.items():
+                if previous is None:
+                    cache.pop(name, None)
+                else:
+                    cache[name] = previous
+                if user_registered:
+                    USER_REGISTERED_MAPPINGS.add(name)
+                else:
+                    USER_REGISTERED_MAPPINGS.discard(name)
 
 
 class patch_moe_mappings:
