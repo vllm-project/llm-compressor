@@ -10,6 +10,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 )
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.patch.deepseek_v4_patch import install_dsv4_chat_template
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
@@ -32,6 +33,13 @@ with load_context():
 
 tokenizer = AutoTokenizer.from_pretrained("RedHatAI/DeepSeek-V4-Flash-BF16")
 
+# DeepSeek-V4 has no Jinja chat template, so install one backed by the official
+# checkpoint's `encode_messages` helper. This renders conversations in the format
+# the model was trained on.
+install_dsv4_chat_template(
+    tokenizer, "deepseek-ai/DeepSeek-V4-Flash-0731", thinking_mode="chat"
+)
+
 # Select calibration dataset.
 DATASET_ID = "HuggingFaceH4/ultrachat_200k"
 DATASET_SPLIT = "train_sft"
@@ -50,22 +58,9 @@ ds = ds.shuffle(seed=42)
 
 
 def preprocess(example):
-    # DeepSeek-V4 does not have a traditional chat template.
-    # Encode manually per https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/tree/main/encoding
-    BOS = "<｜begin▁of▁sentence｜>"
-    EOS = "<｜end▁of▁sentence｜>"
-    text = BOS
-    for message in example["messages"]:
-        role = message["role"]
-        content = message["content"]
-        if role == "system":
-            text += content
-        elif role == "user":
-            text += f"<｜User｜>{content}"
-        elif role == "assistant":
-            text += f"<｜Assistant｜></think>{content}{EOS}"
-
-    return {"text": text}
+    # conversations are rendered by DeepSeek-V4's `encode_messages` helper,
+    # which was installed as the tokenizer's chat template above
+    return {"text": tokenizer.apply_chat_template(example["messages"])}
 
 
 ds = ds.map(preprocess)
