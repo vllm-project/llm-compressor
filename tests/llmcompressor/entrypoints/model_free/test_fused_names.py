@@ -23,6 +23,7 @@ EXPERT = "model.layers.1.mlp.experts"
 V4_ATTN = "layers.3.attn"
 GDN = "model.language_model.layers.5.linear_attn"
 EXAONE_MLP = "transformer.h.6.mlp"
+BAILING_ATTN = "model.layers.7.attention"
 
 # fused groups of a checkpoint mixing the layer types that vLLM packs differently
 FUSED_GROUPS = [
@@ -47,6 +48,8 @@ FUSED_GROUPS = [
     [f"{V4_ATTN}.compressor.wkv", f"{V4_ATTN}.compressor.wgate"],
     # exaone 3 and 3.5 mlp
     [f"{EXAONE_MLP}.c_fc_0", f"{EXAONE_MLP}.c_fc_1"],
+    # bailing moe v3 delta attention
+    [f"{BAILING_ATTN}.{n}" for n in ("q_proj", "k_proj", "v_proj", "b_proj")],
 ]
 UNFUSED = [
     f"{KDA_ATTN}.f_b_proj",
@@ -57,6 +60,9 @@ UNFUSED = [
     f"{V4_ATTN}.wo_b",
     f"{GDN}.out_proj",
     f"{EXAONE_MLP}.c_proj",
+    f"{BAILING_ATTN}.g_proj",
+    f"{BAILING_ATTN}.f_proj",
+    f"{BAILING_ATTN}.dense",
 ]
 MODULE_NAMES = [name for group in FUSED_GROUPS for name in group] + UNFUSED
 

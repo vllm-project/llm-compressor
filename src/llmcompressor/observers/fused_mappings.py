@@ -75,6 +75,20 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
         ("q_proj", "k_proj", "v_proj", "g_proj"),
         context_names=("a_proj", "b_proj"),
     ),
+    # Bailing MoE V3 (transformers BailingHybrid) delta attention, checkpoint
+    # names then transformers names. f_proj is not packed, but it tells these
+    # layers apart from OLMo-Hybrid gated delta nets, whose b_proj vLLM does
+    # not pack. g_proj is not packed either
+    FusedMapping(
+        "qkvb_proj",
+        ("q_proj", "k_proj", "v_proj", "b_proj"),
+        context_names=("f_proj",),
+    ),
+    FusedMapping(
+        "qkvb_proj",
+        ("q_proj", "k_proj", "v_proj", "b_proj"),
+        context_names=("forget_gate.f_proj",),
+    ),
     # Multi-latent attention (DeepSeek V2/V3/V3.2, Kimi). Kimi MLA layers with
     # `mla_use_output_gate` also pack g_proj, into fused_qkv_a_g_proj
     FusedMapping(

@@ -34,6 +34,7 @@ COVERED_WITH_SIBLINGS = {
         "a_proj",
         "b_proj",
     ),
+    _key("qkvb_proj", "q_proj", "k_proj", "v_proj", "b_proj"): ("f_proj",),
 }
 
 # vLLM groups that llm-compressor does not need to fuse, or fuses in a way this
@@ -147,9 +148,6 @@ NOT_YET_COVERED = {
     ),
     _key("qkvr", "wq_du", "wk_dv", "wv_dv", "wr_du"): (
         "Inkling packs q/k/v with r_proj (checkpoint wq_du/wk_dv/wv_dv/wr_du)"
-    ),
-    _key("qkvb_proj", "q_proj", "k_proj", "v_proj", "b_proj"): (
-        "Bailing MoE V3 delta attention packs b_proj with q/k/v"
     ),
 }
 

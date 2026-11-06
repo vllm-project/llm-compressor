@@ -21,6 +21,7 @@ MLA = ("q_a_proj", "kv_a_proj_with_mqa")
 GDN_QKVZ = ("in_proj_qkv", "in_proj_z")
 GDN_BA = ("in_proj_b", "in_proj_a")
 OLMO_GDN = ("q_proj", "k_proj", "v_proj", "g_proj")
+BAILING_KDA = ("q_proj", "k_proj", "v_proj", "b_proj")
 
 
 def test_fused_mappings_well_formed():
@@ -64,10 +65,14 @@ def test_fused_mappings_well_formed():
         ({*OLMO_GDN, "a_proj", "b_proj", "o_proj"}, [OLMO_GDN]),
         # gated attention (e.g. laguna, step 3.5): g_proj is not packed
         ({*OLMO_GDN, "o_proj"}, [("q_proj", "k_proj", "v_proj")]),
-        # bailing hybrid delta attention: g_proj is not packed
+        # without a_proj and f_proj, b_proj and g_proj are not packed
+        ({*OLMO_GDN, "b_proj", "o_proj"}, [("q_proj", "k_proj", "v_proj")]),
+        # bailing moe v3 delta attention: g_proj and f_proj are not packed.
+        # checkpoint names, then transformers BailingHybrid names
+        ({*BAILING_KDA, "g_proj", "f_proj", "o_proj"}, [BAILING_KDA]),
         (
-            {*OLMO_GDN, "b_proj", "o_proj", "forget_gate.f_proj"},
-            [("q_proj", "k_proj", "v_proj")],
+            {*BAILING_KDA, "g_proj", "forget_gate.f_proj", "o_proj"},
+            [BAILING_KDA],
         ),
         # multi-latent attention, with and without the kimi output gate
         ({*MLA, "q_b_proj", "kv_b_proj", "o_proj", "g_proj"}, [(*MLA, "g_proj")]),
@@ -165,10 +170,42 @@ def test_fuse_weight_observers_exaone_mlp():
     assert not model.c_proj.weight_observer.fusion_handler.is_fused
 
 
+def test_fuse_weight_observers_bailing_delta_attention():
+    """
+    vLLM packs Bailing MoE V3 delta attention q/k/v/b_proj into qkvb_proj, and
+    keeps g_proj, o_proj and the forget gate f_proj separate
+    """
+    model = _module_with(*BAILING_KDA, "g_proj", "o_proj")
+    model.forget_gate = _module_with("f_proj")
+
+    fuse_weight_observers(model)
+
+    for name in BAILING_KDA:
+        layer = getattr(model, name)
+        expected = {getattr(model, n) for n in BAILING_KDA if n != name}
+        assert _fused_partners(layer) == expected, name
+    for layer in (model.g_proj, model.o_proj, model.forget_gate.f_proj):
+        assert not layer.weight_observer.fusion_handler.is_fused
+
+
 def test_fuse_weight_observers_requires_same_quantization():
     """vLLM cannot load a packed weight whose layers are quantized differently"""
     model = _module_with(*KDA)
     model.b_proj = Linear(32, 32)
+
+    with pytest.raises(AssertionError, match="no weight observer"):
+        fuse_weight_observers(model)
+
+
+def test_fuse_weight_observers_rejects_bailing_b_proj_unquantized():
+    """
+    Bailing MoE V3 delta attention packs b_proj into qkvb_proj, so leaving it
+    unquantized is rejected as for any packed group. vLLM rejects that layout
+    for NVFP4 checkpoints too
+    """
+    model = _module_with("q_proj", "k_proj", "v_proj", "g_proj", "o_proj")
+    model.b_proj = Linear(32, 32)
+    model.forget_gate = _module_with("f_proj")
 
     with pytest.raises(AssertionError, match="no weight observer"):
         fuse_weight_observers(model)
