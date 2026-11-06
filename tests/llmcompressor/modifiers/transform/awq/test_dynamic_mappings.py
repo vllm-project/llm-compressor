@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 import torch
 from compressed_tensors.quantization import apply_quantization_config
@@ -661,3 +663,116 @@ class TestQwen2_5_VLMappings:
                         assert not re.search(
                             r"visual\.", name
                         ), f"vision module was included: {name}"
+
+
+class _TopKRouter(torch.nn.Module):
+    """Stand-in for transformers' TopKRouter: a plain module with a weight, no Linear"""
+
+    def __init__(self, hidden_size, num_experts):
+        super().__init__()
+        self.weight = torch.nn.Parameter(torch.randn(num_experts, hidden_size))
+
+
+@pytest.mark.unit
+class TestHybridMoeRouterBalancing:
+    """The router reads the smoothed post_attention_layernorm output, so it must be a
+    balance layer or AWQ smoothing changes the expert selection."""
+
+    def test_router_is_resolved_as_balance_layer(self):
+        model = _make_hybrid_model(num_layers=4, moe=True, num_experts=4)
+        for layer in model.model.layers:
+            layer["mlp"]["gate"] = _TopKRouter(hidden_size=8, num_experts=4)
+            layer["mlp"]["shared_expert_gate"] = Linear(8, 1, bias=False)
+        mappings = build_hybrid_attention_mappings(model)
+
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM",
+                ignore=["re:.*mlp.gate$", "re:.*shared_expert_gate$"],
+            ).resolve_quantization_config(),
+        )
+        awq = AWQModifier(mappings=mappings)
+        awq._set_resolved_mappings(model)
+
+        post_attention_mappings = [
+            mapping
+            for mapping in awq._resolved_mappings
+            if mapping.smooth_name.endswith("post_attention_layernorm")
+        ]
+        assert len(post_attention_mappings) == 4
+        for index, mapping in enumerate(post_attention_mappings):
+            assert mapping.parent_name == f"model.layers.{index}.mlp"
+            assert mapping.balance_names.count(f"model.layers.{index}.mlp.gate") == 1
+
+    def test_smoothing_preserves_qwen3_5_moe_function(self):
+        """Random scales through every resolved mapping, applied as `_smooth` does
+        (smooth layer / s, balance layers * s; `_smooth` itself is a closure inside
+        `_apply_smoothing`), must leave a tiny Qwen3.5-MoE's logits unchanged."""
+        from transformers import Qwen3_5MoeForCausalLM, Qwen3_5MoeTextConfig
+
+        from llmcompressor.modeling.moe.linearize import linearize_moe
+        from llmcompressor.modeling.offset_norm import norm_calibration_context
+
+        torch.manual_seed(0)
+        config = Qwen3_5MoeTextConfig(
+            vocab_size=128,
+            hidden_size=64,
+            num_hidden_layers=4,
+            layer_types=["linear_attention"] * 3 + ["full_attention"],
+            num_attention_heads=2,
+            num_key_value_heads=1,
+            head_dim=256,
+            linear_num_key_heads=2,
+            linear_num_value_heads=2,
+            linear_key_head_dim=16,
+            linear_value_head_dim=16,
+            num_experts=4,
+            num_experts_per_tok=2,
+            moe_intermediate_size=32,
+            shared_expert_intermediate_size=32,
+        )
+        model = Qwen3_5MoeForCausalLM(config).float().eval()
+        with torch.no_grad():  # learned-looking offset norms and routers
+            for module in model.modules():
+                if type(module).__name__ == "Qwen3_5MoeRMSNorm":
+                    module.weight.normal_(0.0, 0.3)
+                elif type(module).__name__ == "Qwen3_5MoeTopKRouter":
+                    module.weight.normal_(0.0, 0.5)
+        linearize_moe(model)
+        input_ids = torch.randint(0, config.vocab_size, (1, 32))
+
+        # resolve on a quantization-configured copy, scale the original by name
+        qmodel = copy.deepcopy(model)
+        apply_quantization_config(
+            qmodel,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM",
+                ignore=["lm_head", "re:.*mlp.gate$", "re:.*shared_expert_gate$"],
+            ).resolve_quantization_config(),
+        )
+        awq = AWQModifier(mappings=build_hybrid_attention_mappings(qmodel))
+        awq._set_resolved_mappings(qmodel)
+        assert any(
+            type(layer).__name__ == "Qwen3_5MoeTopKRouter"
+            for mapping in awq._resolved_mappings
+            for layer in mapping.balance_layers
+        )
+
+        generator = torch.Generator().manual_seed(0)
+        with torch.no_grad(), norm_calibration_context(model):
+            modules = dict(model.named_modules())
+            reference = model(input_ids=input_ids).logits
+            for mapping in awq._resolved_mappings:
+                smooth = modules[mapping.smooth_name]
+                scales = torch.rand(smooth.weight.shape[0], generator=generator) + 0.5
+                if smooth.weight.ndim == 1:
+                    smooth.weight.div_(scales)
+                else:
+                    smooth.weight.div_(scales.view(-1, 1))
+                for name in mapping.balance_names:
+                    modules[name].weight.mul_(scales.view(1, -1))
+            smoothed = model(input_ids=input_ids).logits
+
+        relative = (smoothed - reference).norm() / reference.norm()
+        assert relative < 1e-4, f"smoothing changed the logits by {relative:.2e}"
