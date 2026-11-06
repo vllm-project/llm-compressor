@@ -81,8 +81,12 @@ def test_gptq_distributed_global_scale_writeback():
     # weight_global_scale must be consistently shaped across ranks, asserted
     # before any collective so a regression fails fast rather than deadlocking
     for module in modules:
+        assert torch.all(module.weight_scale > 0), "weight_scale must be positive"
         assert module.weight_global_scale.shape == torch.Size([1])
         assert module.weight_global_scale.dtype == torch.float32
+        assert torch.all(
+            module.weight_global_scale > 0
+        ), "weight_global_scale must be positive"
 
     # Every GPTQ parameter broadcast from the owning rank must match on all ranks.
     world_size = dist.get_world_size()
