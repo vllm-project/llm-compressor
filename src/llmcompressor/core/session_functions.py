@@ -158,28 +158,6 @@ class LifecycleCallbacks:
         return cls.event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=modules, **kwargs)
 
     @classmethod
-    def modules_added(cls, modules: dict[str, "Module"], **kwargs) -> ModifiedState:
-        """Notify modifiers about modules created during an active session.
-
-        Some model transformations add modules after a calibration scope has
-        started. Modifiers which attach per-module state can use
-        ``on_modules_added`` to initialize that state without reinitializing the
-        whole model.
-        """
-        session = active_session()
-        for modifier in session.lifecycle.recipe.modifiers:
-            callback = getattr(modifier, "on_modules_added", None)
-            if callback is not None:
-                callback(state=session.state, modules=modules, **kwargs)
-
-        return ModifiedState(
-            model=session.state.model,
-            optimizer=session.state.optimizer,
-            loss=session.state.loss,
-            modifier_data=None,
-        )
-
-    @classmethod
     def sequential_subgraph_end(
         cls, modules: list["Module"] | None = None, **kwargs
     ) -> ModifiedState:
