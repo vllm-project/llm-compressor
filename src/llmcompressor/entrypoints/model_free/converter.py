@@ -21,6 +21,7 @@ from llmcompressor.entrypoints.model_free.lifecycle import (
 from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
     has_microscale_scheme,
+    index_fused_weights,
     is_microscale_scheme,
 )
 from llmcompressor.modifiers.quantization.calibration import (
@@ -80,11 +81,11 @@ class ModelFreePtqConverter(Converter):
 
         # primary weight name -> names of the fused partners it loads
         self._fused_partners: dict[str, set[str]] | None = None
-        if weight_names is not None:
-            self._fused_partners = {}
-            for fused_group in get_fused_names(weight_names):
-                primary, *partners = fused_group.values()
-                self._fused_partners[primary] = set(partners)
+        self._checkpoint_layers: dict[str, dict[str, str]] = {}
+        if weight_names is not None and has_microscale_scheme(config):
+            self._checkpoint_layers, self._fused_partners = index_fused_weights(
+                weight_names
+            )
 
     def get_dependencies(self, weight_name: str) -> set[str]:
         """
@@ -198,7 +199,12 @@ class ModelFreePtqConverter(Converter):
     ) -> dict[str, torch.Tensor]:
         device = _infer_device(tensors)
 
-        fused_groups = get_fused_names(tensors.keys())
+        matched = list(_match_tensors_to_schemes(tensors, self.config))
+        # groups are made of the quantized weights, as in HIGGS. The job's other
+        # tensors and other shards only provide a mapping's context layers
+        fused_groups = get_fused_names(
+            (name for _, name, _ in matched), self._checkpoint_layers, tensors
+        )
         fused_name_to_fused_index: dict[str, int] = {
             name: index
             for index, fused_group in enumerate(fused_groups)
@@ -206,9 +212,7 @@ class ModelFreePtqConverter(Converter):
         }
         fused_modules: dict[int, dict[str, torch.nn.Module]] = defaultdict(dict)
 
-        for module_name, name, scheme in _match_tensors_to_schemes(
-            tensors, self.config
-        ):
+        for module_name, name, scheme in matched:
             validate_weight_for_quantization(tensors[name], scheme, name)
             module = initialize_quantized_linear(tensors[name], scheme, device)
 

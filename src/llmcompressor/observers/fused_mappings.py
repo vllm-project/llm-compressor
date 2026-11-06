@@ -75,6 +75,20 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
         ("q_proj", "k_proj", "v_proj", "g_proj"),
         context_names=("a_proj", "b_proj"),
     ),
+    # Bailing MoE V3 (transformers BailingHybrid) delta attention, checkpoint
+    # names then transformers names. f_proj is not packed, but it tells these
+    # layers apart from OLMo-Hybrid gated delta nets, whose b_proj vLLM does
+    # not pack. g_proj is not packed either
+    FusedMapping(
+        "qkvb_proj",
+        ("q_proj", "k_proj", "v_proj", "b_proj"),
+        context_names=("f_proj",),
+    ),
+    FusedMapping(
+        "qkvb_proj",
+        ("q_proj", "k_proj", "v_proj", "b_proj"),
+        context_names=("forget_gate.f_proj",),
+    ),
     # Multi-latent attention (DeepSeek V2/V3/V3.2, Kimi). Kimi MLA layers with
     # `mla_use_output_gate` also pack g_proj, into fused_qkv_a_g_proj
     FusedMapping(
@@ -103,12 +117,16 @@ FUSED_MODULE_NAMES: frozenset[str] = frozenset(
 )
 
 
-def resolve_fused_names(present_names: Collection[str]) -> list[tuple[str, ...]]:
+def resolve_fused_names(
+    present_names: Collection[str], context_layers: Collection[str] = ()
+) -> list[tuple[str, ...]]:
     """
     Resolve the fused groups among the layers present under one parent module.
 
-    A mapping applies when all of its `names` and `context_names` are present,
-    and those of its `optional_names` that are present join the group. This
+    A mapping applies when all of its `names` are in `present_names` and all
+    of its `context_names` are in `present_names` or `context_layers`. Those
+    of its `optional_names` that are in `present_names` join the group, so a
+    group is made of `present_names` alone. This
     follows vLLM, which packs a layer into whichever fused module exists on
     that parent. For example, Kimi `g_proj` is packed into `in_proj_qkvgfab` on
     delta attention layers and into `fused_qkv_a_g_proj` on MLA layers.
@@ -118,12 +136,17 @@ def resolve_fused_names(present_names: Collection[str]) -> list[tuple[str, ...]]
     resolves to one q/k/v/b/f_a group rather than a q/k/v group.
 
     :param present_names: layer names present under one parent, relative to it
+    :param context_layers: other layer names under that parent, e.g. ignored
+        ones or those of another checkpoint shard. They only satisfy
+        `context_names`, and never join a group
     :return: disjoint groups of layer names. The first name of each group is
         always one of its mapping's required `names`
     """
     candidates: list[tuple[str, ...]] = []
     for mapping in FUSED_MODULE_MAPPINGS:
-        if all(n in present_names for n in mapping.names + mapping.context_names):
+        if all(n in present_names for n in mapping.names) and all(
+            n in present_names or n in context_layers for n in mapping.context_names
+        ):
             optional = tuple(n for n in mapping.optional_names if n in present_names)
             candidates.append(mapping.names + optional)
 
