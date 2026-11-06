@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from loguru import logger
 from torch.nn import Module
+from transformers import PreTrainedModel
 
 from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
@@ -221,7 +222,7 @@ def build_step3p5_mappings(model: Module) -> list[AWQMapping] | None:
     return mappings
 
 
-def build_gemma4_mappings(model: Module) -> list[AWQMapping] | None:
+def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
     """
     Build AWQ mappings for Gemma4ForConditionalGeneration and
     Gemma4UnifiedForConditionalGeneration.
@@ -230,16 +231,13 @@ def build_gemma4_mappings(model: Module) -> list[AWQMapping] | None:
     - sliding_attention layers: have separate k_proj and v_proj (GQA)
     - full_attention layers: share k=v projection (no separate v_proj)
 
-    For sliding_attention layers with GQA, we skip the v_proj -> o_proj mapping
-    since v is separate from k. For full_attention layers, k and v are shared
-    so we map k_proj -> o_proj instead.
+    For sliding_attention layers with GQA, the v_proj -> o_proj mapping is
+    skipped since it would hit a GQA dimension mismatch. For full_attention
+    layers, k and v are shared, so the k_proj -> o_proj mapping is also
+    skipped since altering k_proj would change the attention behavior.
     """
-    config = getattr(model, "config", None)
-    if config is None:
-        return None
-
-    # VL models nest text config under text_config
-    text_config = getattr(config, "text_config", config)
+    config = model.config
+    text_config = config.get_text_config()
     layer_types = getattr(text_config, "layer_types", None)
     num_layers = getattr(text_config, "num_hidden_layers", None)
 
@@ -248,9 +246,11 @@ def build_gemma4_mappings(model: Module) -> list[AWQMapping] | None:
 
     # Find sliding and full attention layer indices
     sliding_indices = [
-        i for i in range(num_layers) if layer_types[i] == "sliding_attention"
+        i for i, t in enumerate(layer_types[:num_layers]) if t == "sliding_attention"
     ]
-    full_indices = [i for i in range(num_layers) if layer_types[i] == "full_attention"]
+    full_indices = [
+        i for i, t in enumerate(layer_types[:num_layers]) if t == "full_attention"
+    ]
 
     if not sliding_indices and not full_indices:
         return None
@@ -293,36 +293,27 @@ def build_gemma4_mappings(model: Module) -> list[AWQMapping] | None:
     all_re = "|".join(str(i) for i in range(num_layers))
     is_moe = bool(getattr(text_config, "enable_moe_block", False))
 
-    if is_moe:
-        mappings.extend(
+    # Dense MLP: pre_feedforward_layernorm -> mlp gate/up_proj
+    mappings.append(
+        AWQMapping(
+            f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm$",
             [
-                AWQMapping(
-                    f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm$",
-                    [
-                        f"re:.*layers\\.({all_re})\\.mlp\\.gate_proj$",
-                        f"re:.*layers\\.({all_re})\\.mlp\\.up_proj$",
-                    ],
-                ),
-                AWQMapping(
-                    f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm_2$",
-                    [
-                        f"re:.*layers\\.({all_re})\\.experts\\..*\\.gate_proj$",
-                        f"re:.*layers\\.({all_re})\\.experts\\..*\\.up_proj$",
-                    ],
-                ),
-            ]
+                f"re:.*layers\\.({all_re})\\.mlp\\.gate_proj$",
+                f"re:.*layers\\.({all_re})\\.mlp\\.up_proj$",
+            ],
         )
-    else:
-        mappings.extend(
-            [
-                AWQMapping(
-                    f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm$",
-                    [
-                        f"re:.*layers\\.({all_re})\\.mlp\\.gate_proj$",
-                        f"re:.*layers\\.({all_re})\\.mlp\\.up_proj$",
-                    ],
-                ),
-            ]
+    )
+
+    # MoE experts: pre_feedforward_layernorm_2 -> experts gate/up_proj
+    if is_moe:
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm_2$",
+                [
+                    f"re:.*layers\\.({all_re})\\.experts\\..*\\.gate_proj$",
+                    f"re:.*layers\\.({all_re})\\.experts\\..*\\.up_proj$",
+                ],
+            )
         )
 
     mappings.append(AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]))
@@ -336,7 +327,9 @@ def build_gemma4_mappings(model: Module) -> list[AWQMapping] | None:
     return mappings
 
 
-AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | None]] = {
+# Builders may require a `PreTrainedModel` even though the public entrypoint
+# accepts any `Module`, so the value type is relaxed to `Callable[...]`
+AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[..., list[AWQMapping] | None]] = {
     "Gemma4ForConditionalGeneration": build_gemma4_mappings,
     "Gemma4UnifiedForConditionalGeneration": build_gemma4_mappings,
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
