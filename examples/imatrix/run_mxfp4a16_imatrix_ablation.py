@@ -47,9 +47,7 @@ for _cache_var in ("HF_HOME", "HF_HUB_CACHE", "TRANSFORMERS_CACHE"):
 SKILL_ROOT = Path(os.environ.get("EVAL_AGENT_SKILL_DIR", ROOT / "eval-agent"))
 EVAL_AGENT = Path(os.environ.get("EVAL_AGENT", ROOT / ".venv/bin/eval-agent"))
 VLLM_ENV = Path(os.environ.get("VLLM_ENV", ROOT / ".venvs/vllm"))
-RHVENV_PYTHON = Path(
-    os.environ.get("RHVENV_PYTHON", ROOT / ".venvs/rhdev/bin/python")
-)
+RHVENV_PYTHON = Path(os.environ.get("RHVENV_PYTHON", ROOT / ".venvs/rhdev/bin/python"))
 VLLM_BINARY = Path(os.environ.get("VLLM_BINARY", VLLM_ENV / "bin/vllm"))
 LIGHTEVAL_ENV = Path(os.environ.get("LIGHTEVAL_ENV", ROOT / ".venvs/lighteval"))
 DATASET_ID = "mlabonne/open-perfectblend"
@@ -365,8 +363,7 @@ def baseline_specs() -> list[dict[str, Any]]:
 
 def _revision_info() -> dict[str, Any]:
     revisions = {
-        spec["id"]: PINNED_MODEL_REVISIONS[spec["id"]]
-        for spec in MODELS.values()
+        spec["id"]: PINNED_MODEL_REVISIONS[spec["id"]] for spec in MODELS.values()
     }
     return {
         "models": revisions,
