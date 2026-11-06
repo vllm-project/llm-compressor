@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Literal
+from typing import ClassVar
 
 import torch
 from compressed_tensors.config import (
@@ -121,6 +121,10 @@ class ExpertPruner(Converter):
         Only populated for non-uniform pruning
     """
 
+    # metrics accepted by `from_pretrained`; subclasses which score experts
+    # differently override this along with `_score_experts`
+    metrics: ClassVar[tuple[str, ...]] = ("magnitude",) + REPORT_METRICS
+
     def __init__(self, *args, **kwargs):
         raise ValueError("Please use `from_pretrained`")
 
@@ -129,7 +133,7 @@ class ExpertPruner(Converter):
         cls,
         model_name_or_path: str | os.PathLike,
         sparsity: float,
-        metric: Literal["magnitude", "saliency", "layerwise_saliency", "count"],
+        metric: str,
         uniform: bool = True,
         router_pattern: str = r"mlp\.gate\.weight$",
         expert_pattern: str = r"mlp\.experts\.(gate_up_proj|down_proj)",
@@ -178,11 +182,8 @@ class ExpertPruner(Converter):
         """
         if not 0 <= sparsity <= 1:
             raise ValueError(f"sparsity must be in [0, 1], got {sparsity}")
-        if metric != "magnitude" and metric not in REPORT_METRICS:
-            raise ValueError(
-                f"metric must be one of {('magnitude',) + REPORT_METRICS}, "
-                f"got {metric!r}"
-            )
+        if metric not in cls.metrics:
+            raise ValueError(f"metric must be one of {cls.metrics}, got {metric!r}")
         if metric in REPORT_METRICS and saliency_report_path is None:
             raise ValueError(f"metric={metric!r} requires a saliency_report_path")
 
@@ -257,12 +258,16 @@ class ExpertPruner(Converter):
         )
 
         # score experts and determine which to retain
-        if metric == "magnitude":
-            scores_by_router = _magnitude_scores(router_names, weight_map, model_files)
-        else:
-            scores_by_router = _report_scores(
-                router_names, weight_map, model_files, saliency_report_path, metric
-            )
+        scores_by_router = cls._score_experts(
+            metric=metric,
+            router_names=router_names,
+            expert_to_router=expert_to_router,
+            expert_indices=expert_indices,
+            is_3d=is_3d,
+            weight_map=weight_map,
+            model_files=model_files,
+            saliency_report_path=saliency_report_path,
+        )
 
         if uniform:
             if hash_routers:
@@ -354,6 +359,39 @@ class ExpertPruner(Converter):
         instance.router_layer_indices = router_layer_indices
         instance.num_decoder_layers = num_decoder_layers
         return instance
+
+    @classmethod
+    def _score_experts(
+        cls,
+        metric: str,
+        router_names: list[str],
+        expert_to_router: dict[str, str],
+        expert_indices: dict[str, int],
+        is_3d: bool,
+        weight_map: dict[str, str],
+        model_files: dict[str, str],
+        saliency_report_path: str | os.PathLike | None,
+    ) -> dict[str, torch.Tensor]:
+        """
+        Score each router's experts. The lowest-scoring experts are pruned first.
+        Subclasses override this to score experts by other criteria.
+
+        :param metric: one of ``metrics``, see :meth:`from_pretrained`
+        :param router_names: router tensor names, in layer order
+        :param expert_to_router: expert tensor name -> router tensor name
+        :param expert_indices: for 2D experts, expert tensor name -> expert index.
+            Empty for 3D experts
+        :param is_3d: whether expert weights are 3D stacked tensors
+        :param weight_map: tensor name -> checkpoint file name
+        :param model_files: checkpoint file name -> resolved path
+        :param saliency_report_path: path to a saliency report, for report metrics
+        :return: per-expert scores for each router, in ``router_names`` order
+        """
+        if metric == "magnitude":
+            return _magnitude_scores(router_names, weight_map, model_files)
+        return _report_scores(
+            router_names, weight_map, model_files, saliency_report_path, metric
+        )
 
     def process(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         result: dict[str, torch.Tensor] = {}
