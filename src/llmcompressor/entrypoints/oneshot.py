@@ -220,6 +220,28 @@ class Oneshot:
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
+        self.recipe = self.recipe_args.recipe
+
+        # Resolve the pipeline before preprocessing chooses eager or lazy MoE
+        # linearization.
+        recipe_for_pipeline = (
+            Recipe.create_instance(
+                self.recipe,
+                target_stage=self.recipe_args.stage,
+            )
+            if self.recipe
+            else Recipe()
+        )
+        if self.recipe_args.recipe_args:
+            recipe_for_pipeline.args = {**self.recipe_args.recipe_args}
+
+        self.dataset_args.pipeline = CalibrationPipeline.resolve_name(
+            recipe_for_pipeline.modifiers,
+            user=self.dataset_args.pipeline,
+        )
+        self.calibration_pipeline = CalibrationPipeline.load_from_registry(
+            self.dataset_args.pipeline
+        )
 
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
@@ -227,7 +249,6 @@ class Oneshot:
         # Set instance attributes
         self.model = self.model_args.model
         self.processor = self.model_args.processor
-        self.recipe = self.recipe_args.recipe
 
         # Skip model validation if using layerwise decompression
         # for pre-quantized models
@@ -319,12 +340,7 @@ class Oneshot:
                 pipeline=self.dataset_args.pipeline,
             )
 
-            user_pipeline = self.dataset_args.pipeline
-            pipeline = CalibrationPipeline.from_modifiers(
-                session.lifecycle.recipe.modifiers, user=user_pipeline
-            )
-
-            pipeline(
+            self.calibration_pipeline(
                 self.model,
                 calibration_dataloader,
                 self.dataset_args,
