@@ -36,7 +36,21 @@ def get_unwrapped_forward(module: torch.nn.Module) -> Callable:
     :param module: module whose forward function should be retrieved
     :return: function which implements the module's forward method
     """
-    forward = inspect.unwrap(module.forward)
+    forward = module.forward
+    original_forward = getattr(module, "_original_forward_func", None)
+
+    # Offloaded modules install an instance-level forward wrapper which caches the
+    # pre-offload implementation (see `compressed_tensors.offload.offload_module`).
+    # Because that wrapper shadows the class attribute, `forward.__wrapped__` points
+    # to the stale implementation and would bypass any class-level patches applied
+    # during tracing (such as model-specific traceable forwards). Prefer the class
+    # implementation in that case.
+    if original_forward is not None and getattr(forward, "__wrapped__", None) is (
+        original_forward
+    ):
+        forward = type(module).forward
+
+    forward = inspect.unwrap(forward)
 
     # `module.forward` is a bound method, whose underlying function holds the closure
     if inspect.ismethod(forward):
