@@ -33,13 +33,18 @@ recipe = QuantizationModifier(
 # Feel free to update the definition under
 # llm-compressor/src/llmcompressor/modeling/qwen3_moe.py to play around with
 # this behavior and evaluate its impact on quantization performance.
+# Twenty samples can under-cover expert down-proj activation ranges, so this
+# example draws 256. `calibration_seed` keeps that shuffle stable across builds.
+# After NVFP4 MoE quantization, check KL or a task metric: a bad expert
+# activation scale still serves.
 oneshot(
     model=model,
     dataset="perfectblend",
     splits="train[:512]",
     recipe=recipe,
     max_seq_length=2048,
-    num_calibration_samples=20,
+    num_calibration_samples=256,
+    calibration_seed=42,
     moe_calibrate_all_experts=True,
 )
 

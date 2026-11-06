@@ -289,7 +289,12 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
                 "`oneshot` with `batch_size=1`"
             )
 
-        return RandomSampler(dataset, num_samples=num_samples)
+        generator = (
+            torch.Generator().manual_seed(args.calibration_seed)
+            if args.calibration_seed is not None
+            else None
+        )
+        return RandomSampler(dataset, num_samples=num_samples, generator=generator)
     else:
         return LengthAwareSampler(
             dataset, num_samples=num_samples, batch_size=batch_size
