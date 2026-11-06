@@ -12,6 +12,7 @@ from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import triton
 
+import llmcompressor.observers.grid_search as grid_search_module
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.grid_search import _make_grid_points
@@ -714,7 +715,8 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
 @pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
 def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     """FP8 grid search must compile on A100 even without native E4M3 support."""
-    device_capability = torch.cuda.get_device_capability()
+    device_module = torch.get_device_module()
+    device_capability = device_module.get_device_capability()
     if device_capability < (8, 0):
         pytest.skip("SM80 is the minimum architecture used by this regression")
 
@@ -737,7 +739,7 @@ def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     # Compile as if this were an A100, including when the test runs on a newer GPU.
     monkeypatch.setattr(triton.knobs.runtime, "override_arch", "sm80")
     monkeypatch.setattr(
-        torch.cuda, "get_device_capability", lambda *args, **kwargs: (8, 0)
+        device_module, "get_device_capability", lambda *args, **kwargs: (8, 0)
     )
     try:
         actual = ImplBackend.call(
@@ -751,6 +753,41 @@ def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
 
     assert torch.equal(expected[0], actual[0])
     assert torch.equal(expected[1], actual[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
+    """The E4B15 path selects the same grid point as native E4NV."""
+    if torch.get_device_module().get_device_capability()[0] < 9:
+        pytest.skip("native E4NV is needed to compare both conversion paths")
+
+    args = QuantizationArgs(
+        num_bits=8,
+        type=QuantizationType.FLOAT,
+        symmetric=True,
+        strategy=QuantizationStrategy.CHANNEL,
+    )
+    observed = torch.linspace(-2.0, 2.0, 64, device="cuda", dtype=torch.bfloat16)
+    observed = observed.reshape(2, 1, 32)
+    importance = torch.linspace(0.5, 2.0, 32, device="cuda")
+    search_args = (observed, args, 0.9, 2, 5.0, 2.0)
+    search_kwargs = {
+        "triton_error_buffer": 0.3,
+        "importance_weights": importance,
+        "use_imatrix_error": True,
+    }
+
+    monkeypatch.setattr(grid_search_module, "_is_fp8_supported", lambda device: True)
+    native = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+    monkeypatch.setattr(grid_search_module, "_is_fp8_supported", lambda device: False)
+    e4b15 = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **search_kwargs
+    )
+
+    assert torch.equal(native[0], e4b15[0])
+    assert torch.equal(native[1], e4b15[1])
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
