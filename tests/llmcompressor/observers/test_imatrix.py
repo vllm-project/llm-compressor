@@ -262,8 +262,10 @@ class TestBasicFunctionality:
             module_imatrix,
             strategy="channel",
             importance=torch.ones(8),
+            grid=20,
             norm=2.4,
             maxshrink=0.20,
+            magnitude_normalization=False,
         )
         obs_uniform = Observer.load_from_registry(
             "memoryless_mse", base_name="weight", args=args_uniform
@@ -381,7 +383,14 @@ class TestValidation:
             observer_kwargs={"grid": 20},
         )
         obs_imatrix = _make_observer(
-            module_imatrix, strategy="channel", importance=importance, strict=False
+            module_imatrix,
+            strategy="channel",
+            importance=importance,
+            strict=False,
+            maxshrink=0.20,
+            grid=20,
+            norm=2.4,
+            magnitude_normalization=False,
         )
         obs_uniform = Observer.load_from_registry(
             "memoryless_mse", base_name="weight", args=args_uniform
