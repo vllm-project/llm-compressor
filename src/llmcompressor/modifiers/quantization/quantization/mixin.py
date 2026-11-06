@@ -494,12 +494,7 @@ class QuantizationMixin(HooksMixin):
             input_obs = self.observer.get("input", input_obs)
             output_obs = self.observer.get("output", output_obs)
 
-        # the imatrix observer weights quantization error by per-channel
-        # activation importance, which can only be accumulated when
-        # calibration data is available
-        default_weight_obs = (
-            "imatrix_mse" if has_calibration_data else "memoryless_minmax"
-        )
+        default_weight_obs = self._default_weight_observer(has_calibration_data)
 
         # Apply observers to QuantizationArgs if specified
         # (modifier arg, scheme attribute, default observer, display name)
@@ -529,6 +524,23 @@ class QuantizationMixin(HooksMixin):
             q_args.observer = obs_value
 
         return scheme
+
+    def _default_weight_observer(self, has_calibration_data: bool) -> str:
+        """Select the default weight observer for this quantization modifier."""
+        if has_calibration_data:
+            modifiers = active_session().lifecycle.recipe.modifiers
+            if any(modifier is self for modifier in modifiers):
+                from llmcompressor.modifiers.transform.awq import AWQModifier
+
+                # AWQ spins up its own observers so the quantizations shouldn't
+                # default to imat unless AWQ is updated to use real observers
+                if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
+                    return "memoryless_minmax"
+
+        # The imatrix observer weights quantization error by per-channel
+        # activation importance, which can only be accumulated when
+        # calibration data is available.
+        return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
