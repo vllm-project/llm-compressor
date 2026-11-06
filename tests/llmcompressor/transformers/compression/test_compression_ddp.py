@@ -128,9 +128,7 @@ def _compare_weights(ref_weights: dict, ddp_weights: dict, atol: float = 1e-4):
             if ref.is_floating_point() or ddp.is_floating_point():
                 ref = ref.float()
                 ddp = ddp.float()
-            torch.testing.assert_close(
-                ref, ddp, atol=atol, rtol=1e-4
-            )
+            torch.testing.assert_close(ref, ddp, atol=atol, rtol=1e-4)
         except AssertionError as e:
             mismatches.append(f"  {name}: {e}")
 
