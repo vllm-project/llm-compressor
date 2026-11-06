@@ -1,4 +1,4 @@
-## DeepSeek V4 NVFP4 + FP8 Example
+## DeepSeek V4 Flash NVFP4 + FP8 Example
 
 This example quantizes DeepSeek-V4-Flash to a mixed-precision format: NVFP4 for MoE expert weights and FP8-Block for attention projection weights.
 

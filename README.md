@@ -39,8 +39,6 @@
 
 ---
 
-📊 Help us improve by taking our [1-minute user survey](https://red.ht/llm-compressor-user-survey)
-
 💬 Join us on the [vLLM Community Slack](https://inviter.co/vllm-slack) and share your questions, thoughts, or ideas in:
 
 - `#sig-quantization`
@@ -51,11 +49,18 @@
 
 Big updates have landed in LLM Compressor! To get a more in-depth look, check out the [LLM Compressor overview](https://docs.google.com/presentation/d/1WNkYBKv_CsrYs69lb7bJKjh2dWt8U1HXUw7Gr4Wn3gE/edit?usp=sharing).
 
-Since the v0.13.0 release, a number of meaningful improvements have landed:
+Since the v0.14.0 release, a number of meaningful improvements have landed:
 
-* **Batched GPTQ quantization with a new Triton GPTQ kernel**: GPTQ now ships a Triton-based quantization kernel (~15x faster than the previous eager path) together with the ability to batch layers that share the same shape (up to ~1.67x per batch, roughly ~30x end-to-end on MoE workloads). Activation-order (act-order) calibration is supported, hessian offloading has been removed, and the remaining eager path was also sped up by 1.5-2x on its own.
-* **Expanded MSE and iMatrix observers for FP4**: The MSE observer and the iMatrix observer gained a grid-search expansion factor that makes the search a strict superset of *fouroversix* (which chooses between the full `absmax` and `absmax * 1.5` scales for FP4 blocks). These observers outperform GPTQ for NVFP4 on average across our internal perplexity benchmarks.
-* **Triton grid-search kernel for the MSE observer**: A Triton kernel now performs the MSE observer's scale grid search using buffered per-qparam patience and adaptive 512-value tiling. It reaches bitwise parity with the eager path when configured for full evaluation, supports INT, FP4, FP8, and FP16/BF16 (with E8M0 scales), and defaults `triton_error_buffer` to 100% for FP4 and 30% otherwise.
+* **HIGGS mixed-precision quantization**: [HIGGS](https://arxiv.org/pdf/2411.17525) collects layer-wise MSE sensitivity data and formulates an integer linear program to select an optimal mixed-precision configuration for a target average bitwidth. The resulting config can be passed to `oneshot` or `model_free_ptq`.
+* **Block-wise QAD**: A new `QADModifier` runs quantization-aware distillation after a weight-quantization modifier in the same recipe. It caches calibration inputs and the unquantized subgraph output as the teacher, then trains the quantized weights through compressed-tensors fake quantization, without loading a separate teacher model.
+* **Layerwise compression and sequential offloading**: The sequential pipeline can now decompress and compress one layer at a time, avoiding upfront whole-model conversion for large checkpoints. Onload/offload is managed manually with optional CPU staging and pinned memory.
+* **REAP reports and non-uniform pruning**: REAP now writes per-expert saliency reports, supports calibration-only report generation with `sparsity=0.0`, and accepts per-layer non-uniform expert sparsity. `n_routed_experts` is now recorded in config names, and GPT-OSS is skipped.
+* **MoNe expert pruning**: MoNe collapses low-saliency experts into constant "novice" vectors instead of removing them, keeping the router at full width while reducing expert compute.
+* **Faster observers for E8M0 formats**: The MSE and iMatrix observers gained exponential grid search and magnitude normalization for E8M0 scales, and the iMatrix observer now shares the MSE Triton kernel, with roughly 1.2-3.4x end-to-end speedups on tested models.
+* **MFPTQ SpinQuant rotations**: `SpinQuantConverter` applies offline R1/R2 Hadamard rotations directly to safetensors before model-free quantization, and `model_free_ptq` now accepts converter chains.
+* **MXFP6 and MXFP4xFP8 support**: Added MXFP6A8/MXFP6A16 schemes and examples, plus an MXFP4xFP8 example and refreshed quantization documentation.
+* **Broader hardware and model support**: The fused GPTQ Triton kernel now runs on Intel XPU, MTP layers load through Transformers `MtpModel`, and new checkpoints and examples include Nemotron 3.5 Super VL FP8, Zyphra Zaya1, Muse Spark, and Qwen3.6 MXFP4xFP8.
+* **Docs and community**: Added the Open Research Hub for community experiment results and a full Simplified Chinese README translation.
 
 ### Model highlights
 

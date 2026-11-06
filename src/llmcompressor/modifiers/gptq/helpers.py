@@ -212,8 +212,25 @@ def max_batch_size(
     if isinstance(batched_quantization, int):
         return batched_quantization
 
-    out_features, in_features = module.weight.shape
     device = get_execution_device(module)
+    per_module_bytes = quantization_peak_bytes(module, block_size)
+
+    if torch.device(device).type != "cuda" or not torch.accelerator.is_available():
+        return 1
+    free_bytes, _ = torch.get_device_module().mem_get_info(device)
+    return max(1, int(free_bytes * 0.75) // per_module_bytes)
+
+
+def quantization_peak_bytes(module: torch.nn.Module, block_size: int) -> int:
+    """Return the peak temporary memory needed to quantize one module with GPTQ,
+    which is the largest of the quantization and activation ordering phases.
+
+    Only the weight shape is read. Call under ``disable_onloading()`` to avoid
+    onloading offloaded weights. Weights which are not 2D are counted as
+    [rows, everything else].
+    """
+    out_features = module.weight.shape[0]
+    in_features = module.weight.numel() // out_features
     weight_size = out_features * in_features
     hessian_size = in_features * in_features
     block_matrix_size = out_features * block_size
@@ -226,12 +243,7 @@ def max_batch_size(
         3 * hessian_size  # original Hessian and both gather outputs
         + 2 * weight_size  # module weight and stacked working weight
     )
-    per_module_bytes = max(quantization_peak, actorder_peak) * 4
-
-    if torch.device(device).type != "cuda" or not torch.accelerator.is_available():
-        return 1
-    free_bytes, _ = torch.get_device_module().mem_get_info(device)
-    return max(1, int(free_bytes * 0.75) // per_module_bytes)
+    return max(quantization_peak, actorder_peak) * GPTQ_PRECISION.itemsize
 
 
 def apply_activation_ordering(

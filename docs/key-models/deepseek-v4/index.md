@@ -1,6 +1,8 @@
-# DeepSeekV4
+# DeepSeek V4 Flash
 
-Quantization examples for the DeepSeek V4 model.
+Quantization examples for the DeepSeek V4 Flash model.
+
+DeepSeek V4 Flash uses a hybrid attention architecture with CSA, HCA, and mHC projections. The example below quantizes the MoE expert weights to NVFP4 while keeping the attention projections in FP8-Block.
 
 ## Examples
 

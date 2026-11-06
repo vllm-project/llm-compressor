@@ -61,3 +61,24 @@ def test_open_platypus_initializes(tiny_llama_tokenizer):
     assert op_manager.dataset_args.text_column == "text"
     assert not op_manager.padding
     assert op_manager.max_seq_length == dataset_args.max_seq_length
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    ["Write a function that reverses a string.", "Print the output of 2+2."],
+)
+def test_evolcodealpaca_template_includes_response(instruction):
+    dataset_args = DatasetArguments(dataset="evolcodealpaca")
+    evol_manager = TextGenerationDataset.load_from_registry(
+        dataset_args.dataset,
+        dataset_args=dataset_args,
+        split=None,
+        processor=None,
+    )
+    response = "def solution():\n    return 4"
+    sample = {"instruction": instruction, "output": response}
+
+    result = evol_manager.dataset_template(sample)
+
+    assert instruction in result["prompt"]
+    assert result["text"] == result["prompt"] + response

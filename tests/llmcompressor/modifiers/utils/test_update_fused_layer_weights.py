@@ -69,12 +69,66 @@ class MockMLPModule(Module):
             initialize_module_for_quantization(proj, scheme)
 
 
+class MockGatedDeltaNetModule(Module):
+    """Mock Qwen3.5 gated delta net with its four input projections."""
+
+    def __init__(self, scheme: QuantizationScheme):
+        super().__init__()
+        self.in_proj_qkv = Linear(64, 192, bias=False)
+        self.in_proj_z = Linear(64, 64, bias=False)
+        self.in_proj_b = Linear(64, 16, bias=False)
+        self.in_proj_a = Linear(64, 16, bias=False)
+
+        torch.manual_seed(7)
+        self.in_proj_qkv.weight.data = torch.randn(192, 64) * 1.0
+        self.in_proj_z.weight.data = torch.randn(64, 64) * 2.5
+        self.in_proj_b.weight.data = torch.randn(16, 64) * 0.5
+        self.in_proj_a.weight.data = torch.randn(16, 64) * 4.0
+
+        for proj in [self.in_proj_qkv, self.in_proj_z, self.in_proj_b, self.in_proj_a]:
+            initialize_module_for_quantization(proj, scheme)
+
+
+class MockOlmoGatedDeltaNetModule(Module):
+    """Mock OLMo-Hybrid gated delta net. a_proj and b_proj are not packed."""
+
+    def __init__(self, scheme: QuantizationScheme):
+        super().__init__()
+        self.q_proj = Linear(64, 64, bias=False)
+        self.k_proj = Linear(64, 64, bias=False)
+        self.v_proj = Linear(64, 128, bias=False)
+        self.g_proj = Linear(64, 128, bias=False)
+        self.a_proj = Linear(64, 16, bias=False)
+        self.b_proj = Linear(64, 16, bias=False)
+
+        torch.manual_seed(11)
+        self.q_proj.weight.data = torch.randn(64, 64) * 1.0
+        self.k_proj.weight.data = torch.randn(64, 64) * 1.5
+        self.v_proj.weight.data = torch.randn(128, 64) * 0.75
+        self.g_proj.weight.data = torch.randn(128, 64) * 3.0
+        self.a_proj.weight.data = torch.randn(16, 64) * 0.5
+        self.b_proj.weight.data = torch.randn(16, 64) * 4.0  # largest, not packed
+
+        for proj in [
+            self.q_proj,
+            self.k_proj,
+            self.v_proj,
+            self.g_proj,
+            self.a_proj,
+            self.b_proj,
+        ]:
+            initialize_module_for_quantization(proj, scheme)
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "module_class,layer_names",
     [
         (MockAttentionModule, ["q_proj", "k_proj", "v_proj"]),
         (MockMLPModule, ["gate_proj", "up_proj"]),
+        (MockGatedDeltaNetModule, ["in_proj_qkv", "in_proj_z"]),
+        (MockGatedDeltaNetModule, ["in_proj_b", "in_proj_a"]),
+        (MockOlmoGatedDeltaNetModule, ["q_proj", "k_proj", "v_proj", "g_proj"]),
     ],
 )
 def test_fused_observers_produce_identical_global_scale(module_class, layer_names):
@@ -127,6 +181,9 @@ def test_fused_observers_produce_identical_global_scale(module_class, layer_name
     [
         (MockAttentionModule, ["q_proj", "k_proj", "v_proj"]),
         (MockMLPModule, ["gate_proj", "up_proj"]),
+        (MockGatedDeltaNetModule, ["in_proj_qkv", "in_proj_z"]),
+        (MockGatedDeltaNetModule, ["in_proj_b", "in_proj_a"]),
+        (MockOlmoGatedDeltaNetModule, ["q_proj", "k_proj", "v_proj", "g_proj"]),
     ],
 )
 def test_unfused_observers_produce_different_global_scale(module_class, layer_names):
