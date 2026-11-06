@@ -86,8 +86,12 @@ def test_gptq_distributed_global_scale_writeback():
 
     # Every GPTQ parameter broadcast from the owning rank must match on all ranks.
     world_size = dist.get_world_size()
+    qparam_names = [*_GPTQ_Q_PARAMS]
+    if "weight_global_scale" not in qparam_names:
+        # Keep this regression check independent of the production broadcast list.
+        qparam_names.append("weight_global_scale")
     for module in modules:
-        for qparam_name in _GPTQ_Q_PARAMS:
+        for qparam_name in qparam_names:
             qparam = getattr(module, qparam_name).detach().to(device=device)
             gathered_qparams = [torch.empty_like(qparam) for _ in range(world_size)]
             dist.all_gather(gathered_qparams, qparam)
