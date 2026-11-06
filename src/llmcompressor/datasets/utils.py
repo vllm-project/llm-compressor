@@ -259,6 +259,14 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
     shuffle = args.shuffle_calibration_samples
     batch_size = args.batch_size
 
+    # clamp before partitioning so that partitions stay within the dataset
+    if num_samples is not None and num_samples > len(dataset):
+        logger.warning(
+            f"Requested {num_samples} samples but the provided dataset only has "
+            f"{len(dataset)} samples."
+        )
+        num_samples = len(dataset)
+
     # detect whether we're in a distributed setting
     # but all ranks have the same dataset.
     if _is_dist_and_same_ds(dataset):
@@ -267,16 +275,16 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
             "partitioning dataset across ranks."
         )
         num_samples = num_samples or len(dataset)
+        if num_samples < dist.get_world_size():
+            raise ValueError(
+                f"Cannot partition {num_samples} calibration samples across "
+                f"{dist.get_world_size()} ranks, as each rank needs at least one "
+                "sample. Please provide at least as many calibration samples as ranks"
+            )
         start, end = _get_partition_start_end(
             num_samples, dist.get_rank(), dist.get_world_size()
         )
         dataset = dataset.select(range(start, end))
-
-    if num_samples is not None and num_samples > len(dataset):
-        logger.warning(
-            f"Requested {num_samples} samples but the provided dataset only has "
-            f"{len(dataset)} samples."
-        )
         num_samples = len(dataset)
 
     if shuffle:
