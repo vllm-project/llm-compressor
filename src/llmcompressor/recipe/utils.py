@@ -2,9 +2,12 @@ import json
 import re
 from typing import Any
 
+import torch
 import yaml
+from loguru import logger
 
 from llmcompressor.modifiers import Modifier
+from llmcompressor.sentinel import Sentinel
 
 
 def _load_json_or_yaml_string(content: str) -> dict[str, Any]:
@@ -82,11 +85,31 @@ def get_yaml_serializable_dict(modifiers: list[Modifier], stage: str) -> dict[st
         group_name = f"{group}_modifiers"
         modifier_type = modifier.__class__.__name__
 
-        args = {
-            k: v
-            for k, v in modifier.model_dump().items()
-            if v is not None and not k.endswith("_") and k != "group"
-        }
+        # values are dumped in json mode so that enums and other python objects
+        # are written as plain values that `yaml.safe_load` can read back
+        skip = set()
+        devices = {}
+        for key, value in modifier:
+            if key.endswith("_") or key == "group" or value is None:
+                skip.add(key)
+            elif isinstance(value, Sentinel):
+                # left out so that the default is resolved again on load
+                skip.add(key)
+            elif isinstance(value, torch.device):
+                # pydantic has no json serializer for torch.device
+                devices[key] = str(value)
+            elif callable(value):
+                logger.warning(
+                    f"{modifier_type}.{key} is a callable and cannot be written to "
+                    "the recipe, it will use its default value when the recipe is "
+                    "loaded again"
+                )
+                skip.add(key)
+
+        values = modifier.model_dump(mode="json", exclude=skip | devices.keys())
+        values.update(devices)
+        # keep the order of the modifier fields
+        args = {k: values[k] for k, _ in modifier if k in values}
 
         if group_name not in stage_dict[stage_name]:
             stage_dict[stage_name][group_name] = {}
