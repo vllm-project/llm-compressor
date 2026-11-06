@@ -127,7 +127,17 @@ Best used when:
 
 `nvfp4_expanded_imatrix` applies the same NVFP4 range expansion and search as
 `nvfp4_expanded_mse`, but weighs each quantization error by per-input-channel
-importance like the normal ImatrixObserver
+importance like the normal ImatrixObserver.
+
+Both `imatrix_mse` and `nvfp4_expanded_imatrix` accept an `objective` observer
+keyword. Set `observer_kwargs={"norm": 2.4, "objective": "groupmax_div"}` on the
+weight `QuantizationArgs` to select the inverse groupmax objective. The default
+`"basic"` objective scores `importance * abs(Q(w) - w) ** norm`. The
+`"groupmax"` objective multiplies each element's importance by
+`sqrt(w ** 2 + groupmax ** 2)`; `"groupmax_div"` divides it by that whole term.
+Here `groupmax` is the original absolute maximum of that weight's quantization
+group. Both groupmax objectives require a grouped weight strategy such as
+NVFP4's `TENSOR_GROUP`.
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
 
@@ -254,6 +264,7 @@ range, grid, norm, and patience.
 | `patience`    | `5`     | Number of consecutive steps without improvement before early stopping. |
 | `grid`        | `20`    | Number of grid steps. Higher values give finer granularity at the cost of speed. |
 | `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
+| `objective`   | `basic` | `basic` uses importance-weighted powered error; `groupmax` multiplies that weight by `sqrt(w² + groupmax²)`, and `groupmax_div` divides by it. Groupmax objectives require grouped weight quantization. |
 | `expand`      | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; `nvfp4_expanded_imatrix` defaults to `1.8`. |
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
 | `grid_type` | `None` | `"linear"`, `"exponential"`, default spacing is exponential when MX scales are generated (E8M0), linear otherwise. |

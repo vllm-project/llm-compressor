@@ -87,6 +87,7 @@ class IMatrixMSEObserver(Observer):
         self.patience = kw.get("patience", 5)
         self.grid = kw.get("grid", 20)
         self.norm = kw.get("norm", 3.0)
+        self.objective = kw.get("objective", "basic")
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
         self.magnitude_normalization = kw.get("magnitude_normalization", False)
@@ -116,6 +117,17 @@ class IMatrixMSEObserver(Observer):
             or self.norm <= 0
         ):
             raise ValueError(f"norm must be a finite positive number, got {self.norm}")
+        if self.objective not in ("basic", "groupmax", "groupmax_div"):
+            raise ValueError(
+                "objective must be 'basic', 'groupmax', or 'groupmax_div', "
+                f"got {self.objective!r}"
+            )
+        if self.objective in ("groupmax", "groupmax_div") and (
+            self.base_name != "weight" or self.args.strategy not in _GROUP_STRATEGIES
+        ):
+            raise NotImplementedError(
+                "the groupmax imatrix objectives require a grouped weight observer"
+            )
 
     # ------------------------------------------------------------------
     # Hook lifecycle: collect E[x²] per input channel
@@ -202,7 +214,24 @@ class IMatrixMSEObserver(Observer):
 
         out_features = observed.shape[1]
         imp_2d = imp.unsqueeze(0).expand(out_features, -1)
-        return flatten_for_calibration(imp_2d, self.base_name, self.args)
+        importance_weights = flatten_for_calibration(imp_2d, self.base_name, self.args)
+        if self.objective in ("groupmax", "groupmax_div"):
+            # The group maximum is measured from the original weight values and
+            # remains fixed while the grid search evaluates candidate ranges.
+            values = observed.float()
+            groupmax = values.abs().amax(dim=-1, keepdim=True)
+            magnitude_weight = torch.sqrt(values.square() + groupmax.square())
+            if self.objective == "groupmax":
+                importance_weights = importance_weights * magnitude_weight
+            else:
+                # An all-zero quantization group has zero quantization error;
+                # clamp its undefined denominator to keep the weight finite.
+                magnitude_weight = magnitude_weight.clamp_min(
+                    torch.finfo(torch.float32).tiny
+                )
+                importance_weights = importance_weights / magnitude_weight
+
+        return importance_weights
 
     def _get_validated_importance(self, observed: torch.Tensor) -> torch.Tensor | None:
         """Compute importance from sum/count, validate, and return 1D tensor or None."""
