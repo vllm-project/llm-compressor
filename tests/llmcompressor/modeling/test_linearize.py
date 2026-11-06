@@ -27,27 +27,6 @@ NUM_TEST_TOKENS = 64
 MODEL_MSE = 1e-2
 MODULE_MSE = 1e-8
 CONFIG_OVERRIDES = {
-    "beam": {
-        "hidden_size": 64,
-        "intermediate_size": 128,
-        "moe_intermediate_size": 64,
-        "num_attention_heads": 4,
-        "num_key_value_heads": 2,
-        "head_dim": 16,
-        "num_experts": 4,
-        "num_experts_per_tok": 2,
-        "n_group": 2,
-        "topk_group": 1,
-        "num_hidden_layers": 2,
-        "layer_types": ["sliding_attention", "full_attention"],
-        "mlp_layer_types": ["dense", "sparse"],
-        "sliding_window": 16,
-        "max_position_embeddings": 128,
-        "rope_parameters": {
-            "full_attention": None,
-            "sliding_attention": {"rope_theta": 10000.0, "rope_type": "default"},
-        },
-    },
     "deepseek_ocr2": {"num_experts_per_tok": 16},
     "deepseek_v3": {"hidden_size": 512, "moe_intermediate_size": 1024},
     "cohere2_moe": {"hidden_size": 256, "intermediate_size": 256},

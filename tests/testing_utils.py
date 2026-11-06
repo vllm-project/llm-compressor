@@ -249,62 +249,8 @@ class BaseTestConfig(BaseModel):
         None,
         description="Max memory for model loading. Used to induce disk offloading",
     )
-    device_map: Optional[str] = Field(
-        None,
-        description=(
-            "Device map passed to `from_pretrained` (e.g. 'disk' for explicit disk "
-            "offloading). Defaults to the existing auto-offload behavior."
-        ),
-    )
-    offload_folder: Optional[str] = Field(
-        None,
-        description=(
-            "Folder used for disk offloading. Defaults to './offload_folder'. "
-            "Removed after the oneshot run."
-        ),
-    )
     seed: int = Field(42, description="Random seed for reproducibility")
 
-    # -------------------------------------------------------------------------
-    # Calibration pipeline overrides (optional)
-    # -------------------------------------------------------------------------
-    pipeline: Optional[Literal["basic", "datafree", "sequential", "independent"]] = (
-        Field(
-            None,
-            description=(
-                "Calibration pipeline passed to oneshot. Leave unset to use the "
-                "oneshot default."
-            ),
-        )
-    )
-    sequential_targets: Optional[list[str]] = Field(
-        None,
-        description=(
-            "Module classes to run sequentially when pipeline='sequential'. "
-            "Passed to oneshot."
-        ),
-    )
-    sequential_targets_per_subgraph: Optional[Union[int, Literal["auto"]]] = Field(
-        None,
-        description=(
-            "Number of sequential targets to group into each subgraph, or 'auto'. "
-            "Passed to oneshot."
-        ),
-    )
-    layerwise_decompression: bool = Field(
-        False,
-        description=(
-            "Decompress each layer before calibration in the sequential pipeline. "
-            "Use for pre-compressed checkpoints that need recalibration."
-        ),
-    )
-    layerwise_compression: bool = Field(
-        False,
-        description=(
-            "Compress each layer after propagation in the sequential pipeline to "
-            "reduce peak memory."
-        ),
-    )
     # -------------------------------------------------------------------------
     # Save directory
     # -------------------------------------------------------------------------
@@ -349,13 +295,6 @@ class BaseTestConfig(BaseModel):
             "When True, pipeline_parallel_size is set to num_gpus."
         ),
     )
-    tensor_parallel: bool = Field(
-        False,
-        description=(
-            "Enable tensor parallelism for vLLM serving. "
-            "When True, tensor_parallel_size is set to num_gpus."
-        ),
-    )
     test_group: Optional[str] = Field(
         None, description="CI test group tag (e.g. 'rhaiis') used to filter test runs"
     )
@@ -369,10 +308,6 @@ class BaseTestConfig(BaseModel):
         if not self.scheme and not self.recipe:
             raise ValueError(
                 "At least one of 'scheme' or 'recipe' must be provided in the config."
-            )
-        if self.pipeline_parallel and self.tensor_parallel:
-            raise ValueError(
-                "'pipeline_parallel' and 'tensor_parallel' cannot both be enabled."
             )
         return self
 
@@ -851,9 +786,7 @@ class LMEvalCacheKey:
         seed = test_instance.config.seed
 
         return cls(
-            # `base_model` lets a config compare against a different checkpoint
-            # (e.g. an existing NVFP4 model) instead of the dense source model.
-            model=lmeval.base_model or test_instance.config.model,
+            model=test_instance.config.model,
             task=lmeval.task,
             num_fewshot=lmeval.num_fewshot,
             limit=lmeval.limit,

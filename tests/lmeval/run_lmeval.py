@@ -39,8 +39,6 @@ def main():
         f"max_num_seqs={config['max_num_seqs']},"
         f"pipeline_parallel_size="
         f"{config.get('num_gpus', 1) if config.get('pipeline_parallel', False) else 1},"
-        f"tensor_parallel_size="
-        f"{config.get('num_gpus', 1) if config.get('tensor_parallel', False) else 1},"
     )
 
     if config["max_model_len"] is not None:
@@ -64,17 +62,7 @@ def main():
 
     task = lmeval_config["task"]
     task_results = results["results"][task]
-
-    metric_names = lmeval_config["metrics"]
-    if not metric_names:
-        # Compare every numeric task metric when a config does not specify one.
-        metric_names = [
-            name
-            for name, value in task_results.items()
-            if isinstance(value, (int, float)) and not name.endswith("_stderr")
-        ]
-
-    metrics = {metric: task_results[metric] for metric in metric_names}
+    metrics = {metric: task_results[metric] for metric in lmeval_config["metrics"]}
     print(json.dumps(metrics))
 
 
