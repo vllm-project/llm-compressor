@@ -264,6 +264,26 @@ def trace_subgraphs(
     return partition_subgraphs(model, graph, targets, targets_per_subgraph)
 
 
+def _model_trace_patch(model: PreTrainedModel):
+    """
+    Return a context manager which applies model-specific patches needed for FX
+    tracing. Most models need no patch and receive a no-op context.
+    """
+    try:
+        from transformers import BeamForCausalLM
+    except ImportError:
+        BeamForCausalLM = None
+
+    if BeamForCausalLM is not None and isinstance(model, BeamForCausalLM):
+        # Beam's default forward mutates dictionaries of position embeddings and
+        # attention masks in place, which FX tracing folds into opaque calls.
+        from llmcompressor.modeling.patch.beam_patch import patch_beam_for_tracing
+
+        return patch_beam_for_tracing()
+
+    return contextlib.nullcontext()
+
+
 def trace_graph(
     model: PreTrainedModel,
     sample_input: dict[str, Any],
@@ -312,6 +332,9 @@ def trace_graph(
         # `eager_attention` is enabled.
         stack.enter_context(patch_attr(torch.compiler, "_is_compiling_flag", True))
         stack.enter_context(patch_attr(torch.compiler, "_is_exporting_flag", True))
+
+        # apply model-specific tracing patches
+        stack.enter_context(_model_trace_patch(model))
 
         # autowrap forwards
         stack.enter_context(autowrap_forwards(ancestors, ignore))
