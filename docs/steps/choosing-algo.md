@@ -64,13 +64,12 @@ KV cache quantization reduces memory usage for long context inference:
 |-----------|----------|-------------|
 | FP8 KV Cache | Long context inference | Reduces KV cache memory footprint on Hopper-class and newer NVIDIA GPUs |
 
-## Sparsity and transform-based algorithms
+## Transform-based algorithms
 
 The following algorithms provide additional optimization beyond standard quantization, enabling further performance gains or improved accuracy recovery at low bit-widths.
 
 | Algorithm | Best for | Description |
 |-----------|----------|-------------|
-| SparseGPT | Computational efficiency | Post-training structured pruning |
 | SpinQuant | Low-bit quantization accuracy | Rotation-based transform that reduces quantization errors |
 | QuIP | Research-grade quantization | Incoherence-based transforms for robust low-bit weight quantization |
 
@@ -85,7 +84,6 @@ Use the table below to select the algorithm that best matches your deployment re
 | GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
 | SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
 | REAP | Lower VRAM requirements for MoE models by pruning low-saliency experts |
-| SparseGPT | sparsity patterns |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |
 

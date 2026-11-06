@@ -546,7 +546,7 @@ def _grid_search_observer_triton_packed_kernel(
             group_absmax_ptr + qparams, mask=qparam_mask, other=0.0
         ).to(tl.float32)
     else:
-        group_absmax = 0.0
+        group_absmax = tl.zeros((TILE_QPARAMS,), tl.float32)
     if OBSERVED_DTYPE == 1:
         best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float16)
     elif OBSERVED_DTYPE == 2:

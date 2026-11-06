@@ -27,9 +27,10 @@ from llmcompressor.pipelines.sequential.error_logging import (
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
     decompress_subgraph_modules,
-    find_modules_outside_subgraphs,
+    find_modules_outside_graph,
     handle_sequential_oom,
-    trace_subgraphs,
+    partition_subgraphs,
+    trace_graph,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -62,14 +63,14 @@ def _submit_subgraph_staging(
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
-    input_names: list[str],
+    input_names: set[str],
     desc: str,
 ) -> Iterator[tuple[int, dict]]:
     """
     Yield (batch_idx, inputs) while prefetching the next batch in a background thread to
     overlap fetch (onload from offload device) with the main-thread forward pass.
     """
-    batch_source = activations.iter_prefetch(input_names)
+    batch_source = activations.iter_prefetch(list(input_names))
     for batch_idx, inputs in tqdm(
         enumerate(batch_source), total=num_batches, desc=desc
     ):
@@ -95,9 +96,10 @@ class SequentialPipeline(CalibrationPipeline):
         3. The intermediate activations between each subgraph are cached and offloaded
             to the cpu between each batch in order to save memory
 
-        This pipeline requires that the model be traceable with respect to data from the
-        data loader. This may be an issue for vision models with vision datasets, due
-        to specialized input processing in the model.
+        Unless the entire model is the sequential target, this pipeline requires that
+        the model be traceable with respect to data from the data loader. This may be
+        an issue for vision models with vision datasets, due to specialized input
+        processing in the model.
 
         In the event that tracing fails, a torch.fx.proxy.TraceError will be raised. A
         model can be made traceable by wrapping the untraceable functions (see
@@ -131,15 +133,8 @@ class SequentialPipeline(CalibrationPipeline):
 
         # trace subgraphs
         sample_input = next(iter(dataloader))
-        subgraphs = trace_subgraphs(
-            model,
-            sample_input,
-            sequential_targets,
-            ignore,
-            dataset_args.sequential_targets_per_subgraph,
-        )
-        num_subgraphs = len(subgraphs)
-        persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
+        graph, targets = trace_graph(model, sample_input, sequential_targets, ignore)
+        persistent_modules = find_modules_outside_graph(model, graph)
         if persistent_modules:
             warnings.warn(
                 "Found persistent modules outside of subgraphs. "
@@ -150,6 +145,19 @@ class SequentialPipeline(CalibrationPipeline):
             subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
+
+        # partitioned once modifiers have started, so that "auto" can estimate the
+        # memory they need
+        subgraphs = partition_subgraphs(
+            model,
+            graph,
+            targets,
+            dataset_args.sequential_targets_per_subgraph,
+            dataloader,
+            modifiers,
+            dataset_args,
+        )
+        num_subgraphs = len(subgraphs)
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
