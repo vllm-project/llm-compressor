@@ -10,11 +10,11 @@ A modifier is a subclass of the `Modifier` base class that hooks into the compre
 2. Call `initialize` on each modifier, which calls `on_initialize`
 3. For each calibration pipeline:
     * Dispatch the model
-    * For each calibration epoch:
-        - Fire `CALIBRATION_START` event, calling `on_calibration_start`
+    * For each module scope (a sequential layer group or the whole model):
+        - Onload and decompress the scope as needed
+        - Fire `SEQUENTIAL_EPOCH_START`, preparing the scope and calling `on_sequential_epoch_start`
         - Run calibration forward passes (quantization disabled)
-        - Fire `SEQUENTIAL_EPOCH_END` event after each layer group (sequential pipeline) or once for the entire model (basic/data-free pipelines), calling `on_sequential_epoch_end`
-        - Fire `CALIBRATION_END` event, calling `on_calibration_end`
+        - Fire `SEQUENTIAL_EPOCH_END`, calling `on_sequential_epoch_end` and cleaning up the scope
 4. Call `finalize` on each modifier, which calls `on_finalize`
 
 Modifiers express what they want to do at each stage by implementing lifecycle hooks.
@@ -38,7 +38,7 @@ class MyModifier(Modifier):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         # Called once before calibration begins.
-        # Set up hooks, attach attributes to modules, etc.
+        # Validate configuration and prepare global metadata.
         # Return True if initialization succeeded.
         ...
         return True
@@ -79,10 +79,13 @@ class MyModifier(Modifier):
 
     ## Calibration lifecycle events ##
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        # Called at the start of each calibration epoch.
-        # This is where most compression modifiers initialize their state for
-        # the calibration pass (e.g., set up observers, reset statistics).
+    def on_sequential_epoch_start(
+        self, state: State, event: Event, modules: list[torch.nn.Module] | None = None,
+        **kwargs
+    ):
+        # Called after all modifiers have prepared the current scope.
+        # Set up observers, hooks, and statistics for these modules.
+        # modules=None selects the whole model.
         ...
 
     def on_sequential_epoch_end(
@@ -94,11 +97,6 @@ class MyModifier(Modifier):
         # quantization parameters.
         ...
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
-        # Called at the end of each calibration epoch.
-        # This is where most compression modifiers finalize their calibration
-        # (e.g., apply compression, enable quantization).
-        ...
 ```
 
 ### Lifecycle Summary
@@ -109,21 +107,24 @@ class MyModifier(Modifier):
 | `on_finalize` | Once, during `finalize()`, after all pipelines complete | No |
 | `on_event` | Every event, unconditionally (before lifecycle dispatch) | No |
 | `requires_calibration_data` | Bool field queried during pipeline selection to decide sequential vs data-free | No (defaults to `False`) |
-| `on_calibration_start` | At the start of each calibration epoch (fired by `CALIBRATION_START` event) | No |
+| `on_sequential_epoch_start` | After preparation of each scope (fired by `SEQUENTIAL_EPOCH_START`) | No |
 | `on_sequential_epoch_end` | After each layer group (sequential) or once for entire model (basic/data-free) (fired by `SEQUENTIAL_EPOCH_END` event) | No |
-| `on_calibration_end` | At the end of each calibration epoch (fired by `CALIBRATION_END` event) | No |
 | `on_start` | When `start <= event.current_index` (training lifecycle, auto-dispatched) | No |
 | `on_update` | Every event while active (between `on_start` and `on_end`); rarely used | No |
 | `on_end` | When `end >= event.current_index` (training lifecycle, auto-dispatched) | No |
 
 > **Note on calibration vs training lifecycle:** The base `Modifier` class now provides first-class support for both calibration and training lifecycles:
-> - **Calibration lifecycle** (`on_calibration_start`, `on_sequential_epoch_end`, `on_calibration_end`): These hooks are automatically dispatched when the corresponding event types are fired by the calibration pipeline. All compression modifiers (GPTQ, AWQ, SmoothQuant, REAP, etc.) use these hooks.
+> - **Calibration lifecycle** (`on_sequential_epoch_start`, `on_sequential_epoch_end`): These hooks are automatically dispatched when the corresponding event types are fired by the calibration pipeline. All compression modifiers (GPTQ, AWQ, SmoothQuant, REAP, etc.) use these hooks.
 > - **Training lifecycle** (`on_start`, `on_update`, `on_end`): These hooks are auto-dispatched based on the `start` and `end` parameters. They are primarily used for training scenarios with explicit step ranges (e.g., dynamic pruning schedules).
 > - `on_event`: Called on every event before any lifecycle dispatch. Use this for cross-cutting behavior or custom event types.
 >
 > **Note on `SEQUENTIAL_EPOCH_END`:** This event is fired by **all** pipelines (sequential, basic, and data-free), not just the sequential pipeline. For the sequential pipeline, it fires after each layer group with a subgraph scoped to that group. For basic and data-free pipelines, it fires once with a subgraph covering the entire model. Built-in quantization modifiers (QuantizationModifier, GPTQModifier) use this event to compute weight and activation quantization parameters — DDP synchronization of activation statistics, weight observation, and qparam computation (for both activations and weights) all happen here.
 >
-> **Quantization is disabled during calibration.** All pipelines disable quantization during calibration forward passes via `DisableQuantization`. This means calibration hooks see unquantized activations. Quantization parameters are computed at `SEQUENTIAL_EPOCH_END` and quantization is enabled at `CALIBRATION_END`.
+> **Quantization is disabled during calibration.** All pipelines disable quantization during calibration forward passes via `DisableQuantization`. This means calibration hooks see unquantized activations. Quantization parameters are computed at `SEQUENTIAL_EPOCH_END` and quantization is enabled during cleanup of that event.
+
+The two events preserve ordering across modifiers using private helpers. At start, every modifier's `_prepare_sequential_epoch` runs before any `on_sequential_epoch_start` callback. This lets AWQ access schemes installed by a later quantization modifier. At end, every `on_sequential_epoch_end` callback runs before any `_cleanup_sequential_epoch` helper. This keeps observers available for later modifiers such as QAD. These helpers are phases within the start/end events, not separate events. Put scope-local model setup in `_prepare_sequential_epoch` and observer or cache removal in `_cleanup_sequential_epoch` when other modifiers depend on their ordering.
+
+The sequential pipeline keeps the same module scope throughout each iteration. Modifiers can attach internal transform or attention helpers without maintaining placement dictionaries. When the scope is offloaded, compressed-tensors discovers new descendants and applies their nearest ancestor's saved offload settings, leaving other offloaded or staged subtrees untouched. Replacing calibration targets or adding new quantizable targets requires updating the scope before calibration and is outside this initialization flow.
 
 ### The `State` Object
 
@@ -171,20 +172,20 @@ class MyModifier(Modifier):
 
 ## Example: A Weight-Clamping Modifier
 
-The following modifier clamps the stored weight tensors of all `Linear` layers to a fixed absolute magnitude after calibration completes (`CALIBRATION_END`).
+The following modifier clamps the stored weight tensors of `Linear` layers in each scope to a fixed absolute magnitude after calibration completes (`SEQUENTIAL_EPOCH_END`).
 
 ```python
 import torch
 from pydantic import Field, PrivateAttr
 from compressed_tensors.utils import match_named_modules
 from llmcompressor.modifiers import Modifier
-from llmcompressor.core import State, Event, EventType
+from llmcompressor.core import State, Event
 
 class WeightClampModifier(Modifier):
     """
     Clamps the magnitude of Linear layer weight tensors to a maximum absolute
     value. Applied layer-by-layer on SEQUENTIAL_EPOCH_END (sequential pipeline)
-    or all at once on CALIBRATION_END (basic pipeline).
+    or all at once on the same event (basic/data-free pipelines).
 
     :param max_weight_magnitude: maximum allowed absolute value for any weight
     :param targets: module types to target
@@ -208,10 +209,12 @@ class WeightClampModifier(Modifier):
             )
         return True
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
-        # Clamp all target modules at the end of calibration
+    def on_sequential_epoch_end(
+        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    ):
+        # Clamp target modules in the completed scope
         for name, module in match_named_modules(
-            state.model, self.targets, self.ignore
+            state.model, self.targets, self.ignore, modules=modules
         ):
             if name in self._clamped:
                 continue
@@ -264,6 +267,6 @@ weight_clamp_stage:
 - **Only override what you need.** The default implementations of all lifecycle hooks except `on_initialize` are no-ops or return `True` — you do not need to call `super()` for these.
 - **Use `match_named_modules`** (from `compressed_tensors.utils`) to filter modules by type name or path pattern, consistent with how other modifiers handle `targets` and `ignore`.
 - **Keep `on_initialize` lightweight.** Expensive operations (e.g., full-model passes) should be deferred to calibration lifecycle hooks or `on_finalize`.
-- **`on_update` is rarely needed.** Only override it if you need a per-batch callback while the modifier is active. Compression modifiers (GPTQ, AWQ, SmoothQuant, etc.) do not use it.
-- **Modifiers never fire events — the pipeline does.** All lifecycle events (`CALIBRATION_START`, `SEQUENTIAL_EPOCH_END`, `CALIBRATION_END`) are fired by the calibration pipeline. Your modifier only reacts to them by implementing the corresponding hooks. The base `Modifier` class automatically routes these events to the appropriate lifecycle methods.
+- **`on_update` is rarely needed.** Only override it if you need a per-batch callback while the modifier is active — e.g., `MagnitudeModifier` uses it to update sparsity each batch. Compression modifiers (GPTQ, AWQ, SmoothQuant, etc.) do not use it.
+- **Modifiers never fire events — the pipeline does.** The calibration pipeline fires `SEQUENTIAL_EPOCH_START` and `SEQUENTIAL_EPOCH_END`. Your modifier reacts by implementing the corresponding hooks. The lifecycle coordinates preparation and cleanup around those hooks.
 - **All calibration pipelines fire `SEQUENTIAL_EPOCH_END`.** The sequential pipeline fires it between layer groups (scoped to each group), while the basic and data-free pipelines fire it once for the entire model. Modifiers like GPTQ, REAP, and QuantizationModifier use this event to trigger compression and qparam computation.

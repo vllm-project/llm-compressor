@@ -31,10 +31,10 @@ class EventType(Enum):
     :param BATCH_START: Event type for the start of a batch.
     :param LOSS_CALCULATED: Event type for when loss is calculated.
     :param BATCH_END: Event type for the end of a batch.
-    :param CALIBRATION_START: Event type for the start of a calibration epoch.
-    :param SEQUENTIAL_EPOCH_END: Event type for the end of a layer calibration epoch,
-        specifically used by `src/llmcompressor/pipelines/sequential/pipeline.py`
-    :param CALIBRATION_END: Event type for the end of a calibration epoch.
+    :param SEQUENTIAL_EPOCH_START: Prepare an onloaded module scope and start
+        calibration. Data-free calibration uses the whole model as one scope.
+    :param SEQUENTIAL_EPOCH_END: Finish processing a module scope and clean up its
+        calibration state.
     :param OPTIM_PRE_STEP: Event type for pre-optimization step.
     :param OPTIM_POST_STEP: Event type for post-optimization step.
     """
@@ -49,9 +49,8 @@ class EventType(Enum):
     BATCH_END = "batch_end"
 
     # calibration lifecycle
-    CALIBRATION_START = "calibration_start"
+    SEQUENTIAL_EPOCH_START = "sequential_epoch_start"
     SEQUENTIAL_EPOCH_END = "sequential_epoch_end"
-    CALIBRATION_END = "calibration_end"
 
     # step lifecycle
     OPTIM_PRE_STEP = "optim_pre_step"

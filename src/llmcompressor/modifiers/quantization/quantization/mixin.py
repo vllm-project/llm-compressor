@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 import torch
@@ -24,7 +24,6 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
-from compressed_tensors.quantization.utils.helpers import is_module_quantized
 from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -47,6 +46,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
+from llmcompressor.observers.helpers import validate_fused_layer_scope
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -63,15 +63,13 @@ class QuantizationMixin(HooksMixin):
 
     Lifecycle:
 
-    - on_initialize: QuantizationMixin.initialize_quantization
+    - _prepare_sequential_epoch: QuantizationMixin.initialize_quantization
         - Attach schemes to modules
+    - on_sequential_epoch_start: QuantizationMixin.start_calibration
         - Attach observers to modules
-        - Disable quantization until calibration starts/finishes
-    - on_calibration_start: QuantizationMixin.start_calibration
         - Attach calibration hooks
         - Apply calibration status
-        - Enable quantization during calibration
-    - on_calibration_end: QuantizationMixin.end_calibration
+    - _cleanup_sequential_epoch: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
         - Keep quantization enabled for future steps
@@ -80,7 +78,7 @@ class QuantizationMixin(HooksMixin):
         as this is not desired for all Modifiers inheriting from it. Modifier must
         explicitly call `observe(modules, base_name="weight")` then
         `update_qparams(modules, base_name="weight")`.
-        See QuantizationModifier.on_event method for example
+        See QuantizationModifier.on_sequential_epoch_end for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -144,6 +142,7 @@ class QuantizationMixin(HooksMixin):
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
     _resolved_config: QuantizationConfig | None = PrivateAttr(None)
+    _initialized_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: str | list[str]) -> list[str]:
@@ -222,57 +221,100 @@ class QuantizationMixin(HooksMixin):
 
         return targets
 
-    def initialize_quantization(self, model: torch.nn.Module):
+    def initialize_quantization(
+        self,
+        model: torch.nn.Module,
+        modules: Iterable[torch.nn.Module] | None = None,
+    ):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
         :param model: model to attach schemes and observers to
+        :param modules: modules to initialize, or None for the whole model.
+            Modules already initialized by this modifier are skipped.
         """
+        modules = list(model.modules() if modules is None else modules)
+        # maybe remove later, but needed because of persistent modules
+        uninitialized_modules = [
+            module for module in modules if module not in self._initialized_modules
+        ]
+        if not uninitialized_modules:
+            return
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in match_named_modules(
+            model, self.resolved_targets, self.ignore, modules=uninitialized_modules
+        ):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        apply_quantization_config(
+            model, self.resolved_config, modules=uninitialized_modules
+        )
+        validate_fused_layer_scope(model, modules)
 
         if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
+            validate_group_size_divisibility(
+                model,
+                self.resolved_targets,
+                self.ignore,
+                modules=uninitialized_modules,
+            )
 
         # disable quantization until calibration
-        model.apply(disable_quantization)
+        for module in uninitialized_modules:
+            disable_quantization(module)
+        self._initialized_modules.update(uninitialized_modules)
 
-    def start_calibration(self, model: torch.nn.Module):
+    def start_calibration(
+        self,
+        model: torch.nn.Module,
+        modules: Iterable[torch.nn.Module] | None = None,
+        *,
+        warn_on_inference_mode: bool = True,
+    ):
         """
         Attach observers, register activation calibration hooks (including
-        kv_cache quantization) and enable quantization as we calibrate
+        kv_cache quantization), and set calibration status for the target modules.
 
         :param model: model to prepare for calibration
         """
-        targets = match_named_modules(model, self.resolved_targets, self.ignore)
+        if modules is not None:
+            modules = list(modules)
+        targets = list(
+            match_named_modules(
+                model, self.resolved_targets, self.ignore, modules=modules
+            )
+        )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
-        warn_inference_mode_forwards(model)
+        if warn_on_inference_mode:
+            warn_inference_mode_forwards(model)
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in targets:
             self._initialize_observers(module)
             self._calibration_hooks |= self._initialize_hooks(module)
             apply_calibration_status(module)
 
-        # Link weight observers in fused groups (Q/K/V, gate/up) for shared global_scale
-        fuse_weight_observers(model)
+        # Link fused weight observers for shared global_scale.
+        # Scoped setup also verifies that each TENSOR_GROUP fusion fits in the scope.
+        fuse_weight_observers(model, modules=modules)
 
-    def end_calibration(self, model: torch.nn.Module):
+    def end_calibration(
+        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+    ):
         """
         Remove calibration hooks and observers, and set the model status to frozen.
         Keep quantization enabled for future operations
 
         :param model: model to end calibration for
+        :param modules: modules in the completed scope, or None for the whole model
         """
-        self.remove_hooks(self._calibration_hooks)
+        removed = self.remove_hooks(self._calibration_hooks, modules=modules)
+        self._calibration_hooks.difference_update(removed)
         modules = [
             module
             for _, module in match_named_modules(
-                model, self.resolved_targets, self.ignore
+                model, self.resolved_targets, self.ignore, modules=modules
             )
         ]
 
@@ -298,28 +340,7 @@ class QuantizationMixin(HooksMixin):
 
         for module in modules:
             freeze_module_quantization(module)  # remove observers
-
-        model.apply(enable_quantization)  # keep quantization enabled
-
-    def start_layerwise_calibration(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module]
-    ):
-        """
-        Set up quantization for a subset of modules after layerwise
-        decompression. Applies quantization config scoped to the given
-        modules, then initializes observers, calibration hooks, and fuses
-        weight observers.
-
-        :param model: the full model (needed for config application)
-        :param modules: modules in the current subgraph to prepare
-        """
-        apply_quantization_config(model, self.resolved_config, allowed_modules=modules)
-        for module in modules:
-            if is_module_quantized(module):
-                self._initialize_observers(module)
-                self._calibration_hooks |= self._initialize_hooks(module)
-                apply_calibration_status(module)
-        fuse_weight_observers(model, modules)
+            enable_quantization(module)
 
     def sync_obs_act_stats(self, modules: Iterator[torch.nn.Module]):
         """

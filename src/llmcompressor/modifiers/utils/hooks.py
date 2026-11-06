@@ -10,7 +10,7 @@ from compressed_tensors.modeling import (
     register_value_hook,
 )
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 from torch.utils.hooks import RemovableHandle
 
 __all__ = ["HooksMixin"]
@@ -48,6 +48,9 @@ class HooksMixin(BaseModel):
 
     # attached to local subclasses
     _hooks: set[RemovableHandle] = set()
+    _hook_owners: dict[RemovableHandle, torch.nn.Module | torch.nn.Parameter] = (
+        PrivateAttr(default_factory=dict)
+    )
 
     @classmethod
     @contextlib.contextmanager
@@ -75,6 +78,8 @@ class HooksMixin(BaseModel):
         target: torch.nn.Module | torch.nn.Parameter,
         hook: Callable[[Any], Any],
         hook_type: str,
+        *,
+        owner: torch.nn.Module | None = None,
         **kwargs,
     ) -> RemovableHandle:
         """
@@ -87,6 +92,7 @@ class HooksMixin(BaseModel):
             `register_{hook_type}_hook` attribute on torch.nn.Module.
             Ex. "forward", "forward_pre", "full_backward", "state_dict_post", ""
         :param kwargs: keyword arguments to pass to register hook method
+        :param owner: module whose calibration scope owns this hook; defaults to target
         """
         handle = None
 
@@ -105,24 +111,38 @@ class HooksMixin(BaseModel):
         register_function = self._get_register_function(target, hook_type)
         handle = register_function(wrapped_hook, **kwargs)
         self._hooks.add(handle)
+        self._hook_owners[handle] = target if owner is None else owner
         logger.debug(f"{self} added {handle}")
 
         return handle
 
-    def remove_hooks(self, handles: set[RemovableHandle] | None = None):
+    def remove_hooks(
+        self,
+        handles: set[RemovableHandle] | None = None,
+        *,
+        modules: list[torch.nn.Module] | None = None,
+    ) -> set[RemovableHandle]:
         """
         Removes hooks registered by this modifier
 
         :param handles: optional list of handles to remove, defaults to all hooks
-            registerd by this modifier
+            registered by this modifier
+        :param modules: optionally remove only hooks owned by these modules
+        :return: the removed handles
         """
         if handles is None:
             handles = self._hooks
+        handles = set(handles)
+        if modules is not None:
+            scope = set(modules)
+            handles = {h for h in handles if self._hook_owners.get(h) in scope}
 
         for hook in handles:
             hook.remove()
+            self._hook_owners.pop(hook, None)
 
         self._hooks -= handles
+        return handles
 
     def _get_register_function(
         self, target: torch.nn.Module, hook_type: str

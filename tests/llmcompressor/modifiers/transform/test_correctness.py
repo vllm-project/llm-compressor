@@ -1,10 +1,37 @@
 import pytest
 import torch
+from compressed_tensors.transform import TransformArgs, TransformConfig, TransformScheme
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import State
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
 from tests.testing_utils import requires_gpu
+
+
+@pytest.mark.unit
+def test_quip_scoped_application_reuses_transform_parameters():
+    model = torch.nn.ModuleList(
+        [torch.nn.Linear(8, 8, bias=False), torch.nn.Linear(8, 8, bias=False)]
+    )
+    config = TransformConfig(
+        config_groups={
+            "v": TransformScheme(
+                type="hadamard",
+                apply=[TransformArgs(targets="Linear", location="input")],
+            )
+        }
+    )
+    modifier = QuIPModifier(transform_config=config)
+    state = State(model=model)
+    modifier.on_initialize(state)
+
+    modifier._prepare_sequential_epoch(state, None, modules=list(model[0].modules()))
+    modifier.on_sequential_epoch_start(state, None, modules=list(model[0].modules()))
+    assert "v_input" in model[0]._modules
+    assert "v_input" not in model[1]._modules
+    modifier._prepare_sequential_epoch(state, None, modules=list(model[1].modules()))
+
+    assert model[0].v_input.weight is model[1].v_input.weight
 
 
 @requires_gpu
@@ -39,7 +66,8 @@ def test_apply_correctness(
         true_output = model(**input)
 
     modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
+    modifier._prepare_sequential_epoch(state, None)
+    modifier.on_sequential_epoch_start(state, None)
 
     with torch.no_grad():
         output = model(**input)
