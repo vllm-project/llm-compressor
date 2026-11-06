@@ -1,9 +1,14 @@
 import contextlib
 from functools import wraps
-from typing import Type
+from typing import Callable, Type
 
 import torch
 import tqdm
+from compressed_tensors.offload import get_cache_init_kwargs, set_onload_device
+from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+)
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -124,6 +129,38 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
 
 def linearize_moe(model: PreTrainedModel):
+    """Linearize MoE modules and copy their weights immediately."""
+    return _linearize_moe(model, _create_linear_experts)
+
+
+def linearize_moe_to_meta(model: PreTrainedModel):
+    """Create linearized MoE structures on meta, retaining source experts for later.
+
+    OneShot uses this before modifier initialization. The sequential pipeline fills
+    each module when its subgraph onloads; other pipelines call
+    :func:`materialize_pending_moe_weights_immediately` after initialization.
+    """
+    return _linearize_moe(model, _create_meta_linear_experts)
+
+
+def _create_linear_experts(
+    cls: type[LinearExperts2D], module: torch.nn.Module, config: PreTrainedConfig
+) -> LinearExperts2D:
+    return cls.from_experts_module(module, config)
+
+
+def _create_meta_linear_experts(
+    cls: type[LinearExperts2D], module: torch.nn.Module, config: PreTrainedConfig
+) -> LinearExperts2D:
+    return cls.meta_from_experts_module(module, config)
+
+
+def _linearize_moe(
+    model: PreTrainedModel,
+    module_factory: Callable[
+        [type[LinearExperts2D], torch.nn.Module, PreTrainedConfig], LinearExperts2D
+    ],
+):
     """
     Linearize a mixture-of-experts model after it has been loaded. For more
     runtime-efficient loading, please see `load_quantizable_moe`.
@@ -151,10 +188,94 @@ def linearize_moe(model: PreTrainedModel):
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
         config = _experts_config(module, model)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
+        linear_moe = module_factory(linear_experts_cls, module, config)
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+def get_pending_moe_onload_modules(
+    modules: dict[str, torch.nn.Module],
+) -> dict[str, torch.nn.Module]:
+    """Include deferred fused experts when staging or onloading a subgraph."""
+    onload_modules = dict(modules)
+    for name, module in modules.items():
+        source = getattr(module, "_pending_source_experts", None)
+        if source is None:
+            continue
+
+        for index, source_module in enumerate(source.modules()):
+            onload_modules[f"{name}.__pending_moe_source__.{index}"] = source_module
+
+    return onload_modules
+
+
+def materialize_pending_moe_weights(
+    modules: dict[str, torch.nn.Module],
+    offload_kwargs: dict[str, dict],
+) -> None:
+    """Materialize deferred experts and preserve their source offload settings."""
+    for name, module in modules.items():
+        if getattr(module, "_pending_source_experts", None) is None:
+            continue
+
+        module_offload_kwargs = module.materialize_pending_experts()
+        for child_name, _ in module.named_modules():
+            target_name = f"{name}.{child_name}" if child_name else name
+            offload_kwargs[target_name] = module_offload_kwargs
+
+
+def materialize_pending_moe_weights_immediately(model: torch.nn.Module) -> None:
+    """Complete all pending MoE conversions one module at a time."""
+    pending = [
+        (name, module)
+        for name, module in model.named_modules()
+        if getattr(module, "_pending_source_experts", None) is not None
+    ]
+    for name, module in pending:
+        modules = {
+            f"{name}.{child_name}" if child_name else name: child
+            for child_name, child in module.named_modules()
+        }
+        onload_modules = get_pending_moe_onload_modules(modules)
+        offload_kwargs = subgraph_onload_modules(onload_modules)
+        materialize_pending_moe_weights(modules, offload_kwargs)
+        del onload_modules
+        subgraph_offload_modules(modules, offload_kwargs)
+
+
+def set_onload_device_for_pending_moes(
+    model: torch.nn.Module,
+    onload_device: torch.device | str,
+) -> None:
+    """Dispatch a model while keeping meta placeholders out of offload setup."""
+    pending = [
+        (name, module, module._pending_source_experts)
+        for name, module in model.named_modules()
+        if getattr(module, "_pending_source_experts", None) is not None
+    ]
+    if not pending:
+        set_onload_device(model, onload_device)
+        return
+
+    parents = []
+    for name, module, _ in pending:
+        parent_name, child_name = name.rsplit(".", 1) if "." in name else ("", name)
+        parent = model.get_submodule(parent_name) if parent_name else model
+        parents.append((parent, child_name, module))
+        parent._modules[child_name] = torch.nn.Module()
+
+    try:
+        set_onload_device(model, onload_device)
+    finally:
+        for parent, child_name, module in parents:
+            parent._modules[child_name] = module
+
+    for _, module, source in pending:
+        set_onload_device(source, onload_device)
+        object.__setattr__(
+            module, "_pending_offload_kwargs", get_cache_init_kwargs(source)
+        )
 
 
 def _experts_config(

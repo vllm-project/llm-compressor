@@ -37,10 +37,15 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
+from llmcompressor.modeling.moe.linearize import (
+    get_non_linearized_moes,
+    linearize_moe_to_meta,
+    materialize_pending_moe_weights_immediately,
+)
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
@@ -295,7 +300,7 @@ class Oneshot:
                 "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
                 " before passing to `oneshot`. Falling back to post-load linearization."
             )
-            linearize_moe(self.model)
+            linearize_moe_to_meta(self.model)
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
@@ -328,6 +333,8 @@ class Oneshot:
             pipeline = CalibrationPipeline.from_modifiers(
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
+            if not isinstance(pipeline, SequentialPipeline):
+                materialize_pending_moe_weights_immediately(self.model)
 
             pipeline(
                 self.model,
