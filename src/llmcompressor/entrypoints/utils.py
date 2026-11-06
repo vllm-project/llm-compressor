@@ -30,7 +30,6 @@ from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
 from llmcompressor.modeling.moe.linearize import (
     get_moe_modules,
-    linearize_moe,
     repack_moe,
 )
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
@@ -95,16 +94,6 @@ def pre_process(
     # if the model was loaded with accelerate offloading, convert to CT offloading
     if hasattr(model_args.model, "hf_device_map"):
         from_accelerate(model_args.model)
-
-    configured_pipeline = getattr(dataset_args, "pipeline", None)
-    supports_lazy_moe = configured_pipeline in {"sequential", "independent"}
-    # IndependentPipeline dispatches calibration modifiers to their inferred
-    # pipelines; calibration modifiers such as QuantizationModifier run through
-    # SequentialPipeline.
-    if supports_lazy_moe:
-        resolve_eager_moe_linearization(model_args.model, dataset_args)
-    if not dataset_args.moe_lazy_linearization_and_repack or not supports_lazy_moe:
-        linearize_moe(model_args.model)
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
