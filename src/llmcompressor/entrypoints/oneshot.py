@@ -35,9 +35,16 @@ from transformers import (
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
-from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.entrypoints.utils import (
+    post_process,
+    pre_process,
+    resolve_eager_moe_linearization,
+)
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
+from llmcompressor.modeling.moe.linearize import (
+    get_non_linearized_moes,
+    linearize_moe,
+)
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
@@ -253,6 +260,7 @@ class Oneshot:
         )
         post_process(
             model_args=self.model_args,
+            dataset_args=self.dataset_args,
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
         )
@@ -289,14 +297,6 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        if len(get_non_linearized_moes(self.model)) > 0:
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(self.model)
-
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
@@ -324,10 +324,25 @@ class Oneshot:
                 pipeline=self.dataset_args.pipeline,
             )
 
-            user_pipeline = self.dataset_args.pipeline
+            # Initialization resolves the recipe; infer the calibration pipeline
+            # from that resolved modifier list.
             pipeline = CalibrationPipeline.from_modifiers(
-                session.lifecycle.recipe.modifiers, user=user_pipeline
+                session.lifecycle.recipe.modifiers,
+                user=self.dataset_args.pipeline,
             )
+            pipeline_name = pipeline.__name__.removesuffix("Pipeline").lower()
+            supports_lazy_moe = pipeline_name in {"sequential", "independent"}
+            if supports_lazy_moe:
+                self.dataset_args.pipeline = pipeline_name
+                resolve_eager_moe_linearization(self.model, self.dataset_args)
+
+            # Model-local modifier setup happens when the pipeline starts a
+            # calibration scope, so eager linearization can follow global init.
+            if (
+                not self.dataset_args.moe_lazy_linearization_and_repack
+                or not supports_lazy_moe
+            ) and get_non_linearized_moes(self.model):
+                linearize_moe(self.model)
 
             pipeline(
                 self.model,
