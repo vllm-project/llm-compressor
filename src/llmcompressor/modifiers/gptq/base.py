@@ -39,6 +39,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
@@ -322,6 +323,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             module,
             self._hessians[module],
             self._num_samples[module],
+            mask=get_current_loss_mask(),
         )
 
     def compress_modules(self):
