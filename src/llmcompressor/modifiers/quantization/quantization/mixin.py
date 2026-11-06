@@ -17,6 +17,8 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
+    QuantizationStrategy,
+    QuantizationType,
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
@@ -494,12 +496,10 @@ class QuantizationMixin(HooksMixin):
             input_obs = self.observer.get("input", input_obs)
             output_obs = self.observer.get("output", output_obs)
 
-        default_weight_obs = self._default_weight_observer(has_calibration_data)
-
         # Apply observers to QuantizationArgs if specified
         # (modifier arg, scheme attribute, default observer, display name)
         update_map = [
-            (weight_obs, "weights", default_weight_obs, "weight"),
+            (weight_obs, "weights", None, "weight"),
             (input_obs, "input_activations", "minmax", "input activation"),
             (output_obs, "output_activations", "minmax", "output activation"),
         ]
@@ -508,7 +508,11 @@ class QuantizationMixin(HooksMixin):
             q_args = getattr(scheme, scheme_attr, None)
             if q_args is None:
                 continue
-            elif obs_value is None:
+            if scheme_attr == "weights":
+                default_obs = self._default_weight_observer(
+                    has_calibration_data, q_args
+                )
+            if obs_value is None:
                 if (
                     q_args.observer is not None
                     and "observer" in q_args.model_fields_set
@@ -525,8 +529,10 @@ class QuantizationMixin(HooksMixin):
 
         return scheme
 
-    def _default_weight_observer(self, has_calibration_data: bool) -> str:
-        """Select the default weight observer for this quantization modifier."""
+    def _default_weight_observer(
+        self, has_calibration_data: bool, weights: QuantizationArgs
+    ) -> str:
+        """Select the default observer based on calibration data and weight format."""
         if has_calibration_data:
             modifiers = active_session().lifecycle.recipe.modifiers
             if any(modifier is self for modifier in modifiers):
@@ -536,6 +542,17 @@ class QuantizationMixin(HooksMixin):
                 # default to imat unless AWQ is updated to use real observers
                 if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
                     return "memoryless_minmax"
+
+            # NVFP4's tensor-group weights use FP8 scales and need the expanded
+            # search range provided by the specialized imatrix observer.
+            if (
+                weights.type == QuantizationType.FLOAT
+                and weights.num_bits == 4
+                and weights.strategy == QuantizationStrategy.TENSOR_GROUP
+                and weights.group_size == 16
+                and weights.scale_dtype == torch.float8_e4m3fn
+            ):
+                return "nvfp4_expanded_imatrix"
 
         # The imatrix observer weights quantization error by per-channel
         # activation importance, which can only be accumulated when
