@@ -457,9 +457,9 @@ def test_ddp_smoke_awq():
 @torchrun(world_size=2)
 def test_ddp_smoke_gptq():
     _test_ddp_modifier(
-        "gptq",
+        "gptq_nvfp4a16",
         lambda: GPTQModifier(
-            scheme={"W4A16": ["Linear"]},
+            scheme={"NVFP4A16": ["Linear"]},
             ignore=["lm_head"],
             block_size=128,
         ),
