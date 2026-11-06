@@ -202,28 +202,6 @@ class Oneshot:
         self.dataset_args = dataset_args
         self.recipe_args = recipe_args
         self.output_dir = output_dir
-        self.recipe = self.recipe_args.recipe
-
-        # Resolve the pipeline before preprocessing chooses eager or lazy MoE
-        # linearization.
-        recipe_for_pipeline = (
-            Recipe.create_instance(
-                self.recipe,
-                target_stage=self.recipe_args.stage,
-            )
-            if self.recipe
-            else Recipe()
-        )
-        if self.recipe_args.recipe_args:
-            recipe_for_pipeline.args = {**self.recipe_args.recipe_args}
-
-        self.dataset_args.pipeline = CalibrationPipeline.resolve_name(
-            recipe_for_pipeline.modifiers,
-            user=self.dataset_args.pipeline,
-        )
-        self.calibration_pipeline = CalibrationPipeline.load_from_registry(
-            self.dataset_args.pipeline
-        )
 
         # initialize the model and processor
         pre_process(model_args, dataset_args, output_dir)
@@ -231,6 +209,7 @@ class Oneshot:
         # Set instance attributes
         self.model = self.model_args.model
         self.processor = self.model_args.processor
+        self.recipe = self.recipe_args.recipe
 
         # Skip model validation if using layerwise decompression
         # for pre-quantized models
@@ -283,8 +262,21 @@ class Oneshot:
         session = active_session()
         session.reset()
 
+        recipe = (
+            Recipe.create_instance(self.recipe, target_stage=recipe_stage)
+            if self.recipe
+            else Recipe()
+        )
+        pipeline = CalibrationPipeline.from_modifiers(
+            recipe.modifiers,
+            user=self.dataset_args.pipeline,
+        )
+        pipeline_name = pipeline.__name__.removesuffix("Pipeline").lower()
+        supports_lazy_moe = pipeline_name in {"sequential", "independent"}
+        if supports_lazy_moe:
+            self.dataset_args.pipeline = pipeline_name
+
         # Prepare eager MoE modules before modifiers initialize against the model.
-        supports_lazy_moe = self.dataset_args.pipeline in {"sequential", "independent"}
         if supports_lazy_moe:
             resolve_eager_moe_linearization(self.model, self.dataset_args)
         if (
@@ -312,7 +304,7 @@ class Oneshot:
             session.initialize(
                 model=self.model,
                 start=-1,
-                recipe=self.recipe,
+                recipe=recipe,
                 recipe_stage=recipe_stage,
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,
@@ -320,7 +312,7 @@ class Oneshot:
                 pipeline=self.dataset_args.pipeline,
             )
 
-            self.calibration_pipeline(
+            pipeline(
                 self.model,
                 calibration_dataloader,
                 self.dataset_args,
