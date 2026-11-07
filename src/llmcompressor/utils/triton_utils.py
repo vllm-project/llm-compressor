@@ -5,10 +5,30 @@ from compressed_tensors.quantization import QuantizationType
 from compressed_tensors.quantization.utils.fp4_utils import _round_to_fp4
 from compressed_tensors.utils.triton import tl, tldevice, triton, triton_req
 
+try:
+    from triton.runtime.jit import constexpr_function
+except ImportError:
+    constexpr_function = None
+
+
+if constexpr_function is not None:
+
+    @constexpr_function
+    def is_xpu_target():
+        """Return whether Triton is compiling for the Intel XPU backend."""
+        target = tl.target_info.current_target()
+        return target is not None and target.backend == "xpu"
+
+else:
+
+    @triton.jit
+    def is_xpu_target():
+        return False
+
 
 def observer_triton_req(observed, args, *unused_args, **unused_kwargs) -> bool:
     """Check whether observer inputs use a format supported by the shared kernels."""
-    if not triton_req(observed) or not observed.is_cuda:
+    if not triton_req(observed):
         return False
     if observed.dtype not in (torch.float32, torch.float16, torch.bfloat16):
         return False
@@ -32,6 +52,35 @@ def scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
     if dtype == torch.uint8:
         return 4, 2.0**-127
     raise ValueError(f"Unsupported Triton scale dtype: {dtype}")
+
+
+@triton.jit
+def round_to_bf16(value):
+    """Round an FP32 value to BF16 and return it as FP32."""
+    if is_xpu_target():
+        # Intel Triton promotes BF16 arithmetic to FP32, even across an
+        # explicit BF16 cast, so round through the FP32 bit representation.
+        bits = value.to(tl.int32, bitcast=True)
+        least_significant_bit = (bits >> 16) & 1
+        bits = bits + 0x7FFF + least_significant_bit
+        bits = bits & -65536
+        return bits.to(tl.float32, bitcast=True)
+    return value.to(tl.bfloat16).to(tl.float32)
+
+
+@triton.jit
+def round_to_fp16(value):
+    """Round an FP32 value to FP16 and return it as FP32."""
+    half = value.to(tl.float16)
+    if is_xpu_target():
+        # The identity FMA forces the Intel backend to materialize the FP16
+        # value; a plain cast is optimized away in arithmetic chains.
+        return tldevice.fma(
+            half,
+            tl.full((), 1.0, tl.float16),
+            tl.full((), 0.0, tl.float16),
+        ).to(tl.float32)
+    return half.to(tl.float32)
 
 
 @triton.jit
@@ -108,14 +157,14 @@ def quantize_dequantize(
     """GPTQ-style QDQ shared by MSE and importance-weighted observer kernels."""
     normalized = tldevice.div_rn(values, scale)
     if COMPUTE_DTYPE == 1:
-        normalized = normalized.to(tl.float16).to(tl.float32)
+        normalized = round_to_fp16(normalized)
     elif COMPUTE_DTYPE == 2:
         normalized = normalized.to(tl.bfloat16).to(tl.float32)
     if HAS_ZP:
         # fake_quantize adds the zero point in the input dtype
         normalized += zero_point
         if COMPUTE_DTYPE == 1:
-            normalized = normalized.to(tl.float16).to(tl.float32)
+            normalized = round_to_fp16(normalized)
         elif COMPUTE_DTYPE == 2:
             normalized = normalized.to(tl.bfloat16).to(tl.float32)
     normalized = tl.clamp(normalized, q_min, q_max)
@@ -142,10 +191,14 @@ def calculate_mse_error(
     norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
     ROUND_ERROR: tl.constexpr,
+    INPUT_DTYPE_POW: tl.constexpr,
 ):
     """Calculate the per-element powered QDQ error for the MSE observer."""
     if COMPUTE_DTYPE == 1:
-        diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
+        if is_xpu_target():
+            diff = round_to_fp16(tl.abs(quantized - values))
+        else:
+            diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
     elif COMPUTE_DTYPE == 2:
         diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
     else:
@@ -159,17 +212,27 @@ def calculate_mse_error(
             error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
     diff = diff.to(tl.float32)
     if error_norm == 3.0:
-        # PyTorch's eager ``pow(x, 3.0)`` follows this multiply sequence.
-        # libdevice.pow can land on the other side of a BF16 rounding midpoint
-        # for tiny errors, which changes the selected grid point after weighting.
-        diff_pow = (diff * diff) * diff
+        if ROUND_ERROR and COMPUTE_DTYPE == 1 and INPUT_DTYPE_POW:
+            squared = round_to_fp16(diff * diff)
+            diff_pow = round_to_fp16(squared * diff)
+        elif ROUND_ERROR and COMPUTE_DTYPE == 2 and INPUT_DTYPE_POW:
+            # Eager pow keeps the cubic in the observed dtype, rounding after
+            # each multiply. Triton promotes BF16/FP16 arithmetic to FP32, so
+            # force those intermediate roundings to select the same grid point.
+            squared = round_to_bf16(diff * diff)
+            diff_pow = round_to_bf16(squared * diff)
+        else:
+            # The imatrix path computes the cubic in FP32 before rounding.
+            # libdevice.pow can land on the other side of a rounding midpoint
+            # for tiny errors, which changes the selected grid point.
+            diff_pow = (diff * diff) * diff
     else:
-        diff_pow = tl.extra.cuda.libdevice.pow(diff, error_norm)
+        diff_pow = tldevice.pow(diff, error_norm)
     if ROUND_ERROR:
         if COMPUTE_DTYPE == 1:
-            diff_pow = diff_pow.to(tl.float16)
+            diff_pow = round_to_fp16(diff_pow)
         elif COMPUTE_DTYPE == 2:
-            diff_pow = diff_pow.to(tl.bfloat16)
+            diff_pow = round_to_bf16(diff_pow)
     return diff_pow.to(tl.float32)
 
 
@@ -192,6 +255,7 @@ def calculate_observer_error(
         norm,
         COMPUTE_DTYPE=COMPUTE_DTYPE,
         ROUND_ERROR=ROUND_ERROR,
+        INPUT_DTYPE_POW=not HAS_IMPORTANCE,
     )
     if HAS_IMPORTANCE:
         error = error * importance

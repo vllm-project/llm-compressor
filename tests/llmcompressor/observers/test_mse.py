@@ -105,17 +105,24 @@ def test_mse_fp4():
         pytest.param("NVFP4A16", (8, 1024), id="nvfp4a16"),
     ],
 )
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+@pytest.mark.parametrize("norm", [2.4, 3.0])
+def test_mse_triton_matches_eager_for_realistic_schemes(
+    preset, observed_shape, device, norm
+):
     """Real W4A16 and NVFP4A16 group sizes preserve eager grid choices."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
     observed = flatten_for_calibration(
-        torch.randn(*observed_shape, device="cuda", dtype=torch.bfloat16),
+        torch.randn(*observed_shape, device=device, dtype=torch.bfloat16),
         "weight",
         args,
     )
-    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_args = (observed, args, 0.5, 5, 100.0, norm, 1.0)
     search_kwargs = {"expand": 1.0}
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
@@ -164,9 +171,13 @@ def _qdq_kernel(
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("symmetric", [True, False])
 @pytest.mark.parametrize("num_bits", [4, 8])
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype, device):
     """The shared QDQ helper reproduces fake_quantize bit for bit."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = QuantizationArgs(
         num_bits=num_bits,
         symmetric=symmetric,
@@ -175,7 +186,7 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
     )
     torch.manual_seed(0)
     observed = flatten_for_calibration(
-        torch.randn(64, 1024, device="cuda", dtype=dtype), "weight", args
+        torch.randn(64, 1024, device=device, dtype=dtype), "weight", args
     )
     scale, zero_point = calculate_qparams(
         min_vals=torch.amin(observed, dim=(0, -1)),
