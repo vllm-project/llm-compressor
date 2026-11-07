@@ -619,7 +619,9 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
             "job": spec["key"],
             "completed_at": utc_now(),
             "elapsed_seconds": elapsed,
-            "peak_cuda_memory_gib": torch.accelerator.max_memory_allocated() / (1024**3),
+            "peak_cuda_memory_gib": (
+                torch.accelerator.max_memory_allocated() / (1024**3)
+            ),
             "checkpoint_bytes": sum(path.stat().st_size for path in safetensors),
             "model_snapshot": str(snapshot_path),
         },
