@@ -572,7 +572,6 @@ def _assert_imatrix_eager_triton_parity(
     assert torch.equal(qdq_weights[0], qdq_weights[1])
 
 
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 @pytest.mark.parametrize(
     "preset,observed_shape,maxshrink,patience,grid,expand,norm,"
     "magnitude_normalization,grid_type",
@@ -615,6 +614,7 @@ def _assert_imatrix_eager_triton_parity(
         ),
     ],
 )
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
 def test_imatrix_triton_matches_eager_for_realistic_schemes(
     preset,
     observed_shape,
@@ -625,17 +625,22 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
     norm,
     magnitude_normalization,
     grid_type,
+    device,
 ):
     """Representative W4A16, NVFP4A16, and MXFP4 cases match across backends."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
     observed = flatten_for_calibration(
-        torch.randn(*observed_shape, device="cuda", dtype=torch.bfloat16),
+        torch.randn(*observed_shape, device=device, dtype=torch.bfloat16),
         "weight",
         args,
     )
     importance = flatten_for_calibration(
-        torch.linspace(0.2, 2.0, observed_shape[-1], device="cuda")
+        torch.linspace(0.2, 2.0, observed_shape[-1], device=device)
         .unsqueeze(0)
         .expand(*observed_shape),
         "weight",
@@ -711,7 +716,11 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
         assert torch.equal(qdq_weights[0], qdq_weights[1])
 
 
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available()
+    or torch.accelerator.current_accelerator().type != "cuda",
+    reason="requires CUDA Triton",
+)
 @pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
 def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     """FP8 grid search must compile on A100 even without native E4M3 support."""
@@ -755,7 +764,11 @@ def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     assert torch.equal(expected[1], actual[1])
 
 
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+@pytest.mark.skipif(
+    not torch.accelerator.is_available()
+    or torch.accelerator.current_accelerator().type != "cuda",
+    reason="requires CUDA Triton",
+)
 def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     """The E4B15 path selects the same grid point as native E4NV."""
     if torch.get_device_module().get_device_capability()[0] < 9:
@@ -790,9 +803,13 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     assert torch.equal(native[1], e4b15[1])
 
 
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager(device):
     """A Llama-derived BF16 near-tie chooses the same NVFP4 grid point."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
     observed = torch.tensor(
         [
@@ -813,7 +830,7 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
             0.0133056640625,
             -0.00174713134765625,
         ],
-        device="cuda",
+        device=device,
         dtype=torch.bfloat16,
     ).reshape(1, 1, 1, 16)
     importance = torch.tensor(
@@ -835,7 +852,7 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
             0.007513321004807949,
             0.0026003867387771606,
         ],
-        device="cuda",
+        device=device,
         dtype=torch.float32,
     ).reshape(1, 1, 1, 16)
     _assert_imatrix_eager_triton_parity(
@@ -851,9 +868,13 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
     )
 
 
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager(device):
     """Match eager when a weighted cubic error lands on a BF16 rounding tie."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
     observed = torch.tensor(
         [
@@ -874,7 +895,7 @@ def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
             0.006927490234375,
             0.01318359375,
         ],
-        device="cuda",
+        device=device,
         dtype=torch.bfloat16,
     ).reshape(1, 1, 1, 16)
     importance = torch.tensor(
@@ -896,7 +917,7 @@ def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
             0.010342647321522236,
             0.0010723379673436284,
         ],
-        device="cuda",
+        device=device,
         dtype=torch.float32,
     ).reshape(1, 1, 1, 16)
     _assert_imatrix_eager_triton_parity(
