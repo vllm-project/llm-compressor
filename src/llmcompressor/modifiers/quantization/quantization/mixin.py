@@ -3,6 +3,7 @@ from copy import deepcopy
 from typing import Any
 
 import torch
+from compressed_tensors.compressors import NVFP4PackedCompressor
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -17,8 +18,6 @@ from compressed_tensors.quantization import (
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStatus,
-    QuantizationStrategy,
-    QuantizationType,
     apply_quantization_config,
     disable_quantization,
     enable_quantization,
@@ -510,7 +509,7 @@ class QuantizationMixin(HooksMixin):
                 continue
             if scheme_attr == "weights":
                 default_obs = self._default_weight_observer(
-                    has_calibration_data, q_args
+                    has_calibration_data, scheme
                 )
             if obs_value is None:
                 if (
@@ -530,7 +529,7 @@ class QuantizationMixin(HooksMixin):
         return scheme
 
     def _default_weight_observer(
-        self, has_calibration_data: bool, weights: QuantizationArgs
+        self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Select the default observer based on calibration data and weight format."""
         if has_calibration_data:
@@ -543,15 +542,9 @@ class QuantizationMixin(HooksMixin):
                 if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
                     return "memoryless_minmax"
 
-            # NVFP4's tensor-group weights use FP8 scales and need the expanded
-            # search range provided by the specialized imatrix observer.
-            if (
-                weights.type == QuantizationType.FLOAT
-                and weights.num_bits == 4
-                and weights.strategy == QuantizationStrategy.TENSOR_GROUP
-                and weights.group_size == 16
-                and weights.scale_dtype == torch.float8_e4m3fn
-            ):
+            # Use the compressor's scheme predicate to keep NVFP4 detection in
+            # sync with the packed format. Linear is a supported module type.
+            if NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme):
                 return "nvfp4_expanded_imatrix"
 
         # The imatrix observer weights quantization error by per-channel
