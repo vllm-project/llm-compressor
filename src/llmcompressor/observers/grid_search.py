@@ -128,9 +128,9 @@ def _grid_search_observer(
 
         improved = error < best_error
         if torch.any(improved):
-            best_error[improved] = error[improved]
-            best_min[improved] = shrink_min[improved]
-            best_max[improved] = shrink_max[improved]
+            best_error = torch.where(improved, error, best_error)
+            best_min = torch.where(improved, shrink_min, best_min)
+            best_max = torch.where(improved, shrink_max, best_max)
             no_improve_count = 0
         else:
             no_improve_count += 1
