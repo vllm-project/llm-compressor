@@ -599,7 +599,7 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
         "magnitude_normalization": magnitude_enabled(spec),
     }
 
-    torch.cuda.reset_peak_memory_stats()
+    torch.accelerator.reset_peak_memory_stats()
     started = time.monotonic()
     model_free_ptq(
         model_stub=str(snapshot_path),
@@ -619,7 +619,7 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
             "job": spec["key"],
             "completed_at": utc_now(),
             "elapsed_seconds": elapsed,
-            "peak_cuda_memory_gib": torch.cuda.max_memory_allocated() / (1024**3),
+            "peak_cuda_memory_gib": torch.accelerator.max_memory_allocated() / (1024**3),
             "checkpoint_bytes": sum(path.stat().st_size for path in safetensors),
             "model_snapshot": str(snapshot_path),
         },

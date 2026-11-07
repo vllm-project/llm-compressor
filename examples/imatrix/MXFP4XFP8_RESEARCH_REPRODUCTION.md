@@ -110,7 +110,7 @@ in both observer variants so behavior does not depend on automatic defaults:
 
 | Variant | Observer | Grid | Expand | Max shrink | Candidates |
 |---|---|---:|---:|---:|---|
-| Default | `imatrix_mse` | 100 | 1.0 | 0.95 | `1, 1/2, 1/4, 1/8, 1/16, 1/32, 0.06` |
+| Default | `imatrix_mse` | 100 | 1.0 | 0.95 | `1, 1/2, 1/4, 1/8, 1/16, 0.06` |
 | Expanded | `nvfp4_expanded_imatrix` | 200 | 1.0 | 63/64 | `1, 1/2, 1/4, 1/8, 1/16, 1/32, 0.025, 1/64` |
 
 The final non-power-of-two candidate in each row preserves the endpoint of the
