@@ -199,7 +199,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             from compressed_tensors.offload import disable_onloading
 
             with disable_onloading():
-                QuantizationMixin.initialize_quantization(self, state.model)
+                QuantizationMixin.initialize_quantization(self, state)
 
         # prepare module names
         self._add_temporary_names(state.model)
@@ -642,7 +642,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                         module.register_parameter(qparam_name, param_value)
 
     def _get_default_quant_scheme(self) -> QuantizationScheme:
-        resolved_config = self.resolved_config
+        resolved_config = self.resolve_quantization_config()
         for scheme in resolved_config.config_groups.values():
             if not isinstance(scheme, QuantizationScheme):
                 raise TypeError(f"Expected QuantizationScheme, got {type(scheme)}")

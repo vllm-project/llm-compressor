@@ -180,7 +180,7 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     with patch(
         "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
     ) as fuse_weight_observers:
-        modifier.start_layerwise_calibration(model, modules)
+        modifier.start_layerwise_calibration(state, model, modules)
 
     fuse_weight_observers.assert_called_once_with(model, modules)
 
@@ -202,6 +202,7 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
 def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
     model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
     modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
+    state = State(model=model)
     modules = list(model[0].modules())
 
     from compressed_tensors.quantization import apply_quantization_config
@@ -210,10 +211,10 @@ def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
         "llmcompressor.modifiers.quantization.quantization.mixin.apply_quantization_config",
         wraps=apply_quantization_config,
     ) as apply_config:
-        modifier.start_layerwise_calibration(model, modules)
+        modifier.start_layerwise_calibration(state, model, modules)
 
     apply_config.assert_called_once_with(
-        model, modifier.resolved_config, allowed_modules=modules
+        model, modifier.resolve_quantization_config(), allowed_modules=modules
     )
     assert model[0].quantization_status == QuantizationStatus.CALIBRATION
     assert not hasattr(model[1], "quantization_scheme")
