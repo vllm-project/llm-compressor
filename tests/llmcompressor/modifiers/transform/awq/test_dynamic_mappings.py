@@ -10,6 +10,7 @@ from llmcompressor.modifiers.transform.awq.dynamic_mappings import (
     AWQ_DYNAMIC_MAPPING_REGISTRY,
     _detect_linear_attn_projections,
     _detect_step3p5_ffn_layer_indices,
+    build_gemma4_mappings,
     build_hybrid_attention_mappings,
     build_step3p5_mappings,
     get_layer_mappings_from_model,
@@ -362,6 +363,163 @@ class TestStep3p5Mappings:
             )
             for mapping in moe_mappings
         )
+
+
+GEMMA4_NUM_LAYERS = 6  # tiny model, only for resolution checks -- not accuracy
+GEMMA4_NUM_SLIDING_LAYERS = 5  # layers 0-4; layer 5 is the only full_attention layer
+GEMMA4_NUM_EXPERTS = 2
+
+
+def _make_tiny_gemma4(moe=False, device="meta"):
+    """Build a tiny Gemma4 -- no hub download, no weights.
+
+    With 6 layers, only layer 5 is a full_attention layer. attention_k_eq_v=True
+    makes full_attention layers reuse the key projection as the value projection
+    (v_proj is None), which is the layout the Gemma4 mappings target.
+    """
+    from transformers import (
+        Gemma4Config,
+        Gemma4ForConditionalGeneration,
+        Gemma4TextConfig,
+    )
+
+    moe_kwargs = (
+        {
+            "num_experts": GEMMA4_NUM_EXPERTS,
+            "top_k_experts": 2,
+            "moe_intermediate_size": 64,
+        }
+        if moe
+        else {}
+    )
+    text_config = Gemma4TextConfig(
+        vocab_size=128,
+        hidden_size=64,
+        intermediate_size=128,
+        num_hidden_layers=GEMMA4_NUM_LAYERS,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        head_dim=16,
+        max_position_embeddings=64,
+        attention_k_eq_v=True,
+        enable_moe_block=moe,
+        **moe_kwargs,
+    )
+    config = Gemma4Config(text_config=text_config)
+    if device == "meta":
+        with torch.device("meta"):
+            return Gemma4ForConditionalGeneration(config)
+    return Gemma4ForConditionalGeneration(config)
+
+
+@pytest.mark.unit
+class TestGemma4Mappings:
+    def test_registry_entries_use_gemma4_builder(self):
+        for model_name in (
+            "Gemma4ForConditionalGeneration",
+            "Gemma4UnifiedForConditionalGeneration",
+        ):
+            assert AWQ_DYNAMIC_MAPPING_REGISTRY[model_name] is build_gemma4_mappings
+
+    def test_builds_sliding_and_full_scoped_mappings(self):
+        model = _make_tiny_gemma4()
+        mappings = build_gemma4_mappings(model)
+        assert mappings is not None
+        assert len(mappings) == 4
+
+        # Sliding attention layers 0-4: input_layernorm -> q/k/v_proj
+        sliding_mapping = mappings[0]
+        assert sliding_mapping.smooth_layer.endswith(
+            "layers\\.(0|1|2|3|4)\\.input_layernorm$"
+        )
+        assert len(sliding_mapping.balance_layers) == 3
+
+        # Full attention layer 5: k == v, so only q/k_proj are balanced
+        full_mapping = mappings[1]
+        assert full_mapping.smooth_layer.endswith("layers\\.(5)\\.input_layernorm$")
+        assert len(full_mapping.balance_layers) == 2
+
+        # Dense MLP: pre_feedforward_layernorm -> mlp gate/up_proj
+        mlp_mapping = mappings[2]
+        assert mlp_mapping.smooth_layer.endswith("pre_feedforward_layernorm$")
+        assert all("mlp" in balance for balance in mlp_mapping.balance_layers)
+        assert not any("experts" in balance for balance in mlp_mapping.balance_layers)
+
+    def test_v_proj_only_balanced_on_sliding_layers(self):
+        model = _make_tiny_gemma4()
+        mappings = build_gemma4_mappings(model)
+
+        # the structure the mappings assume: v_proj only exists where k != v
+        names = {name for name, _ in model.named_modules()}
+        assert "model.language_model.layers.0.self_attn.v_proj" in names
+        assert "model.language_model.layers.5.self_attn.v_proj" not in names
+
+        assert any("v_proj" in b for b in mappings[0].balance_layers)
+        assert not any("v_proj" in b for b in mappings[1].balance_layers)
+
+    def test_mappings_resolve_one_group_per_layer(self):
+        model = _make_tiny_gemma4()
+        mappings = build_gemma4_mappings(model)
+
+        # sliding, full, dense MLP, up -> down
+        expected_groups = [
+            GEMMA4_NUM_SLIDING_LAYERS,
+            GEMMA4_NUM_LAYERS - GEMMA4_NUM_SLIDING_LAYERS,
+            GEMMA4_NUM_LAYERS,
+            GEMMA4_NUM_LAYERS,
+        ]
+        for mapping, expected in zip(mappings, expected_groups):
+            groups = list(
+                match_modules_set(
+                    model, (mapping.smooth_layer, *mapping.balance_layers)
+                )
+            )
+            assert len(groups) == expected, mapping.smooth_layer
+            for group in groups:
+                assert len(group[0]) == 1, "each mapping needs exactly one smooth layer"
+                assert all(len(balance) == 1 for balance in group[1:])
+
+    def test_moe_model_balances_experts_via_second_prenorm(self):
+        from llmcompressor.modeling.moe.linearize import linearize_moe
+
+        # linearize_moe is not meta-device compatible; the tiny model is cheap on cpu
+        model = _make_tiny_gemma4(moe=True, device="cpu")
+        linearize_moe(model)
+
+        mappings = build_gemma4_mappings(model)
+        assert mappings is not None
+        assert len(mappings) == 5
+
+        # experts are only reachable through pre_feedforward_layernorm_2
+        expert_mapping = mappings[3]
+        assert expert_mapping.smooth_layer.endswith("pre_feedforward_layernorm_2$")
+        assert all("experts" in b for b in expert_mapping.balance_layers)
+
+        # the dense MLP mapping must not pull in expert weights
+        mlp_mapping = mappings[2]
+        assert mlp_mapping.smooth_layer.endswith("pre_feedforward_layernorm$")
+        assert all("mlp" in b for b in mlp_mapping.balance_layers)
+        assert not any("experts" in b for b in mlp_mapping.balance_layers)
+
+        groups = list(
+            match_modules_set(
+                model, (expert_mapping.smooth_layer, *expert_mapping.balance_layers)
+            )
+        )
+        assert len(groups) == GEMMA4_NUM_LAYERS
+        # every expert of a layer is balanced against its pre_feedforward_layernorm_2
+        for group in groups:
+            assert len(group[0]) == 1
+            assert all(len(balance) == GEMMA4_NUM_EXPERTS for balance in group[1:])
+
+    def test_layer_types_shorter_than_num_layers_is_handled(self):
+        model = _make_tiny_gemma4()
+        # a truncated layer_types must not raise an IndexError
+        model.config.text_config.layer_types = ["sliding_attention"]
+        mappings = build_gemma4_mappings(model)
+        assert mappings is not None
+        # only layer 0 is mapped as a sliding attention layer
+        assert mappings[0].smooth_layer.endswith("layers\\.(0)\\.input_layernorm$")
 
 
 @pytest.mark.unit
