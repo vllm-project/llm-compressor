@@ -82,8 +82,8 @@ def _grid_search_observer(
     min_vals = torch.amin(observed, dim=(0, -1)) * expand
     max_vals = torch.amax(observed, dim=(0, -1)) * expand
 
-    # Keep per-element errors in the observed dtype, then accumulate all scores
-    # in FP32. Packed and split paths differ only in their reduction order.
+    # Round QDQ differences in the observed dtype, then compute powers and
+    # accumulate scores in FP32. Packed and split paths differ only in reduction.
     score_dtype = torch.float64 if observed.dtype == torch.float64 else torch.float32
     error_norm = norm
     if observed.dtype in (
@@ -151,7 +151,7 @@ def _calculate_observer_error_eager(
     importance_weights: torch.Tensor | None,
     group_absmax: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Calculate eager MSE or importance-weighted error with shared rounding."""
+    """Calculate eager observer error with FP32 powers and shared weighting."""
     scales, zero_points = calculate_qparams(
         min_vals=shrink_min,
         max_vals=shrink_max,
@@ -161,9 +161,8 @@ def _calculate_observer_error_eager(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
-    difference = (quantized - observed).abs()
+    difference = (quantized - observed).abs().to(dtype=score_dtype)
     error = difference.pow(error_norm)
-    error = error.to(score_dtype)
     if importance_weights is not None:
         error = error * importance_weights.to(dtype=score_dtype)
     if group_absmax is not None:

@@ -217,17 +217,12 @@ def calculate_qdq_error(
     norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
 ):
-    """Calculate the per-element powered QDQ error for observer search."""
+    """Compute QDQ powers in FP32 after rounding the difference to input dtype."""
     quantized = round_fp32_as_dtype(quantized, COMPUTE_DTYPE)
     values = round_fp32_as_dtype(values, COMPUTE_DTYPE)
     diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
     error_norm = round_fp32_as_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
-    if error_norm == 3.0:
-        # Match CUDA eager's low-precision pow(x, 3) result. Triton's generic
-        # pow differs, so round each multiply to the compute dtype.
-        squared_diff = round_fp32_as_dtype(diff * diff, COMPUTE_DTYPE)
-        return round_fp32_as_dtype(squared_diff * diff, COMPUTE_DTYPE)
-    return round_fp32_as_dtype(tldevice.pow(diff, error_norm), COMPUTE_DTYPE)
+    return tldevice.pow(diff, error_norm)
 
 
 @triton.jit
