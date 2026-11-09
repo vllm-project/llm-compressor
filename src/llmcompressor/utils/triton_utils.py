@@ -203,6 +203,7 @@ def calculate_mse_error(
     diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
     error_norm = round_fp32_as_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
     if error_norm == 3.0:
+        # Match CUDA eager's low-precision pow(x, 3) rounding after each multiply.
         squared_diff = round_fp32_as_dtype(diff * diff, COMPUTE_DTYPE)
         return round_fp32_as_dtype(squared_diff * diff, COMPUTE_DTYPE)
     return round_fp32_as_dtype(tldevice.pow(diff, error_norm), COMPUTE_DTYPE)
