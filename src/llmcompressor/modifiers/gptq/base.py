@@ -149,6 +149,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
     _has_gptq_modules: bool = PrivateAttr(default=False)
+    _configured_weight_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("batched_quantization")
     @classmethod
@@ -160,16 +161,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
 
-        def resolve_actorder(weights):
-            existing = weights.actorder
-            is_set = "actorder" in weights.model_fields_set
-
-            # sentinel default only overrides if actorder is not set
+        def resolve_actorder(existing):
+            # sentinel default only overrides if existing is None
             if self.actorder == Sentinel("static"):
-                return existing if is_set else ActivationOrdering.STATIC
+                return ActivationOrdering.STATIC if existing is None else existing
 
             # user-provided value always attempts to override
-            if not is_set or self.actorder == existing:
+            if existing is None or self.actorder == existing:
                 return self.actorder
 
             # if existing provided and conflicts
@@ -192,12 +190,26 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 QuantizationStrategy.BLOCK,
             ):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
-                scheme.weights.actorder = resolve_actorder(scheme.weights)
+                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
 
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        """Model setup and module-name resolution happen as scopes are onloaded."""
+        """Resolve GPTQ targets for both memory estimates and scoped setup."""
+        self._module_names = dict(
+            (module, name)
+            for name, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
+        )
+        self._configured_weight_modules = {
+            module
+            for scheme in self.resolved_config.config_groups.values()
+            if scheme.weights is not None
+            for _, module in match_named_modules(
+                state.model, scheme.targets, self.ignore
+            )
+        }
         return True
 
     def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
@@ -294,7 +306,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # but in the FUTURE this should be ignored by the user
         return (
             module in self._module_names
-            and getattr_chain(module, "quantization_scheme.weights", None) is not None
+            and (
+                getattr_chain(module, "quantization_scheme.weights", None) is not None
+                or module in self._configured_weight_modules
+            )
             and not isinstance(module, torch.nn.Embedding)
         )
 

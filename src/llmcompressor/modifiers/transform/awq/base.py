@@ -196,6 +196,12 @@ class AWQModifier(Modifier):
                 # (no offloading by default)
                 self.offload_device = None
 
+        # Automatic sequential grouping needs mapping parents and layer sizes before
+        # any individual subgraph is onloaded. Resolve metadata without requiring
+        # quantization schemes to have been attached yet.
+        with disable_onloading():
+            self._set_resolved_mappings(state.model, require_targets=False)
+
         return True
 
     def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
@@ -306,6 +312,7 @@ class AWQModifier(Modifier):
         self._parent_args_cache.clear()
         self._smooth_activation_stats.clear()
         self._resolved_mappings.clear()
+        self._mappings_by_parent.clear()
         self._error_metrics.clear()
 
         return True
@@ -335,6 +342,7 @@ class AWQModifier(Modifier):
         self,
         model: Module,
         modules: list[Module] | None = None,
+        require_targets: bool = True,
     ) -> list[ResolvedMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -401,7 +409,7 @@ class AWQModifier(Modifier):
                     continue
 
                 # Warn that mappings or quantization config are malformed for model
-                if (not any_targeted) or len(balance_layers) == 0:
+                if (require_targets and not any_targeted) or len(balance_layers) == 0:
                     skip_message = (
                         "no balance layers were found."
                         if len(balance_layers) == 0
@@ -457,23 +465,21 @@ class AWQModifier(Modifier):
         if modules is None:
             self._resolved_mappings = resolved_mappings
             self._mappings_by_parent = {}
-            for mapping in resolved_mappings:
-                self._mappings_by_parent.setdefault(mapping.parent, []).append(mapping)
-            return resolved_mappings
 
-        existing = {
-            (mapping.smooth_name, tuple(mapping.balance_names))
-            for mapping in self._resolved_mappings
-        }
-        new_mappings = [
-            mapping
-            for mapping in resolved_mappings
-            if (mapping.smooth_name, tuple(mapping.balance_names)) not in existing
-        ]
-        self._resolved_mappings.extend(new_mappings)
-        for mapping in new_mappings:
-            self._mappings_by_parent.setdefault(mapping.parent, []).append(mapping)
-        return new_mappings
+        existing_names = {mapping.smooth_name for mapping in self._resolved_mappings}
+        for mapping in resolved_mappings:
+            if mapping.smooth_name not in existing_names:
+                self._resolved_mappings.append(mapping)
+                existing_names.add(mapping.smooth_name)
+
+            parent_mappings = self._mappings_by_parent.setdefault(mapping.parent, [])
+            if all(
+                existing.smooth_name != mapping.smooth_name
+                for existing in parent_mappings
+            ):
+                parent_mappings.append(mapping)
+
+        return resolved_mappings
 
     def _setup_activation_cache_hooks(
         self, mappings: list[ResolvedMapping] | None = None

@@ -5,6 +5,8 @@ from compressed_tensors.distributed import (
     is_distributed,
 )
 from compressed_tensors.quantization.utils import is_module_quantized
+from compressed_tensors.utils import match_named_modules
+from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
@@ -55,12 +57,20 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
+    _estimate_quantized_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+
     def on_initialize(self, state: State, **kwargs) -> bool:
         """Validate configuration; the pipeline initializes each calibration scope."""
         if not QuantizationMixin.has_config(self):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
+        self._estimate_quantized_modules = {
+            module
+            for _, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
+        }
         return True
 
     def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
@@ -130,7 +140,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         :return: tuple of (held, scratch) bytes
         """
         weight = getattr(module, "weight", None)
-        if weight is None or not is_module_quantized(module):
+        if weight is None or (
+            module not in self._estimate_quantized_modules
+            and not is_module_quantized(module)
+        ):
             return 0, 0
 
         return 0, weight.numel() * torch.float32.itemsize
