@@ -84,8 +84,9 @@ def round_to_fp16(value):
 
 
 @triton.jit
-def round_to_compute_dtype(value, COMPUTE_DTYPE: tl.constexpr):
-    """Round an FP32 value to the observer input dtype and return it as FP32."""
+def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
+    """Round an FP32 value to the compute dtype and return it as FP32."""
+    tl.static_assert(value.dtype == tl.float32, "value must be FP32")
     if COMPUTE_DTYPE == 1:
         return round_to_fp16(value)
     if COMPUTE_DTYPE == 2:
@@ -148,7 +149,7 @@ def calculate_candidate_scale(
         scale, SCALE_ROUND_TYPE=SCALE_ROUND_TYPE, QUANT_TYPE=QUANT_TYPE
     )
     if SCALE_ROUND_TYPE == 0:
-        return round_to_compute_dtype(scale, COMPUTE_DTYPE)
+        return round_fp32_as_dtype(scale, COMPUTE_DTYPE)
     return scale
 
 
@@ -167,11 +168,11 @@ def quantize_dequantize(
 ):
     """GPTQ-style QDQ shared by MSE and importance-weighted observer kernels."""
     normalized = tldevice.div_rn(values, scale)
-    normalized = round_to_compute_dtype(normalized, COMPUTE_DTYPE)
+    normalized = round_fp32_as_dtype(normalized, COMPUTE_DTYPE)
     if HAS_ZP:
         # fake_quantize adds the zero point in the input dtype
         normalized += zero_point
-        normalized = round_to_compute_dtype(normalized, COMPUTE_DTYPE)
+        normalized = round_fp32_as_dtype(normalized, COMPUTE_DTYPE)
     normalized = tl.clamp(normalized, q_min, q_max)
     if QUANT_TYPE == 0:
         rounded = tldevice.rint(normalized)
@@ -197,14 +198,14 @@ def calculate_mse_error(
     COMPUTE_DTYPE: tl.constexpr,
 ):
     """Calculate the per-element powered QDQ error for observer search."""
-    quantized = round_to_compute_dtype(quantized, COMPUTE_DTYPE)
-    values = round_to_compute_dtype(values, COMPUTE_DTYPE)
-    diff = round_to_compute_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
-    error_norm = round_to_compute_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
+    quantized = round_fp32_as_dtype(quantized, COMPUTE_DTYPE)
+    values = round_fp32_as_dtype(values, COMPUTE_DTYPE)
+    diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
+    error_norm = round_fp32_as_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
     if error_norm == 3.0:
-        squared_diff = round_to_compute_dtype(diff * diff, COMPUTE_DTYPE)
-        return round_to_compute_dtype(squared_diff * diff, COMPUTE_DTYPE)
-    return round_to_compute_dtype(tldevice.pow(diff, error_norm), COMPUTE_DTYPE)
+        squared_diff = round_fp32_as_dtype(diff * diff, COMPUTE_DTYPE)
+        return round_fp32_as_dtype(squared_diff * diff, COMPUTE_DTYPE)
+    return round_fp32_as_dtype(tldevice.pow(diff, error_norm), COMPUTE_DTYPE)
 
 
 @triton.jit
