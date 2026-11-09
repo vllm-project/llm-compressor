@@ -1,7 +1,5 @@
 """Shared eager and Triton grid-search implementation for quantization observers."""
 
-import math
-
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -85,7 +83,6 @@ def _grid_search_observer(
 
     # Keep per-element errors in the observed dtype, then accumulate all scores
     # in FP32. Packed and split paths differ only in their reduction order.
-    total_values = observed.shape[0] * observed.shape[-1]
     score_dtype = torch.float64 if observed.dtype == torch.float64 else torch.float32
     error_norm = norm
     if observed.dtype in (
@@ -125,7 +122,6 @@ def _grid_search_observer(
             error_norm,
             score_dtype,
             importance_weights,
-            total_values,
             group_absmax,
         )
 
@@ -152,7 +148,6 @@ def _calculate_observer_error_eager(
     error_norm: float,
     score_dtype: torch.dtype,
     importance_weights: torch.Tensor | None,
-    total_values: int,
     group_absmax: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Calculate eager MSE or importance-weighted error with shared rounding."""
@@ -179,25 +174,7 @@ def _calculate_observer_error_eager(
             observed.float().square() + group_absmax.square()
         )
 
-    if total_values <= _GRID_SEARCH_TILE_SIZE:
-        result = error.sum(dim=(0, -1))
-    else:
-        num_observations = observed.shape[0]
-        num_qparams = math.prod(observed.shape[1:-1])
-        group_size = observed.shape[-1]
-        errors_by_qparam = (
-            error.reshape(num_observations, num_qparams, group_size)
-            .permute(1, 0, 2)
-            .reshape(num_qparams, total_values)
-        )
-        partial_errors = [
-            errors_by_qparam[:, offset : offset + _GRID_SEARCH_TILE_SIZE].sum(dim=-1)
-            for offset in range(0, total_values, _GRID_SEARCH_TILE_SIZE)
-        ]
-        result = (
-            torch.stack(partial_errors, dim=-1).sum(dim=-1).reshape(shrink_min.shape)
-        )
-    return result
+    return error.sum(dim=(0, -1))
 
 
 def _make_grid_points(maxshrink: float, grid: float, grid_type: str) -> list[float]:
