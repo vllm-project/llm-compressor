@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tempfile
+from functools import partial
 
 import pytest
 import torch
@@ -24,6 +25,7 @@ from transformers import AutoModelForCausalLM
 
 from llmcompressor import oneshot
 from llmcompressor.datasets.utils import get_rank_partition
+from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
 from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from llmcompressor.utils import load_context
 from llmcompressor.utils.helpers import numeric_sorted_names
@@ -42,6 +44,7 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
     """Capture router decisions and local accumulators for this comparison."""
 
     _routing_trace: dict = PrivateAttr(default_factory=dict)
+    _router_logits_trace: dict = PrivateAttr(default_factory=dict)
     _pre_reduce_saliency: dict = PrivateAttr(default_factory=dict)
     _calibration_samples: list = PrivateAttr(default_factory=list)
     _layer_names: list = PrivateAttr(default_factory=list)
@@ -53,6 +56,31 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
             {"indices": indices, "weights": weights}
         )
         return super().experts_block_hook(layer_name, module, args, output)
+
+    def router_forward_hook(self, layer_name, module, args, output):
+        # Qwen's top-k router returns logits before softmax and selection as the
+        # first element. Save those exact logits so mismatched routes can be
+        # explained without re-running the router with a separate linear op.
+        if isinstance(output, torch.Tensor):
+            logits = output
+        elif (
+            isinstance(output, (tuple, list))
+            and output
+            and isinstance(output[0], torch.Tensor)
+        ):
+            logits = output[0]
+        else:
+            raise TypeError(
+                f"Expected tensor router logits from {layer_name}, got "
+                f"{type(output).__name__}"
+            )
+
+        self._router_logits_trace.setdefault(layer_name, []).append(
+            logits.detach()
+            .reshape(-1, logits.shape[-1])
+            .to(device="cpu", dtype=torch.float32)
+            .clone()
+        )
 
     def on_calibration_start(self, state, event, **kwargs):
         # shuffle_calibration_samples=False uses LengthAwareSampler, which sorts
@@ -78,6 +106,16 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
         # The base now discovers layers into _moe_stats; the old _moe_attrs
         # list was removed when expert pruning was moved into its shared base.
         self._layer_names = numeric_sorted_names(self._moe_stats)
+        for layer_name in self._layer_names:
+            moe = state.model.get_submodule(layer_name)
+            _, router = get_experts_router(layer_name, moe)
+            if router is None:
+                raise RuntimeError(f"Could not find router for {layer_name}")
+            self.register_hook(
+                router,
+                partial(self.router_forward_hook, layer_name),
+                "forward",
+            )
         return result
 
     def reduce_moe_stats(self, layer_name):
@@ -105,8 +143,14 @@ def _modifier_diagnostics(modifier, rank, sample_range):
     routing = {}
     for layer_name, events in modifier._routing_trace.items():
         routing[layer_name] = []
+        router_logits_events = modifier._router_logits_trace.get(layer_name, [])
         for call_idx, event in enumerate(events):
             sample = samples[call_idx] if call_idx < len(samples) else {}
+            router_logits = (
+                router_logits_events[call_idx].tolist()
+                if call_idx < len(router_logits_events)
+                else None
+            )
             routing[layer_name].append(
                 {
                     **{
@@ -119,6 +163,7 @@ def _modifier_diagnostics(modifier, rank, sample_range):
                     },
                     "indices": event["indices"].tolist(),
                     "weights": event["weights"].tolist(),
+                    "router_logits": router_logits,
                 }
             )
 
@@ -143,6 +188,48 @@ def _route_counts(events, num_experts):
         indices = torch.as_tensor(event["indices"], dtype=torch.int64).reshape(-1)
         counts += torch.bincount(indices, minlength=num_experts)[:num_experts]
     return counts.tolist()
+
+
+def _router_token_diagnostics(event, token_idx, top_k):
+    logits = event.get("router_logits")
+    if logits is None:
+        return None
+
+    logits = torch.as_tensor(logits, dtype=torch.float32)
+    if logits.ndim != 2 or token_idx >= logits.shape[0]:
+        return None
+    logits = logits[token_idx]
+    probabilities = torch.softmax(logits, dim=-1)
+    candidate_count = min(top_k + 1, logits.numel())
+    candidate_probs, candidate_experts = torch.topk(probabilities, candidate_count)
+    candidate_logits = logits[candidate_experts]
+    candidates = [
+        {
+            "expert": int(expert_idx),
+            "logit": float(logits[expert_idx]),
+            "probability": float(probability),
+        }
+        for expert_idx, probability in zip(
+            candidate_experts.tolist(), candidate_probs.tolist()
+        )
+    ]
+    boundary_gap = (
+        float(candidate_probs[top_k - 1] - candidate_probs[top_k])
+        if candidate_count > top_k
+        else None
+    )
+    logit_boundary_gap = (
+        float(candidate_logits[top_k - 1] - candidate_logits[top_k])
+        if candidate_count > top_k
+        else None
+    )
+    return {
+        "logits_by_expert": logits.tolist(),
+        "probabilities_by_expert": probabilities.tolist(),
+        "top_candidates": candidates,
+        "top_k_boundary_probability_gap": boundary_gap,
+        "top_k_boundary_logit_gap": logit_boundary_gap,
+    }
 
 
 def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
@@ -189,6 +276,8 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
 
         slot_mismatches = expert_set_mismatches = 0
         shape_mismatches = identity_mismatches = 0
+        router_logits_missing = []
+        router_logits_shape_mismatches = []
         identity_known = True
         max_gate_weight_error = 0.0
         route_examples, shape_examples, identity_examples = [], [], []
@@ -225,6 +314,31 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
                     )
                 continue
 
+            for side, event, indices in (
+                ("reference", ref_event, ref_indices),
+                ("ddp", ddp_event, ddp_indices),
+            ):
+                router_logits = event.get("router_logits")
+                if router_logits is None:
+                    router_logits_missing.append(
+                        {"sample_index": sample_idx, "side": side}
+                    )
+                    continue
+                router_logits = torch.as_tensor(router_logits)
+                if (
+                    router_logits.ndim != 2
+                    or router_logits.shape[0] != indices.shape[0]
+                    or router_logits.shape[1] != num_experts
+                ):
+                    router_logits_shape_mismatches.append(
+                        {
+                            "sample_index": sample_idx,
+                            "side": side,
+                            "router_logits_shape": list(router_logits.shape),
+                            "route_shape": list(indices.shape),
+                        }
+                    )
+
             slot_diff = ref_indices != ddp_indices
             set_diff = (
                 torch.sort(ref_indices, dim=-1).values
@@ -235,16 +349,38 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             for token_idx in torch.where(slot_diff.any(dim=-1))[0].tolist():
                 if len(route_examples) == 20:
                     break
-                route_examples.append(
-                    {
-                        "sample_index": sample_idx,
-                        "token_index": token_idx,
-                        "token_id": reference_tokens[sample_idx][token_idx],
-                        "reference_experts": ref_indices[token_idx].tolist(),
-                        "ddp_experts": ddp_indices[token_idx].tolist(),
-                        "expert_set_differs": bool(set_diff[token_idx]),
-                    }
-                )
+                example = {
+                    "sample_index": sample_idx,
+                    "token_index": token_idx,
+                    "token_id": reference_tokens[sample_idx][token_idx],
+                    "reference_experts": ref_indices[token_idx].tolist(),
+                    "ddp_experts": ddp_indices[token_idx].tolist(),
+                    "expert_set_differs": bool(set_diff[token_idx]),
+                    "reference_router": _router_token_diagnostics(
+                        ref_event, token_idx, ref_indices.shape[-1]
+                    ),
+                    "ddp_router": _router_token_diagnostics(
+                        ddp_event, token_idx, ddp_indices.shape[-1]
+                    ),
+                }
+                ref_router = example["reference_router"]
+                ddp_router = example["ddp_router"]
+                if ref_router is not None and ddp_router is not None:
+                    example["ddp_minus_reference_router_logit_by_expert"] = [
+                        ddp - ref
+                        for ref, ddp in zip(
+                            ref_router["logits_by_expert"],
+                            ddp_router["logits_by_expert"],
+                        )
+                    ]
+                    example["ddp_minus_reference_router_probability_by_expert"] = [
+                        ddp - ref
+                        for ref, ddp in zip(
+                            ref_router["probabilities_by_expert"],
+                            ddp_router["probabilities_by_expert"],
+                        )
+                    ]
+                route_examples.append(example)
 
             ref_weights = torch.as_tensor(ref_event["weights"], dtype=torch.float64)
             ddp_weights = torch.as_tensor(ddp_event["weights"], dtype=torch.float64)
@@ -262,8 +398,12 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             and identity_known
             and identity_mismatches == 0
             and shape_mismatches == 0
+            and not router_logits_missing
+            and not router_logits_shape_mismatches
         )
-        routes_match = slot_mismatches == 0 if comparable else None
+        # Top-k slot ordering is not semantically relevant when the same
+        # experts are selected. Compare each token's expert set for parity.
+        routes_match = expert_set_mismatches == 0 if comparable else None
         all_comparable &= comparable
         if routes_match is False:
             all_match = False
@@ -289,8 +429,11 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             "sample_identity_mismatch_examples": identity_examples,
             "shape_mismatches": shape_mismatches,
             "shape_mismatch_examples": shape_examples,
+            "router_logits_missing": router_logits_missing,
+            "router_logits_shape_mismatches": router_logits_shape_mismatches,
             "ordered_expert_slot_mismatches": slot_mismatches,
             "different_expert_set_tokens": expert_set_mismatches,
+            "expert_sets_match": routes_match,
             "route_mismatch_examples": route_examples,
             "reference_route_counts_by_expert": ref_counts,
             "ddp_route_counts_by_rank": ddp_counts_by_rank,
@@ -432,8 +575,12 @@ def _build_diagnostics(reference_report, ddp_report, reference_debug, ddp_ranks,
         },
         "routing": routing,
         "saliency": saliency,
-        # Keep the existing saliency comparison as the only pass/fail condition.
-        "passed": saliency["all_layers_within_tolerance"],
+        "passed": (
+            routing["all_layers_comparable"]
+            and routing["all_layers_match"]
+            and saliency["all_layers_within_tolerance"]
+            and saliency["all_expert_counts_match"]
+        ),
     }
 
 
