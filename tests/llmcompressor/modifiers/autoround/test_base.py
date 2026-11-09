@@ -481,7 +481,7 @@ def test_apply_autoround_passes_moved_inputs_to_quantize_block():
             AutoRoundModifier, "_build_layer_config_for_autoround", return_value={}
         ),
         patch.object(AutoRoundModifier, "get_unquantized_layer_names", return_value=[]),
-        patch.object(AutoRoundModifier, "_preprocess_qparams", return_value={}),
+        patch.object(AutoRoundModifier, "_preprocess_qparams", return_value=({}, {})),
         patch.object(AutoRoundModifier, "_postprocess_qparams"),
         patch.object(
             AutoRoundModifier, "_unwrapper_quantized_layer", side_effect=lambda m: m

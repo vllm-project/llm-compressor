@@ -16,6 +16,7 @@ from compressed_tensors.quantization import (
     QuantizationMetadata,
     QuantizationScheme,
     QuantizationStrategy,
+    disable_quantization,
     enable_quantization,
 )
 from compressed_tensors.registry import standardize_lookup_name
@@ -355,7 +356,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             "low_gpu_mem_usage": True,
         }
 
-        llmc_registered_qparams = self._preprocess_qparams(decoding_layer)
+        llmc_registered_qparams, quantization_states = self._preprocess_qparams(
+            decoding_layer
+        )
         with (
             torch.enable_grad(),
             align_module_device(decoding_layer),
@@ -467,7 +470,9 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
         decoding_layer.eval()
         # Update offload parameters and remove temporary attributes
-        self._postprocess_qparams(decoding_layer, llmc_registered_qparams)
+        self._postprocess_qparams(
+            decoding_layer, llmc_registered_qparams, quantization_states
+        )
 
     def post_autoround_cleanup(self):
         self._all_module_input.clear()
@@ -570,26 +575,37 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
 
-    def _preprocess_qparams(self, model):
+    def _preprocess_qparams(
+        self, model: torch.nn.Module
+    ) -> tuple[dict[str, dict[str, torch.Tensor]], dict[torch.nn.Module, bool]]:
         """
         Collect and remove quantization parameters registered by LLMC.
 
-        This prevents naming or state conflicts with AutoRound during quantization.
+        Disable the CompressedTensors forward while its parameters are removed so
+        static activation quantization does not read a missing input scale. Return
+        the prior enablement state for restoration after AutoRound finishes.
         """
         llmc_registered_qparams = {}
+        quantization_states = {}
         for name, module in model.named_modules():
+            if getattr(module, "quantization_scheme", None) is not None:
+                quantization_states[module] = getattr(
+                    module, "quantization_enabled", True
+                )
+                disable_quantization(module)
             for key in QuantizationMetadata.all_qparam_names():
                 if hasattr(module, key):
                     if name not in llmc_registered_qparams:
                         llmc_registered_qparams[name] = {}
                     llmc_registered_qparams[name][key] = getattr(module, key).clone()
             QuantizationMetadata.clear_all_qparams(module)
-        return llmc_registered_qparams
+        return llmc_registered_qparams, quantization_states
 
     def _postprocess_qparams(
         self,
         model: torch.nn.Module,
         llmc_registered_qparams: dict[str, dict[str, torch.Tensor]],
+        quantization_states: dict[torch.nn.Module, bool] | None = None,
     ):
         """Mapping qparam name from AutoRound to LLMC and register qparams in model."""
         qparams_mapping = {
@@ -682,6 +698,12 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                             requires_grad=False,
                         )
                         module.register_parameter(qparam_name, param_value)
+
+        for module, was_enabled in (quantization_states or {}).items():
+            if was_enabled:
+                enable_quantization(module)
+            else:
+                disable_quantization(module)
 
     def _get_default_quant_scheme(self) -> QuantizationScheme:
         resolved_config = self.resolved_config
