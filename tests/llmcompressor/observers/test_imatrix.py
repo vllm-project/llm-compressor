@@ -534,7 +534,6 @@ def _assert_imatrix_eager_triton_parity(
         "expand": expand,
         "importance_weights": importance,
         "triton_error_buffer": triton_error_buffer,
-        "use_imatrix_error": True,
         "magnitude_normalization": magnitude_normalization,
         "grid_type": grid_type,
     }
@@ -573,8 +572,58 @@ def _assert_imatrix_eager_triton_parity(
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
+@pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm):
+    """Unit importance must preserve the unweighted error path's grid choice."""
+    args = QuantizationArgs(
+        num_bits=4,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=group_size,
+        symmetric=True,
+    )
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(1, group_size, device="cuda", dtype=dtype), "weight", args
+    )
+    importance = flatten_for_calibration(
+        torch.ones(1, group_size, device="cuda"), "weight", args
+    )
+    # Zero patience should scan the same full grid for eager and Triton.
+    search_args = (observed, args, 0.8, 0, 10.0, norm)
+    common_kwargs = {"triton_error_buffer": 1.0}
+
+    eager_mse = ImplBackend.call("_grid_search_observer", *search_args, **common_kwargs)
+    eager_imatrix = ImplBackend.call(
+        "_grid_search_observer",
+        *search_args,
+        **common_kwargs,
+        importance_weights=importance,
+    )
+    triton_mse = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **common_kwargs
+    )
+    triton_imatrix = ImplBackend.call(
+        "_grid_search_observer_triton",
+        *search_args,
+        **common_kwargs,
+        importance_weights=importance,
+    )
+
+    for mse_bounds, imatrix_bounds in (
+        (eager_mse, eager_imatrix),
+        (triton_mse, triton_imatrix),
+        (eager_mse, triton_mse),
+        (eager_imatrix, triton_imatrix),
+    ):
+        assert torch.equal(mse_bounds[0], imatrix_bounds[0])
+        assert torch.equal(mse_bounds[1], imatrix_bounds[1])
+
+
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 @pytest.mark.parametrize(
-    "preset,observed_shape,maxshrink,patience,grid,expand,norm,"
+    "preset,observed_shape,maxshrink,patience,grid,expand,"
     "magnitude_normalization,grid_type",
     [
         pytest.param(
@@ -584,7 +633,6 @@ def _assert_imatrix_eager_triton_parity(
             5,
             20.0,
             1.0,
-            3.0,
             False,
             None,
             id="w4a16",
@@ -596,7 +644,6 @@ def _assert_imatrix_eager_triton_parity(
             1000,
             200.0,
             1.8,
-            3.0,
             False,
             None,
             id="nvfp4a16",
@@ -608,13 +655,13 @@ def _assert_imatrix_eager_triton_parity(
             0,
             20.0,
             1.0,
-            2.0,
             True,
             "exponential",
             id="mxfp4",
         ),
     ],
 )
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 def test_imatrix_triton_matches_eager_for_realistic_schemes(
     preset,
     observed_shape,
@@ -666,7 +713,6 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
             "expand": expand,
             "importance_weights": importance,
             "triton_error_buffer": 1.0,
-            "use_imatrix_error": True,
             "magnitude_normalization": magnitude_normalization,
         }
         linear_bounds = ImplBackend.call(
@@ -732,7 +778,6 @@ def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     search_kwargs = {
         "triton_error_buffer": 0.3,
         "importance_weights": importance,
-        "use_imatrix_error": True,
     }
     expected = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
 
@@ -774,7 +819,6 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     search_kwargs = {
         "triton_error_buffer": 0.3,
         "importance_weights": importance,
-        "use_imatrix_error": True,
     }
 
     monkeypatch.setattr(grid_search_module, "_is_fp8_supported", lambda device: True)
@@ -791,8 +835,9 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
-    """A Llama-derived BF16 near-tie chooses the same NVFP4 grid point."""
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm):
+    """A Llama-derived BF16 case chooses the same NVFP4 grid point."""
     args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
     observed = torch.tensor(
         [
@@ -845,15 +890,16 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
         maxshrink=1.0 - 0.8 / 1.8,
         patience=1000,
         grid=200.0,
-        norm=3.0,
+        norm=norm,
         expand=1.8,
         triton_error_buffer=1.0,
     )
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
-    """Match eager when a weighted cubic error lands on a BF16 rounding tie."""
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm):
+    """Match eager's weighted error power for this BF16 NVFP4 case."""
     args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
     observed = torch.tensor(
         [
@@ -906,7 +952,7 @@ def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
         maxshrink=1.0 - 0.8 / 1.8,
         patience=1000,
         grid=200.0,
-        norm=3.0,
+        norm=norm,
         expand=1.8,
         triton_error_buffer=1.0,
     )
