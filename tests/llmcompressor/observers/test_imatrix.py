@@ -574,7 +574,7 @@ def _assert_imatrix_eager_triton_parity(
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
 @pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("norm", [2.4, 3.0])
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm):
     """Unit importance must preserve the unweighted error path's grid choice."""
     args = QuantizationArgs(
@@ -625,7 +625,7 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 @pytest.mark.parametrize(
-    "preset,observed_shape,maxshrink,patience,grid,expand,norm,"
+    "preset,observed_shape,maxshrink,patience,grid,expand,"
     "magnitude_normalization,grid_type",
     [
         pytest.param(
@@ -635,7 +635,6 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm
             5,
             20.0,
             1.0,
-            3.0,
             False,
             None,
             id="w4a16",
@@ -647,7 +646,6 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm
             1000,
             200.0,
             1.8,
-            3.0,
             False,
             None,
             id="nvfp4a16",
@@ -659,13 +657,13 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm
             0,
             20.0,
             1.0,
-            2.0,
             True,
             "exponential",
             id="mxfp4",
         ),
     ],
 )
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 def test_imatrix_triton_matches_eager_for_realistic_schemes(
     preset,
     observed_shape,
@@ -839,8 +837,9 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
-    """A Llama-derived BF16 near-tie chooses the same NVFP4 grid point."""
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm):
+    """A Llama-derived BF16 case chooses the same NVFP4 grid point."""
     args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
     observed = torch.tensor(
         [
@@ -893,15 +892,16 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager():
         maxshrink=1.0 - 0.8 / 1.8,
         patience=1000,
         grid=200.0,
-        norm=3.0,
+        norm=norm,
         expand=1.8,
         triton_error_buffer=1.0,
     )
 
 
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
-    """Match eager when a weighted cubic error lands on a BF16 rounding tie."""
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm):
+    """Match eager's weighted error power for this BF16 NVFP4 case."""
     args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
     observed = torch.tensor(
         [
@@ -954,7 +954,7 @@ def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager():
         maxshrink=1.0 - 0.8 / 1.8,
         patience=1000,
         grid=200.0,
-        norm=3.0,
+        norm=norm,
         expand=1.8,
         triton_error_buffer=1.0,
     )

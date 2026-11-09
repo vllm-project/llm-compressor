@@ -106,7 +106,10 @@ def test_mse_fp4():
     ],
 )
 @pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_mse_triton_matches_eager_for_realistic_schemes(
+    preset, observed_shape, norm
+):
     """Real W4A16 and NVFP4A16 group sizes preserve eager grid choices."""
     args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
@@ -115,7 +118,7 @@ def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
         "weight",
         args,
     )
-    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_args = (observed, args, 0.5, 5, 100.0, norm, 1.0)
     search_kwargs = {"expand": 1.0}
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
