@@ -162,13 +162,7 @@ def _calculate_observer_error_eager(
         observed, args, scales, zero_points
     )
     difference = (quantized - observed).abs()
-    if error_norm == 3.0:
-        # CUDA eager's low-precision pow(x, 3) matched two multiplies rounded
-        # to the input dtype; spell that behavior out for backend parity.
-        squared_difference = difference * difference
-        error = squared_difference * difference
-    else:
-        error = difference.pow(error_norm)
+    error = difference.pow(error_norm)
     error = error.to(score_dtype)
     if importance_weights is not None:
         error = error * importance_weights.to(dtype=score_dtype)
