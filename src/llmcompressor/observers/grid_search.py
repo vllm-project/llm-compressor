@@ -166,9 +166,7 @@ def _calculate_observer_error_eager(
     if importance_weights is not None:
         error = error * importance_weights.to(dtype=score_dtype)
     if group_absmax is not None:
-        error = error * torch.sqrt(
-            observed.float().square() + group_absmax.square()
-        )
+        error = error * torch.sqrt(observed.float().square() + group_absmax.square())
 
     return error.sum(dim=(0, -1))
 

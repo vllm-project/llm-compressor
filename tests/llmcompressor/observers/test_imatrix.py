@@ -571,7 +571,7 @@ def _assert_imatrix_eager_triton_parity(
     assert torch.equal(qdq_weights[0], qdq_weights[1])
 
 
-@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA Triton")
+@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
 @pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
@@ -594,9 +594,7 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(group_size, dtype, norm
     search_args = (observed, args, 0.8, 0, 10.0, norm)
     common_kwargs = {"triton_error_buffer": 1.0}
 
-    eager_mse = ImplBackend.call(
-        "_grid_search_observer", *search_args, **common_kwargs
-    )
+    eager_mse = ImplBackend.call("_grid_search_observer", *search_args, **common_kwargs)
     eager_imatrix = ImplBackend.call(
         "_grid_search_observer",
         *search_args,
