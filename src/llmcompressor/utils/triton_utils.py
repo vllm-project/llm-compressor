@@ -1,5 +1,7 @@
 """Low-level Triton helpers shared by observer kernels."""
 
+from enum import IntEnum
+
 import torch
 from compressed_tensors.quantization import QuantizationType
 from compressed_tensors.quantization.utils.fp4_utils import _round_to_fp4
@@ -9,6 +11,24 @@ try:
     from triton.runtime.jit import constexpr_function
 except ImportError:
     constexpr_function = None
+
+
+class TritonDType(IntEnum):
+    """Shared Triton dtype codes; FP8 and E8M0 are used for scales only."""
+
+    FP32 = 0
+    FP16 = 1
+    BF16 = 2
+    FP8_E4M3 = 3
+    E8M0 = 4
+
+
+# Triton JIT functions require module globals to be `tl.constexpr` values.
+_TRITON_FP32 = tl.constexpr(TritonDType.FP32.value)
+_TRITON_FP16 = tl.constexpr(TritonDType.FP16.value)
+_TRITON_BF16 = tl.constexpr(TritonDType.BF16.value)
+_TRITON_FP8_E4M3 = tl.constexpr(TritonDType.FP8_E4M3.value)
+_TRITON_E8M0 = tl.constexpr(TritonDType.E8M0.value)
 
 
 if constexpr_function is not None:
@@ -42,15 +62,15 @@ def observer_triton_req(observed, args, *unused_args, **unused_kwargs) -> bool:
 def scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
     """Return the Triton scale rounding mode and minimum valid scale."""
     if dtype is None or dtype == torch.float32:
-        return 0, torch.finfo(torch.float32).eps
+        return TritonDType.FP32.value, torch.finfo(torch.float32).eps
     if dtype == torch.float16:
-        return 1, torch.finfo(torch.float16).eps
+        return TritonDType.FP16.value, torch.finfo(torch.float16).eps
     if dtype == torch.bfloat16:
-        return 2, torch.finfo(torch.bfloat16).eps
+        return TritonDType.BF16.value, torch.finfo(torch.bfloat16).eps
     if dtype == torch.float8_e4m3fn:
-        return 3, 0.125
+        return TritonDType.FP8_E4M3.value, 0.125
     if dtype == torch.uint8:
-        return 4, 2.0**-127
+        return TritonDType.E8M0.value, 2.0**-127
     raise ValueError(f"Unsupported Triton scale dtype: {dtype}")
 
 
@@ -87,9 +107,9 @@ def round_to_fp16(value):
 def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
     """Round an FP32 value to the compute dtype and return it as FP32."""
     tl.static_assert(value.dtype == tl.float32, "value must be FP32")
-    if COMPUTE_DTYPE == 1:
+    if COMPUTE_DTYPE == _TRITON_FP16:
         return round_to_fp16(value)
-    if COMPUTE_DTYPE == 2:
+    if COMPUTE_DTYPE == _TRITON_BF16:
         return round_to_bf16(value)
     return value
 
@@ -99,13 +119,13 @@ def round_candidate_scale(
     scale, SCALE_ROUND_TYPE: tl.constexpr, QUANT_TYPE: tl.constexpr
 ):
     """Round a floating candidate scale as compressed-tensors qparams do."""
-    if SCALE_ROUND_TYPE == 1:
+    if SCALE_ROUND_TYPE == _TRITON_FP16:
         return tl.minimum(scale, 65504.0).to(tl.float16).to(tl.float32)
-    if SCALE_ROUND_TYPE == 2:
+    if SCALE_ROUND_TYPE == _TRITON_BF16:
         return scale.to(tl.bfloat16).to(tl.float32)
-    if SCALE_ROUND_TYPE == 3:
+    if SCALE_ROUND_TYPE == _TRITON_FP8_E4M3:
         return tl.minimum(scale, 448.0).to(tl.float8e4nv).to(tl.float32)
-    if SCALE_ROUND_TYPE == 4:
+    if SCALE_ROUND_TYPE == _TRITON_E8M0:
         # E8M0 stores the power-of-two scale after accounting for the element
         # format's largest exponent (FP4: 2, FP8: 8).
         is_zero = scale == 0.0
@@ -132,7 +152,7 @@ def calculate_candidate_scale(
     COMPUTE_DTYPE: tl.constexpr,
 ):
     """Derive and round a candidate scale from candidate min/max bounds."""
-    if SCALE_ROUND_TYPE == 4:
+    if SCALE_ROUND_TYPE == _TRITON_E8M0:
         # MX/E8M0 operates on the group absmax before element-format scaling.
         return round_candidate_scale(
             tl.maximum(tl.abs(min_value), tl.abs(max_value)),
@@ -148,7 +168,7 @@ def calculate_candidate_scale(
     scale = round_candidate_scale(
         scale, SCALE_ROUND_TYPE=SCALE_ROUND_TYPE, QUANT_TYPE=QUANT_TYPE
     )
-    if SCALE_ROUND_TYPE == 0:
+    if SCALE_ROUND_TYPE == _TRITON_FP32:
         return round_fp32_as_dtype(scale, COMPUTE_DTYPE)
     return scale
 

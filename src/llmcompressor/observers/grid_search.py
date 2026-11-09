@@ -20,6 +20,7 @@ from compressed_tensors.utils.triton import tl, triton
 
 from llmcompressor.observers.base import MinMaxTuple
 from llmcompressor.utils.triton_utils import (
+    TritonDType,
     calculate_candidate_scale,
     calculate_observer_error,
     observer_triton_req,
@@ -322,9 +323,9 @@ def _grid_search_observer_triton(
     q_min, q_max = calculate_range(args, observed.device)
     scale_round_type, scale_eps = scale_round_config(args.scale_dtype)
     observed_dtype = {
-        torch.float32: 0,
-        torch.float16: 1,
-        torch.bfloat16: 2,
+        torch.float32: TritonDType.FP32.value,
+        torch.float16: TritonDType.FP16.value,
+        torch.bfloat16: TritonDType.BF16.value,
     }[observed.dtype]
     quant_type = 0 if args.type == QuantizationType.INT else 1
     total_values = num_observations * group_size
