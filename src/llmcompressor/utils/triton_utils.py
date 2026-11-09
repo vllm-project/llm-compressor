@@ -162,7 +162,7 @@ def quantize_dequantize(
 
 
 @triton.jit
-def calculate_mse_error(
+def calculate_qdq_error(
     values,
     quantized,
     norm: tl.constexpr,
@@ -174,7 +174,8 @@ def calculate_mse_error(
     diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
     error_norm = round_fp32_as_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
     if error_norm == 3.0:
-        # Match CUDA eager's low-precision pow(x, 3) rounding after each multiply.
+        # Match CUDA eager's low-precision pow(x, 3) result. Triton's generic
+        # pow differs, so round each multiply to the compute dtype.
         squared_diff = round_fp32_as_dtype(diff * diff, COMPUTE_DTYPE)
         return round_fp32_as_dtype(squared_diff * diff, COMPUTE_DTYPE)
     return round_fp32_as_dtype(tldevice.pow(diff, error_norm), COMPUTE_DTYPE)
@@ -192,7 +193,7 @@ def calculate_observer_error(
     COMPUTE_DTYPE: tl.constexpr,
 ):
     """Calculate MSE or importance-weighted QDQ error for observer search."""
-    error = calculate_mse_error(
+    error = calculate_qdq_error(
         values,
         quantized,
         norm,
