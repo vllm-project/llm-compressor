@@ -135,9 +135,9 @@ def test_enabled_propagate_true(
     [(False, 0), (True, NUM_SUBGRAPHS)],
 )
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
-@patch(f"{_PIPELINE}.trace_subgraphs")
+@patch(f"{_PIPELINE}.partition_subgraphs")
 def test_moe_processing_only_runs_per_subgraph_when_lazy(
-    mock_trace,
+    mock_partition,
     mock_targets,
     fake_pipeline,
     fake_subgraphs,
@@ -146,7 +146,7 @@ def test_moe_processing_only_runs_per_subgraph_when_lazy(
     lazy,
     expected_calls,
 ):
-    mock_trace.return_value = fake_subgraphs
+    mock_partition.return_value = fake_subgraphs
     model, _ = fake_pipeline
     linearize_calls = []
     monkeypatch.setattr(
