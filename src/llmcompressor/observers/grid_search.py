@@ -24,7 +24,7 @@ from llmcompressor.utils.triton_utils import (
     calculate_observer_error,
     observer_triton_req,
     quantize_dequantize,
-    round_to_compute_dtype,
+    round_fp32_as_dtype,
     scale_round_config,
 )
 
@@ -504,8 +504,8 @@ def _grid_search_observer_triton_packed_kernel(
             p = tl.load(grid_points_ptr + step)
             candidate_min = min_base * p
             candidate_max = max_base * p
-            candidate_min = round_to_compute_dtype(candidate_min, OBSERVED_DTYPE)
-            candidate_max = round_to_compute_dtype(candidate_max, OBSERVED_DTYPE)
+            candidate_min = round_fp32_as_dtype(candidate_min, OBSERVED_DTYPE)
+            candidate_max = round_fp32_as_dtype(candidate_max, OBSERVED_DTYPE)
             scale = calculate_candidate_scale(
                 candidate_min,
                 candidate_max,
@@ -651,8 +651,8 @@ def _grid_search_observer_triton_split_kernel(
         p = tl.load(grid_points_ptr + step)
         candidate_min = min_base * p
         candidate_max = max_base * p
-        candidate_min = round_to_compute_dtype(candidate_min, OBSERVED_DTYPE)
-        candidate_max = round_to_compute_dtype(candidate_max, OBSERVED_DTYPE)
+        candidate_min = round_fp32_as_dtype(candidate_min, OBSERVED_DTYPE)
+        candidate_max = round_fp32_as_dtype(candidate_max, OBSERVED_DTYPE)
         scale = calculate_candidate_scale(
             candidate_min,
             candidate_max,
