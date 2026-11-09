@@ -572,6 +572,65 @@ def _assert_imatrix_eager_triton_parity(
     assert torch.equal(qdq_weights[0], qdq_weights[1])
 
 
+@pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("norm", [2.4, 3.0])
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_mse_and_imatrix_unit_weights_share_grid_choices(
+    group_size, dtype, norm, device
+):
+    """Unit importance must preserve the unweighted error path's grid choice."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
+    args = QuantizationArgs(
+        num_bits=4,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=group_size,
+        symmetric=True,
+    )
+    torch.manual_seed(0)
+    observed = flatten_for_calibration(
+        torch.randn(1, group_size, device=device, dtype=dtype), "weight", args
+    )
+    importance = flatten_for_calibration(
+        torch.ones(1, group_size, device=device), "weight", args
+    )
+    search_args = (observed, args, 0.8, 100, 10.0, norm)
+    common_kwargs = {"triton_error_buffer": 1.0}
+
+    eager_mse = ImplBackend.call(
+        "_grid_search_observer", *search_args, **common_kwargs
+    )
+    eager_imatrix = ImplBackend.call(
+        "_grid_search_observer",
+        *search_args,
+        **common_kwargs,
+        importance_weights=importance,
+        use_imatrix_error=True,
+    )
+    triton_mse = ImplBackend.call(
+        "_grid_search_observer_triton", *search_args, **common_kwargs
+    )
+    triton_imatrix = ImplBackend.call(
+        "_grid_search_observer_triton",
+        *search_args,
+        **common_kwargs,
+        importance_weights=importance,
+        use_imatrix_error=True,
+    )
+
+    for mse_bounds, imatrix_bounds in (
+        (eager_mse, eager_imatrix),
+        (triton_mse, triton_imatrix),
+        (eager_mse, triton_mse),
+        (eager_imatrix, triton_imatrix),
+    ):
+        assert torch.equal(mse_bounds[0], imatrix_bounds[0])
+        assert torch.equal(mse_bounds[1], imatrix_bounds[1])
+
+
 @pytest.mark.parametrize(
     "preset,observed_shape,maxshrink,patience,grid,expand,norm,"
     "magnitude_normalization,grid_type",

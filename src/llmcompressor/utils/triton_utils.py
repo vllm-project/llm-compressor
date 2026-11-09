@@ -191,9 +191,8 @@ def calculate_mse_error(
     norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
     ROUND_ERROR: tl.constexpr,
-    INPUT_DTYPE_POW: tl.constexpr,
 ):
-    """Calculate the per-element powered QDQ error for the MSE observer."""
+    """Calculate the per-element powered QDQ error for observer search."""
     if COMPUTE_DTYPE == 1:
         if is_xpu_target():
             diff = round_to_fp16(tl.abs(quantized - values))
@@ -212,19 +211,18 @@ def calculate_mse_error(
             error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
     diff = diff.to(tl.float32)
     if error_norm == 3.0:
-        if ROUND_ERROR and COMPUTE_DTYPE == 1 and INPUT_DTYPE_POW:
+        if ROUND_ERROR and COMPUTE_DTYPE == 1:
             squared = round_to_fp16(diff * diff)
             diff_pow = round_to_fp16(squared * diff)
-        elif ROUND_ERROR and COMPUTE_DTYPE == 2 and INPUT_DTYPE_POW:
-            # Eager pow keeps the cubic in the observed dtype, rounding after
-            # each multiply. Triton promotes BF16/FP16 arithmetic to FP32, so
-            # force those intermediate roundings to select the same grid point.
+        elif ROUND_ERROR and COMPUTE_DTYPE == 2:
+            # For packed low-precision qparams, match eager's input-dtype
+            # rounding between cubic multiplies for both weighted and
+            # unweighted error.
             squared = round_to_bf16(diff * diff)
             diff_pow = round_to_bf16(squared * diff)
         else:
-            # The imatrix path computes the cubic in FP32 before rounding.
-            # libdevice.pow can land on the other side of a rounding midpoint
-            # for tiny errors, which changes the selected grid point.
+            # Split reductions retain FP32 per-element error regardless of
+            # whether importance weights are present.
             diff_pow = (diff * diff) * diff
     else:
         diff_pow = tldevice.pow(diff, error_norm)
@@ -255,7 +253,6 @@ def calculate_observer_error(
         norm,
         COMPUTE_DTYPE=COMPUTE_DTYPE,
         ROUND_ERROR=ROUND_ERROR,
-        INPUT_DTYPE_POW=not HAS_IMPORTANCE,
     )
     if HAS_IMPORTANCE:
         error = error * importance
