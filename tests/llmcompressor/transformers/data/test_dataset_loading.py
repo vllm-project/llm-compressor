@@ -357,6 +357,7 @@ def test_load_tokenized_data(open_platypus_dataset, tiny_llama_tokenizer):
         ["gsm8k", "main", "train[:8]", None],
         ["ultrachat_200k", None, "train_sft[:8]", None],
         ["wikitext", "wikitext-2-raw-v1", "train[:8]", None],
+        ["razorcal", None, "train[:8]", None],
         # multimodal pre-baked datasets; only their text tokenization is
         # exercised, using a processor stub matching the expected processor type
         ["flickr", None, "test[:2]", "Qwen/Qwen3-VL-8B-Instruct"],
