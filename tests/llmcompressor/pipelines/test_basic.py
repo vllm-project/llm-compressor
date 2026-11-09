@@ -74,6 +74,17 @@ def test_basic_pipeline_preserves_untraced_calibration():
     assert args == original_args
 
 
+def test_basic_pipeline_requires_loss_mask_column():
+    model = BranchedModel()
+    dataloader = DataLoader([{"x": torch.ones(1, 2)}], batch_size=None)
+    args = DatasetArguments(use_loss_mask=True)
+
+    with create_session() as session:
+        session.initialize(model=model, start=-1)
+        with pytest.raises(ValueError, match="loss_mask"):
+            BasicPipeline()(model, dataloader, args)
+
+
 @pytest.mark.parametrize("num_batches", [1, 3])
 def test_run_calibration_without_dataset_arguments(num_batches):
     model = BranchedModel()
