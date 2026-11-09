@@ -229,7 +229,6 @@ class AWQModifier(Modifier):
         self._validate_duo_scaling(resolved)
         self._setup_activation_cache_hooks(resolved)
 
-
     def estimate_sequential_memory(
         self, module: Module, num_tokens: int
     ) -> tuple[int, int]:
