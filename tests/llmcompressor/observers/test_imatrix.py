@@ -573,7 +573,7 @@ def _assert_imatrix_eager_triton_parity(
 
 @pytest.mark.parametrize("group_size", [16, 1024], ids=["packed", "split"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("norm", [2.4, 3.0])
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 @pytest.mark.parametrize("device", ["cuda", "xpu"])
 def test_mse_and_imatrix_unit_weights_share_grid_choices(
     group_size, dtype, norm, device
@@ -630,7 +630,7 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
 
 
 @pytest.mark.parametrize(
-    "preset,observed_shape,maxshrink,patience,grid,expand,norm,"
+    "preset,observed_shape,maxshrink,patience,grid,expand,"
     "magnitude_normalization,grid_type",
     [
         pytest.param(
@@ -640,7 +640,6 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
             5,
             20.0,
             1.0,
-            3.0,
             False,
             None,
             id="w4a16",
@@ -652,7 +651,6 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
             1000,
             200.0,
             1.8,
-            3.0,
             False,
             None,
             id="nvfp4a16",
@@ -664,13 +662,13 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
             0,
             20.0,
             1.0,
-            2.0,
             True,
             "exponential",
             id="mxfp4",
         ),
     ],
 )
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 @pytest.mark.parametrize("device", ["cuda", "xpu"])
 def test_imatrix_triton_matches_eager_for_realistic_schemes(
     preset,
@@ -857,9 +855,10 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     assert torch.equal(native[1], e4b15[1])
 
 
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 @pytest.mark.parametrize("device", ["cuda", "xpu"])
-def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager(device):
-    """A Llama-derived BF16 near-tie chooses the same NVFP4 grid point."""
+def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm, device):
+    """A Llama-derived BF16 case chooses the same NVFP4 grid point."""
     device_module = getattr(torch, device, None)
     if device_module is None or not device_module.is_available():
         pytest.skip(f"{device} is not available")
@@ -916,15 +915,16 @@ def test_imatrix_nvfp4_bf16_reduction_tie_matches_eager(device):
         maxshrink=1.0 - 0.8 / 1.8,
         patience=1000,
         grid=200.0,
-        norm=3.0,
+        norm=norm,
         expand=1.8,
         triton_error_buffer=1.0,
     )
 
 
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 @pytest.mark.parametrize("device", ["cuda", "xpu"])
-def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager(device):
-    """Match eager when a weighted cubic error lands on a BF16 rounding tie."""
+def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm, device):
+    """Match eager's weighted error power for this BF16 NVFP4 case."""
     device_module = getattr(torch, device, None)
     if device_module is None or not device_module.is_available():
         pytest.skip(f"{device} is not available")
@@ -981,7 +981,7 @@ def test_imatrix_nvfp4_bf16_power_rounding_tie_matches_eager(device):
         maxshrink=1.0 - 0.8 / 1.8,
         patience=1000,
         grid=200.0,
-        norm=3.0,
+        norm=norm,
         expand=1.8,
         triton_error_buffer=1.0,
     )

@@ -106,7 +106,7 @@ def test_mse_fp4():
     ],
 )
 @pytest.mark.parametrize("device", ["cuda", "xpu"])
-@pytest.mark.parametrize("norm", [2.4, 3.0])
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
 def test_mse_triton_matches_eager_for_realistic_schemes(
     preset, observed_shape, device, norm
 ):
