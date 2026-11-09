@@ -123,29 +123,26 @@ def round_candidate_scale(
 def calculate_candidate_scale(
     min_value,
     max_value,
-    p,
     q_min,
     q_max,
     SCALE_ROUND_TYPE: tl.constexpr,
     QUANT_TYPE: tl.constexpr,
     SYMMETRIC: tl.constexpr,
 ):
-    """Derive and round a candidate scale from its original min/max range."""
-    scaled_min = min_value * p
-    scaled_max = max_value * p
+    """Derive and round a candidate scale from candidate min/max bounds."""
     if SCALE_ROUND_TYPE == 4:
         # MX/E8M0 operates on the group absmax before element-format scaling.
         return round_candidate_scale(
-            tl.maximum(tl.abs(scaled_min), tl.abs(scaled_max)),
+            tl.maximum(tl.abs(min_value), tl.abs(max_value)),
             SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
             QUANT_TYPE=QUANT_TYPE,
         )
     if SYMMETRIC:
-        scale = tl.maximum(tl.abs(scaled_min), tl.abs(scaled_max)) / (
+        scale = tl.maximum(tl.abs(min_value), tl.abs(max_value)) / (
             (q_max - q_min) * 0.5
         )
     else:
-        scale = (scaled_max - scaled_min) / (q_max - q_min)
+        scale = (max_value - min_value) / (q_max - q_min)
     return round_candidate_scale(
         scale, SCALE_ROUND_TYPE=SCALE_ROUND_TYPE, QUANT_TYPE=QUANT_TYPE
     )

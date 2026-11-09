@@ -512,7 +512,6 @@ def _grid_search_observer_triton_packed_kernel(
             scale = calculate_candidate_scale(
                 candidate_min,
                 candidate_max,
-                1.0,
                 q_min,
                 q_max,
                 SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
@@ -661,7 +660,6 @@ def _grid_search_observer_triton_split_kernel(
         scale = calculate_candidate_scale(
             candidate_min,
             candidate_max,
-            1.0,
             q_min,
             q_max,
             SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
