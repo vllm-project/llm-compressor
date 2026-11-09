@@ -517,9 +517,8 @@ def _grid_search_observer_triton_packed_kernel(
                 SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
                 QUANT_TYPE=QUANT_TYPE,
                 SYMMETRIC=SYMMETRIC,
+                COMPUTE_DTYPE=OBSERVED_DTYPE,
             )
-            if SCALE_ROUND_TYPE == 0:
-                scale = round_to_compute_dtype(scale, OBSERVED_DTYPE)
             scale = tl.maximum(scale, scale_eps)
             quantized = quantize_dequantize(
                 values,
@@ -665,11 +664,8 @@ def _grid_search_observer_triton_split_kernel(
             SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
             QUANT_TYPE=QUANT_TYPE,
             SYMMETRIC=SYMMETRIC,
+            COMPUTE_DTYPE=OBSERVED_DTYPE,
         )
-        # Match the packed path's scale rounding when no quantized scale dtype
-        # is configured.
-        if SCALE_ROUND_TYPE == 0:
-            scale = round_to_compute_dtype(scale, OBSERVED_DTYPE)
         scale = tl.maximum(scale, scale_eps)
         quantized = quantize_dequantize(
             values,
