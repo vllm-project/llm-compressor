@@ -84,6 +84,16 @@ def round_to_fp16(value):
 
 
 @triton.jit
+def round_to_compute_dtype(value, COMPUTE_DTYPE: tl.constexpr):
+    """Round an FP32 value to the observer input dtype and return it as FP32."""
+    if COMPUTE_DTYPE == 1:
+        return round_to_fp16(value)
+    if COMPUTE_DTYPE == 2:
+        return round_to_bf16(value)
+    return value
+
+
+@triton.jit
 def round_candidate_scale(
     scale, SCALE_ROUND_TYPE: tl.constexpr, QUANT_TYPE: tl.constexpr
 ):
@@ -156,17 +166,11 @@ def quantize_dequantize(
 ):
     """GPTQ-style QDQ shared by MSE and importance-weighted observer kernels."""
     normalized = tldevice.div_rn(values, scale)
-    if COMPUTE_DTYPE == 1:
-        normalized = round_to_fp16(normalized)
-    elif COMPUTE_DTYPE == 2:
-        normalized = normalized.to(tl.bfloat16).to(tl.float32)
+    normalized = round_to_compute_dtype(normalized, COMPUTE_DTYPE)
     if HAS_ZP:
         # fake_quantize adds the zero point in the input dtype
         normalized += zero_point
-        if COMPUTE_DTYPE == 1:
-            normalized = round_to_fp16(normalized)
-        elif COMPUTE_DTYPE == 2:
-            normalized = normalized.to(tl.bfloat16).to(tl.float32)
+        normalized = round_to_compute_dtype(normalized, COMPUTE_DTYPE)
     normalized = tl.clamp(normalized, q_min, q_max)
     if QUANT_TYPE == 0:
         rounded = tldevice.rint(normalized)
@@ -190,48 +194,16 @@ def calculate_mse_error(
     quantized,
     norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
-    ROUND_ERROR: tl.constexpr,
 ):
     """Calculate the per-element powered QDQ error for observer search."""
-    if COMPUTE_DTYPE == 1:
-        if is_xpu_target():
-            diff = round_to_fp16(tl.abs(quantized - values))
-        else:
-            diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
-    elif COMPUTE_DTYPE == 2:
-        diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
-    else:
-        diff = tl.abs(quantized - values)
-
-    error_norm = tl.full((), norm, tl.float32)
-    if ROUND_ERROR:
-        if COMPUTE_DTYPE == 1:
-            error_norm = error_norm.to(tl.float16).to(tl.float32)
-        elif COMPUTE_DTYPE == 2:
-            error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
-    diff = diff.to(tl.float32)
+    quantized = round_to_compute_dtype(quantized, COMPUTE_DTYPE)
+    values = round_to_compute_dtype(values, COMPUTE_DTYPE)
+    diff = round_to_compute_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
+    error_norm = round_to_compute_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
     if error_norm == 3.0:
-        if ROUND_ERROR and COMPUTE_DTYPE == 1:
-            squared = round_to_fp16(diff * diff)
-            diff_pow = round_to_fp16(squared * diff)
-        elif ROUND_ERROR and COMPUTE_DTYPE == 2:
-            # For packed low-precision qparams, match eager's input-dtype
-            # rounding between cubic multiplies for both weighted and
-            # unweighted error.
-            squared = round_to_bf16(diff * diff)
-            diff_pow = round_to_bf16(squared * diff)
-        else:
-            # Split reductions retain FP32 per-element error regardless of
-            # whether importance weights are present.
-            diff_pow = (diff * diff) * diff
-    else:
-        diff_pow = tldevice.pow(diff, error_norm)
-    if ROUND_ERROR:
-        if COMPUTE_DTYPE == 1:
-            diff_pow = round_to_fp16(diff_pow)
-        elif COMPUTE_DTYPE == 2:
-            diff_pow = round_to_bf16(diff_pow)
-    return diff_pow.to(tl.float32)
+        squared_diff = round_to_compute_dtype(diff * diff, COMPUTE_DTYPE)
+        return round_to_compute_dtype(squared_diff * diff, COMPUTE_DTYPE)
+    return round_to_compute_dtype(tldevice.pow(diff, error_norm), COMPUTE_DTYPE)
 
 
 @triton.jit
@@ -244,7 +216,6 @@ def calculate_observer_error(
     HAS_IMPORTANCE: tl.constexpr,
     HAS_MAGNITUDE_NORMALIZATION: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
-    ROUND_ERROR: tl.constexpr,
 ):
     """Calculate MSE or importance-weighted QDQ error for observer search."""
     error = calculate_mse_error(
@@ -252,7 +223,6 @@ def calculate_observer_error(
         quantized,
         norm,
         COMPUTE_DTYPE=COMPUTE_DTYPE,
-        ROUND_ERROR=ROUND_ERROR,
     )
     if HAS_IMPORTANCE:
         error = error * importance

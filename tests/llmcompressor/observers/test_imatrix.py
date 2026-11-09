@@ -534,7 +534,6 @@ def _assert_imatrix_eager_triton_parity(
         "expand": expand,
         "importance_weights": importance,
         "triton_error_buffer": triton_error_buffer,
-        "use_imatrix_error": True,
         "magnitude_normalization": magnitude_normalization,
         "grid_type": grid_type,
     }
@@ -597,7 +596,8 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
     importance = flatten_for_calibration(
         torch.ones(1, group_size, device=device), "weight", args
     )
-    search_args = (observed, args, 0.8, 100, 10.0, norm)
+    # Zero patience should scan the same full grid for eager and Triton.
+    search_args = (observed, args, 0.8, 0, 10.0, norm)
     common_kwargs = {"triton_error_buffer": 1.0}
 
     eager_mse = ImplBackend.call(
@@ -608,7 +608,6 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
         *search_args,
         **common_kwargs,
         importance_weights=importance,
-        use_imatrix_error=True,
     )
     triton_mse = ImplBackend.call(
         "_grid_search_observer_triton", *search_args, **common_kwargs
@@ -618,7 +617,6 @@ def test_mse_and_imatrix_unit_weights_share_grid_choices(
         *search_args,
         **common_kwargs,
         importance_weights=importance,
-        use_imatrix_error=True,
     )
 
     for mse_bounds, imatrix_bounds in (
@@ -730,7 +728,6 @@ def test_imatrix_triton_matches_eager_for_realistic_schemes(
             "expand": expand,
             "importance_weights": importance,
             "triton_error_buffer": 1.0,
-            "use_imatrix_error": True,
             "magnitude_normalization": magnitude_normalization,
         }
         linear_bounds = ImplBackend.call(
@@ -800,7 +797,6 @@ def test_imatrix_fp8_triton_compiles_on_sm80(monkeypatch, group_size):
     search_kwargs = {
         "triton_error_buffer": 0.3,
         "importance_weights": importance,
-        "use_imatrix_error": True,
     }
     expected = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
 
@@ -846,7 +842,6 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     search_kwargs = {
         "triton_error_buffer": 0.3,
         "importance_weights": importance,
-        "use_imatrix_error": True,
     }
 
     monkeypatch.setattr(grid_search_module, "_is_fp8_supported", lambda device: True)
