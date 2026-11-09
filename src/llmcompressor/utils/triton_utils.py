@@ -159,10 +159,16 @@ def calculate_mse_error(
             error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
     diff = diff.to(tl.float32)
     if error_norm == 3.0:
-        # PyTorch's eager ``pow(x, 3.0)`` follows this multiply sequence.
-        # libdevice.pow can land on the other side of a BF16 rounding midpoint
-        # for tiny errors, which changes the selected grid point after weighting.
-        diff_pow = (diff * diff) * diff
+        if ROUND_ERROR and COMPUTE_DTYPE == 1:
+            squared = (diff * diff).to(tl.float16).to(tl.float32)
+            diff_pow = (squared * diff).to(tl.float16).to(tl.float32)
+        elif ROUND_ERROR and COMPUTE_DTYPE == 2:
+            squared = (diff * diff).to(tl.bfloat16).to(tl.float32)
+            diff_pow = (squared * diff).to(tl.bfloat16).to(tl.float32)
+        else:
+            # Split reductions retain FP32 per-element error regardless of
+            # whether importance weights are present.
+            diff_pow = (diff * diff) * diff
     else:
         diff_pow = tl.extra.cuda.libdevice.pow(diff, error_norm)
     if ROUND_ERROR:
