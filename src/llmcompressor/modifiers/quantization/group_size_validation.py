@@ -83,11 +83,12 @@ def get_layers_indivisible_by_group_size(
     :return: List of (fqn, columns, group_size) for each layer that would
         fail at save/forward due to indivisibility.
     """
+    module_scope = None if modules is None else set(modules)
     with disable_onloading():
         indivisible: list[tuple[str, int, int]] = []
-        for name, module in match_named_modules(
-            model, resolved_targets, ignore, modules=modules
-        ):
+        for name, module in match_named_modules(model, resolved_targets, ignore):
+            if module_scope is not None and module not in module_scope:
+                continue
             scheme: QuantizationScheme | None = getattr(
                 module, "quantization_scheme", None
             )

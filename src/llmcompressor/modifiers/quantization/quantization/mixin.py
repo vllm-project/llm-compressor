@@ -242,13 +242,16 @@ class QuantizationMixin(HooksMixin):
         if not uninitialized_modules:
             return
 
+        uninitialized_module_scope = set(uninitialized_modules)
         for _, module in match_named_modules(
-            model, self.resolved_targets, self.ignore, modules=uninitialized_modules
+            model, self.resolved_targets, self.ignore
         ):
+            if module not in uninitialized_module_scope:
+                continue
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
         apply_quantization_config(
-            model, self.resolved_config, modules=uninitialized_modules
+            model, self.resolved_config, allowed_modules=uninitialized_modules
         )
         validate_fused_layer_scope(model, modules)
 
@@ -280,10 +283,13 @@ class QuantizationMixin(HooksMixin):
         """
         if modules is not None:
             modules = list(modules)
+        module_scope = None if modules is None else set(modules)
         targets = list(
-            match_named_modules(
-                model, self.resolved_targets, self.ignore, modules=modules
+            (name, module)
+            for name, module in match_named_modules(
+                model, self.resolved_targets, self.ignore
             )
+            if module_scope is None or module in module_scope
         )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
@@ -311,11 +317,13 @@ class QuantizationMixin(HooksMixin):
         """
         removed = self.remove_hooks(self._calibration_hooks, modules=modules)
         self._calibration_hooks.difference_update(removed)
+        module_scope = None if modules is None else set(modules)
         modules = [
             module
             for _, module in match_named_modules(
-                model, self.resolved_targets, self.ignore, modules=modules
+                model, self.resolved_targets, self.ignore
             )
+            if module_scope is None or module in module_scope
         ]
 
         # observer statistics are consumed when qparams are updated. Modules which

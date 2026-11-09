@@ -33,3 +33,7 @@ LLM Compressor is an open-source project that values community contributions. We
     [:octicons-arrow-right-24: Governance](governance.md)
 
 </div>
+
+## Design notes
+
+- [Lazy calibration initialization and validation](lazy-calibration-initialization.md) (draft)

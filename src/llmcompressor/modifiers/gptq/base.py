@@ -210,16 +210,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
         )
 
         # register gptq hooks
+        module_scope = None if modules is None else set(modules)
         for name, module in match_named_modules(
-            state.model, self.resolved_targets, self.ignore, modules=modules
+            state.model, self.resolved_targets, self.ignore
         ):
-            if getattr_chain(module, "quantization_scheme.weights", None) is not None:
-                # HACK: previously, embeddings were not quantized because they were not
-                # accessible by the layer compressor. For now, we manually ignore it,
-                # but in the FUTURE this should be ignored by the user
-                if not isinstance(module, torch.nn.Embedding):
-                    self.register_hook(module, self.calibrate_module, "forward")
-                    self._has_gptq_modules = True
+            if module_scope is not None and module not in module_scope:
+                continue
+            if self._is_calibrated(module):
+                self.register_hook(module, self.calibrate_module, "forward")
+                self._has_gptq_modules = True
 
     def _prepare_sequential_epoch(
         self,
@@ -232,11 +231,13 @@ class GPTQModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(
                 self, state.model, modules=modules
             )
+        module_scope = None if modules is None else set(modules)
         self._module_names.update(
             (module, name)
             for name, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore, modules=modules
+                state.model, self.resolved_targets, self.ignore
             )
+            if module_scope is None or module in module_scope
         )
 
     def on_sequential_epoch_end(
