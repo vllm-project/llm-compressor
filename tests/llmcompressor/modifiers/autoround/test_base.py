@@ -65,8 +65,8 @@ def tiny_llama_decoder_layer(tiny_llama_model):
     return copy.deepcopy(tiny_llama_model.model.layers[0])
 
 
-def test_on_sequential_epoch_end_passes_all_modules():
-    """Verify that on_sequential_epoch_end passes all modules to apply_autoround
+def test_on_sequential_subgraph_end_passes_all_modules():
+    """Verify that on_sequential_subgraph_end passes all modules to apply_autoround
     without filtering. Regression test for a bug where an is_module_quantized
     filter silently dropped decoder layers, causing autoround to be a no-op."""
     modifier = AutoRoundModifier(
@@ -75,14 +75,14 @@ def test_on_sequential_epoch_end_passes_all_modules():
         scheme="W4A16",
     )
     state = MagicMock(spec=State)
-    event = Event(type_=EventType.SEQUENTIAL_EPOCH_END)
+    event = Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END)
     modules = [_FakeDecoderLayer(), nn.Linear(64, 64)]
 
     with (
         patch.object(AutoRoundModifier, "apply_autoround") as mock_apply,
         patch.object(AutoRoundModifier, "post_autoround_cleanup"),
     ):
-        modifier.on_sequential_epoch_end(state, event, modules=modules)
+        modifier.on_sequential_subgraph_end(state, event, modules=modules)
         mock_apply.assert_called_once_with(state, modules)
 
 
@@ -96,16 +96,16 @@ def test_initialization_and_calibration_prepare_only_current_scope():
     assert not hasattr(model.layers[0], "_tmp_name")
     assert all(param.requires_grad for param in model.parameters())
 
-    modifier._prepare_sequential_epoch(
+    modifier._prepare_sequential_subgraph(
         state,
-        Event(type_=EventType.SEQUENTIAL_EPOCH_START),
+        Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START),
         modules=list(model.layers[0].modules()),
     )
 
     assert hasattr(model.layers[0].q_proj, "quantization_scheme")
     assert not hasattr(model.layers[1].q_proj, "quantization_scheme")
     assert not modifier._capture_hooks
-    modifier.on_sequential_epoch_start(
+    modifier.on_sequential_subgraph_start(
         state, None, modules=list(model.layers[0].modules())
     )
     assert model.layers[0]._tmp_name in modifier._capture_hooks
@@ -167,9 +167,9 @@ def test_nvfp4_scope_validation_without_observers(split_group):
 
     if split_group:
         with pytest.raises(ValueError, match="span multiple sequential calibration"):
-            modifier._prepare_sequential_epoch(state, None, modules=modules)
+            modifier._prepare_sequential_subgraph(state, None, modules=modules)
     else:
-        modifier._prepare_sequential_epoch(state, None, modules=modules)
+        modifier._prepare_sequential_subgraph(state, None, modules=modules)
         assert hasattr(model[0].q_proj, "quantization_scheme")
         assert not hasattr(model[0].q_proj, "weight_observer")
         assert not hasattr(model[1].q_proj, "quantization_scheme")

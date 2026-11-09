@@ -20,9 +20,9 @@ class Modifier(ModifierInterface, HooksMixin):
     Lifecycle:
     1. initialize
     2. on_event ->
-        * on_sequential_epoch_start for SEQUENTIAL_EPOCH_START
+        * on_sequential_subgraph_start for SEQUENTIAL_SUBGRAPH_START
         * on_start if self.start <= event.current_index
-        * on_sequential_epoch_end if event.type_ == EventType.SEQUENTIAL_EPOCH_END
+        * on_sequential_subgraph_end if event.type_ == EventType.SEQUENTIAL_SUBGRAPH_END
         * on_end if self.end >= event.current_index
     3. finalize
 
@@ -132,15 +132,15 @@ class Modifier(ModifierInterface, HooksMixin):
 
         ## calibration lifecycle ##
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_START:
-            self.on_sequential_epoch_start(state, event, **kwargs)
+        if event.type_ == EventType.SEQUENTIAL_SUBGRAPH_START:
+            self.on_sequential_subgraph_start(state, event, **kwargs)
             self._active_sequential_scopes += 1
             self.started_ = True
             self.ended_ = False
             return
 
-        if event.type_ == EventType.SEQUENTIAL_EPOCH_END:
-            self.on_sequential_epoch_end(state, event, **kwargs)
+        if event.type_ == EventType.SEQUENTIAL_SUBGRAPH_END:
+            self.on_sequential_subgraph_end(state, event, **kwargs)
             self._active_sequential_scopes = max(0, self._active_sequential_scopes - 1)
             self.ended_ = self._active_sequential_scopes == 0
             return
@@ -197,7 +197,7 @@ class Modifier(ModifierInterface, HooksMixin):
     def on_initialize(self, state: State, **kwargs) -> bool:
         """
         Prepare global configuration and metadata. Model-local setup belongs in
-        _prepare_sequential_epoch, or on_start for training.
+        _prepare_sequential_subgraph, or on_start for training.
 
         :param state: The current state of the model
         :param kwargs: Additional arguments for initializing the modifier
@@ -266,7 +266,7 @@ class Modifier(ModifierInterface, HooksMixin):
 
     ## Calibration lifecycle events ##
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         """
         Set up observers and hooks for the current calibration scope, after all
         modifiers have initialized that scope.
@@ -277,7 +277,7 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def _prepare_sequential_epoch(
+    def _prepare_sequential_subgraph(
         self,
         state: State,
         event: Event,
@@ -296,22 +296,22 @@ class Modifier(ModifierInterface, HooksMixin):
         """
         pass
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         """
-        on_sequential_epoch_end is called at the end of a sequential layer
-        calibration/training epoch.
+        Called at the end of a sequential calibration subgraph or a whole-model
+        calibration scope.
 
         :param state: The current state of the model
-        :param event: The event that triggered the sequential epoch end
+        :param event: The event that triggered the sequential subgraph end
         :param modules: List of de-duplicated modules which were included in the
             sequential subgraph
-        :param kwargs: Additional arguments for the sequential epoch end
+        :param kwargs: Additional arguments for the sequential subgraph end
         """
         pass
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         """
         Release this scope's observers, hooks, and caches after every modifier has
         handled the sequential end event. Later modifiers may still need observers

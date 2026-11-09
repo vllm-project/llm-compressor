@@ -58,7 +58,7 @@ class MoNePruningModifier(ExpertPruningModifierBase):
     MoNe runs during the sequential calibration pipeline: routing and expert
     output statistics are accumulated via hooks on the MoE experts, and the
     structural collapse for a layer is executed when it completes
-    (``SEQUENTIAL_EPOCH_END``).
+    (``SEQUENTIAL_SUBGRAPH_END``).
 
     :param sparsity: fraction of experts to collapse per layer, in ``[0, 1)``.
         When ``0.0``, no experts are collapsed; saliency is still computed so

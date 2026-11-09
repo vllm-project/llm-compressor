@@ -201,12 +201,12 @@ class CompressionLifecycle:
         event = Event(type_=event_type)
         mod_data = []
         callbacks = ["update_event"]
-        if event_type == EventType.SEQUENTIAL_EPOCH_START:
+        if event_type == EventType.SEQUENTIAL_SUBGRAPH_START:
             # AWQ may precede the quantizer that installs the schemes it needs.
-            callbacks.insert(0, "_prepare_sequential_epoch")
-        elif event_type == EventType.SEQUENTIAL_EPOCH_END:
+            callbacks.insert(0, "_prepare_sequential_subgraph")
+        elif event_type == EventType.SEQUENTIAL_SUBGRAPH_END:
             # QAD needs the preceding quantizer's observers until its work finishes.
-            callbacks.append("_cleanup_sequential_epoch")
+            callbacks.append("_cleanup_sequential_subgraph")
             if kwargs.get("modules") is None:
                 kwargs["modules"] = list(self.state.model.modules())
 

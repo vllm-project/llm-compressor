@@ -270,7 +270,7 @@ def test_collapse_forward_preserves_retained_experts():
 @pytest.mark.unit
 def test_mone_full_lifecycle():
     """Calibration accumulates routing and output statistics, and
-    ``SEQUENTIAL_EPOCH_END`` collapses every layer's lowest-saliency experts
+    ``SEQUENTIAL_SUBGRAPH_END`` collapses every layer's lowest-saliency experts
     into novices: retained experts are left-shifted, the router keeps its
     full width, and the collapse is recorded in the expert-sparsity
     config."""
@@ -294,7 +294,7 @@ def test_mone_full_lifecycle():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     assert len(modifier._moe_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
@@ -505,7 +505,7 @@ def test_mone_distributed_uneven_data():
                     for _ in range(5):
                         model(torch.randn(2, 8, config.hidden_size))
 
-            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
             modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
             modifier.finalize(state)
 
@@ -562,7 +562,7 @@ def test_mone_distributed_nccl_collapses_on_gpu():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size, device=device))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 

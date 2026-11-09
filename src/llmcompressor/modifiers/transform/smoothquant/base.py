@@ -161,7 +161,7 @@ class SmoothQuantModifier(Modifier):
 
         return True
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         mappings = [
             mapping
@@ -170,17 +170,17 @@ class SmoothQuantModifier(Modifier):
         ]
         self._setup_scale_hooks(mappings)
 
-    def _prepare_sequential_epoch(
+    def _prepare_sequential_subgraph(
         self, state: State, event: Event, modules: list[Module] | None = None, **kwargs
     ):
         self._initialize_scope(state.model, modules)
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[Module], **kwargs
     ):
         self._apply_smoothing(state.model, modules=modules)
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self.remove_hooks(modules=modules)
 

@@ -102,7 +102,7 @@ For each sequential subgraph of one or more consecutive decoder blocks:
 1. During calibration, hooks cache the blocks' inputs and the last block's
    unquantized outputs. The preceding method collects its statistics in the same
    forward pass.
-2. At the existing `sequential_epoch_end` event, preceding modifiers finish
+2. At the existing `sequential_subgraph_end` event, preceding modifiers finish
    preparing the blocks' quantized weights and quantization parameters.
 3. QAD replays the blocks as a chain with fake quantization, feeding each block
    the previous block's output, and minimizes the last block's output MSE.
@@ -145,7 +145,7 @@ Another method can precede QAD if it:
 - Attaches a compressed-tensors weight quantization scheme during initialization.
 - Preserves the unquantized block computation during the calibration pass used
   to capture teacher targets.
-- Prepares its weights and valid qparams in `sequential_epoch_end`, before QAD's
+- Prepares its weights and valid qparams in `sequential_subgraph_end`, before QAD's
   callback runs. Place QAD after all modifiers that prepare the block.
 - Leaves floating-point weights compatible with compressed-tensors fake
   quantization, and suppresses calibration hooks during its own replay forwards.

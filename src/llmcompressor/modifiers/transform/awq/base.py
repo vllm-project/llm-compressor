@@ -93,19 +93,19 @@ class AWQModifier(Modifier):
 
     - on_initialize
         - set unresolved mappings if not set by user, based on model architecture
-    - on_sequential_epoch_start
+    - on_sequential_subgraph_start
         - resolve mappings
         - capture kwargs needed for forward passes into modules
         - set up activation cache hooks to capture input activations
             to balance layers
-    - on_sequential_epoch_end
+    - on_sequential_subgraph_end
         - apply smoothing to each smoothing layer
             - consume cached activations across all batches
                 - clear cached activations as they are used
             - find best smoothing scale for each smoothing layer via grid search
             - apply best scales to model weights
             - raise error if any unused activations remain
-    - _cleanup_sequential_epoch
+    - _cleanup_sequential_subgraph
         - remove activation hooks
     - on_finalize
         - clear resolved mappings and captured activations
@@ -204,7 +204,7 @@ class AWQModifier(Modifier):
 
         return True
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         """
         Resolve mappings and install hooks after every modifier initializes the scope.
         """
@@ -277,12 +277,12 @@ class AWQModifier(Modifier):
 
         return held, scratch
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[Module], **kwargs
     ):
         self._apply_smoothing(state.model, modules=modules)
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks.
         No qparams are updated since this is just a transform.

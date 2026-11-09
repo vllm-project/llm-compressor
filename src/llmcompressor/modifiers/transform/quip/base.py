@@ -41,11 +41,11 @@ class QuIPModifier(Modifier):
 
     - on_initialize
         - as needed, create transform schemes for V (input) and U (output)
-    - _prepare_sequential_epoch
+    - _prepare_sequential_subgraph
         - apply TransformConfig
             - fuse transforms into weights for mergeable transforms
             - add hooks for online transforms
-    - on_sequential_epoch_end
+    - on_sequential_subgraph_end
         - untie word embeddings
         - apply transforms to model
 
@@ -113,7 +113,7 @@ class QuIPModifier(Modifier):
 
         return True
 
-    def _prepare_sequential_epoch(
+    def _prepare_sequential_subgraph(
         self,
         state: State,
         event: Event,

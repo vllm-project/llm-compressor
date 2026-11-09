@@ -85,15 +85,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - _prepare_sequential_epoch
+    - _prepare_sequential_subgraph
         - apply config to the current scope
         - resolve module names
-    - on_sequential_epoch_start
+    - on_sequential_subgraph_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
-    - on_sequential_epoch_end
+    - on_sequential_subgraph_end
         - quantize_weight
-    - _cleanup_sequential_epoch
+    - _cleanup_sequential_subgraph
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -212,7 +212,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         }
         return True
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         QuantizationMixin.start_calibration(
             self,
@@ -232,7 +232,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self.register_hook(module, self.calibrate_module, "forward")
                 self._has_gptq_modules = True
 
-    def _prepare_sequential_epoch(
+    def _prepare_sequential_subgraph(
         self,
         state: State,
         event: Event,
@@ -252,7 +252,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             if module_scope is None or module in module_scope
         )
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
@@ -261,7 +261,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
         self.compress_modules(modules)
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """

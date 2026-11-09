@@ -219,7 +219,7 @@ class ExpertPruningModifierBase(Modifier):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         self._register_moe_hooks(state.model, kwargs.get("modules"))
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         self._register_moe_hooks(state.model, kwargs.get("modules"))
 
     def _register_moe_hooks(
@@ -271,10 +271,10 @@ class ExpertPruningModifierBase(Modifier):
             self.register_hook(experts, _experts_block_hook, "forward")
             self._hooked_moe_names.add(moe_name)
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         self.remove_hooks(modules=kwargs.get("modules"))
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self,
         state: State,
         event: Event,

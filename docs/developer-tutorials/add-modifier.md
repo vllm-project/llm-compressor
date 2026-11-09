@@ -12,9 +12,9 @@ A modifier is a subclass of the `Modifier` base class that hooks into the compre
     * Dispatch the model
     * For each module scope (a sequential layer group or the whole model):
         - Onload and decompress the scope as needed
-        - Fire `SEQUENTIAL_EPOCH_START`, preparing the scope and calling `on_sequential_epoch_start`
+        - Fire `SEQUENTIAL_SUBGRAPH_START`, preparing the scope and calling `on_sequential_subgraph_start`
         - Run calibration forward passes (quantization disabled)
-        - Fire `SEQUENTIAL_EPOCH_END`, calling `on_sequential_epoch_end` and cleaning up the scope
+        - Fire `SEQUENTIAL_SUBGRAPH_END`, calling `on_sequential_subgraph_end` and cleaning up the scope
 4. Call `finalize` on each modifier, which calls `on_finalize`
 
 Modifiers express what they want to do at each stage by implementing lifecycle hooks.
@@ -79,7 +79,7 @@ class MyModifier(Modifier):
 
     ## Calibration lifecycle events ##
 
-    def on_sequential_epoch_start(
+    def on_sequential_subgraph_start(
         self, state: State, event: Event, modules: list[torch.nn.Module] | None = None,
         **kwargs
     ):
@@ -88,7 +88,7 @@ class MyModifier(Modifier):
         # modules=None selects the whole model.
         ...
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         # Called at the end of a sequential layer group (sequential pipeline) or
@@ -107,22 +107,22 @@ class MyModifier(Modifier):
 | `on_finalize` | Once, during `finalize()`, after all pipelines complete | No |
 | `on_event` | Every event, unconditionally (before lifecycle dispatch) | No |
 | `requires_calibration_data` | Bool field queried during pipeline selection to decide sequential vs data-free | No (defaults to `False`) |
-| `on_sequential_epoch_start` | After preparation of each scope (fired by `SEQUENTIAL_EPOCH_START`) | No |
-| `on_sequential_epoch_end` | After each layer group (sequential) or once for entire model (basic/data-free) (fired by `SEQUENTIAL_EPOCH_END` event) | No |
+| `on_sequential_subgraph_start` | After preparation of each scope (fired by `SEQUENTIAL_SUBGRAPH_START`) | No |
+| `on_sequential_subgraph_end` | After each layer group (sequential) or once for entire model (basic/data-free) (fired by `SEQUENTIAL_SUBGRAPH_END` event) | No |
 | `on_start` | When `start <= event.current_index` (training lifecycle, auto-dispatched) | No |
 | `on_update` | Every event while active (between `on_start` and `on_end`); rarely used | No |
 | `on_end` | When `end >= event.current_index` (training lifecycle, auto-dispatched) | No |
 
 > **Note on calibration vs training lifecycle:** The base `Modifier` class now provides first-class support for both calibration and training lifecycles:
-> - **Calibration lifecycle** (`on_sequential_epoch_start`, `on_sequential_epoch_end`): These hooks are automatically dispatched when the corresponding event types are fired by the calibration pipeline. All compression modifiers (GPTQ, AWQ, SmoothQuant, REAP, etc.) use these hooks.
+> - **Calibration lifecycle** (`on_sequential_subgraph_start`, `on_sequential_subgraph_end`): These hooks are automatically dispatched when the corresponding event types are fired by the calibration pipeline. All compression modifiers (GPTQ, AWQ, SmoothQuant, REAP, etc.) use these hooks.
 > - **Training lifecycle** (`on_start`, `on_update`, `on_end`): These hooks are auto-dispatched based on the `start` and `end` parameters. They are primarily used for training scenarios with explicit step ranges (e.g., dynamic pruning schedules).
 > - `on_event`: Called on every event before any lifecycle dispatch. Use this for cross-cutting behavior or custom event types.
 >
-> **Note on `SEQUENTIAL_EPOCH_END`:** This event is fired by **all** pipelines (sequential, basic, and data-free), not just the sequential pipeline. For the sequential pipeline, it fires after each layer group with a subgraph scoped to that group. For basic and data-free pipelines, it fires once with a subgraph covering the entire model. Built-in quantization modifiers (QuantizationModifier, GPTQModifier) use this event to compute weight and activation quantization parameters — DDP synchronization of activation statistics, weight observation, and qparam computation (for both activations and weights) all happen here.
+> **Note on `SEQUENTIAL_SUBGRAPH_END`:** This event is fired by **all** pipelines (sequential, basic, and data-free), not just the sequential pipeline. For the sequential pipeline, it fires after each layer group with a subgraph scoped to that group. For basic and data-free pipelines, it fires once with a subgraph covering the entire model. Built-in quantization modifiers (QuantizationModifier, GPTQModifier) use this event to compute weight and activation quantization parameters — DDP synchronization of activation statistics, weight observation, and qparam computation (for both activations and weights) all happen here.
 >
-> **Quantization is disabled during calibration.** All pipelines disable quantization during calibration forward passes via `DisableQuantization`. This means calibration hooks see unquantized activations. Quantization parameters are computed at `SEQUENTIAL_EPOCH_END` and quantization is enabled during cleanup of that event.
+> **Quantization is disabled during calibration.** All pipelines disable quantization during calibration forward passes via `DisableQuantization`. This means calibration hooks see unquantized activations. Quantization parameters are computed at `SEQUENTIAL_SUBGRAPH_END` and quantization is enabled during cleanup of that event.
 
-The two events preserve ordering across modifiers using private helpers. At start, every modifier's `_prepare_sequential_epoch` runs before any `on_sequential_epoch_start` callback. This lets AWQ access schemes installed by a later quantization modifier. At end, every `on_sequential_epoch_end` callback runs before any `_cleanup_sequential_epoch` helper. This keeps observers available for later modifiers such as QAD. These helpers are phases within the start/end events, not separate events. Put scope-local model setup in `_prepare_sequential_epoch` and observer or cache removal in `_cleanup_sequential_epoch` when other modifiers depend on their ordering.
+The two events preserve ordering across modifiers using private helpers. At start, every modifier's `_prepare_sequential_subgraph` runs before any `on_sequential_subgraph_start` callback. This lets AWQ access schemes installed by a later quantization modifier. At end, every `on_sequential_subgraph_end` callback runs before any `_cleanup_sequential_subgraph` helper. This keeps observers available for later modifiers such as QAD. These helpers are phases within the start/end events, not separate events. Put scope-local model setup in `_prepare_sequential_subgraph` and observer or cache removal in `_cleanup_sequential_subgraph` when other modifiers depend on their ordering.
 
 The sequential pipeline keeps the same module scope throughout each iteration. Modifiers can attach internal transform or attention helpers without maintaining placement dictionaries. When the scope is offloaded, compressed-tensors discovers new descendants and applies their nearest ancestor's saved offload settings, leaving other offloaded or staged subtrees untouched. Replacing calibration targets or adding new quantizable targets requires updating the scope before calibration and is outside this initialization flow.
 
@@ -172,7 +172,7 @@ class MyModifier(Modifier):
 
 ## Example: A Weight-Clamping Modifier
 
-The following modifier clamps the stored weight tensors of `Linear` layers in each scope to a fixed absolute magnitude after calibration completes (`SEQUENTIAL_EPOCH_END`).
+The following modifier clamps the stored weight tensors of `Linear` layers in each scope to a fixed absolute magnitude after calibration completes (`SEQUENTIAL_SUBGRAPH_END`).
 
 ```python
 import torch
@@ -184,7 +184,7 @@ from llmcompressor.core import State, Event
 class WeightClampModifier(Modifier):
     """
     Clamps the magnitude of Linear layer weight tensors to a maximum absolute
-    value. Applied layer-by-layer on SEQUENTIAL_EPOCH_END (sequential pipeline)
+    value. Applied layer-by-layer on SEQUENTIAL_SUBGRAPH_END (sequential pipeline)
     or all at once on the same event (basic/data-free pipelines).
 
     :param max_weight_magnitude: maximum allowed absolute value for any weight
@@ -209,7 +209,7 @@ class WeightClampModifier(Modifier):
             )
         return True
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         # Clamp target modules in the completed scope
@@ -268,5 +268,5 @@ weight_clamp_stage:
 - **Use `match_named_modules`** (from `compressed_tensors.utils`) to filter modules by type name or path pattern, consistent with how other modifiers handle `targets` and `ignore`.
 - **Keep `on_initialize` lightweight.** Expensive operations (e.g., full-model passes) should be deferred to calibration lifecycle hooks or `on_finalize`.
 - **`on_update` is rarely needed.** Only override it if you need a per-batch callback while the modifier is active — e.g., `MagnitudeModifier` uses it to update sparsity each batch. Compression modifiers (GPTQ, AWQ, SmoothQuant, etc.) do not use it.
-- **Modifiers never fire events — the pipeline does.** The calibration pipeline fires `SEQUENTIAL_EPOCH_START` and `SEQUENTIAL_EPOCH_END`. Your modifier reacts by implementing the corresponding hooks. The lifecycle coordinates preparation and cleanup around those hooks.
-- **All calibration pipelines fire `SEQUENTIAL_EPOCH_END`.** The sequential pipeline fires it between layer groups (scoped to each group), while the basic and data-free pipelines fire it once for the entire model. Modifiers like GPTQ, REAP, and QuantizationModifier use this event to trigger compression and qparam computation.
+- **Modifiers never fire events — the pipeline does.** The calibration pipeline fires `SEQUENTIAL_SUBGRAPH_START` and `SEQUENTIAL_SUBGRAPH_END`. Your modifier reacts by implementing the corresponding hooks. The lifecycle coordinates preparation and cleanup around those hooks.
+- **All calibration pipelines fire `SEQUENTIAL_SUBGRAPH_END`.** The sequential pipeline fires it between layer groups (scoped to each group), while the basic and data-free pipelines fire it once for the entire model. Modifiers like GPTQ, REAP, and QuantizationModifier use this event to trigger compression and qparam computation.

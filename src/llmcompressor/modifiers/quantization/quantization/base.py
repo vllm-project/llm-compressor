@@ -73,7 +73,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         }
         return True
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         QuantizationMixin.start_calibration(
             self,
             state.model,
@@ -81,7 +81,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
         )
 
-    def _prepare_sequential_epoch(
+    def _prepare_sequential_subgraph(
         self,
         state: State,
         event: Event,
@@ -90,7 +90,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
     ):
         self.initialize_quantization(state.model, modules=modules)
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
@@ -123,7 +123,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             update_qparams(rank_to_modules[rank], "weight")
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         QuantizationMixin.end_calibration(
             self, state.model, modules=kwargs.get("modules")
         )

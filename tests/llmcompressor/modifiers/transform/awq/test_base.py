@@ -249,7 +249,7 @@ def test_awq_sees_quant_config_from_later_modifier_before_calibration():
 
     modules = list(model.layers[0].modules())
     assert not awq._hooks
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules)
+    session.lifecycle.event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=modules)
 
     assert hasattr(model.layers[0].o_proj, "quantization_scheme")
     assert awq._hooks

@@ -163,7 +163,7 @@ def test_saliency_agrees_between_sparse_and_calibrate_all_execution(monkeypatch)
 @pytest.mark.unit
 def test_reap_full_lifecycle():
     """Calibration accumulates saliency through real routing,
-    ``SEQUENTIAL_EPOCH_END`` prunes every layer to its retained experts, and
+    ``SEQUENTIAL_SUBGRAPH_END`` prunes every layer to its retained experts, and
     the pruning is recorded in the expert-sparsity config while the model
     config is left untouched."""
     torch.manual_seed(42)
@@ -186,7 +186,7 @@ def test_reap_full_lifecycle():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     # every layer's statistics were consumed
     assert len(modifier._moe_stats) == 0
 
@@ -259,7 +259,7 @@ def test_reap_distributed_uneven_data():
                     for _ in range(5):
                         model(torch.randn(2, 8, config.hidden_size))
 
-            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
             modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
             modifier.finalize(state)
 
@@ -315,7 +315,7 @@ def test_reap_distributed_nccl_prunes_on_gpu():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size, device=device))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 

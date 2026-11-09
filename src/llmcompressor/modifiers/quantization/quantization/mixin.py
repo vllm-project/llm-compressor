@@ -63,13 +63,13 @@ class QuantizationMixin(HooksMixin):
 
     Lifecycle:
 
-    - _prepare_sequential_epoch: QuantizationMixin.initialize_quantization
+    - _prepare_sequential_subgraph: QuantizationMixin.initialize_quantization
         - Attach schemes to modules
-    - on_sequential_epoch_start: QuantizationMixin.start_calibration
+    - on_sequential_subgraph_start: QuantizationMixin.start_calibration
         - Attach observers to modules
         - Attach calibration hooks
         - Apply calibration status
-    - _cleanup_sequential_epoch: QuantizationMixin.end_calibration
+    - _cleanup_sequential_subgraph: QuantizationMixin.end_calibration
         - Remove calibration hooks
         - Apply freeze status
         - Keep quantization enabled for future steps
@@ -78,7 +78,7 @@ class QuantizationMixin(HooksMixin):
         as this is not desired for all Modifiers inheriting from it. Modifier must
         explicitly call `observe(modules, base_name="weight")` then
         `update_qparams(modules, base_name="weight")`.
-        See QuantizationModifier.on_sequential_epoch_end for example
+        See QuantizationModifier.on_sequential_subgraph_end for example
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -243,9 +243,7 @@ class QuantizationMixin(HooksMixin):
             return
 
         uninitialized_module_scope = set(uninitialized_modules)
-        for _, module in match_named_modules(
-            model, self.resolved_targets, self.ignore
-        ):
+        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
             if module not in uninitialized_module_scope:
                 continue
             reset_quantization_status(module)  # reset any previously applied qconfigs
@@ -327,7 +325,7 @@ class QuantizationMixin(HooksMixin):
         ]
 
         # observer statistics are consumed when qparams are updated. Modules which
-        # still have statistics were never passed to `on_sequential_epoch_end`, for
+        # still have statistics were never passed to `on_sequential_subgraph_end`, for
         # example modules which are traced through rather than called by a sequential
         # subgraph (e.g. attention when using `sequential_targets="Linear"`)
         remaining = [module for module in modules if _has_observer_statistics(module)]
@@ -340,9 +338,9 @@ class QuantizationMixin(HooksMixin):
                 "sequential targets for better performance. Quantizing remaining "
                 "modules now."
             )
-            self.on_sequential_epoch_end(
+            self.on_sequential_subgraph_end(
                 active_session().state,
-                Event(type_=EventType.SEQUENTIAL_EPOCH_END),
+                Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END),
                 modules=remaining,
             )
 

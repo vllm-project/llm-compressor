@@ -148,7 +148,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         if dataset_args.layerwise_decompression:
             decompress_subgraph_modules(list(persistent_modules.values()))
-        LifecycleCallbacks.sequential_epoch_start(
+        LifecycleCallbacks.sequential_subgraph_start(
             list(persistent_modules.values()),
         )
 
@@ -175,7 +175,7 @@ class SequentialPipeline(CalibrationPipeline):
             activations = session.state.sequential_activations
             # When propagate_error=True or log_sequential_error=True, the
             # activations cache does NOT hold the current subgraph's outputs at
-            # sequential_epoch_end time (pass 1 defers or skips the update), so
+            # sequential_subgraph_end time (pass 1 defers or skips the update), so
             # AutoRound must fall back to collect_reference in both cases.
             session.state.sequential_propagate_error = (
                 dataset_args.propagate_error
@@ -278,7 +278,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # start event then prepares model state and calibration hooks.
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(list(subgraph_modules.values()))
-                LifecycleCallbacks.sequential_epoch_start(
+                LifecycleCallbacks.sequential_subgraph_start(
                     list(subgraph_modules.values()),
                     warn_on_inference_mode=False,
                 )
@@ -310,7 +310,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(
+                LifecycleCallbacks.sequential_subgraph_end(
                     list(subgraph_modules.values()),
                 )
 
@@ -358,7 +358,7 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
 
             # Persistent modules collect statistics throughout the subgraph loop.
-            LifecycleCallbacks.sequential_epoch_end(
+            LifecycleCallbacks.sequential_subgraph_end(
                 list(persistent_modules.values()),
             )
             if persistent_modules:

@@ -144,7 +144,7 @@ class LifecycleCallbacks:
         return cls.event(EventType.BATCH_END, **kwargs)
 
     @classmethod
-    def sequential_epoch_start(
+    def sequential_subgraph_start(
         cls, modules: list["Module"] | None = None, **kwargs
     ) -> ModifiedState:
         """
@@ -155,10 +155,10 @@ class LifecycleCallbacks:
             or None to prepare the whole model.
         :param kwargs: additional kwargs to pass to the current session's event method
         """
-        return cls.event(EventType.SEQUENTIAL_EPOCH_START, modules=modules, **kwargs)
+        return cls.event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=modules, **kwargs)
 
     @classmethod
-    def sequential_epoch_end(
+    def sequential_subgraph_end(
         cls, modules: list["Module"] | None = None, **kwargs
     ) -> ModifiedState:
         """
@@ -168,7 +168,7 @@ class LifecycleCallbacks:
         :param modules: modules in the completed scope, or None for the whole model
         :param kwargs: additional kwargs to pass to the current session's event method
         """
-        return cls.event(EventType.SEQUENTIAL_EPOCH_END, modules=modules, **kwargs)
+        return cls.event(EventType.SEQUENTIAL_SUBGRAPH_END, modules=modules, **kwargs)
 
 
 callbacks = LifecycleCallbacks

@@ -63,8 +63,8 @@ def test_initialization_tracks_and_offloads_transform_children(
     eager_modifier = modifier_cls(**kwargs)
     eager_state = State(model=eager)
     eager_modifier.initialize(eager_state)
-    eager_modifier._prepare_sequential_epoch(eager_state, None)
-    eager_modifier.on_sequential_epoch_start(eager_state, None)
+    eager_modifier._prepare_sequential_subgraph(eager_state, None)
+    eager_modifier.on_sequential_subgraph_start(eager_state, None)
     with torch.no_grad():
         expected = eager(**batches[0]).logits
 
@@ -128,7 +128,7 @@ def test_offload_discovers_internal_children_with_fixed_scopes(
         def on_initialize(self, state, **kwargs):
             return True
 
-        def _prepare_sequential_epoch(self, state, event, modules, **kwargs):
+        def _prepare_sequential_subgraph(self, state, event, modules, **kwargs):
             backbone = state.model.model
             if backbone in modules:
                 backbone.auxiliary = Auxiliary()
@@ -136,7 +136,7 @@ def test_offload_discovers_internal_children_with_fixed_scopes(
             if mlp.down_proj in modules:
                 mlp.down_proj.auxiliary = Auxiliary()
 
-        def on_sequential_epoch_start(self, state, event, modules, **kwargs):
+        def on_sequential_subgraph_start(self, state, event, modules, **kwargs):
             backbone = state.model.model
             if backbone in modules:
                 assert backbone.layers[0] not in modules
@@ -144,7 +144,7 @@ def test_offload_discovers_internal_children_with_fixed_scopes(
                 if parent in modules:
                     assert parent.auxiliary not in modules
 
-        def on_sequential_epoch_end(self, state, event, modules, **kwargs):
+        def on_sequential_subgraph_end(self, state, event, modules, **kwargs):
             backbone = state.model.model
             for parent in (backbone, backbone.layers[0].mlp.down_proj):
                 if parent in modules:
@@ -226,21 +226,21 @@ def test_scope_cleanup_preserves_persistent_calibration(modifier_cls):
         session.initialize(model=model, recipe=modifier)
         event = session.lifecycle.event
         assert not hasattr(persistent, "weight_observer")
-        event(EventType.SEQUENTIAL_EPOCH_START, modules=[persistent])
+        event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=[persistent])
         observer = persistent.input_observer
 
         # A scope with no targets must not finish persistent calibration or fail GPTQ.
-        event(EventType.SEQUENTIAL_EPOCH_START, modules=[])
-        event(EventType.SEQUENTIAL_EPOCH_END, modules=[])
+        event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=[])
+        event(EventType.SEQUENTIAL_SUBGRAPH_END, modules=[])
         assert not modifier.ended_
 
         for layer in (model[1], model[2], model[1]):
             assert not hasattr(layer, "weight_observer")
             assert not layer._forward_hooks
-            event(EventType.SEQUENTIAL_EPOCH_START, modules=[layer])
+            event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=[layer])
             with torch.no_grad():
                 layer(persistent(torch.randn(16, 8)))
-            event(EventType.SEQUENTIAL_EPOCH_END, modules=[layer])
+            event(EventType.SEQUENTIAL_SUBGRAPH_END, modules=[layer])
 
             assert layer.quantization_status == QuantizationStatus.FROZEN
             assert not hasattr(layer, "weight_observer")
@@ -254,7 +254,7 @@ def test_scope_cleanup_preserves_persistent_calibration(modifier_cls):
                 assert persistent in modifier._hessians
                 assert layer not in modifier._hessians
 
-        event(EventType.SEQUENTIAL_EPOCH_END, modules=[persistent])
+        event(EventType.SEQUENTIAL_SUBGRAPH_END, modules=[persistent])
         assert modifier.ended_
         assert not modifier._hooks
         assert not modifier._hook_owners

@@ -60,7 +60,7 @@ class QADModifier(Modifier):
     Place QADModifier after a weight quantization modifier in the same recipe and
     use the sequential pipeline. RTN and GPTQ are tested. Other preceding methods
     must keep weights unquantized during calibration, initialize qparams before
-    QAD's ``sequential_epoch_end``, and use floating weights compatible with
+    QAD's ``sequential_subgraph_end``, and use floating weights compatible with
     compressed-tensors fake quantization.
 
     Sample usage::
@@ -151,7 +151,7 @@ class QADModifier(Modifier):
         )
         return True
 
-    def on_sequential_epoch_start(self, state: State, event: Event, **kwargs):
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         if modules is None and not _modules_to_quantize(state.model.modules()):
             raise ValueError(
@@ -222,7 +222,7 @@ class QADModifier(Modifier):
         self._cur_seq_target = module
         self._cur_seq_target_output = _get_first(output)
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         self._cur_seq_target = None
@@ -536,7 +536,7 @@ class QADModifier(Modifier):
             )
             update_offload_parameter(module, "weight", weight)
 
-    def _cleanup_sequential_epoch(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         self.remove_hooks(modules=modules)
         for cache in (self._input_caches, self._output_caches, self._predecessors):

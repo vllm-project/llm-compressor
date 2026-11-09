@@ -4,7 +4,7 @@ and MoNe expert pruning modifiers.
 
 The base owns the pruning lifecycle: argument validation, MoE layer
 detection, hook attachment, per-layer finalization at
-``SEQUENTIAL_EPOCH_END``, retained-expert selection, expert-sparsity config
+``SEQUENTIAL_SUBGRAPH_END``, retained-expert selection, expert-sparsity config
 recording, and report writing. The lifecycle is driven through
 ``_RecordingModifier``, a minimal concrete subclass whose saliency is the
 per-expert routed-token count, so the template is exercised without any real
@@ -244,7 +244,7 @@ def test_compute_retained_experts_is_balanced_per_group():
 def test_lifecycle_prunes_each_calibrated_layer(tmp_path):
     """The base detects the MoE layers, attaches the subclass's hooks, hands
     each completed layer's statistics to the subclass's saliency, prunes its
-    lowest-saliency experts at ``SEQUENTIAL_EPOCH_END``, records the
+    lowest-saliency experts at ``SEQUENTIAL_SUBGRAPH_END``, records the
     expert-sparsity config, and writes the subclass's statistics to
     ``report_path`` in MoE-layer order."""
     torch.manual_seed(42)
@@ -263,7 +263,7 @@ def test_lifecycle_prunes_each_calibrated_layer(tmp_path):
 
     # an epoch end before any data: every layer is still reduced (so
     # distributed ranks stay aligned) but stays pending and unpruned
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     assert sorted(modifier._reduced_layers) == ["layers.0", "layers.1"]
     assert len(modifier._moe_stats) == 2
     assert modifier._retained_experts == {}
@@ -277,7 +277,7 @@ def test_lifecycle_prunes_each_calibrated_layer(tmp_path):
 
     # epoch end: every layer saw tokens, so each is pruned to its retained
     # experts and its statistics are freed
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     assert len(modifier._moe_stats) == 0
     for moe_name, retained in modifier._retained_experts.items():
         assert len(retained) == 4
@@ -319,7 +319,7 @@ def test_report_only_mode_skips_pruning(tmp_path):
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
     with torch.no_grad():
         model(torch.randn(2, 8, 16))
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 
@@ -351,7 +351,7 @@ def test_ignored_layers_collect_stats_but_are_not_pruned():
 
     with torch.no_grad():
         model(torch.randn(2, 8, 16))
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 

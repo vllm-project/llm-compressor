@@ -117,11 +117,11 @@ def _prepare(kind="rtn", dtype=torch.float32, model_class=BranchModel, **qad_kwa
     qad = QADModifier(**qad_kwargs)
     quant.on_initialize(state)
     qad.on_initialize(state)
-    start = Event(type_=EventType.SEQUENTIAL_EPOCH_START)
-    quant._prepare_sequential_epoch(state, start)
-    qad._prepare_sequential_epoch(state, start)
-    quant.on_sequential_epoch_start(state, start)
-    qad.on_sequential_epoch_start(state, start)
+    start = Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START)
+    quant._prepare_sequential_subgraph(state, start)
+    qad._prepare_sequential_subgraph(state, start)
+    quant.on_sequential_subgraph_start(state, start)
+    qad.on_sequential_subgraph_start(state, start)
     return model, reference, batches, state, quant, qad
 
 
@@ -180,7 +180,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
             torch.testing.assert_close(
                 cached_input["kwargs"]["residual"], batch["residual"]
             )
-        quant.on_sequential_epoch_end(state, None, modules)
+        quant.on_sequential_subgraph_end(state, None, modules)
         qparams = {
             name: param.detach().clone()
             for name, param in model.named_parameters()
@@ -189,7 +189,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         with patch(
             "torch.nn.utils.clip_grad_norm_", wraps=torch.nn.utils.clip_grad_norm_
         ) as clip:
-            qad.on_sequential_epoch_end(state, None, modules)
+            qad.on_sequential_subgraph_end(state, None, modules)
         assert clip.call_count == 9
         assert not qad._input_caches and not qad._output_caches
         for name, expected in qparams.items():
@@ -200,7 +200,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         assert all(p.grad is None for p in model.parameters())
         if kind == "gptq":
             assert not quant._hessians and not quant._num_samples
-    qad._cleanup_sequential_epoch(state, None)
+    qad._cleanup_sequential_subgraph(state, None)
     assert not qad._hooks
 
 
@@ -407,8 +407,8 @@ def test_requires_preceding_quantizer_and_rejects_removed_teacher_option():
     state = State(model=BranchModel())
     qad.on_initialize(state)
     with pytest.raises(ValueError, match="after a weight quantization"):
-        qad._prepare_sequential_epoch(state, None)
-        qad.on_sequential_epoch_start(state, None)
+        qad._prepare_sequential_subgraph(state, None)
+        qad.on_sequential_subgraph_start(state, None)
     with pytest.raises(ValidationError):
         QADModifier(teacher_mode="full")
 
@@ -557,16 +557,16 @@ def test_chain_caches_only_last_teacher_and_trains_every_target():
             torch.testing.assert_close(
                 second_output["teacher_output"], reference(**batch)
             )
-        quant.on_sequential_epoch_end(state, None, modules)
+        quant.on_sequential_subgraph_end(state, None, modules)
         # The first sequential target trains only through the second target's output
         norms = []
         model.first.left.weight.register_hook(lambda grad: norms.append(grad.norm()))
         with _capture_logs() as logs:
-            qad.on_sequential_epoch_end(state, None, modules)
+            qad.on_sequential_subgraph_end(state, None, modules)
     # 5 training batches per epoch; 1 is held out for validation
     assert _logged_updates(logs) == {"first..second": 10}
     assert len(norms) == 10 and all(norm > 0 for norm in norms)
-    qad._cleanup_sequential_epoch(state, None)
+    qad._cleanup_sequential_subgraph(state, None)
 
 
 def test_unchained_subgraph_targets_rejected():
@@ -576,9 +576,9 @@ def test_unchained_subgraph_targets_rejected():
     modules = list(model.modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-        quant.on_sequential_epoch_end(state, None, modules)
+        quant.on_sequential_subgraph_end(state, None, modules)
         with pytest.raises(ValueError, match="previous target's output"):
-            qad.on_sequential_epoch_end(state, None, modules)
+            qad.on_sequential_subgraph_end(state, None, modules)
     with pytest.raises(ValueError, match="did not optimize every target"):
         qad.on_finalize(state)
 
@@ -589,12 +589,12 @@ def test_training_failure_restores_grad_flags():
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         modules = list(model.seq_target.modules())
-        quant.on_sequential_epoch_end(state, None, modules)
+        quant.on_sequential_subgraph_end(state, None, modules)
         with patch.object(
             qad, "_train_with_validation", side_effect=RuntimeError("failed")
         ):
             with pytest.raises(RuntimeError, match="failed"):
-                qad.on_sequential_epoch_end(state, None, modules)
+                qad.on_sequential_subgraph_end(state, None, modules)
     for name, flag in flags.items():
         assert model.get_parameter(name).requires_grad == flag
 
@@ -619,7 +619,7 @@ def test_joint_training_reduces_reconstruction_error_with_fixed_scales(dtype):
     modules = list(model.seq_target.modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-        quant.on_sequential_epoch_end(state, None, modules)
+        quant.on_sequential_subgraph_end(state, None, modules)
         with torch.no_grad():
             for module in (
                 model.seq_target.left,
@@ -633,7 +633,7 @@ def test_joint_training_reduces_reconstruction_error_with_fixed_scales(dtype):
             if name.endswith(".weight")
         }
         with _capture_logs() as logs:
-            qad.on_sequential_epoch_end(state, None, modules)
+            qad.on_sequential_subgraph_end(state, None, modules)
     pattern = r"QAD seq_target (?:initial|epoch \d+) validation MSE ([^,\s]+)"
     matches = (re.match(pattern, log) for log in logs)
     initial, *epochs = [float(match[1]) for match in matches if match]

@@ -189,7 +189,7 @@ def test_disabled_propagate_false(
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
 @patch(f"{_PIPELINE}.trace_subgraphs")
-def test_sequential_epoch_start_runs_after_subgraph_onload(
+def test_sequential_subgraph_start_runs_after_subgraph_onload(
     mock_trace, mock_targets, fake_pipeline, fake_dataloader, monkeypatch
 ):
     mock_trace.return_value = [FakeSubgraph(input_names={"h"}, consumed_names=set())]
@@ -206,7 +206,7 @@ def test_sequential_epoch_start_runs_after_subgraph_onload(
     monkeypatch.setattr(sequential_pipeline, "subgraph_onload_modules", fake_onload)
     monkeypatch.setattr(
         LifecycleCallbacks,
-        "sequential_epoch_start",
+        "sequential_subgraph_start",
         classmethod(record_epoch_start),
     )
 

@@ -57,7 +57,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - _prepare_sequential_epoch
+    - _prepare_sequential_subgraph
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
@@ -165,7 +165,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         return True
 
     @torch.no_grad()
-    def _prepare_sequential_epoch(
+    def _prepare_sequential_subgraph(
         self,
         state: State,
         event: Event,
