@@ -79,6 +79,7 @@ def calculate_candidate_scale(
     SCALE_ROUND_TYPE: tl.constexpr,
     QUANT_TYPE: tl.constexpr,
     SYMMETRIC: tl.constexpr,
+    COMPUTE_DTYPE: tl.constexpr,
 ):
     """Derive and round a candidate scale from candidate min/max bounds."""
     if SCALE_ROUND_TYPE == 4:
@@ -94,9 +95,12 @@ def calculate_candidate_scale(
         )
     else:
         scale = (max_value - min_value) / (q_max - q_min)
-    return round_candidate_scale(
+    scale = round_candidate_scale(
         scale, SCALE_ROUND_TYPE=SCALE_ROUND_TYPE, QUANT_TYPE=QUANT_TYPE
     )
+    if SCALE_ROUND_TYPE == 0:
+        return round_to_compute_dtype(scale, COMPUTE_DTYPE)
+    return scale
 
 
 @triton.jit
