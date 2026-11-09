@@ -184,7 +184,6 @@ class IMatrixMSEObserver(Observer):
             self.triton_error_buffer,
             expand=self.expand,
             importance_weights=importance_weights,
-            use_imatrix_error=True,
             magnitude_normalization=self.magnitude_normalization,
             grid_type=self.grid_type,
         )
