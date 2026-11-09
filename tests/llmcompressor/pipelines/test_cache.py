@@ -285,3 +285,65 @@ def test_override_eq_mode():
     with OverrideEqMode():
         assert a == b
         assert not (a == c)
+
+
+@pytest.mark.unit
+def test_onload_device_scan_nested_shared_and_mutated_values():
+    from llmcompressor.pipelines.cache import _onload_device_types
+
+    cpu = IntermediateValue(torch.zeros(1), torch.device("cpu"))
+    cuda = IntermediateValue(torch.zeros(1), torch.device("cuda:0"))
+    record = SampleDataclass(a=cpu, b=cuda)
+    root = IntermediateValue({"nested": [record, (cpu, cuda)], "scalar": 4}, None)
+    assert _onload_device_types([root, root]) == {"cpu", "cuda"}
+    # Metadata is intentionally rescanned: neither public mutations nor updates
+    # to a shared nested wrapper can leave a summary stale between passes.
+    cuda.device = torch.device("mps")
+    assert _onload_device_types([root, root]) == {"cpu", "mps"}
+    root.value = {"cpu": cpu}
+    assert _onload_device_types([root]) == {"cpu"}
+    assert _onload_device_types([]) == set()
+
+
+@pytest.mark.unit
+def test_onload_device_scan_visits_repeated_root_once():
+    from llmcompressor.pipelines.cache import _onload_device_types
+
+    class CountedDict(dict):
+        visits = 0
+
+        def values(self):
+            self.visits += 1
+            return super().values()
+
+    shared = CountedDict(value=IntermediateValue(torch.zeros(1), torch.device("cpu")))
+    roots = [IntermediateValue(shared, None)] * 10
+    assert _onload_device_types(roots) == {"cpu"}
+    assert shared.visits == 1
+    assert _onload_device_types(roots) == {"cpu"}
+    assert shared.visits == 2
+
+
+@pytest.mark.unit
+def test_device_scan_tracks_cache_mutations_and_transfer():
+    from llmcompressor.pipelines.cache import _onload_device_types
+
+    cache = IntermediatesCache.empty(1, torch.device("cpu"))
+
+    def device_types():
+        return _onload_device_types(
+            entry for batch in cache.batch_intermediates for entry in batch.values()
+        )
+
+    cache.update(0, {"x": torch.zeros(1)})
+    assert device_types() == {"cpu"}
+    cache.append({"y": torch.ones(1)})
+    source = IntermediatesCache(
+        [{"z": IntermediateValue(torch.zeros(1), torch.device("mps"))}]
+    )
+    cache.transfer(source, 0)
+    assert device_types() == {"cpu", "mps"}
+    cache.delete(0, ["z"])
+    assert device_types() == {"cpu"}
+    cache.batch_intermediates[1]["y"].device = torch.device("xpu")
+    assert device_types() == {"cpu", "xpu"}

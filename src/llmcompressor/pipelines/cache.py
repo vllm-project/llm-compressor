@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import warnings
 from collections import UserDict, defaultdict
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
@@ -42,28 +43,30 @@ def _supports_record_stream(device: torch.device) -> bool:
     return True
 
 
-def _onload_device_types(intermediate: IntermediateValue) -> set[str]:
-    """All device types an IntermediateValue tree will onload to.
+def _onload_device_types(intermediates: Iterable[IntermediateValue]) -> set[str]:
+    """Collect target device types in one scan of a batch collection.
 
-    Containers (lists, tuples, dicts, dataclasses) carry ``device=None`` at
-    the top level; the real onload devices live on the nested
-    IntermediateValue nodes.
+    Repeated root entries are visited once per scan. The memo is intentionally local:
+    cache entries and their nested values may be mutated between prefetch passes.
     """
-    types = set()
-    stack = [intermediate]
+    devices = set()
+    stack = list({id(root): root for root in intermediates}.values())
     while stack:
         node = stack.pop()
         if isinstance(node, IntermediateValue):
             if node.device is not None:
-                types.add(torch.device(node.device).type)
-            stack.append(node.value)
+                devices.add(node.device)
+            # Tensor leaves have no nested IntermediateValues. Avoid another
+            # stack entry and container/dataclass checks for every tensor.
+            if not isinstance(node.value, torch.Tensor):
+                stack.append(node.value)
         elif isinstance(node, (list, tuple)):
             stack.extend(node)
         elif isinstance(node, dict):
             stack.extend(node.values())
         elif is_dataclass(node):
             stack.extend(getattr(node, f.name) for f in fields(node))
-    return types
+    return {torch.device(device).type for device in devices}
 
 
 class IntermediatesCache:
@@ -314,12 +317,11 @@ class IntermediatesCache:
         # thread. Only CPU and CUDA ops are safe to submit that way; backends
         # without thread-safe op submission (MPS) can crash the process, so
         # batches targeting them are fetched synchronously instead.
-        onload_types = {
-            dtype
+        onload_types = _onload_device_types(
+            intermediate
             for intermediates in self.batch_intermediates
             for intermediate in intermediates.values()
-            for dtype in _onload_device_types(intermediate)
-        }
+        )
         if not onload_types <= {"cpu", "cuda"}:
             yield from self.iter(input_names)
             return
