@@ -72,7 +72,7 @@ def test_end_calibration_has_no_remaining_attention_modules(
     end_calibration = QuantizationMixin.end_calibration
     on_sequential_subgraph_end = QuantizationModifier.on_sequential_subgraph_end
 
-    def spy_end_calibration(self, model):
+    def spy_end_calibration(self, model, modules=None):
         def spy_epoch_end(self, state, event, modules, **kwargs):
             remaining.extend(modules)
             return on_sequential_subgraph_end(self, state, event, modules, **kwargs)
@@ -81,7 +81,7 @@ def test_end_calibration_has_no_remaining_attention_modules(
             patch.setattr(
                 QuantizationModifier, "on_sequential_subgraph_end", spy_epoch_end
             )
-            return end_calibration(self, model)
+            return end_calibration(self, model, modules=modules)
 
     monkeypatch.setattr(QuantizationMixin, "end_calibration", spy_end_calibration)
 

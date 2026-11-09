@@ -184,7 +184,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         apply_transform_config(
             model,
             self.transform_config,
-            allowed_modules=modules,
+            modules=modules,
             factories=self._transform_factories,
         )
 

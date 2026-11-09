@@ -13,7 +13,6 @@ import pytest
 import torch
 from torch import distributed as dist
 
-from llmcompressor.core import Event, EventType
 from llmcompressor.modeling.moe import context as moe_context
 from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
@@ -21,7 +20,9 @@ from llmcompressor.modifiers.pruning.reap import REAPPruningModifier
 from tests.llmcompressor.modifiers.pruning.fake_moe import (
     FakeMoEConfig,
     FakeMoEModel,
+    end_subgraph,
     make_state,
+    start_subgraph,
 )
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -132,7 +133,7 @@ def test_saliency_agrees_between_sparse_and_calibrate_all_execution(monkeypatch)
         modifier = REAPPruningModifier(sparsity=0.5)
         state = make_state(model)
         modifier.initialize(state)
-        modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+        start_subgraph(modifier, state)
 
         torch.manual_seed(100)  # same calibration data in both modes
         with torch.no_grad():
@@ -179,18 +180,17 @@ def test_reap_full_lifecycle():
     modifier.initialize(state)
     assert modifier._n_experts_to_drop == 4
 
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
     assert len(modifier._moe_stats) == 2
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
+    end_subgraph(modifier, state)
     # every layer's statistics were consumed
     assert len(modifier._moe_stats) == 0
 
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 
     assert model.config.num_experts == 8
@@ -251,7 +251,7 @@ def test_reap_distributed_uneven_data():
             state = make_state(model)
 
             modifier.initialize(state)
-            modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+            start_subgraph(modifier, state)
 
             # only data_rank processes calibration data
             if rank == data_rank:
@@ -259,8 +259,7 @@ def test_reap_distributed_uneven_data():
                     for _ in range(5):
                         model(torch.randn(2, 8, config.hidden_size))
 
-            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
-            modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+            end_subgraph(modifier, state)
             modifier.finalize(state)
 
             # every layer was pruned from the globally summed statistics ...
@@ -309,14 +308,13 @@ def test_reap_distributed_nccl_prunes_on_gpu():
     state = make_state(model)
 
     modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size, device=device))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    end_subgraph(modifier, state)
     modifier.finalize(state)
 
     # every layer pruned, with the router shrunk on the gpu

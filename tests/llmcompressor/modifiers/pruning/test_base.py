@@ -19,7 +19,6 @@ import torch
 from compressed_tensors.config import MoESparsityMethod
 from pydantic import PrivateAttr
 
-from llmcompressor.core import Event, EventType
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning import (
     ExpertPruningModifierBase,
@@ -29,7 +28,9 @@ from llmcompressor.modifiers.pruning import (
 from tests.llmcompressor.modifiers.pruning.fake_moe import (
     FakeMoEConfig,
     FakeMoEModel,
+    end_subgraph,
     make_state,
+    start_subgraph,
 )
 
 
@@ -256,17 +257,10 @@ def test_lifecycle_prunes_each_calibrated_layer(tmp_path):
     modifier.initialize(state)
     assert modifier._n_experts_to_drop == 4
 
-    # calibration start: both MoE layers are detected and initialized with
+    # subgraph start: both MoE layers are detected and initialized with
     # statistics
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
     assert sorted(modifier._moe_stats) == ["layers.0", "layers.1"]
-
-    # an epoch end before any data: every layer is still reduced (so
-    # distributed ranks stay aligned) but stays pending and unpruned
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
-    assert sorted(modifier._reduced_layers) == ["layers.0", "layers.1"]
-    assert len(modifier._moe_stats) == 2
-    assert modifier._retained_experts == {}
 
     # calibration data flows through the subclass's hooks
     with torch.no_grad():
@@ -275,9 +269,10 @@ def test_lifecycle_prunes_each_calibrated_layer(tmp_path):
     assert len(modifier._expert_hook_calls) > 0
     assert all(stats["count"].sum() > 0 for stats in modifier._moe_stats.values())
 
-    # epoch end: every layer saw tokens, so each is pruned to its retained
+    # subgraph end: every layer saw tokens, so each is pruned to its retained
     # experts and its statistics are freed
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
+    end_subgraph(modifier, state)
+    assert sorted(modifier._reduced_layers) == ["layers.0", "layers.1"]
     assert len(modifier._moe_stats) == 0
     for moe_name, retained in modifier._retained_experts.items():
         assert len(retained) == 4
@@ -285,8 +280,7 @@ def test_lifecycle_prunes_each_calibrated_layer(tmp_path):
         assert layer.experts.num_experts == 4
         assert layer.gate.weight.shape[0] == 4
 
-    # calibration end: the hooks are removed
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    # The subgraph lifecycle removes its hooks after the end callback.
     assert len(modifier._hooks) == 0
 
     modifier.finalize(state)
@@ -316,11 +310,10 @@ def test_report_only_mode_skips_pruning(tmp_path):
     state = make_state(model)
 
     modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
     with torch.no_grad():
         model(torch.randn(2, 8, 16))
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    end_subgraph(modifier, state)
     modifier.finalize(state)
 
     # no layer was pruned or marked as pruned
@@ -346,13 +339,12 @@ def test_ignored_layers_collect_stats_but_are_not_pruned():
     state = make_state(model)
 
     modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
     assert len(modifier._moe_stats) == 3
 
     with torch.no_grad():
         model(torch.randn(2, 8, 16))
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    end_subgraph(modifier, state)
     modifier.finalize(state)
 
     assert model.layers[0].experts.num_experts == 4

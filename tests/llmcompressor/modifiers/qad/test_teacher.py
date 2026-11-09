@@ -105,7 +105,9 @@ def test_teacher_capture_does_not_run_extra_forwards():
             _calibrate(model, batches, state)
         assert forward.call_count == len(batches)
         assert len(qad._input_caches[model.seq_target]) == len(batches)
-    qad.on_finalize(state)
+    # This test exercises capture only; finalization correctly rejects a target
+    # that was captured but never distilled.
+    qad._clear_cache()
 
 
 def test_teacher_capture_requires_sequential_batch_context():

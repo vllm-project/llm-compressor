@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers.configuration_utils import PretrainedConfig
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
 
@@ -21,6 +21,8 @@ __all__ = [
     "FakeMoEModel",
     "find_moe_blocks",
     "make_state",
+    "start_subgraph",
+    "end_subgraph",
 ]
 
 
@@ -152,6 +154,19 @@ def make_state(model: nn.Module) -> State:
         loss=None,
         batch_data=None,
     )
+
+
+def start_subgraph(modifier, state: State):
+    """Start one calibration scope through the current modifier lifecycle."""
+    event = Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START)
+    modifier.update_event(state, event, modules=None)
+
+
+def end_subgraph(modifier, state: State):
+    """Finish a full-model scope, including lifecycle cleanup callbacks."""
+    event = Event(type_=EventType.SEQUENTIAL_SUBGRAPH_END)
+    modifier.update_event(state, event, modules=None)
+    modifier._cleanup_sequential_subgraph(state, event, modules=None)
 
 
 def find_moe_blocks(model: nn.Module) -> dict[str, nn.Module]:

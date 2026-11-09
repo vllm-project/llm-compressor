@@ -127,7 +127,7 @@ class QuIPModifier(Modifier):
         apply_transform_config(
             model,
             self.transform_config,
-            allowed_modules=modules,
+            modules=modules,
             factories=self._transform_factories,
         )
 

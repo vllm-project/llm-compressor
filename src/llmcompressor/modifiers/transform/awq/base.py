@@ -201,6 +201,10 @@ class AWQModifier(Modifier):
         # quantization schemes to have been attached yet.
         with disable_onloading():
             self._set_resolved_mappings(state.model, require_targets=False)
+        # Initialization resolves mapping metadata for memory estimates. Keep the
+        # active mappings empty until a calibration scope has its quantization
+        # schemes installed.
+        self._resolved_mappings.clear()
 
         return True
 
@@ -828,6 +832,15 @@ class AWQModifier(Modifier):
                 del int_w_outputs
 
                 if initial_error is None:
+                    if not torch.isfinite(torch.tensor(loss)):
+                        logger.debug(history)
+                        raise Exception(
+                            "No finite loss was found for the identity scales in best "
+                            "scales grid search. This typically means NaN values are "
+                            "appearing in the forward pass of the parent module. If "
+                            "you encounter this error, raise an issue at "
+                            "https://github.com/vllm-project/llm-compressor/issues"
+                        )
                     initial_error = loss
 
                 history.append(

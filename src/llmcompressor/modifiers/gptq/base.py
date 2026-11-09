@@ -142,6 +142,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _model_module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
@@ -161,13 +162,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
 
-        def resolve_actorder(existing):
-            # sentinel default only overrides if existing is None
+        def resolve_actorder(existing, existing_is_set: bool):
+            # The sentinel default supplies static ordering only when the config
+            # leaves actorder unset. An explicit null in the config disables it.
             if self.actorder == Sentinel("static"):
-                return ActivationOrdering.STATIC if existing is None else existing
+                return existing if existing_is_set else ActivationOrdering.STATIC
 
-            # user-provided value always attempts to override
-            if existing is None or self.actorder == existing:
+            # An explicitly provided modifier value may fill an unset config field,
+            # but conflicts with any explicitly provided config value, including None.
+            if not existing_is_set or self.actorder == existing:
                 return self.actorder
 
             # if existing provided and conflicts
@@ -190,18 +193,22 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 QuantizationStrategy.BLOCK,
             ):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
-                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+                scheme.weights.actorder = resolve_actorder(
+                    scheme.weights.actorder,
+                    "actorder" in scheme.weights.model_fields_set,
+                )
 
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """Resolve GPTQ targets for both memory estimates and scoped setup."""
-        self._module_names = dict(
+        self._model_module_names = dict(
             (module, name)
             for name, module in match_named_modules(
                 state.model, self.resolved_targets, self.ignore
             )
         )
+        self._module_names = self._model_module_names.copy()
         self._configured_weight_modules = {
             module
             for scheme in self.resolved_config.config_groups.values()
@@ -244,17 +251,27 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self, state.model, modules=modules
             )
         module_scope = None if modules is None else set(modules)
-        self._module_names.update(
+        self._model_module_names = dict(
             (module, name)
             for name, module in match_named_modules(
                 state.model, self.resolved_targets, self.ignore
             )
-            if module_scope is None or module in module_scope
         )
+        self._module_names = {
+            module: name
+            for module, name in self._model_module_names.items()
+            if module_scope is None or module in module_scope
+        }
 
     def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
+        module_scope = set(modules)
+        self._module_names = {
+            module: name
+            for module, name in self._model_module_names.items()
+            if module in module_scope
+        }
         modules = [module for module in modules if is_module_quantized(module)]
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
@@ -497,6 +514,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
         self._module_names.clear()
+        self._model_module_names.clear()
         self._initialized_modules.clear()
         if not self.ended_:
             self.on_end(state, None)
