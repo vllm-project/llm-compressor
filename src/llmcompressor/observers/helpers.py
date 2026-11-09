@@ -220,9 +220,7 @@ def fuse_weight_observers(
     from llmcompressor.observers.fusion import FusionHandler
 
     modules_to_inspect = None if modules is None else list(modules)
-    module_scope = (
-        None if modules_to_inspect is None else set(modules_to_inspect)
-    )
+    module_scope = None if modules_to_inspect is None else set(modules_to_inspect)
     for submodule in (
         model.modules() if modules_to_inspect is None else modules_to_inspect
     ):
