@@ -40,11 +40,55 @@ SALIENCY_RTOL = 1e-5
 SALIENCY_ATOL = 1e-3
 
 
+def _tensor_fingerprint(tensor):
+    if not isinstance(tensor, torch.Tensor):
+        return None
+
+    tensor = tensor.detach().to(device="cpu").contiguous()
+    raw_bytes = tensor.view(torch.uint8).numpy().tobytes()
+    float_tensor = tensor.float()
+    return {
+        "shape": list(tensor.shape),
+        "dtype": str(tensor.dtype),
+        "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "mean": float(float_tensor.mean().item()),
+        "mean_absolute": float(float_tensor.abs().mean().item()),
+        "rms": float(float_tensor.square().mean().sqrt().item()),
+    }
+
+
+def _first_tensor(value):
+    if isinstance(value, torch.Tensor):
+        return value
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            tensor = _first_tensor(item)
+            if tensor is not None:
+                return tensor
+    if isinstance(value, dict):
+        for item in value.values():
+            tensor = _first_tensor(item)
+            if tensor is not None:
+                return tensor
+    return None
+
+
+def _fingerprint_status(reference, ddp):
+    if reference is None or ddp is None:
+        return "missing"
+    if reference["shape"] != ddp["shape"] or reference["dtype"] != ddp["dtype"]:
+        return "shape_or_dtype_mismatch"
+    return "match" if reference["sha256"] == ddp["sha256"] else "value_mismatch"
+
+
 class _DiagnosticREAPPruningModifier(REAPPruningModifier):
     """Capture router decisions and local accumulators for this comparison."""
 
     _routing_trace: dict = PrivateAttr(default_factory=dict)
+    _router_input_trace: dict = PrivateAttr(default_factory=dict)
     _router_logits_trace: dict = PrivateAttr(default_factory=dict)
+    _router_weight_fingerprints: dict = PrivateAttr(default_factory=dict)
+    _decoder_output_trace: dict = PrivateAttr(default_factory=dict)
     _pre_reduce_saliency: dict = PrivateAttr(default_factory=dict)
     _calibration_samples: list = PrivateAttr(default_factory=list)
     _layer_names: list = PrivateAttr(default_factory=list)
@@ -58,6 +102,13 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
         return super().experts_block_hook(layer_name, module, args, output)
 
     def router_forward_hook(self, layer_name, module, args, output):
+        router_input = _tensor_fingerprint(args[0] if args else None)
+        self._router_input_trace.setdefault(layer_name, []).append(router_input)
+        if layer_name not in self._router_weight_fingerprints:
+            self._router_weight_fingerprints[layer_name] = _tensor_fingerprint(
+                getattr(module, "weight", None)
+            )
+
         # Qwen's top-k router returns logits before softmax and selection as the
         # first element. Save those exact logits so mismatched routes can be
         # explained without re-running the router with a separate linear op.
@@ -80,6 +131,11 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
             .reshape(-1, logits.shape[-1])
             .to(device="cpu", dtype=torch.float32)
             .clone()
+        )
+
+    def decoder_layer_forward_hook(self, layer_name, module, args, output):
+        self._decoder_output_trace.setdefault(layer_name, []).append(
+            _tensor_fingerprint(_first_tensor(output))
         )
 
     def on_calibration_start(self, state, event, **kwargs):
@@ -116,6 +172,13 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
                 partial(self.router_forward_hook, layer_name),
                 "forward",
             )
+            decoder_layer_name = layer_name.rsplit(".mlp", 1)[0]
+            decoder_layer = state.model.get_submodule(decoder_layer_name)
+            self.register_hook(
+                decoder_layer,
+                partial(self.decoder_layer_forward_hook, layer_name),
+                "forward",
+            )
         return result
 
     def reduce_moe_stats(self, layer_name):
@@ -144,6 +207,8 @@ def _modifier_diagnostics(modifier, rank, sample_range):
     for layer_name, events in modifier._routing_trace.items():
         routing[layer_name] = []
         router_logits_events = modifier._router_logits_trace.get(layer_name, [])
+        router_inputs = modifier._router_input_trace.get(layer_name, [])
+        decoder_outputs = modifier._decoder_output_trace.get(layer_name, [])
         for call_idx, event in enumerate(events):
             sample = samples[call_idx] if call_idx < len(samples) else {}
             router_logits = (
@@ -164,6 +229,16 @@ def _modifier_diagnostics(modifier, rank, sample_range):
                     "indices": event["indices"].tolist(),
                     "weights": event["weights"].tolist(),
                     "router_logits": router_logits,
+                    "router_input": (
+                        router_inputs[call_idx]
+                        if call_idx < len(router_inputs)
+                        else None
+                    ),
+                    "decoder_layer_output": (
+                        decoder_outputs[call_idx]
+                        if call_idx < len(decoder_outputs)
+                        else None
+                    ),
                 }
             )
 
@@ -172,6 +247,7 @@ def _modifier_diagnostics(modifier, rank, sample_range):
         "sample_range": list(sample_range),
         "calibration_samples": samples,
         "routing": routing,
+        "router_weight_fingerprints": modifier._router_weight_fingerprints,
         "pre_reduce_saliency": {
             name: {
                 "sum": stats["sum"].tolist(),
@@ -232,13 +308,155 @@ def _router_token_diagnostics(event, token_idx, top_k):
     }
 
 
+def _fingerprint_comparison(pairs, field, max_examples=20):
+    summary = {
+        "compared_samples": 0,
+        "matching_samples": 0,
+        "value_mismatches": 0,
+        "shape_or_dtype_mismatches": 0,
+        "missing_fingerprints": 0,
+        "mismatch_examples": [],
+    }
+    for sample_idx, ref_event, ddp_event in pairs:
+        reference = ref_event.get(field)
+        ddp = ddp_event.get(field)
+        status = _fingerprint_status(reference, ddp)
+        if status == "missing":
+            summary["missing_fingerprints"] += 1
+            continue
+
+        summary["compared_samples"] += 1
+        if status == "match":
+            summary["matching_samples"] += 1
+            continue
+        if status == "shape_or_dtype_mismatch":
+            summary["shape_or_dtype_mismatches"] += 1
+        else:
+            summary["value_mismatches"] += 1
+        if len(summary["mismatch_examples"]) < max_examples:
+            summary["mismatch_examples"].append(
+                {
+                    "sample_index": sample_idx,
+                    "status": status,
+                    "reference": reference,
+                    "ddp": ddp,
+                }
+            )
+    return summary
+
+
+def _router_logit_difference(pairs, num_experts):
+    summary = {
+        "compared_samples": 0,
+        "compared_tokens": 0,
+        "compared_logits": 0,
+        "different_logits": 0,
+        "max_absolute_error": 0.0,
+        "mean_absolute_error": 0.0,
+        "first_difference": None,
+        "max_difference": None,
+        "shape_mismatches": [],
+        "missing_logits": [],
+    }
+    total_absolute_error = 0.0
+    for sample_idx, ref_event, ddp_event in pairs:
+        ref_logits = ref_event.get("router_logits")
+        ddp_logits = ddp_event.get("router_logits")
+        if ref_logits is None or ddp_logits is None:
+            summary["missing_logits"].append(sample_idx)
+            continue
+
+        ref_logits = torch.as_tensor(ref_logits, dtype=torch.float32)
+        ddp_logits = torch.as_tensor(ddp_logits, dtype=torch.float32)
+        if (
+            ref_logits.shape != ddp_logits.shape
+            or ref_logits.ndim != 2
+            or ref_logits.shape[-1] != num_experts
+        ):
+            summary["shape_mismatches"].append(
+                {
+                    "sample_index": sample_idx,
+                    "reference_shape": list(ref_logits.shape),
+                    "ddp_shape": list(ddp_logits.shape),
+                }
+            )
+            continue
+
+        difference = (ddp_logits - ref_logits).abs()
+        flat_difference = difference.reshape(-1)
+        summary["compared_samples"] += 1
+        summary["compared_tokens"] += int(difference.shape[0])
+        summary["compared_logits"] += int(difference.numel())
+        summary["different_logits"] += int(torch.count_nonzero(difference).item())
+        total_absolute_error += float(difference.sum().item())
+
+        max_value, max_flat_idx = flat_difference.max(dim=0)
+        max_value = float(max_value.item())
+        if max_value >= summary["max_absolute_error"]:
+            summary["max_absolute_error"] = max_value
+            summary["max_difference"] = {
+                "sample_index": sample_idx,
+                "token_index": int(max_flat_idx.item()) // num_experts,
+                "expert_index": int(max_flat_idx.item()) % num_experts,
+                "reference_logit": float(ref_logits.reshape(-1)[max_flat_idx].item()),
+                "ddp_logit": float(ddp_logits.reshape(-1)[max_flat_idx].item()),
+                "absolute_error": max_value,
+            }
+
+        if summary["first_difference"] is None:
+            differing = torch.nonzero(difference, as_tuple=False)
+            if differing.numel():
+                token_idx, expert_idx = map(int, differing[0].tolist())
+                summary["first_difference"] = {
+                    "sample_index": sample_idx,
+                    "token_index": token_idx,
+                    "expert_index": expert_idx,
+                    "reference_logit": float(ref_logits[token_idx, expert_idx]),
+                    "ddp_logit": float(ddp_logits[token_idx, expert_idx]),
+                    "absolute_error": float(difference[token_idx, expert_idx]),
+                }
+
+    if summary["compared_logits"]:
+        summary["mean_absolute_error"] = (
+            total_absolute_error / summary["compared_logits"]
+        )
+    return summary
+
+
 def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
     layers = {}
+    first_divergence = None
     all_comparable = all_match = True
     reference_tokens = {
         sample["sample_index"]: sample["input_ids"]
         for sample in reference["calibration_samples"]
     }
+    reference_samples = {
+        sample["sample_index"]: sample for sample in reference["calibration_samples"]
+    }
+    ddp_samples = {
+        sample["sample_index"]: sample
+        for rank in ddp_ranks
+        for sample in rank["calibration_samples"]
+    }
+    for sample_idx in sorted(set(reference_samples) & set(ddp_samples)):
+        ref_hash = reference_samples[sample_idx]["token_ids_sha256"]
+        ddp_hash = ddp_samples[sample_idx]["token_ids_sha256"]
+        if ref_hash is not None and ddp_hash is not None and ref_hash != ddp_hash:
+            first_divergence = {
+                "layer": None,
+                "stage": "calibration_input_ids",
+                "details": {
+                    "sample_index": sample_idx,
+                    "reference_token_count": reference_samples[sample_idx][
+                        "token_count"
+                    ],
+                    "ddp_token_count": ddp_samples[sample_idx]["token_count"],
+                    "reference_token_ids_sha256": ref_hash,
+                    "ddp_token_ids_sha256": ddp_hash,
+                },
+            }
+            break
 
     for name in layer_names:
         ref_events = reference["routing"].get(name, [])
@@ -272,6 +490,32 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             ]
             if unique_indices
             else []
+        )
+        aligned_pairs = [
+            (idx, ref_event, ddp_event)
+            for idx, ref_event, ddp_event in pairs
+            if ref_event["token_ids_sha256"] is not None
+            and ref_event["token_ids_sha256"] == ddp_event["token_ids_sha256"]
+        ]
+        router_input_comparison = _fingerprint_comparison(aligned_pairs, "router_input")
+        decoder_output_comparison = _fingerprint_comparison(
+            aligned_pairs, "decoder_layer_output"
+        )
+        router_logit_comparison = _router_logit_difference(aligned_pairs, num_experts)
+        reference_weight = reference["router_weight_fingerprints"].get(name)
+        ddp_weight_comparisons = [
+            {
+                "rank": rank["rank"],
+                "status": _fingerprint_status(
+                    reference_weight,
+                    rank["router_weight_fingerprints"].get(name),
+                ),
+                "ddp": rank["router_weight_fingerprints"].get(name),
+            }
+            for rank in sorted(ddp_ranks, key=lambda item: item["rank"])
+        ]
+        router_weights_match = bool(reference_weight) and all(
+            item["status"] == "match" for item in ddp_weight_comparisons
         )
 
         slot_mismatches = expert_set_mismatches = 0
@@ -408,6 +652,52 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
         if routes_match is False:
             all_match = False
 
+        divergence_stages = (
+            (
+                "router_input",
+                router_input_comparison["value_mismatches"] > 0
+                or router_input_comparison["shape_or_dtype_mismatches"] > 0,
+                router_input_comparison,
+            ),
+            (
+                "router_weights",
+                any(
+                    item["status"] in ("value_mismatch", "shape_or_dtype_mismatch")
+                    for item in ddp_weight_comparisons
+                ),
+                {
+                    "reference": reference_weight,
+                    "ddp_by_rank": ddp_weight_comparisons,
+                },
+            ),
+            (
+                "router_logits",
+                router_logit_comparison["different_logits"] > 0
+                or bool(router_logit_comparison["shape_mismatches"]),
+                router_logit_comparison,
+            ),
+            (
+                "expert_selection",
+                expert_set_mismatches > 0,
+                {"different_expert_set_tokens": expert_set_mismatches},
+            ),
+            (
+                "decoder_layer_output",
+                decoder_output_comparison["value_mismatches"] > 0
+                or decoder_output_comparison["shape_or_dtype_mismatches"] > 0,
+                decoder_output_comparison,
+            ),
+        )
+        for stage, mismatch, details in divergence_stages:
+            if mismatch:
+                if first_divergence is None:
+                    first_divergence = {
+                        "layer": name,
+                        "stage": stage,
+                        "details": details,
+                    }
+                break
+
         ref_counts = _route_counts(ref_events, num_experts)
         ddp_counts_by_rank = {
             rank: _route_counts(events, num_experts)
@@ -440,11 +730,20 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             "ddp_route_counts_total_by_expert": ddp_counts,
             "route_counts_match": ref_counts == ddp_counts,
             "max_gate_weight_absolute_error": max_gate_weight_error,
+            "router_input_comparison": router_input_comparison,
+            "router_weight_comparison": {
+                "matches_reference_on_all_ranks": router_weights_match,
+                "reference": reference_weight,
+                "ddp_by_rank": ddp_weight_comparisons,
+            },
+            "router_logit_difference": router_logit_comparison,
+            "decoder_layer_output_comparison": decoder_output_comparison,
         }
 
     return {
         "all_layers_comparable": all_comparable,
         "all_layers_match": all_match if all_comparable else None,
+        "first_divergence": first_divergence,
         "layers": layers,
     }
 
