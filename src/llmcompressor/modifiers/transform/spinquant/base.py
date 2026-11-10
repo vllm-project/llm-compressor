@@ -7,11 +7,12 @@ from compressed_tensors import match_modules_set, match_named_modules
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
+    TransformFactory,
     TransformScheme,
     apply_transform_config,
 )
 from compressed_tensors.utils import TorchDtype, get_head_dim
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
 from torch.utils._pytree import tree_leaves
 from transformers import PreTrainedModel
 
@@ -19,7 +20,11 @@ from llmcompressor.core import Event, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import get_high_precision, untie_word_embeddings
+from llmcompressor.utils import (
+    get_high_precision,
+    targets_embeddings,
+    untie_word_embeddings,
+)
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
 from .norm_mappings import NormMapping, infer_norm_mapping_from_model
@@ -52,7 +57,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     - on_initialize
         - infer SpinQuantMappings & NormMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
-    - on_calibration_start
+    - _prepare_sequential_subgraph
         - normalize embeddings
         - fuse norm layers into subsequent Linear layers
         - apply TransformConfig
@@ -109,6 +114,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
+    _transform_factories: dict[str, TransformFactory] = PrivateAttr(
+        default_factory=dict
+    )
 
     @field_validator("randomize", "learnable", mode="before")
     def validate_not_implemented(cls, value, info: ValidationInfo):
@@ -129,7 +137,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             self.mappings = infer_mapping_from_model(state.model)
         if self.norm_mappings is None:
             self.norm_mappings = infer_norm_mapping_from_model(state.model)
-
         if self.transform_config is not None:
             return True
 
@@ -150,43 +157,104 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
         self.transform_config = TransformConfig(config_groups=config_groups)
 
+        self._transform_factories = {
+            name: TransformFactory.from_scheme(scheme, name=name)
+            for name, scheme in self.transform_config.config_groups.items()
+        }
+
         return True
 
     @torch.no_grad()
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
+    def _prepare_sequential_subgraph(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
         model = state.model
+        targets = self._get_targets(model, modules)
 
-        # untie embeddings to avoid unintended effects of `_center_embeddings`
-        untie_word_embeddings(model)
+        input_embed = model.get_input_embeddings()
+        output_embed = model.get_output_embeddings()
+        embeddings_are_tied = (
+            input_embed is not None
+            and output_embed is not None
+            and input_embed.weight is output_embed.weight
+        )
+        input_embedding_in_scope = modules is None or input_embed in modules
+        if embeddings_are_tied and (
+            input_embedding_in_scope or targets_embeddings(model, targets)
+        ):
+            # Untying may update a tied output head outside this scope, so do it before
+            # centering embeddings or applying scoped transforms.
+            untie_word_embeddings(model)
 
-        # needs to happen after the model has been hooked to execute on the GPU
-        # otherwise we're applying weight transforms on CPU
-        self._center_embeddings(model)
-        self._fuse_norms(model)
-        apply_transform_config(model, self.transform_config)
+        self._center_embeddings(model, modules)
+        self._fuse_norms(model, modules)
+        apply_transform_config(
+            model,
+            self.transform_config,
+            modules=modules,
+            factories=self._transform_factories,
+        )
 
-    def _get_targets(self, model: torch.nn.Module) -> NamedModules:
+    def on_finalize(self, state: State, **kwargs) -> bool:
+        self._transform_factories.clear()
+        return True
+
+    def _get_targets(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ) -> NamedModules:
+        module_scope = None if modules is None else set(modules)
         return [
-            (name, module)
+            target
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
-            for name, module in match_named_modules(model, arg.targets, arg.ignore)
+            for target in match_named_modules(model, arg.targets, arg.ignore)
+            if module_scope is None or target[1] in module_scope
         ]
 
-    def _center_embeddings(self, model: PreTrainedModel):
+    def _center_embeddings(
+        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
+    ):
+        module_scope = None if modules is None else set(modules)
         for _, embedding in match_named_modules(
-            model, [self.mappings.embedding], warn_on_fail=True
+            model,
+            [self.mappings.embedding],
+            warn_on_fail=modules is None,
         ):
+            if module_scope is not None and embedding not in module_scope:
+                continue
             center_embeddings(embedding)
 
-    def _fuse_norms(self, model: PreTrainedModel):
+    def _fuse_norms(
+        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
+    ):
+        module_scope = None if modules is None else set(modules)
         for mapping in self.norm_mappings:
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
             ):
                 # match_modules_set returns a list of lists
                 assert len(norm) == 1
-                fuse_norm_linears(norm[0], tree_leaves(linears))
+                norm_layer = norm[0]
+                linear_layers = tree_leaves(linears)
+                if module_scope is not None:
+                    mapping_modules = [norm_layer, *linear_layers]
+                    in_scope = [module in module_scope for module in mapping_modules]
+                    if any(in_scope) and not all(in_scope):
+                        raise ValueError(
+                            "SpinQuant norm mapping spans sequential subgraphs. "
+                            "Choose sequential targets that keep each norm and its "
+                            "linears in the same subgraph."
+                        )
+                    if not all(in_scope):
+                        continue
+
+                fuse_norm_linears(norm_layer, linear_layers)
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(

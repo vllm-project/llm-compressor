@@ -69,14 +69,15 @@ def test_gptq_distributed_global_scale_writeback():
 
     state = State(model=model)
     modifier.on_initialize(state)
-    modifier.on_calibration_start(state, None)
+    modifier._prepare_sequential_subgraph(state, None)
+    modifier.on_sequential_subgraph_start(state, None)
 
     torch.manual_seed(100 + dist.get_rank())  # different calibration data per rank
     modules = [m for m in model.modules() if isinstance(m, nn.Linear)]
     for _ in range(4):
         model(torch.randn(2, 8, HIDDEN, device=device))
 
-    modifier.on_sequential_epoch_end(state, None, modules)
+    modifier.on_sequential_subgraph_end(state, None, modules)
 
     # weight_global_scale must be consistently shaped across ranks, asserted
     # before any collective so a regression fails fast rather than deadlocking

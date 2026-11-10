@@ -22,6 +22,7 @@ from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.transform.awq.base import (
     get_lowest_common_ancestor_with_avoid,
 )
+from llmcompressor.modifiers.transform.awq.mappings import ResolvedMapping
 from llmcompressor.utils import get_high_precision
 from tests.testing_utils import requires_compute_capability, requires_gpu
 
@@ -160,6 +161,109 @@ def test_set_resolved_mappings():
             "z is compatible"
         )
     assert len(awq._resolved_mappings) == 0
+
+
+@pytest.mark.unit
+def test_set_resolved_mappings_is_scoped_to_onloaded_subgraph():
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(4, 4),
+                            "o_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    apply_quantization_config(
+        model,
+        config=QuantizationModifier(scheme="W4A16_ASYM").resolve_quantization_config(),
+    )
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+
+    resolved = awq._set_resolved_mappings(
+        model, modules=list(model.layers[0].modules())
+    )
+
+    assert len(resolved) == 1
+    assert resolved[0].smooth_name == "layers.0.v_proj"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("quantized", [False, True])
+@pytest.mark.parametrize("compatible", [False, True])
+def test_split_mapping_is_rejected_only_when_eligible(quantized, compatible):
+    model = torch.nn.ModuleDict(
+        {
+            "attn": torch.nn.ModuleDict(
+                {
+                    "v_proj": Linear(4, 4 if compatible else 2),
+                    "o_proj": Linear(4, 4),
+                }
+            )
+        }
+    )
+    if quantized:
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM"
+            ).resolve_quantization_config(),
+        )
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+
+    if quantized and compatible:
+        with pytest.raises(ValueError, match="AWQ mapping spans sequential subgraphs"):
+            awq._set_resolved_mappings(model, modules=[model.attn.v_proj])
+    else:
+        assert awq._set_resolved_mappings(model, modules=[model.attn.v_proj]) == []
+
+
+@pytest.mark.unit
+def test_awq_sees_quant_config_from_later_modifier_before_calibration():
+    model = torch.nn.ModuleDict(
+        {
+            "layers": torch.nn.ModuleList(
+                [
+                    torch.nn.ModuleDict(
+                        {
+                            "v_proj": Linear(4, 4),
+                            "o_proj": Linear(4, 4),
+                        }
+                    )
+                    for _ in range(2)
+                ]
+            )
+        }
+    )
+    from llmcompressor.core import CompressionSession, EventType
+
+    awq = AWQModifier(mappings=[AWQMapping("re:.*v_proj", ["re:.*o_proj"])])
+    quant = QuantizationModifier(scheme="W8A8")
+    session = CompressionSession()
+    session.initialize(model=model, recipe=[awq, quant])
+
+    modules = list(model.layers[0].modules())
+    assert not awq._hooks
+    session.lifecycle.event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=modules)
+
+    assert hasattr(model.layers[0].o_proj, "quantization_scheme")
+    assert awq._hooks
+    assert not hasattr(model.layers[1].o_proj, "quantization_scheme")
+    assert (
+        model.layers[0].o_proj.quantization_scheme.weights.strategy
+        == QuantizationStrategy.CHANNEL
+    )
+
+    assert [mapping.smooth_name for mapping in awq._resolved_mappings] == [
+        "layers.0.v_proj"
+    ]
+    assert model.layers[1].v_proj._forward_hooks == {}
 
 
 @pytest.mark.unit
@@ -689,57 +793,48 @@ def test_awq_with_kv_cache_quantization():
     assert hasattr(model.model.layers[0].self_attn, "kv_cache")
 
 
-@requires_gpu(1)
-@pytest.mark.smoke
-def test_awq_raises_on_non_finite_identity_grid_loss():
+@pytest.mark.unit
+def test_awq_raises_on_non_finite_identity_grid_loss(monkeypatch):
     """Test AWQModifier raises when the identity grid loss is non-finite"""
-    model_id = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
-    dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
-
-    self_attn = model.model.layers[0].self_attn
-    forward_count = 0
-
-    # hook will set weights to NaN after first forward pass,
-    # so fp16 baseline has reasonable output but first scales
-    # search does not, to test this specific edge case
-    def corrupt_weights_after_baseline(module, _inputs, _output):
-        nonlocal forward_count
-        forward_count += 1
-        if forward_count == 2:
-            module.q_proj.weight.data.fill_(float("nan"))
-
-    handle = self_attn.register_forward_hook(corrupt_weights_after_baseline)
-    recipe = [
-        AWQModifier(n_grid=3),
-        QuantizationModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=8,
-                        type=QuantizationType.INT,
-                        strategy=QuantizationStrategy.GROUP,
-                        group_size=32,
-                        symmetric=True,
-                        dynamic=False,
-                    ),
-                )
-            },
-        ),
+    awq = AWQModifier(duo_scaling=False, n_grid=3)
+    parent = torch.nn.Module()
+    balance_layer = Linear(4, 4)
+    mapping = ResolvedMapping(
+        smooth_name="smooth",
+        smooth_layer=torch.nn.LayerNorm(4),
+        balance_layers=[balance_layer],
+        balance_names=["balance"],
+        parent=parent,
+        parent_name="parent",
+    )
+    awq._smooth_activation_stats["smooth"] = [
+        torch.ones(4),
+        torch.tensor(1),
     ]
 
-    try:
-        with pytest.raises(Exception, match="No finite loss"):
-            oneshot(
-                model=model,
-                dataset=dataset,
-                recipe=recipe,
-                max_seq_length=16,
-                num_calibration_samples=1,
-            )
-    finally:
-        handle.remove()
+    loss_calls = []
+
+    def non_finite_identity_loss(_self, _fp16_outputs, _int_w_outputs):
+        loss_calls.append(None)
+        # The identity candidate is first. A later finite loss ensures this test
+        # checks the identity-specific failure instead of the all-candidates failure.
+        return float("nan") if len(loss_calls) == 1 else 1.0
+
+    monkeypatch.setattr(AWQModifier, "_compute_loss", non_finite_identity_loss)
+    monkeypatch.setattr(
+        AWQModifier,
+        "_run_samples",
+        lambda _self, _module: [torch.zeros(1, 4)],
+    )
+
+    with pytest.raises(Exception, match="No finite loss"):
+        awq._compute_best_scale(
+            mapping,
+            fp16_outputs=[torch.zeros(1, 4)],
+            orig_layer_weights={balance_layer: balance_layer.weight.clone()},
+        )
+
+    assert len(loss_calls) == 1
 
 
 @pytest.mark.unit

@@ -85,14 +85,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     Lifecycle:
 
-    - on_initialize
-        - apply config to model
-    - on_calibration_start
+    - _prepare_sequential_subgraph
+        - apply config to the current scope
+        - resolve module names
+    - on_sequential_subgraph_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
-    - on_sequential_epoch_end
+    - on_sequential_subgraph_end
         - quantize_weight
-    - on_calibration_end
+    - _cleanup_sequential_subgraph
         - remove_hooks()
         - model.apply(freeze_module_quantization)
 
@@ -141,12 +142,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
+    _model_module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
     )
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
+    _has_gptq_modules: bool = PrivateAttr(default=False)
+    _configured_weight_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("batched_quantization")
     @classmethod
@@ -158,16 +162,15 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
 
-        def resolve_actorder(weights):
-            existing = weights.actorder
-            is_set = "actorder" in weights.model_fields_set
-
-            # sentinel default only overrides if actorder is not set
+        def resolve_actorder(existing, existing_is_set: bool):
+            # The sentinel default supplies static ordering only when the config
+            # leaves actorder unset. An explicit null in the config disables it.
             if self.actorder == Sentinel("static"):
-                return existing if is_set else ActivationOrdering.STATIC
+                return existing if existing_is_set else ActivationOrdering.STATIC
 
-            # user-provided value always attempts to override
-            if not is_set or self.actorder == existing:
+            # An explicitly provided modifier value may fill an unset config field,
+            # but conflicts with any explicitly provided config value, including None.
+            if not existing_is_set or self.actorder == existing:
                 return self.actorder
 
             # if existing provided and conflicts
@@ -190,65 +193,98 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 QuantizationStrategy.BLOCK,
             ):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
-                scheme.weights.actorder = resolve_actorder(scheme.weights)
+                scheme.weights.actorder = resolve_actorder(
+                    scheme.weights.actorder,
+                    "actorder" in scheme.weights.model_fields_set,
+                )
 
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        Initialize and run the GPTQ algorithm on the current state
-
-        :param state: session state storing input model and calibration data
-        """
-        # apply config to model and prepare calibration hooks
-        if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
-
-        # prepare module names
-        self._module_names = {
-            m: name
-            for name, m in match_named_modules(
+        """Resolve GPTQ targets for both memory estimates and scoped setup."""
+        self._model_module_names = dict(
+            (module, name)
+            for name, module in match_named_modules(
                 state.model, self.resolved_targets, self.ignore
             )
+        )
+        self._module_names = self._model_module_names.copy()
+        self._configured_weight_modules = {
+            module
+            for scheme in self.resolved_config.config_groups.values()
+            if scheme.weights is not None
+            for _, module in match_named_modules(
+                state.model, scheme.targets, self.ignore
+            )
         }
-
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        # register quantization calibration hooks
-        # assume quantization has been initialized by this modifier or one before it
-        QuantizationMixin.start_calibration(self, state.model)
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
+        modules = kwargs.get("modules")
+        QuantizationMixin.start_calibration(
+            self,
+            state.model,
+            modules=modules,
+            warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
+        )
 
         # register gptq hooks
-        added_hook = False
-        for _, module in match_named_modules(
+        module_scope = None if modules is None else set(modules)
+        for name, module in match_named_modules(
             state.model, self.resolved_targets, self.ignore
         ):
+            if module_scope is not None and module not in module_scope:
+                continue
             if self._is_calibrated(module):
                 self.register_hook(module, self.calibrate_module, "forward")
-                added_hook = True
+                self._has_gptq_modules = True
 
-        if not added_hook:
-            raise ValueError(
-                "GPTQModifier was unable to find any modules to quantize. Please "
-                "check quantization `config_groups` and `targets` in recipe"
+    def _prepare_sequential_subgraph(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
+        if QuantizationMixin.has_config(self):
+            QuantizationMixin.initialize_quantization(
+                self, state.model, modules=modules
             )
+        module_scope = None if modules is None else set(modules)
+        self._model_module_names = dict(
+            (module, name)
+            for name, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
+        )
+        self._module_names = {
+            module: name
+            for module, name in self._model_module_names.items()
+            if module_scope is None or module in module_scope
+        }
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
+        module_scope = set(modules)
+        self._module_names = {
+            module: name
+            for module, name in self._model_module_names.items()
+            if module in module_scope
+        }
         modules = [module for module in modules if is_module_quantized(module)]
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
-        self.compress_modules()
+        self.compress_modules(modules)
 
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         """
         Finish calibrating by removing observers and calibration hooks
         """
-        QuantizationMixin.end_calibration(self, state.model)
-        self.remove_hooks()  # remove gptq hooks
+        modules = kwargs.get("modules")
+        QuantizationMixin.end_calibration(self, state.model, modules=modules)
+        self.remove_hooks(modules=modules)
 
     def estimate_sequential_memory(
         self, module: torch.nn.Module, num_tokens: int
@@ -287,7 +323,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # but in the FUTURE this should be ignored by the user
         return (
             module in self._module_names
-            and getattr_chain(module, "quantization_scheme.weights", None) is not None
+            and (
+                getattr_chain(module, "quantization_scheme.weights", None) is not None
+                or module in self._configured_weight_modules
+            )
             and not isinstance(module, torch.nn.Embedding)
         )
 
@@ -324,13 +363,18 @@ class GPTQModifier(Modifier, QuantizationMixin):
             self._num_samples[module],
         )
 
-    def compress_modules(self):
+    def compress_modules(self, modules: list[torch.nn.Module] | None = None):
         """
         Quantize modules which have been calibrated
         """
+        calibrated = [
+            module
+            for module in (self._num_samples if modules is None else modules)
+            if module in self._num_samples
+        ]
         ### Not Distributed
         if not is_distributed():
-            self.compress_module_list(list(self._num_samples.keys()))
+            self.compress_module_list(calibrated)
             return
 
         ### Distributed
@@ -339,7 +383,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         # Assign modules to ranks
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
-            list(self._hessians.keys()),
+            calibrated,
             world_size,
             item_weight_fn=lambda mod: self._hessians[mod].shape[0],
         )
@@ -464,6 +508,14 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param state: session state storing input model and calibration data
         """
+        if self.started_ and not self._has_gptq_modules:
+            raise ValueError(
+                "GPTQModifier was unable to find any modules to quantize. Please "
+                "check quantization `config_groups` and `targets` in recipe"
+            )
+        self._module_names.clear()
+        self._model_module_names.clear()
+        self._initialized_modules.clear()
         if not self.ended_:
             self.on_end(state, None)
 

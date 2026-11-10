@@ -20,7 +20,6 @@ import torch.nn as nn
 from safetensors import safe_open
 from torch import distributed as dist
 
-from llmcompressor.core import Event, EventType
 from llmcompressor.modeling.moe import context as moe_context
 from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
@@ -31,8 +30,10 @@ from tests.llmcompressor.modifiers.pruning.fake_moe import (
     FakeLinearExperts2D,
     FakeMoEConfig,
     FakeMoEModel,
+    end_subgraph,
     find_moe_blocks,
     make_state,
+    start_subgraph,
 )
 from tests.testing_utils import requires_gpu, torchrun
 
@@ -270,7 +271,7 @@ def test_collapse_forward_preserves_retained_experts():
 @pytest.mark.unit
 def test_mone_full_lifecycle():
     """Calibration accumulates routing and output statistics, and
-    ``SEQUENTIAL_EPOCH_END`` collapses every layer's lowest-saliency experts
+    ``SEQUENTIAL_SUBGRAPH_END`` collapses every layer's lowest-saliency experts
     into novices: retained experts are left-shifted, the router keeps its
     full width, and the collapse is recorded in the expert-sparsity
     config."""
@@ -287,17 +288,15 @@ def test_mone_full_lifecycle():
     modifier.initialize(state)
     assert modifier._n_experts_to_drop == 4
 
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
     assert len(modifier._moe_stats) == 2
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    end_subgraph(modifier, state)
     assert len(modifier._moe_stats) == 0
-
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 
     assert model.config.num_experts == 8
@@ -497,7 +496,7 @@ def test_mone_distributed_uneven_data():
             state = make_state(model)
 
             modifier.initialize(state)
-            modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+            start_subgraph(modifier, state)
 
             # only data_rank processes calibration data
             if rank == data_rank:
@@ -505,8 +504,7 @@ def test_mone_distributed_uneven_data():
                     for _ in range(5):
                         model(torch.randn(2, 8, config.hidden_size))
 
-            modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-            modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+            end_subgraph(modifier, state)
             modifier.finalize(state)
 
             # every layer was collapsed from the globally summed statistics
@@ -556,14 +554,13 @@ def test_mone_distributed_nccl_collapses_on_gpu():
     state = make_state(model)
 
     modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    start_subgraph(modifier, state)
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size, device=device))
 
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    end_subgraph(modifier, state)
     modifier.finalize(state)
 
     # every layer collapsed, with novices installed on the gpu

@@ -49,7 +49,7 @@ def test_charles_reobservation_schedule_and_next_epoch_scales(kind):
 
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-        quant.on_sequential_epoch_end(state, None, modules)
+        quant.on_sequential_subgraph_end(state, None, modules)
         with (
             patch.object(qad, "_train_epoch", side_effect=train_epoch),
             patch.object(
@@ -58,7 +58,7 @@ def test_charles_reobservation_schedule_and_next_epoch_scales(kind):
                 side_effect=observe,
             ),
         ):
-            qad.on_sequential_epoch_end(state, None, modules)
+            qad.on_sequential_subgraph_end(state, None, modules)
     assert stages == ["before_training", "epoch_1", "epoch_2", "before_materialization"]
     for before, after in zip(epoch_inputs[1], epoch_outputs[0]):
         for key in before:

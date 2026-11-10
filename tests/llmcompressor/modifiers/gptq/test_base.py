@@ -3,8 +3,9 @@ from contextlib import nullcontext
 import pytest
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
+from torch import nn
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
@@ -68,6 +69,79 @@ def test_block_strategy_parsing(block_q_config_kwargs):
     w_scheme = resolved.config_groups["group_block"].weights
     assert w_scheme.strategy == "block"
     assert w_scheme.block_structure == [128, 128]
+
+
+def test_calibration_hooks_follow_scope_initialization():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(num_bits=8, symmetric=True, strategy="tensor"),
+    )
+    modifier = GPTQModifier(config_groups={"group_0": scheme})
+    state = State(model=model)
+    modifier.on_initialize(state)
+
+    assert getattr(model[0], "quantization_scheme", None) is None
+    assert getattr(model[1], "quantization_scheme", None) is None
+
+    # Sequential calibration starts with only persistent modules onloaded.
+    modifier._prepare_sequential_subgraph(
+        state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START), modules=[]
+    )
+    modifier.on_sequential_subgraph_start(
+        state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START), modules=[]
+    )
+    event = Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START)
+    modifier._prepare_sequential_subgraph(state, event, modules=[model[0]])
+
+    assert model[0].quantization_scheme is not None
+    assert getattr(model[1], "quantization_scheme", None) is None
+    assert not model[0]._forward_hooks
+    modifier.on_sequential_subgraph_start(state, None, modules=[model[0]])
+    assert len(model[0]._forward_hooks) == 1
+    assert len(model[1]._forward_hooks) == 0
+
+    # A shared module appearing in more than one traced scope must not accumulate
+    # duplicate Hessian hooks.
+    modifier._prepare_sequential_subgraph(state, event, modules=[model[0]])
+    assert len(model[0]._forward_hooks) == 1
+    modifier.remove_hooks()
+
+
+def test_gptq_resolves_replaced_modules_as_subgraphs_load():
+    model = nn.Sequential(nn.Linear(8, 8), nn.Linear(8, 8))
+    scheme = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(num_bits=8, symmetric=True, strategy="tensor"),
+    )
+    modifier = GPTQModifier(config_groups={"group_0": scheme})
+    state = State(model=model)
+    modifier.on_initialize(state)
+    old_module = model[0]
+    model[0] = nn.Linear(8, 8)
+
+    modifier._prepare_sequential_subgraph(
+        state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START), modules=[]
+    )
+    modifier.on_sequential_subgraph_start(
+        state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START), modules=[]
+    )
+    assert not hasattr(model[0], "quantization_scheme")
+    assert not hasattr(model[1], "quantization_scheme")
+    assert len(model[0]._forward_hooks) == 0
+    assert len(model[1]._forward_hooks) == 0
+
+    modifier._prepare_sequential_subgraph(
+        state, Event(type_=EventType.SEQUENTIAL_SUBGRAPH_START), modules=[model[0]]
+    )
+    assert not model[0]._forward_hooks
+    modifier.on_sequential_subgraph_start(state, None, modules=[model[0]])
+
+    assert len(model[0]._forward_hooks) == 1
+    assert len(model[1]._forward_hooks) == 0
+    assert modifier._module_names == {model[0]: "0"}
+    assert not old_module._forward_hooks
+    modifier.remove_hooks()
 
 
 @pytest.mark.parametrize(

@@ -90,6 +90,7 @@ class ExpertPruningModifierBase(Modifier):
 
     # per-layer stats used to inform pruning decisions
     _moe_stats: dict[str, dict[str, torch.Tensor]] = PrivateAttr(default_factory=dict)
+    _hooked_moe_names: set[str] = PrivateAttr(default_factory=set)
 
     # pruning outputs
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
@@ -216,22 +217,36 @@ class ExpertPruningModifierBase(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
+        self._register_moe_hooks(state.model, kwargs.get("modules"))
+
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
+        self._register_moe_hooks(state.model, kwargs.get("modules"))
+
+    def _register_moe_hooks(
+        self,
+        model: torch.nn.Module,
+        modules: list[torch.nn.Module] | None = None,
+    ):
         """
         Detect the model's MoE layers and prepare them for calibration.
 
         Initializes each layer's statistics on its execution device (keeping
-        calibration offload-safe) and registers the calibration hooks on each
-        MoE layer.
+        calibration offload-safe) and registers hooks only for layers in the active
+        sequential scope.
 
-        :param state: The current session state
-        :param event: The event that triggered this callback
+        :param model: Model being calibrated
+        :param modules: Modules in the active scope, or ``None`` for the whole model
         """
-        model: torch.nn.Module = state.model
+        module_scope = None if modules is None else set(modules)
         num_experts = self._moe_config.num_experts
         hidden_dim = self._moe_config.hidden_dim
 
-        # TODO: move to `on_sequential_epoch_start`
         for moe_name, moe in model.named_modules():
+            if module_scope is not None and moe not in module_scope:
+                continue
+            if moe_name in self._hooked_moe_names or moe_name in self._report:
+                continue
+
             experts, router = get_experts_router(moe_name, moe)
             if experts is None or router is None:
                 continue
@@ -254,8 +269,12 @@ class ExpertPruningModifierBase(Modifier):
             # add hook to experts
             _experts_block_hook = partial(self.experts_block_hook, moe_name)
             self.register_hook(experts, _experts_block_hook, "forward")
+            self._hooked_moe_names.add(moe_name)
 
-    def on_sequential_epoch_end(
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
+        self.remove_hooks(modules=kwargs.get("modules"))
+
+    def on_sequential_subgraph_end(
         self,
         state: State,
         event: Event,
@@ -324,6 +343,7 @@ class ExpertPruningModifierBase(Modifier):
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks()
+        self._hooked_moe_names.clear()
 
     def on_finalize(self, state: State, **kwargs) -> bool:
         """
@@ -392,6 +412,7 @@ class ExpertPruningModifierBase(Modifier):
 
         # cleanup
         self._moe_stats.clear()
+        self._hooked_moe_names.clear()
         self._retained_experts.clear()
         self._report.clear()
 

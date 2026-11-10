@@ -4,13 +4,13 @@ from compressed_tensors.distributed import (
     greedy_bin_packing,
     is_distributed,
 )
-from compressed_tensors.quantization import enable_quantization
 from compressed_tensors.quantization.utils import is_module_quantized
+from compressed_tensors.utils import match_named_modules
+from pydantic import PrivateAttr
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import (
-    freeze_module_quantization,
     observe,
     update_qparams,
 )
@@ -57,40 +57,40 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
+    _estimate_quantized_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
+
     def on_initialize(self, state: State, **kwargs) -> bool:
-        """
-        Prepare to calibrate activations and weights
-
-        According to the quantization config, a quantization scheme is attached to each
-        targeted module. The module's forward call is also overwritten to perform
-        quantization to inputs, weights, and outputs.
-
-        Then, according to the module's quantization scheme, observers and calibration
-        hooks are added. These hooks are disabled until the modifier starts.
-
-        Skipped when layerwise_decompression is enabled because modules are still
-        compressed; per-layer setup happens in start_layerwise_calibration instead.
-        """
+        """Validate configuration; the pipeline initializes each calibration scope."""
         if not QuantizationMixin.has_config(self):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        if not getattr(state, "layerwise_decompression", False):
-            QuantizationMixin.initialize_quantization(self, state.model)
-
+        self._estimate_quantized_modules = {
+            module
+            for _, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
+        }
         return True
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        """
-        Begin calibrating activations.
+    def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
+        QuantizationMixin.start_calibration(
+            self,
+            state.model,
+            modules=kwargs.get("modules"),
+            warn_on_inference_mode=kwargs.get("warn_on_inference_mode", True),
+        )
 
-        Skipped when layerwise_decompression is enabled; per-layer calibration
-        setup is handled by start_layerwise_calibration in the pipeline.
-        """
-        if not getattr(state, "layerwise_decompression", False):
-            QuantizationMixin.start_calibration(self, state.model)
+    def _prepare_sequential_subgraph(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
+        self.initialize_quantization(state.model, modules=modules)
 
-    def on_sequential_epoch_end(
+    def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
@@ -123,21 +123,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             update_qparams(rank_to_modules[rank], "weight")
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
-        if getattr(state, "layerwise_decompression", False):
-            self.remove_hooks(self._calibration_hooks)
-            for module in modules:
-                freeze_module_quantization(module)
-                enable_quantization(module)
-
-    def on_calibration_end(self, state: State, event: Event, **kwargs):
-        """
-        Finish calibrating by removing observers and calibration hooks.
-
-        Skipped when layerwise_decompression is enabled; per-layer cleanup
-        is handled in on_sequential_epoch_end.
-        """
-        if not getattr(state, "layerwise_decompression", False):
-            QuantizationMixin.end_calibration(self, state.model)
+    def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
+        QuantizationMixin.end_calibration(
+            self, state.model, modules=kwargs.get("modules")
+        )
 
     def estimate_sequential_memory(
         self, module: torch.nn.Module, num_tokens: int
@@ -151,7 +140,10 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         :return: tuple of (held, scratch) bytes
         """
         weight = getattr(module, "weight", None)
-        if weight is None or not is_module_quantized(module):
+        if weight is None or (
+            module not in self._estimate_quantized_modules
+            and not is_module_quantized(module)
+        ):
             return 0, 0
 
         return 0, weight.numel() * torch.float32.itemsize

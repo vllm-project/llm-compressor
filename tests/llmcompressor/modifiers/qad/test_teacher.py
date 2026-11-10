@@ -105,7 +105,9 @@ def test_teacher_capture_does_not_run_extra_forwards():
             _calibrate(model, batches, state)
         assert forward.call_count == len(batches)
         assert len(qad._input_caches[model.seq_target]) == len(batches)
-    qad.on_finalize(state)
+    # This test exercises capture only; finalization correctly rejects a target
+    # that was captured but never distilled.
+    qad._clear_cache()
 
 
 def test_teacher_capture_requires_sequential_batch_context():
@@ -122,4 +124,6 @@ def test_missing_weight_qparams_rejected_before_optimization():
         # Simulate a preceding method that has not prepared its qparams.
         model.seq_target.left.weight_scale = None
         with pytest.raises(ValueError, match="initialized weight_scale"):
-            qad.on_sequential_epoch_end(state, None, list(model.seq_target.modules()))
+            qad.on_sequential_subgraph_end(
+                state, None, list(model.seq_target.modules())
+            )

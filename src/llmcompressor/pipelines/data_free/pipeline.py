@@ -34,6 +34,5 @@ class DataFreePipeline(CalibrationPipeline):
         onload_device = get_main_device()
         set_onload_device(model, onload_device)
 
-        LifecycleCallbacks.calibration_start()
-        LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
-        LifecycleCallbacks.calibration_end()
+        LifecycleCallbacks.sequential_subgraph_start()
+        LifecycleCallbacks.sequential_subgraph_end(list(model.modules()))

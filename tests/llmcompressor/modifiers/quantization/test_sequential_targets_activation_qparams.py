@@ -3,7 +3,7 @@ Test that quantization parameters (e.g. kv cache scales) are calibrated for modu
 which are not called by a sequential subgraph.
 
 Attention modules are sequential boundaries when they are not contained by a requested
-target. This lets their quantization parameters be updated at the sequential epoch
+target. This lets their quantization parameters be updated at the sequential subgraph
 boundary, including when `sequential_targets="Linear"`.
 """
 
@@ -67,21 +67,21 @@ def test_kv_cache_scales_with_linear_sequential_targets():
 def test_end_calibration_has_no_remaining_attention_modules(
     sequential_targets, monkeypatch
 ):
-    # record modules passed to `on_sequential_epoch_end` by `end_calibration`
+    # record modules passed to `on_sequential_subgraph_end` by `end_calibration`
     remaining = []
     end_calibration = QuantizationMixin.end_calibration
-    on_sequential_epoch_end = QuantizationModifier.on_sequential_epoch_end
+    on_sequential_subgraph_end = QuantizationModifier.on_sequential_subgraph_end
 
-    def spy_end_calibration(self, model):
+    def spy_end_calibration(self, model, modules=None):
         def spy_epoch_end(self, state, event, modules, **kwargs):
             remaining.extend(modules)
-            return on_sequential_epoch_end(self, state, event, modules, **kwargs)
+            return on_sequential_subgraph_end(self, state, event, modules, **kwargs)
 
         with monkeypatch.context() as patch:
             patch.setattr(
-                QuantizationModifier, "on_sequential_epoch_end", spy_epoch_end
+                QuantizationModifier, "on_sequential_subgraph_end", spy_epoch_end
             )
-            return end_calibration(self, model)
+            return end_calibration(self, model, modules=modules)
 
     monkeypatch.setattr(QuantizationMixin, "end_calibration", spy_end_calibration)
 

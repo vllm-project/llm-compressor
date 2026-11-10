@@ -12,13 +12,13 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 
-def test_fused_observers_with_linear_sequential_targets(tmp_path):
+def test_fused_observers_with_decoder_layer_sequential_targets(tmp_path):
     """
     Test that oneshot with sequential_targets properly handles fused observers.
 
     This test uses TENSOR_GROUP quantization (like NVFP4) which requires q/k/v
-    observers to be fused (share global_scale). With sequential_targets=["Linear"],
-    the sequential pipeline processes each Linear individually.
+    observers to be fused (share global_scale), so all fused projections must be in
+    one scope.
     """
     from transformers import AutoModelForCausalLM
 
@@ -31,11 +31,8 @@ def test_fused_observers_with_linear_sequential_targets(tmp_path):
         scheme="NVFP4",  # Uses TENSOR_GROUP strategy
     )
 
-    # Run oneshot with sequential_targets=["Linear"]
-    # This triggers sequential calibration at the Linear layer level
-    # On main, this would fail with:
-    # "All fused observers must be run before get_qparams"
-    # because when processing q_proj, k_proj and v_proj don't get observed
+    # The default no-split target keeps q/k/v and gate/up projections together in each
+    # decoder-layer calibration scope.
     oneshot(
         model=model_id,
         dataset="open_platypus",
@@ -43,7 +40,7 @@ def test_fused_observers_with_linear_sequential_targets(tmp_path):
         output_dir=output,
         num_calibration_samples=4,
         splits={"calibration": "train[:4]"},
-        sequential_targets=["Linear"],  # Sequential calibration at Linear level
+        sequential_targets=None,
     )
 
     # Load the quantized model to verify

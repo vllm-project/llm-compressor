@@ -142,9 +142,15 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            subgraph_onload_modules(persistent_modules)
+        persistent_offload_kwargs = (
+            subgraph_onload_modules(persistent_modules) if persistent_modules else {}
+        )
 
-        LifecycleCallbacks.calibration_start()
+        if dataset_args.layerwise_decompression:
+            decompress_subgraph_modules(list(persistent_modules.values()))
+        LifecycleCallbacks.sequential_subgraph_start(
+            list(persistent_modules.values()),
+        )
 
         # partitioned once modifiers have started, so that "auto" can estimate the
         # memory they need
@@ -169,7 +175,7 @@ class SequentialPipeline(CalibrationPipeline):
             activations = session.state.sequential_activations
             # When propagate_error=True or log_sequential_error=True, the
             # activations cache does NOT hold the current subgraph's outputs at
-            # sequential_epoch_end time (pass 1 defers or skips the update), so
+            # sequential_subgraph_end time (pass 1 defers or skips the update), so
             # AutoRound must fall back to collect_reference in both cases.
             session.state.sequential_propagate_error = (
                 dataset_args.propagate_error
@@ -267,14 +273,15 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                modules = subgraph.submodules(model)
 
-                # Decompress and initialize only this subgraph after onloading it.
+                # Decompress only this subgraph after onloading it. The sequential
+                # start event then prepares model state and calibration hooks.
                 if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
-                    for modifier in modifiers:
-                        if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(model, modules)
+                    decompress_subgraph_modules(list(subgraph_modules.values()))
+                LifecycleCallbacks.sequential_subgraph_start(
+                    list(subgraph_modules.values()),
+                    warn_on_inference_mode=False,
+                )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -303,7 +310,9 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(modules)
+                LifecycleCallbacks.sequential_subgraph_end(
+                    list(subgraph_modules.values()),
+                )
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
@@ -341,12 +350,18 @@ class SequentialPipeline(CalibrationPipeline):
                         )
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
-                    compress_subgraph_modules(modules)
+                    compress_subgraph_modules(list(subgraph_modules.values()))
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
-            # redundant, finish any remaining compression
-            LifecycleCallbacks.calibration_end()
+            # Persistent modules collect statistics throughout the subgraph loop.
+            LifecycleCallbacks.sequential_subgraph_end(
+                list(persistent_modules.values()),
+            )
+            if persistent_modules:
+                if dataset_args.layerwise_compression:
+                    compress_subgraph_modules(list(persistent_modules.values()))
+                subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
