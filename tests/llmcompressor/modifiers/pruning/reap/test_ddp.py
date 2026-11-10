@@ -51,6 +51,7 @@ def _tensor_fingerprint(tensor):
         "shape": list(tensor.shape),
         "dtype": str(tensor.dtype),
         "sha256": hashlib.sha256(raw_bytes).hexdigest(),
+        "sum": float(float_tensor.sum().item()),
         "mean": float(float_tensor.mean().item()),
         "mean_absolute": float(float_tensor.abs().mean().item()),
         "rms": float(float_tensor.square().mean().sqrt().item()),
@@ -82,9 +83,10 @@ def _fingerprint_status(reference, ddp):
 
 
 class _DiagnosticREAPPruningModifier(REAPPruningModifier):
-    """Capture router decisions and local accumulators for this comparison."""
+    """Capture routing, boundary fingerprints and local accumulators."""
 
     _routing_trace: dict = PrivateAttr(default_factory=dict)
+    _attention_trace: dict = PrivateAttr(default_factory=dict)
     _router_input_trace: dict = PrivateAttr(default_factory=dict)
     _router_logits_trace: dict = PrivateAttr(default_factory=dict)
     _router_weight_fingerprints: dict = PrivateAttr(default_factory=dict)
@@ -97,7 +99,11 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
         indices = args[1].detach().to(device="cpu").clone()
         weights = args[2].detach().to(device="cpu", dtype=torch.float32).clone()
         self._routing_trace.setdefault(layer_name, []).append(
-            {"indices": indices, "weights": weights}
+            {
+                "indices": indices,
+                "weights": weights,
+                "output": _tensor_fingerprint(_first_tensor(output)),
+            }
         )
         return super().experts_block_hook(layer_name, module, args, output)
 
@@ -136,6 +142,14 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
     def decoder_layer_forward_hook(self, layer_name, module, args, output):
         self._decoder_output_trace.setdefault(layer_name, []).append(
             _tensor_fingerprint(_first_tensor(output))
+        )
+
+    def attention_forward_hook(self, layer_name, module, args, output):
+        self._attention_trace.setdefault(layer_name, []).append(
+            {
+                "input": _tensor_fingerprint(_first_tensor(args)),
+                "output": _tensor_fingerprint(_first_tensor(output)),
+            }
         )
 
     def on_calibration_start(self, state, event, **kwargs):
@@ -179,6 +193,21 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
                 partial(self.decoder_layer_forward_hook, layer_name),
                 "forward",
             )
+            attention = next(
+                (
+                    child
+                    for child_name, child in decoder_layer.named_children()
+                    if child_name
+                    in {"self_attn", "self_attention", "attention", "attn"}
+                ),
+                None,
+            )
+            if attention is not None:
+                self.register_hook(
+                    attention,
+                    partial(self.attention_forward_hook, layer_name),
+                    "forward",
+                )
         return result
 
     def reduce_moe_stats(self, layer_name):
@@ -206,6 +235,7 @@ def _modifier_diagnostics(modifier, rank, sample_range):
     routing = {}
     for layer_name, events in modifier._routing_trace.items():
         routing[layer_name] = []
+        attention_events = modifier._attention_trace.get(layer_name, [])
         router_logits_events = modifier._router_logits_trace.get(layer_name, [])
         router_inputs = modifier._router_input_trace.get(layer_name, [])
         decoder_outputs = modifier._decoder_output_trace.get(layer_name, [])
@@ -228,6 +258,17 @@ def _modifier_diagnostics(modifier, rank, sample_range):
                     },
                     "indices": event["indices"].tolist(),
                     "weights": event["weights"].tolist(),
+                    "expert_block_output": event["output"],
+                    "attention_input": (
+                        attention_events[call_idx]["input"]
+                        if call_idx < len(attention_events)
+                        else None
+                    ),
+                    "attention_output": (
+                        attention_events[call_idx]["output"]
+                        if call_idx < len(attention_events)
+                        else None
+                    ),
                     "router_logits": router_logits,
                     "router_input": (
                         router_inputs[call_idx]
@@ -497,7 +538,16 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             if ref_event["token_ids_sha256"] is not None
             and ref_event["token_ids_sha256"] == ddp_event["token_ids_sha256"]
         ]
+        attention_input_comparison = _fingerprint_comparison(
+            aligned_pairs, "attention_input"
+        )
+        attention_output_comparison = _fingerprint_comparison(
+            aligned_pairs, "attention_output"
+        )
         router_input_comparison = _fingerprint_comparison(aligned_pairs, "router_input")
+        expert_output_comparison = _fingerprint_comparison(
+            aligned_pairs, "expert_block_output"
+        )
         decoder_output_comparison = _fingerprint_comparison(
             aligned_pairs, "decoder_layer_output"
         )
@@ -654,6 +704,18 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
 
         divergence_stages = (
             (
+                "attention_input",
+                attention_input_comparison["value_mismatches"] > 0
+                or attention_input_comparison["shape_or_dtype_mismatches"] > 0,
+                attention_input_comparison,
+            ),
+            (
+                "attention_output",
+                attention_output_comparison["value_mismatches"] > 0
+                or attention_output_comparison["shape_or_dtype_mismatches"] > 0,
+                attention_output_comparison,
+            ),
+            (
                 "router_input",
                 router_input_comparison["value_mismatches"] > 0
                 or router_input_comparison["shape_or_dtype_mismatches"] > 0,
@@ -678,8 +740,17 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             ),
             (
                 "expert_selection",
-                expert_set_mismatches > 0,
-                {"different_expert_set_tokens": expert_set_mismatches},
+                slot_mismatches > 0,
+                {
+                    "ordered_expert_slot_mismatches": slot_mismatches,
+                    "different_expert_set_tokens": expert_set_mismatches,
+                },
+            ),
+            (
+                "expert_block_output",
+                expert_output_comparison["value_mismatches"] > 0
+                or expert_output_comparison["shape_or_dtype_mismatches"] > 0,
+                expert_output_comparison,
             ),
             (
                 "decoder_layer_output",
@@ -730,6 +801,8 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
             "ddp_route_counts_total_by_expert": ddp_counts,
             "route_counts_match": ref_counts == ddp_counts,
             "max_gate_weight_absolute_error": max_gate_weight_error,
+            "attention_input_comparison": attention_input_comparison,
+            "attention_output_comparison": attention_output_comparison,
             "router_input_comparison": router_input_comparison,
             "router_weight_comparison": {
                 "matches_reference_on_all_ranks": router_weights_match,
@@ -737,6 +810,7 @@ def _route_diagnostics(reference, ddp_ranks, layer_names, num_experts):
                 "ddp_by_rank": ddp_weight_comparisons,
             },
             "router_logit_difference": router_logit_comparison,
+            "expert_block_output_comparison": expert_output_comparison,
             "decoder_layer_output_comparison": decoder_output_comparison,
         }
 
