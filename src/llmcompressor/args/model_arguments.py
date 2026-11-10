@@ -71,6 +71,16 @@ class ModelArguments:
         default=True,
         metadata={"help": "Whether to compress models during save"},
     )
+    streaming_save: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Write compressed sequential subgraphs directly to model checkpoint "
+                "shards during offload. Requires output_dir, the sequential pipeline, "
+                "layerwise_compression=True, and save_compressed=True."
+            )
+        },
+    )
     model_revision: str = field(
         default="main",
         metadata={
