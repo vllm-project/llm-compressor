@@ -22,6 +22,7 @@ from llmcompressor.modifiers.transform.awq import AWQMapping, AWQModifier
 from llmcompressor.modifiers.transform.awq.base import (
     get_lowest_common_ancestor_with_avoid,
 )
+from llmcompressor.modifiers.transform.awq.mappings import ResolvedMapping
 from llmcompressor.utils import get_high_precision
 from tests.testing_utils import requires_compute_capability, requires_gpu
 
@@ -792,57 +793,48 @@ def test_awq_with_kv_cache_quantization():
     assert hasattr(model.model.layers[0].self_attn, "kv_cache")
 
 
-@requires_gpu(1)
-@pytest.mark.smoke
-def test_awq_raises_on_non_finite_identity_grid_loss():
+@pytest.mark.unit
+def test_awq_raises_on_non_finite_identity_grid_loss(monkeypatch):
     """Test AWQModifier raises when the identity grid loss is non-finite"""
-    model_id = "nm-testing/tinysmokellama-3.2"
-    model = AutoModelForCausalLM.from_pretrained(model_id, device_map="cuda")
-    dataset = Dataset.from_dict({"text": ["Hello world " * 10]})
-
-    self_attn = model.model.layers[0].self_attn
-    forward_count = 0
-
-    # hook will set weights to NaN after first forward pass,
-    # so fp16 baseline has reasonable output but first scales
-    # search does not, to test this specific edge case
-    def corrupt_weights_after_baseline(module, _inputs, _output):
-        nonlocal forward_count
-        forward_count += 1
-        if forward_count == 2:
-            module.q_proj.weight.data.fill_(float("nan"))
-
-    handle = self_attn.register_forward_hook(corrupt_weights_after_baseline)
-    recipe = [
-        AWQModifier(n_grid=3),
-        QuantizationModifier(
-            config_groups={
-                "group_0": QuantizationScheme(
-                    targets=["Linear"],
-                    weights=QuantizationArgs(
-                        num_bits=8,
-                        type=QuantizationType.INT,
-                        strategy=QuantizationStrategy.GROUP,
-                        group_size=32,
-                        symmetric=True,
-                        dynamic=False,
-                    ),
-                )
-            },
-        ),
+    awq = AWQModifier(duo_scaling=False, n_grid=3)
+    parent = torch.nn.Module()
+    balance_layer = Linear(4, 4)
+    mapping = ResolvedMapping(
+        smooth_name="smooth",
+        smooth_layer=torch.nn.LayerNorm(4),
+        balance_layers=[balance_layer],
+        balance_names=["balance"],
+        parent=parent,
+        parent_name="parent",
+    )
+    awq._smooth_activation_stats["smooth"] = [
+        torch.ones(4),
+        torch.tensor(1),
     ]
 
-    try:
-        with pytest.raises(Exception, match="No finite loss"):
-            oneshot(
-                model=model,
-                dataset=dataset,
-                recipe=recipe,
-                max_seq_length=16,
-                num_calibration_samples=1,
-            )
-    finally:
-        handle.remove()
+    loss_calls = []
+
+    def non_finite_identity_loss(_self, _fp16_outputs, _int_w_outputs):
+        loss_calls.append(None)
+        # The identity candidate is first. A later finite loss ensures this test
+        # checks the identity-specific failure instead of the all-candidates failure.
+        return float("nan") if len(loss_calls) == 1 else 1.0
+
+    monkeypatch.setattr(AWQModifier, "_compute_loss", non_finite_identity_loss)
+    monkeypatch.setattr(
+        AWQModifier,
+        "_run_samples",
+        lambda _self, _module: [torch.zeros(1, 4)],
+    )
+
+    with pytest.raises(Exception, match="No finite loss"):
+        awq._compute_best_scale(
+            mapping,
+            fp16_outputs=[torch.zeros(1, 4)],
+            orig_layer_weights={balance_layer: balance_layer.weight.clone()},
+        )
+
+    assert len(loss_calls) == 1
 
 
 @pytest.mark.unit
