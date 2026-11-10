@@ -174,9 +174,20 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     ):
         model = state.model
         targets = self._get_targets(model, modules)
-        if targets_embeddings(model, targets):
+
+        input_embed = model.get_input_embeddings()
+        output_embed = model.get_output_embeddings()
+        embeddings_are_tied = (
+            input_embed is not None
+            and output_embed is not None
+            and input_embed.weight is output_embed.weight
+        )
+        input_embedding_in_scope = modules is None or input_embed in modules
+        if embeddings_are_tied and (
+            input_embedding_in_scope or targets_embeddings(model, targets)
+        ):
             # Untying may update a tied output head outside this scope, so do it before
-            # applying any scoped transforms.
+            # centering embeddings or applying scoped transforms.
             untie_word_embeddings(model)
 
         self._center_embeddings(model, modules)
