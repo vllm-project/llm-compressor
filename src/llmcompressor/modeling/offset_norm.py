@@ -95,22 +95,16 @@ class CalibrationOffsetNorm(NormCalibrationModule):
             self._original_forward = module.forward
 
         self._active = True
-        try:
-            weight = module.weight.detach().float()
-            update_offload_parameter(
-                module,
-                "weight",
-                (weight + 1.0).to(self._original_dtype),
-            )
-            if self._forward_is_offload_wrapped:
-                module._original_forward_func = _standard_rms_norm_forward
-            else:
-                module.forward = _standard_rms_norm_forward.__get__(
-                    module, type(module)
-                )
-        except Exception:
-            self.restore()
-            raise
+        weight = module.weight.detach().float()
+        update_offload_parameter(
+            module,
+            "weight",
+            (weight + 1.0).to(self._original_dtype),
+        )
+        if self._forward_is_offload_wrapped:
+            module._original_forward_func = _standard_rms_norm_forward
+        else:
+            module.forward = _standard_rms_norm_forward.__get__(module, type(module))
 
     def restore(self) -> None:
         if not self._active:
