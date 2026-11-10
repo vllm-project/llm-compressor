@@ -128,9 +128,9 @@ def _grid_search_observer(
 
         improved = error < best_error
         if torch.any(improved):
-            best_error[improved] = error[improved]
-            best_min[improved] = shrink_min[improved]
-            best_max[improved] = shrink_max[improved]
+            best_error = torch.where(improved, error, best_error)
+            best_min = torch.where(improved, shrink_min, best_min)
+            best_max = torch.where(improved, shrink_max, best_max)
             no_improve_count = 0
         else:
             no_improve_count += 1
@@ -161,6 +161,8 @@ def _calculate_observer_error_eager(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
+    # fake_quantize returns the observed dtype, so eager subtracts there before
+    # widening the difference for the FP32 power and reduction.
     difference = (quantized - observed).abs().to(dtype=score_dtype)
     error = difference.pow(error_norm)
     if importance_weights is not None:
