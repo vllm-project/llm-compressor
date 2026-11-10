@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-import torch
 from compressed_tensors.entrypoints.convert import FP8BlockDequantizer
 from compressed_tensors.quantization import QuantizationConfig, QuantizationScheme
 from compressed_tensors.quantization.quant_scheme import FP8_BLOCK, MXFP4xFP8
@@ -24,10 +23,6 @@ ignore = [
     r"re:.*\.indexer\.weights_proj$",
     r"re:mtp_dspark\.autoregressive_head\.(embedding|output)$",
 ]
-
-devices = [f"cuda:{index}" for index in range(torch.cuda.device_count())]
-if not devices:
-    raise RuntimeError("Mistral Large 4 quantization requires a CUDA device")
 
 model_free_ptq(
     model_stub=MODEL_ID,
@@ -60,11 +55,7 @@ model_free_ptq(
     converter=FP8BlockDequantizer.from_pretrained(
         MODEL_ID, ignore=ignore, scale_name="qscale_weight"
     ),
-    device=devices,
-    max_workers=len(devices),
 )
-
-
 
 
 # Write vLLM's Mistral-format quantization metadata after compression.
@@ -111,5 +102,6 @@ def write_vllm_mistral_quantization_metadata(save_dir: str | Path) -> None:
     params = json.loads(params_path.read_text())
     params["quantization"] = quantization
     params_path.write_text(json.dumps(params, indent=2) + "\n")
+
 
 write_vllm_mistral_quantization_metadata(SAVE_DIR)
