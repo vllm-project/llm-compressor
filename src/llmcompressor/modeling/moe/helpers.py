@@ -141,6 +141,10 @@ class MoEConfig:
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
+        # special case: qwen3_5_moe does not specify scoring func in config
+        if config.model_type == "qwen3_5_moe_text":
+            config.scoring_func = "softmax"
+
         self = cls(
             num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
             num_experts_per_tok=_getattr_fallbacks(
@@ -224,8 +228,9 @@ def _getattr_fallbacks(
     if default is not Sentinel("None"):
         if warn_on_default:
             logger.warning(
-                f"{target} does not have any of {attrs} attributes. "
-                f"Defaulting to {default}"
+                f"{target.__class__.__name__} does not have any of {attrs} attributes. "
+                f"Defaulting to {default}",
+                log_once=True,
             )
         return default
 
