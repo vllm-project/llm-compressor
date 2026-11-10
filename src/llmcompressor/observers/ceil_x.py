@@ -105,7 +105,7 @@ def _ceil_x_adjust(
     # groups and degrading accuracy.
     orig_dtype = absmax.dtype
     bf16_absmax = absmax.to(torch.bfloat16)
-    log2_input = (bf16_absmax / ceil_x_value).clamp(min=_EPS) + _EPS
+    log2_input = (bf16_absmax / ceil_x_value) + _EPS
     shared_exp = torch.ceil(torch.log2(log2_input)).to(torch.float32)
 
     # Clip shared_exp so that shared_exp + _MXFP4_EMAX stays within
@@ -120,10 +120,9 @@ def _ceil_x_adjust(
     # generate_mx_scales computes: 127 + floor(log2(scale)) - 2, so we add
     # _MXFP4_EMAX (=2) to shared_exp so that floor(log2(2^(shared_exp+2)))
     # = shared_exp + 2, yielding E8M0 = 127 + shared_exp + 2 - 2 = 127 + shared_exp.
-    adjusted_absmax = torch.pow(
-        torch.tensor(2.0, device=absmax.device, dtype=orig_dtype),
-        (shared_exp + _MXFP4_EMAX).to(orig_dtype),
-    )
+    # Compute in float32 for numerical stability (bfloat16/float16 underflow
+    # for exponents below -24), then cast to the original dtype.
+    adjusted_absmax = torch.pow(2.0, (shared_exp + _MXFP4_EMAX)).to(orig_dtype)
 
     # Symmetric: both min and max are set to ±adjusted_absmax
     new_max_vals = adjusted_absmax
@@ -242,6 +241,11 @@ class CeilXObserver(Observer):
             )
         if not self.args.symmetric:
             raise ValueError("ceil_x only supports symmetric quantization")
+        if self.args.strategy != QuantizationStrategy.TENSOR_GROUP:
+            raise ValueError(
+                f"ceil_x only supports TENSOR_GROUP strategy, "
+                f"got {self.args.strategy}"
+            )
 
         # Validate ceil_x_value range
         if not (6.0 <= self.ceil_x_value <= 12.0):
@@ -249,6 +253,13 @@ class CeilXObserver(Observer):
                 f"ceil_x_value must be in [6.0, 12.0], got {self.ceil_x_value}"
             )
         if self.enable_search:
+            if not (6.0 <= self.search_min <= 12.0) or not (
+                6.0 <= self.search_max <= 12.0
+            ):
+                raise ValueError(
+                    f"search_min and search_max must be in [6.0, 12.0], "
+                    f"got [{self.search_min}, {self.search_max}]"
+                )
             if self.search_max <= self.search_min:
                 raise ValueError(
                     f"search_max ({self.search_max}) must be greater than "

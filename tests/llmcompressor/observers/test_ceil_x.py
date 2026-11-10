@@ -125,12 +125,25 @@ class TestCeilXObserverRegistration:
                 {"enable_search": True, "search_min": 8.0, "search_max": 8.0},
                 "search_max.*must be greater than",
             ),
+            (
+                {"enable_search": True, "search_min": 3.0, "search_max": 9.0},
+                "search_min and search_max must be in",
+            ),
+            (
+                {"enable_search": True, "search_min": 7.0, "search_max": 15.0},
+                "search_min and search_max must be in",
+            ),
         ],
     )
     def test_rejects_invalid_kwargs(self, kwargs, match):
         """Invalid ceil_x_value or search range should raise ValueError."""
         args = QuantizationArgs(
-            num_bits=4, type="float", symmetric=True, observer="ceil_x"
+            num_bits=4,
+            type="float",
+            symmetric=True,
+            strategy="tensor_group",
+            group_size=32,
+            observer="ceil_x",
         )
         with pytest.raises(ValueError, match=match):
             Observer.load_from_registry(
@@ -141,13 +154,36 @@ class TestCeilXObserverRegistration:
         """INT type and asymmetric quantization should raise ValueError."""
         with pytest.raises(ValueError, match="ceil_x only supports FLOAT type"):
             args = QuantizationArgs(
-                num_bits=8, type="int", symmetric=True, observer="ceil_x"
+                num_bits=8,
+                type="int",
+                symmetric=True,
+                strategy="tensor_group",
+                group_size=32,
+                observer="ceil_x",
             )
             Observer.load_from_registry("ceil_x", base_name="weight", args=args)
         with pytest.raises(ValueError, match="ceil_x only supports symmetric"):
             args = QuantizationArgs(
-                num_bits=4, type="float", symmetric=False, observer="ceil_x"
+                num_bits=4,
+                type="float",
+                symmetric=False,
+                strategy="tensor_group",
+                group_size=32,
+                observer="ceil_x",
             )
+            Observer.load_from_registry("ceil_x", base_name="weight", args=args)
+
+    def test_rejects_non_tensor_group_strategy(self):
+        """Non-TENSOR_GROUP strategy should raise ValueError."""
+        args = QuantizationArgs(
+            num_bits=4,
+            type="float",
+            symmetric=True,
+            strategy="channel",
+            group_size=32,
+            observer="ceil_x",
+        )
+        with pytest.raises(ValueError, match="ceil_x only supports TENSOR_GROUP"):
             Observer.load_from_registry("ceil_x", base_name="weight", args=args)
 
 
