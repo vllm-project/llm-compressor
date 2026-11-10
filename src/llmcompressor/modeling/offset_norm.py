@@ -60,6 +60,13 @@ class NormCalibrationModule(ABC, torch.nn.Module, RegistryMixin):
         "Qwen3NextRMSNorm",
         "Qwen3_5RMSNorm",
         "Qwen3_5MoeRMSNorm",
+        "VaultGemmaRMSNorm",
+        "RecurrentGemmaRMSNorm",
+        "T5GemmaRMSNorm",
+        "T5Gemma2RMSNorm",
+        "Step3p7RMSNorm",
+        "MiniMaxM3VLRMSNorm",
+        "MuseSparkTextCenteredRMSNorm",
     ],
 )
 class CalibrationOffsetNorm(NormCalibrationModule):

@@ -1,7 +1,5 @@
 """Shared eager and Triton grid-search implementation for quantization observers."""
 
-import math
-
 import torch
 from compressed_tensors.quantization import (
     QuantizationArgs,
@@ -9,6 +7,9 @@ from compressed_tensors.quantization import (
     QuantizationType,
 )
 from compressed_tensors.quantization.lifecycle import fake_quantize
+from compressed_tensors.quantization.lifecycle.forward_helpers import (
+    _is_fp8_supported,
+)
 from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
 from compressed_tensors.quantization.utils.mxfp_utils import (
     should_generate_mx_scales,
@@ -19,15 +20,17 @@ from compressed_tensors.utils.triton import tl, triton
 
 from llmcompressor.observers.base import MinMaxTuple
 from llmcompressor.utils.triton_utils import (
+    TritonDType,
     calculate_candidate_scale,
     calculate_observer_error,
     observer_triton_req,
     quantize_dequantize,
+    round_fp32_as_dtype,
     scale_round_config,
 )
 
-# Eager iMatrix mirrors Triton's packed and split error reductions to preserve
-# grid-point parity.
+# Eager MSE and iMatrix share one per-element error calculation; iMatrix adds
+# only an optional importance weight. Reduction order can differ by kernel size.
 
 _GRID_SEARCH_TILE_SIZE = 512
 
@@ -61,7 +64,6 @@ def _grid_search_observer(
     triton_error_buffer: float,
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
-    use_imatrix_error: bool = False,
     magnitude_normalization: bool = False,
     grid_type: str | None = None,
 ) -> MinMaxTuple:
@@ -80,24 +82,15 @@ def _grid_search_observer(
     min_vals = torch.amin(observed, dim=(0, -1)) * expand
     max_vals = torch.amax(observed, dim=(0, -1)) * expand
 
-    # Count values for one qparam across observations. Triton uses its packed
-    # kernel up to 512 values and FP32 split reductions above that; eager mirrors
-    # the corresponding error rounding so the selected grid point matches.
-    total_values = observed.shape[0] * observed.shape[-1]
-    if use_imatrix_error:
-        if total_values <= _GRID_SEARCH_TILE_SIZE and observed.dtype in (
-            torch.float16,
-            torch.bfloat16,
-        ):
-            error_dtype = observed.dtype
-        else:
-            error_dtype = torch.float32
-        error_norm = norm
-        if error_dtype != torch.float32:
-            error_norm = torch.tensor(norm, dtype=error_dtype).item()
-    else:
-        error_dtype = min_vals.dtype
-        error_norm = norm
+    # Round QDQ differences in the observed dtype, then compute powers and
+    # accumulate scores in FP32. Packed and split paths differ only in reduction.
+    score_dtype = torch.float64 if observed.dtype == torch.float64 else torch.float32
+    error_norm = norm
+    if observed.dtype in (
+        torch.float16,
+        torch.bfloat16,
+    ):
+        error_norm = torch.tensor(norm, dtype=observed.dtype).item()
 
     group_absmax = None
     if magnitude_normalization:
@@ -108,9 +101,9 @@ def _grid_search_observer(
 
     best_error = torch.full(
         min_vals.shape,
-        torch.finfo(error_dtype).max,
+        torch.finfo(score_dtype).max,
         device=min_vals.device,
-        dtype=error_dtype,
+        dtype=score_dtype,
     )
     best_min = min_vals.clone()
     best_max = max_vals.clone()
@@ -122,53 +115,43 @@ def _grid_search_observer(
     for p in grid_points:
         shrink_min = min_vals * p
         shrink_max = max_vals * p
-        if use_imatrix_error:
-            error = _calculate_imatrix_error(
-                observed,
-                args,
-                shrink_min,
-                shrink_max,
-                error_norm,
-                error_dtype,
-                importance_weights,
-                total_values,
-                group_absmax,
-            )
-        else:
-            error = _calculate_mse_error(
-                observed,
-                args,
-                shrink_min,
-                shrink_max,
-                norm,
-                group_absmax,
-            )
+        error = _calculate_observer_error_eager(
+            observed,
+            args,
+            shrink_min,
+            shrink_max,
+            error_norm,
+            score_dtype,
+            importance_weights,
+            group_absmax,
+        )
 
         improved = error < best_error
         if torch.any(improved):
-            best_error[improved] = error[improved]
-            best_min[improved] = shrink_min[improved]
-            best_max[improved] = shrink_max[improved]
+            best_error = torch.where(improved, error, best_error)
+            best_min = torch.where(improved, shrink_min, best_min)
+            best_max = torch.where(improved, shrink_max, best_max)
             no_improve_count = 0
         else:
             no_improve_count += 1
-            # Eager imatrix treats patience=0 as an exhaustive search. The
-            # Triton wrapper translates zero to the grid length before launch.
-            if no_improve_count >= patience and (not use_imatrix_error or patience > 0):
+            # Zero patience disables early stopping and scans the full grid.
+            if patience > 0 and no_improve_count >= patience:
                 break
 
     return best_min, best_max
 
 
-def _calculate_mse_error(
+def _calculate_observer_error_eager(
     observed: torch.Tensor,
     args: QuantizationArgs,
     shrink_min: torch.Tensor,
     shrink_max: torch.Tensor,
-    norm: float,
+    error_norm: float,
+    score_dtype: torch.dtype,
+    importance_weights: torch.Tensor | None,
     group_absmax: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Calculate eager MSE error using the observer's established QDQ path."""
+    """Calculate eager observer error with FP32 powers and shared weighting."""
     scales, zero_points = calculate_qparams(
         min_vals=shrink_min,
         max_vals=shrink_max,
@@ -178,9 +161,15 @@ def _calculate_mse_error(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
-    error = (quantized - observed).abs().pow(norm)
+    # fake_quantize returns the observed dtype, so eager subtracts there before
+    # widening the difference for the FP32 power and reduction.
+    difference = (quantized - observed).abs().to(dtype=score_dtype)
+    error = difference.pow(error_norm)
+    if importance_weights is not None:
+        error = error * importance_weights.to(dtype=score_dtype)
     if group_absmax is not None:
         error = error * torch.sqrt(observed.float().square() + group_absmax.square())
+
     return error.sum(dim=(0, -1))
 
 
@@ -232,61 +221,6 @@ def _fake_quantize_with_observer_qparams(
     return quantized.to(observed.dtype)
 
 
-def _calculate_imatrix_error(
-    observed: torch.Tensor,
-    args: QuantizationArgs,
-    shrink_min: torch.Tensor,
-    shrink_max: torch.Tensor,
-    error_norm: float,
-    error_dtype: torch.dtype,
-    importance_weights: torch.Tensor | None,
-    total_values: int,
-    group_absmax: torch.Tensor | None,
-) -> torch.Tensor:
-    """Calculate imatrix error with Triton-matched rounding and reduction."""
-    scales, zero_points = calculate_qparams(
-        min_vals=shrink_min,
-        max_vals=shrink_max,
-        quantization_args=args,
-        global_scale=None,
-    )
-    quantized = _fake_quantize_with_observer_qparams(
-        observed, args, scales, zero_points
-    )
-
-    error = (quantized - observed).abs().float().pow(error_norm)
-    if error_dtype != torch.float32:
-        error = error.to(error_dtype).float()
-    if importance_weights is not None:
-        error.mul_(importance_weights)
-    if group_absmax is not None:
-        error.mul_(torch.sqrt(observed.float().square() + group_absmax.square()))
-
-    # Match Triton's packed reduction for one tile; larger qparams are summed
-    # in the same 512-value FP32 chunks as the split kernel.
-    if total_values <= _GRID_SEARCH_TILE_SIZE:
-        result = error.sum(dim=(0, -1))
-    else:
-        num_observations = observed.shape[0]
-        num_qparams = math.prod(observed.shape[1:-1])
-        group_size = observed.shape[-1]
-        errors_by_qparam = (
-            error.reshape(num_observations, num_qparams, group_size)
-            .permute(1, 0, 2)
-            .reshape(num_qparams, total_values)
-        )
-        partial_errors = [
-            errors_by_qparam[:, offset : offset + _GRID_SEARCH_TILE_SIZE].sum(dim=-1)
-            for offset in range(0, total_values, _GRID_SEARCH_TILE_SIZE)
-        ]
-        result = (
-            torch.stack(partial_errors, dim=-1).sum(dim=-1).reshape(shrink_min.shape)
-        )
-    if error_dtype != torch.float32:
-        result = result.to(error_dtype)
-    return result
-
-
 # -----------------------------------------------------------------------------
 # Triton implementation
 # -----------------------------------------------------------------------------
@@ -311,13 +245,12 @@ def _grid_search_observer_triton(
     triton_error_buffer: float,
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
-    use_imatrix_error: bool = False,
     magnitude_normalization: bool = False,
     grid_type: str | None = None,
 ) -> MinMaxTuple:
     """Shared Triton implementation of buffered MSE and imatrix search."""
-    # Weight presence selects the Triton error formula. The mode flag preserves
-    # eager imatrix's full-grid meaning for patience=0.
+    # Importance weights are optional. A zero patience value scans the full
+    # grid for both MSE and iMatrix observers.
     if (
         args.strategy == QuantizationStrategy.TENSOR_GROUP
         and args.scale_dtype is not None
@@ -342,6 +275,11 @@ def _grid_search_observer_triton(
 
     observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
+    use_fp8_e4b15 = (
+        args.type == QuantizationType.FLOAT
+        and args.num_bits == 8
+        and not _is_fp8_supported(observed.device)
+    )
     if magnitude_normalization:
         group_absmax = observed.float().abs().amax(dim=(0, -1)).reshape(-1).contiguous()
     else:
@@ -368,7 +306,7 @@ def _grid_search_observer_triton(
     if total_steps == 0:
         # There is no candidate to index, so retain the expanded observed range.
         return min_val, max_val
-    kernel_patience = total_steps if use_imatrix_error and patience == 0 else patience
+    kernel_patience = total_steps if patience == 0 else patience
     grid_points = torch.tensor(
         grid_values,
         device=observed.device,
@@ -378,9 +316,9 @@ def _grid_search_observer_triton(
     q_min, q_max = calculate_range(args, observed.device)
     scale_round_type, scale_eps = scale_round_config(args.scale_dtype)
     observed_dtype = {
-        torch.float32: 0,
-        torch.float16: 1,
-        torch.bfloat16: 2,
+        torch.float32: TritonDType.FP32.value,
+        torch.float16: TritonDType.FP16.value,
+        torch.bfloat16: TritonDType.BF16.value,
     }[observed.dtype]
     quant_type = 0 if args.type == QuantizationType.INT else 1
     total_values = num_observations * group_size
@@ -420,6 +358,7 @@ def _grid_search_observer_triton(
             SYMMETRIC=args.symmetric,
             SCALE_ROUND_TYPE=scale_round_type,
             OBSERVED_DTYPE=observed_dtype,
+            USE_FP8_E4B15=use_fp8_e4b15,
         )
     else:
         num_chunks = triton.cdiv(total_values, tile_values)
@@ -459,6 +398,7 @@ def _grid_search_observer_triton(
             SYMMETRIC=args.symmetric,
             SCALE_ROUND_TYPE=scale_round_type,
             OBSERVED_DTYPE=observed_dtype,
+            USE_FP8_E4B15=use_fp8_e4b15,
         )
         _grid_search_observer_triton_split_reduce_kernel[(num_qparams,)](
             partial_errors,
@@ -507,6 +447,7 @@ def _grid_search_observer_triton_packed_kernel(
     SYMMETRIC: tl.constexpr,
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr,
 ):
     """Pack complete qparams so each program handles about 512 values."""
     tile_offsets = tl.arange(0, TILE_QPARAMS)
@@ -547,12 +488,7 @@ def _grid_search_observer_triton_packed_kernel(
         ).to(tl.float32)
     else:
         group_absmax = tl.zeros((TILE_QPARAMS,), tl.float32)
-    if OBSERVED_DTYPE == 1:
-        best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float16)
-    elif OBSERVED_DTYPE == 2:
-        best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.bfloat16)
-    else:
-        best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float32)
+    best_error = tl.full((TILE_QPARAMS,), float("inf"), tl.float32)
     best_step = tl.zeros((TILE_QPARAMS,), tl.int32)
     stale = tl.zeros((TILE_QPARAMS,), tl.int32)
 
@@ -564,27 +500,18 @@ def _grid_search_observer_triton_packed_kernel(
             p = tl.load(grid_points_ptr + step)
             candidate_min = min_base * p
             candidate_max = max_base * p
-            if OBSERVED_DTYPE == 1:
-                candidate_min = candidate_min.to(tl.float16).to(tl.float32)
-                candidate_max = candidate_max.to(tl.float16).to(tl.float32)
-            elif OBSERVED_DTYPE == 2:
-                candidate_min = candidate_min.to(tl.bfloat16).to(tl.float32)
-                candidate_max = candidate_max.to(tl.bfloat16).to(tl.float32)
+            candidate_min = round_fp32_as_dtype(candidate_min, OBSERVED_DTYPE)
+            candidate_max = round_fp32_as_dtype(candidate_max, OBSERVED_DTYPE)
             scale = calculate_candidate_scale(
                 candidate_min,
                 candidate_max,
-                1.0,
                 q_min,
                 q_max,
                 SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
                 QUANT_TYPE=QUANT_TYPE,
                 SYMMETRIC=SYMMETRIC,
+                COMPUTE_DTYPE=OBSERVED_DTYPE,
             )
-            if SCALE_ROUND_TYPE == 0:
-                if OBSERVED_DTYPE == 1:
-                    scale = scale.to(tl.float16).to(tl.float32)
-                elif OBSERVED_DTYPE == 2:
-                    scale = scale.to(tl.bfloat16).to(tl.float32)
             scale = tl.maximum(scale, scale_eps)
             quantized = quantize_dequantize(
                 values,
@@ -596,6 +523,7 @@ def _grid_search_observer_triton_packed_kernel(
                 NUM_BITS=NUM_BITS,
                 HAS_ZP=HAS_ZP,
                 COMPUTE_DTYPE=OBSERVED_DTYPE,
+                USE_FP8_E4B15=USE_FP8_E4B15,
             )
             diff_pow = calculate_observer_error(
                 values,
@@ -606,13 +534,12 @@ def _grid_search_observer_triton_packed_kernel(
                 HAS_IMPORTANCE=HAS_IMPORTANCE,
                 HAS_MAGNITUDE_NORMALIZATION=HAS_MAGNITUDE_NORMALIZATION,
                 COMPUTE_DTYPE=OBSERVED_DTYPE,
-                ROUND_ERROR=True,
             )
-            if HAS_IMPORTANCE and BLOCK_VALUES == 16:
-                # Match eager's CUDA reduction tree for a packed NVFP4 group:
-                # combine lanes at offsets 8, 4, 2, then 1 before BF16 rounding.
-                # A different FP32 reduction order can move a score across a
-                # BF16 midpoint and select a different grid point.
+            if BLOCK_VALUES == 16:
+                # Match eager's CUDA reduction tree for a packed group of 16:
+                # combine lanes at offsets 8, 4, 2, then 1.
+                # Use this for weighted and unweighted errors so the optional
+                # importance multiplication does not select a different tree.
                 error_terms = tl.where(value_mask, diff_pow, 0.0).to(tl.float32)
                 error_terms = tl.sum(
                     tl.reshape(error_terms, (TILE_QPARAMS, 2, BLOCK_VALUES // 2)),
@@ -626,11 +553,11 @@ def _grid_search_observer_triton_packed_kernel(
                     tl.reshape(error_terms, (TILE_QPARAMS, 2, BLOCK_VALUES // 8)),
                     axis=1,
                 )
-                error = tl.sum(error_terms, axis=1).to(best_error.dtype)
+                error = tl.sum(error_terms, axis=1)
             else:
                 error = tl.sum(
                     tl.where(value_mask, diff_pow, 0.0).to(tl.float32), axis=1
-                ).to(best_error.dtype)
+                )
             previous_best = best_error
             is_better = active & (error < previous_best)
             best_error = tl.where(is_better, error, best_error)
@@ -675,6 +602,7 @@ def _grid_search_observer_triton_split_kernel(
     SYMMETRIC: tl.constexpr,
     SCALE_ROUND_TYPE: tl.constexpr,
     OBSERVED_DTYPE: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr,
 ):
     """Compute every candidate's partial error for one 512-value qparam chunk."""
     pid = tl.program_id(0)
@@ -716,15 +644,20 @@ def _grid_search_observer_triton_split_kernel(
         group_absmax = 0.0
 
     for step in tl.static_range(0, TOTAL_STEPS):
+        p = tl.load(grid_points_ptr + step)
+        candidate_min = min_base * p
+        candidate_max = max_base * p
+        candidate_min = round_fp32_as_dtype(candidate_min, OBSERVED_DTYPE)
+        candidate_max = round_fp32_as_dtype(candidate_max, OBSERVED_DTYPE)
         scale = calculate_candidate_scale(
-            min_base,
-            max_base,
-            tl.load(grid_points_ptr + step),
+            candidate_min,
+            candidate_max,
             q_min,
             q_max,
             SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
             QUANT_TYPE=QUANT_TYPE,
             SYMMETRIC=SYMMETRIC,
+            COMPUTE_DTYPE=OBSERVED_DTYPE,
         )
         scale = tl.maximum(scale, scale_eps)
         quantized = quantize_dequantize(
@@ -737,6 +670,7 @@ def _grid_search_observer_triton_split_kernel(
             NUM_BITS=NUM_BITS,
             HAS_ZP=HAS_ZP,
             COMPUTE_DTYPE=OBSERVED_DTYPE,
+            USE_FP8_E4B15=USE_FP8_E4B15,
         )
         diff_pow = calculate_observer_error(
             values,
@@ -747,7 +681,6 @@ def _grid_search_observer_triton_split_kernel(
             HAS_IMPORTANCE=HAS_IMPORTANCE,
             HAS_MAGNITUDE_NORMALIZATION=HAS_MAGNITUDE_NORMALIZATION,
             COMPUTE_DTYPE=OBSERVED_DTYPE,
-            ROUND_ERROR=False,
         )
         error = tl.sum(tl.where(value_mask, diff_pow, 0.0))
         tl.store(

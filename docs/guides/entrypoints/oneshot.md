@@ -79,7 +79,7 @@ The `oneshot` entrypoint runs three phases:
 | `dataset_config_name` | `str \| None` | `None` | HuggingFace dataset configuration name |
 | `dataset_path` | `str \| None` | `None` | Path to a local dataset (JSON, CSV, or DVC) |
 | `num_calibration_samples` | `int` | `512` | Number of samples to use for calibration |
-| `max_seq_length` | `int` | `384` | Maximum sequence length after tokenization. Longer sequences are truncated |
+| `max_seq_length` | `int \| None` | `None` | Maximum sequence length after tokenization. Longer sequences are truncated. When `None`, the tokenizer's `model_max_length` is used |
 | `batch_size` | `int` | `1` | Calibration batch size |
 | `data_collator` | `str \| Callable` | `"truncation"` | Batch collation strategy. `"truncation"` or `"padding"`, or a custom callable |
 | `shuffle_calibration_samples` | `bool` | `True` | Whether to shuffle the dataset before selecting calibration samples |
@@ -170,7 +170,6 @@ oneshot(
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from llmcompressor import oneshot
-from llmcompressor.modeling.llama4 import SequentialLlama4TextMoe  # noqa: F401
 from llmcompressor.modifiers.quantization import QuantizationModifier
 
 model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-4-Scout-17B-16E-Instruct")

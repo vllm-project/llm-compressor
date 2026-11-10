@@ -41,7 +41,8 @@ class MemorylessMSEObserver(Observer):
         patience (int): Number of consecutive candidates outside the current
             best-score tolerance before early stopping. Triton uses
             ``triton_error_buffer`` for this tolerance; eager search counts
-            strict non-improvements. Defaults to ``5``.
+            strict non-improvements. ``0`` scans the full grid. Defaults to
+            ``5``.
         grid (float): Search resolution and candidate budget. For a linear
             grid, adjacent multipliers differ by ``1 / grid``. For an
             exponential grid, this is an upper bound on the number of
@@ -78,6 +79,8 @@ class MemorylessMSEObserver(Observer):
         observer_kwargs = self.args.observer_kwargs
         self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
         self.patience = observer_kwargs.get("patience", 5)
+        if self.patience < 0:
+            raise ValueError(f"patience must be >= 0, got {self.patience}")
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.magnitude_normalization = observer_kwargs.get(
