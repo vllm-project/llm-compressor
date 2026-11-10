@@ -76,8 +76,8 @@ def scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
 
 
 @triton.jit
-def round_to_bf16(value):
-    """Round an FP32 value to BF16 and return it as FP32."""
+def _fake_round_to_bf16(value):
+    """Emulate an FP32-to-BF16 round while keeping the result in FP32."""
     if is_xpu_target():
         # Intel Triton promotes BF16 arithmetic to FP32, even across an
         # explicit BF16 cast, so round through the FP32 bit representation.
@@ -90,8 +90,8 @@ def round_to_bf16(value):
 
 
 @triton.jit
-def round_to_fp16(value):
-    """Round an FP32 value to FP16 and return it as FP32."""
+def _fake_round_to_fp16(value):
+    """Emulate an FP32-to-FP16 round while keeping the result in FP32."""
     half = value.to(tl.float16)
     if is_xpu_target():
         # The identity FMA forces the Intel backend to materialize the FP16
@@ -109,9 +109,9 @@ def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
     """Round an FP32 value to the compute dtype and return it as FP32."""
     tl.static_assert(value.dtype == tl.float32, "value must be FP32")
     if COMPUTE_DTYPE == _TRITON_FP16:
-        return round_to_fp16(value)
+        return _fake_round_to_fp16(value)
     if COMPUTE_DTYPE == _TRITON_BF16:
-        return round_to_bf16(value)
+        return _fake_round_to_bf16(value)
     return value
 
 
@@ -121,9 +121,9 @@ def round_candidate_scale(
 ):
     """Round a floating candidate scale as compressed-tensors qparams do."""
     if SCALE_ROUND_TYPE == _TRITON_FP16:
-        return round_to_fp16(tl.minimum(scale, 65504.0))
+        return _fake_round_to_fp16(tl.minimum(scale, 65504.0))
     if SCALE_ROUND_TYPE == _TRITON_BF16:
-        return round_to_bf16(scale)
+        return _fake_round_to_bf16(scale)
     if SCALE_ROUND_TYPE == _TRITON_FP8_E4M3:
         return tl.minimum(scale, 448.0).to(tl.float8e4nv).to(tl.float32)
     if SCALE_ROUND_TYPE == _TRITON_E8M0:
@@ -219,6 +219,9 @@ def calculate_qdq_error(
     COMPUTE_DTYPE: tl.constexpr,
 ):
     """Compute QDQ powers in FP32 after rounding the difference to input dtype."""
+    # Eager fake_quantize rounds its QDQ result and the observed values in their
+    # storage dtype before subtraction, then rounds the difference again. Keep
+    # that order here so the selected grid point matches eager.
     quantized = round_fp32_as_dtype(quantized, COMPUTE_DTYPE)
     values = round_fp32_as_dtype(values, COMPUTE_DTYPE)
     diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)

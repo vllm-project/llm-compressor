@@ -221,6 +221,57 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype, device):
     assert torch.equal(result.to(dtype).reshape(observed.shape), expected)
 
 
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_triton_bf16_qdq_matches_fake_quantize_for_signed_values(device):
+    """BF16 QDQ must materialize rounding for negative normalized values."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
+    args = QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=16,
+    )
+    observed = flatten_for_calibration(
+        torch.linspace(-4.0, 4.0, 64, device=device, dtype=torch.bfloat16).repeat(4, 1),
+        "weight",
+        args,
+    )
+    scale, zero_point = calculate_qparams(
+        min_vals=torch.amin(observed, dim=(0, -1)),
+        max_vals=torch.amax(observed, dim=(0, -1)),
+        quantization_args=args,
+        global_scale=None,
+    )
+    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+        expected = fake_quantize(
+            observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), args
+        )
+
+    values = observed.reshape(-1).contiguous()
+    result = torch.empty_like(values, dtype=torch.float32)
+    q_min, q_max = calculate_range(args, values.device)
+    block = 1024
+    _qdq_kernel[(triton.cdiv(values.numel(), block),)](
+        values,
+        scale.reshape(-1).to(torch.float32).contiguous(),
+        zero_point.reshape(-1).to(torch.float32).contiguous(),
+        result,
+        values.numel(),
+        args.group_size,
+        float(q_min),
+        float(q_max),
+        QUANT_TYPE=0,
+        NUM_BITS=4,
+        HAS_ZP=False,
+        COMPUTE_DTYPE=2,
+        BLOCK=block,
+    )
+    assert torch.equal(result.to(torch.bfloat16).reshape(observed.shape), expected)
+
+
 def test_mse_triton_error_buffer_defaults():
     args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
     observer = MovingAverageMSEObserver(base_name="weight", args=args)

@@ -161,6 +161,8 @@ def _calculate_observer_error_eager(
     quantized = _fake_quantize_with_observer_qparams(
         observed, args, scales, zero_points
     )
+    # fake_quantize returns the observed dtype, so eager subtracts there before
+    # widening the difference for the FP32 power and reduction.
     difference = (quantized - observed).abs().to(dtype=score_dtype)
     error = difference.pow(error_norm)
     if importance_weights is not None:
