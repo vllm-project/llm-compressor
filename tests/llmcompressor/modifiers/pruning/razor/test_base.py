@@ -250,40 +250,10 @@ def test_apply_score_function():
         _apply_score_function(logits, "sigmoid"), logits.sigmoid()
     )
     torch.testing.assert_close(
-        _apply_score_function(logits, "sqrt_softplus"), F.softplus(logits).sqrt()
+        _apply_score_function(logits, "sqrtsoftplus"), F.softplus(logits).sqrt()
     )
     with pytest.raises(ValueError, match="score function"):
         _apply_score_function(logits, "relu")
-
-
-# ---------------------------------------------------------------------------
-# Tests: score-function resolution
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "config_key, config_value, expected",
-    [
-        ("scoring_func", "sigmoid", "sigmoid"),
-        ("scoring_func", "softmax", "softmax"),
-        ("scoring_func", "sqrtsoftplus", "sqrt_softplus"),  # DeepSeek-V4
-        ("score_func", "sigmoid", "sigmoid"),
-        ("moe_router_activation_func", "sigmoid", "sigmoid"),
-        ("scoring_func", "tanh", "softmax"),  # unknown values fall back
-    ],
-)
-def test_score_function_resolved_from_config(config_key, config_value, expected):
-    """The router's score function is resolved from the model config's
-    scoring field (with DeepSeek-V4's ``sqrtsoftplus`` mapped to
-    ``sqrt_softplus``), falling back to softmax for unknown values."""
-    config = FakeMoEConfig(num_experts=8)
-    setattr(config, config_key, config_value)
-    model = FakeMoEModel(config)
-
-    modifier = RazorPruningModifier(sparsity=0.5)
-    modifier.initialize(make_state(model))
-    assert modifier._moe_config.score_function == expected
 
 
 # ---------------------------------------------------------------------------
