@@ -1,54 +1,62 @@
 """
-Calibration context for offset-norm layers.
+Lazy calibration transformations for offset-norm layers.
 
 Some architectures (Gemma, Qwen3Next) use an offset normalization pattern where
-the forward pass computes ``output * (1 + weight)`` instead of the standard
-``output * weight``.  This breaks any modifier that smooths norm weights
-(AWQ, SmoothQuant, SpinQuant) because dividing a (1+weight) parameter by scales
-produces incorrect results.
+the forward pass computes ``output * (1 + weight)``. This breaks modifiers that
+smooth norm weights because they update the stored weight as though the forward
+pass computed ``output * weight``.
 
-This module provides the infrastructure to temporarily replace offset-norm
-modules with standard-norm equivalents during calibration, and restore the
-original convention after modifiers have run.
-
-Key components:
-- NormCalibrationModule: Abstract base class for norm calibration modules
-- norm_calibration_context: Context manager that applies norm conversion
+This module records transformations for supported norm types without reading or
+copying their weights. The sequential pipeline applies a transformation after its
+subgraph is onloaded and restores the offset convention before recompression or
+offload.
 """
 
 import contextlib
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import torch
+from compressed_tensors.offload import OffloadCache, update_offload_parameter
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
+from torch.nn import Module
 from transformers import PreTrainedModel
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 __all__ = [
+    "CalibrationOffsetNorm",
     "NormCalibrationModule",
+    "NormCalibrationTransformations",
     "norm_calibration_context",
 ]
 
 
-class NormCalibrationModule(ABC, torch.nn.Module, RegistryMixin):
-    """
-    Abstract base class for norm calibration modules.
-
-    Calibration modules replace original norm modules during the calibration
-    phase so that modifiers see standard ``output * weight`` semantics.
-    """
+class NormCalibrationModule(ABC, RegistryMixin):
+    """Transformation for one norm module during calibration."""
 
     is_permanent: bool = False
 
-    @abstractmethod
-    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
-        """
-        Restore the original module with updated weights.
+    def __init__(self, original: Module, config):
+        self.original = original
+        self.config = config
+        self._original_dtype: torch.dtype | None = None
+        self._original_forward = None
+        self._forward_is_offload_wrapped = False
+        self._active = False
 
-        Returns:
-            The original module with weights converted back to offset convention
-        """
-        ...
+    @abstractmethod
+    def apply(self) -> None:
+        """Convert the module to standard ``output * weight`` semantics."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def restore(self) -> None:
+        """Restore the offset convention after calibration transformations."""
+        raise NotImplementedError
 
 
 @NormCalibrationModule.register(
@@ -70,94 +78,145 @@ class NormCalibrationModule(ABC, torch.nn.Module, RegistryMixin):
     ],
 )
 class CalibrationOffsetNorm(NormCalibrationModule):
-    """
-    Replaces offset-norm modules (``output * (1 + weight)``) with standard-norm
-    equivalents (``output * weight``) during calibration.
+    """Temporarily represents an offset norm with a standard RMSNorm weight."""
 
-    On enter: ``self.weight = 1 + original.weight``
-    On restore: ``original.weight = self.weight - 1``
-    """
+    def apply(self) -> None:
+        if self._active:
+            return
 
-    is_permanent = False
+        module = self.original
+        self._original_dtype = module.weight.dtype
+        self._forward_is_offload_wrapped = isinstance(
+            module._parameters, OffloadCache
+        ) and hasattr(module, "_original_forward_func")
+        if self._forward_is_offload_wrapped:
+            self._original_forward = module._original_forward_func
+        else:
+            self._original_forward = module.forward
 
-    def __init__(self, original: torch.nn.Module, config):
-        super().__init__()
-        self.eps = original.eps
-        self._orig_dtype = original.weight.dtype
-        self.weight = torch.nn.Parameter(
-            (1.0 + original.weight.data.float()).to(original.weight.dtype)
+        self._active = True
+        try:
+            weight = module.weight.detach().float()
+            update_offload_parameter(
+                module,
+                "weight",
+                (weight + 1.0).to(self._original_dtype),
+            )
+            if self._forward_is_offload_wrapped:
+                module._original_forward_func = _standard_rms_norm_forward
+            else:
+                module.forward = _standard_rms_norm_forward.__get__(
+                    module, type(module)
+                )
+        except Exception:
+            self.restore()
+            raise
+
+    def restore(self) -> None:
+        if not self._active:
+            return
+
+        module = self.original
+        weight = module.weight.detach().float()
+        update_offload_parameter(
+            module,
+            "weight",
+            (weight - 1.0).to(self._original_dtype),
         )
-
-    def _norm(self, x: torch.Tensor) -> torch.Tensor:
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        output = self._norm(x.float())
-        output = output * self.weight.float()
-        return output.type_as(x)
-
-    def restore(self, original: torch.nn.Module) -> torch.nn.Module:
-        original.weight.data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
-        return original
+        if self._forward_is_offload_wrapped:
+            module._original_forward_func = self._original_forward
+        else:
+            module.forward = self._original_forward
+        self._original_dtype = None
+        self._original_forward = None
+        self._forward_is_offload_wrapped = False
+        self._active = False
 
 
-@contextlib.contextmanager
-def norm_calibration_context(model: PreTrainedModel):
-    """
-    Context manager that converts offset-norm modules to standard-norm.
+class NormCalibrationTransformations:
+    """A model-wide plan whose norm conversions run only for active scopes."""
 
-    This scans all modules in the model and replaces any offset-norm modules
-    (``output * (1 + weight)``) with standard-norm equivalents
-    (``output * weight``).  After the context exits, modules are restored
-    to their original convention with updated weights.
+    def __init__(self, model: PreTrainedModel):
+        self._transforms: dict[Module, NormCalibrationModule] = {}
+        self._active: set[Module] = set()
 
-    The model is modified in-place, so the same model object should be used
-    within the context.
+        for _, module in model.named_modules():
+            class_name = module.__class__.__name__
+            if not _is_registered(class_name, NormCalibrationModule):
+                continue
 
-    Args:
-        model: The model to apply norm conversion to (modified in-place)
-
-    Example:
-        with norm_calibration_context(model):
-            # Modifiers see standard norm weights
-            run_calibration(model)
-        # Norms restored to offset convention with smoothed weights
-    """
-
-    replaced = {}
-
-    # Step 1: Collect all offset-norm modules that need replacement
-    logger.debug("Entering norm calibration context")
-    modules_to_replace = []
-    for name, module in model.named_modules():
-        class_name = module.__class__.__name__
-        if _is_registered(class_name, NormCalibrationModule):
-            modules_to_replace.append((name, module, class_name))
-
-    # Step 2: Replace modules
-    if modules_to_replace:
-        logger.info(f"Found {len(modules_to_replace)} offset-norm modules to convert")
-        for name, module, class_name in modules_to_replace:
-            replacement = NormCalibrationModule.load_from_registry(
+            self._transforms[module] = NormCalibrationModule.load_from_registry(
                 class_name,
                 original=module,
                 config=model.config,
             )
-            model.set_submodule(name, replacement)
-            replaced[name] = (module, replacement)
 
+        logger.info(
+            "Prepared lazy calibration transformations for {} offset-norm modules",
+            len(self._transforms),
+        )
+
+    def apply(self, modules: Iterable[Module] | None = None) -> None:
+        """Apply transformations for modules in the onloaded scope."""
+        module_scope = None if modules is None else set(modules)
+        for module, transform in self._transforms.items():
+            if module in self._active:
+                continue
+            if module_scope is None or module in module_scope:
+                transform.apply()
+                self._active.add(module)
+
+    def restore(self, modules: Iterable[Module] | None = None) -> None:
+        """Restore transformed modules in a completed scope."""
+        module_scope = None if modules is None else set(modules)
+        for module in reversed(tuple(self._transforms)):
+            if module not in self._active:
+                continue
+            if module_scope is None or module in module_scope:
+                self._transforms[module].restore()
+                self._active.remove(module)
+
+    def restore_all(self) -> None:
+        """Restore any scope left active by an interrupted pipeline."""
+        self.restore()
+
+
+@contextlib.contextmanager
+def norm_calibration_context(
+    model: PreTrainedModel,
+    *,
+    lazy: bool = False,
+) -> "Iterator[NormCalibrationTransformations]":
+    """Convert offset norms for calibration, eagerly or by pipeline scope.
+
+    With ``lazy=True``, entering scans module names and types but does not load or
+    copy norm weights. The sequential pipeline applies the returned transformations
+    after onloading each scope and restores them before recompression and offload.
+    With ``lazy=False``, all registered norms are converted when the context opens,
+    preserving the original context-manager behavior for direct callers.
+    Transformations still active when the context exits are restored.
+
+    :param model: model whose offset-norm modules need calibration transforms
+    :param lazy: defer each conversion until its module scope is onloaded
+    :yield: lazy transformations associated with this model
+    """
+    transformations = NormCalibrationTransformations(model)
     try:
-        yield
+        if not lazy:
+            transformations.apply()
+        yield transformations
     finally:
-        # Step 3: Restore original modules with updated weights
-        if replaced:
-            logger.info(f"Restoring {len(replaced)} norm modules to offset convention")
-        for name, (original, replacement) in replaced.items():
-            restored = replacement.restore(original)
-            model.set_submodule(name, restored)
+        transformations.restore_all()
 
 
-def _is_registered(name: str, subclass: RegistryMixin):
+def _standard_rms_norm_forward(module: Module, x: torch.Tensor) -> torch.Tensor:
+    output = x.float()
+    output = output * torch.rsqrt(output.pow(2).mean(-1, keepdim=True) + module.eps)
+    output = output * module.weight.float()
+    return output.type_as(x)
+
+
+def _is_registered(name: str, subclass: RegistryMixin) -> bool:
     lookup = standardize_lookup_name(name)
     return (
         lookup in subclass.registered_names() or lookup in subclass.registered_aliases()

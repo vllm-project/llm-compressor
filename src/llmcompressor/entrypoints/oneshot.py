@@ -300,7 +300,9 @@ class Oneshot:
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            stack.enter_context(norm_calibration_context(self.model))
+            norm_calibration_transformations = stack.enter_context(
+                norm_calibration_context(self.model, lazy=True)
+            )
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -322,6 +324,9 @@ class Oneshot:
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
                 pipeline=self.dataset_args.pipeline,
+            )
+            session.state.norm_calibration_transformations = (
+                norm_calibration_transformations
             )
 
             user_pipeline = self.dataset_args.pipeline

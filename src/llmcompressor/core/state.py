@@ -106,6 +106,7 @@ class State:
     current_batch_idx: int = -1
     sequential_activations: Any = None
     sequential_propagate_error: bool = True
+    norm_calibration_transformations: Any = None
 
     @property
     def compression_ready(self) -> bool:
