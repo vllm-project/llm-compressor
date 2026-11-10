@@ -200,7 +200,6 @@ class State:
             self.data.test = test_data if not copy_data else deepcopy(test_data)
         if calib_data is not None:
             self.data.calib = calib_data if not copy_data else deepcopy(calib_data)
-
         if "device" in kwargs:
             self.hardware.device = kwargs["device"]
 
