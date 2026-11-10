@@ -1,4 +1,3 @@
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import torch
@@ -43,8 +42,10 @@ class IndependentPipeline(CalibrationPipeline):
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                compress_last = dataset_args.layerwise_compression and (index >= len(modifiers) - 1) 
-                with patch_attr(dataset_args, layerwise_compression, compress_last):
+                compress_last = dataset_args.layerwise_compression and (
+                    index >= len(modifiers) - 1
+                )
+                with patch_attr(dataset_args, "layerwise_compression", compress_last):
                     pipeline(model, dataloader, dataset_args)
 
                 # restore modifiers on exit so model can be compressed based on recipe
