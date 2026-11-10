@@ -46,7 +46,9 @@ The report can then be fed to `ExpertPruner` (see
 `qwen3_prune_from_report.py`), which prunes experts directly from the
 safetensors checkpoint, shard by shard, without loading the model into memory.
 This makes it cheap to try several sparsities or scoring metrics from a single
-calibration run. Experts are scored by REAP `saliency`,
+calibration run. The report is copied into the save directory alongside the
+pruned checkpoint, recording the per-expert statistics the pruning was based
+on. Experts are scored by REAP `saliency`,
 `layerwise_saliency` (saliency normalized by each layer's maximum, which makes
 scores comparable across layers), `count` (routed tokens), or router-weight
 `magnitude` (no report needed). With `uniform=True` the same fraction is pruned

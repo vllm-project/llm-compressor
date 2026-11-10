@@ -54,6 +54,11 @@ class ExpertPruner(Converter):
     Otherwise, the lowest-scoring experts across all layers are pruned, so layers
     may retain different numbers of experts.
 
+    When experts are scored from a saliency report, ``convert_checkpoint``
+    also saves the report in the model's save directory (see
+    :meth:`get_extra_files`), recording the per-expert statistics the pruning
+    was based on.
+
     Supports both 2D expert weights (one tensor per expert, e.g.
     ``model.layers.0.mlp.experts.3.gate_proj.weight``) and 3D stacked expert
     weights (``model.layers.0.mlp.experts.gate_proj.weight`` with shape
@@ -102,6 +107,9 @@ class ExpertPruner(Converter):
         routing table) whose values are expert indices to be remapped
     :param sparsity: fraction of experts to prune, in [0, 1]
     :param uniform: whether the same number of experts is pruned from every layer
+    :param saliency_report_path: path to the saliency report the experts are
+        scored from. ``None`` when ``metric="magnitude"``. Saved in the
+        model's save directory by ``convert_checkpoint``
     :param num_experts_config_key: config.json attribute name for expert count
     :param retained_experts: pre-computed mapping of router_name -> retained
         expert indices (sorted). Built by :meth:`from_pretrained`.
@@ -174,7 +182,9 @@ class ExpertPruner(Converter):
             If None, auto-detected from config.json.
         :param saliency_report_path: path to the ``.json`` report written by
             ``REAPPruningModifier``. Required for every metric but
-            ``"magnitude"``. Its layers must be ordered by layer index
+            ``"magnitude"``. Its layers must be ordered by layer index. The
+            report is saved in the model's save directory by
+            ``convert_checkpoint``
         """
         if not 0 <= sparsity <= 1:
             raise ValueError(f"sparsity must be in [0, 1], got {sparsity}")
@@ -343,6 +353,7 @@ class ExpertPruner(Converter):
         instance.sparsity = sparsity
         instance.uniform = uniform
         instance.metric = metric
+        instance.saliency_report_path = saliency_report_path
         instance.num_experts_config_key = num_experts_config_key
         instance.retained_experts = retained_experts
         instance.expert_to_router = expert_to_router
@@ -498,6 +509,18 @@ class ExpertPruner(Converter):
 
     def get_dependencies(self, weight_name: str) -> set[str]:
         return set()
+
+    def get_extra_files(self) -> list[os.PathLike]:
+        """
+        The saliency report the experts were scored from, so that
+        ``convert_checkpoint`` saves it in the model's save directory: the
+        report records the per-expert statistics the pruning was based on.
+        Empty when no report was used, since ``metric="magnitude"`` scores
+        experts from the router weights instead.
+        """
+        if self.metric not in REPORT_METRICS:
+            return []
+        return [self.saliency_report_path]
 
 
 # ---------------------------------------------------------------------------
