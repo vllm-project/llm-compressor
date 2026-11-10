@@ -50,7 +50,7 @@ class NormCalibrationModule(ABC, RegistryMixin):
     @abstractmethod
     def apply(self) -> None:
         """Convert the module to standard ``output * weight`` semantics."""
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @abstractmethod
     def restore(self) -> None:
