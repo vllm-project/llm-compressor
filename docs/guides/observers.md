@@ -127,7 +127,8 @@ Best used when:
 
 `nvfp4_expanded_imatrix` uses the same expanded candidate range and grid as
 `nvfp4_expanded_mse`, while weighting quantization error by per-input-channel
-importance and using imatrix's default magnitude normalization.
+importance. Its default error power is `3.0`, with iMatrix's default magnitude
+normalization.
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
 
@@ -257,6 +258,9 @@ range, grid, norm, and patience.
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
 | `grid_type` | `None` | `"linear"`, `"exponential"`, default spacing is exponential when MX scales are generated (E8M0), linear otherwise. |
 | `magnitude_normalization` | `True` | Multiply each importance-weighted error by `sqrt(w² + group_absmax²)`. |
+
+When `GPTQModifier` uses either iMatrix observer, it sets `norm=2.0` and disables
+`magnitude_normalization` before calibration.
 
 ## DDP (Distributed) Support
 
