@@ -6,10 +6,10 @@ Common functions for interfacing with python primitives and directories/files.
 import contextlib
 import importlib
 import re
-from typing import Any, Iterable, Mapping, TypeVar
+from typing import Any, Callable, Iterable, Mapping, TypeVar
 
 import torch
-from compressed_tensors.offload import disable_onloading
+from compressed_tensors.offload import disable_onloading, unwrap_offload_forward
 from compressed_tensors.quantization import disable_quantization, enable_quantization
 from compressed_tensors.utils import patch_attr
 from loguru import logger
@@ -172,6 +172,30 @@ def use_eager_attention(model: torch.nn.Module):
 
 
 @contextlib.contextmanager
+def _patch_forward(module: torch.nn.Module, forward: Callable):
+    """
+    Patch the forward of a module, including the forward wrapped by offloading.
+    Onloading an offloaded module, as the sequential pipeline does for each subgraph,
+    restores the forward that offloading wrapped, so patching only `module.forward`
+    would be undone. The original forward is restored upon exit
+
+    :param module: module whose forward to patch
+    :param forward: bound method which replaces the module's forward
+    """
+    with unwrap_offload_forward(module):
+        original = vars(module).get("forward")
+        module.forward = forward
+    try:
+        yield
+    finally:
+        with unwrap_offload_forward(module):
+            if original is None:
+                del module.forward
+            else:
+                module.forward = original
+
+
+@contextlib.contextmanager
 def disable_lm_head(model: torch.nn.Module):
     """
     Disable the lm_head of a model by moving it to the meta device. This function
@@ -202,7 +226,7 @@ def disable_lm_head(model: torch.nn.Module):
 
         with contextlib.ExitStack() as stack:
             lm_head_forward = dummy_forward.__get__(lm_head)
-            stack.enter_context(patch_attr(lm_head, "forward", lm_head_forward))
+            stack.enter_context(_patch_forward(lm_head, lm_head_forward))
 
             if hasattr(model, "_hf_hook"):
                 stack.enter_context(patch_attr(model._hf_hook, "io_same_device", False))
