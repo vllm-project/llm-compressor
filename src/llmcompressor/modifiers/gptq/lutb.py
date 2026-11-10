@@ -1,8 +1,8 @@
 from typing import ClassVar
 
 import torch
-from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.offload import disable_offloading
+from compressed_tensors.quantization.quant_args import ActivationOrdering
 from compressed_tensors.utils import getattr_chain, update_offload_parameter
 
 from llmcompressor.core import Event, State
@@ -29,6 +29,8 @@ class GPTQLutBModifier(GPTQModifier):
       rather than ``quantize_weight``.
     - No weight/activation observers are run: the codebook is fit inside the
       quantization routine, so there are no scale/zero-point qparams to observe.
+    - ``use_imatrix`` weights Lloyd-Max centroid updates by the normalized
+      diagonal of the calibration Hessian (mean squared input activation).
     - The only GPTQ parameter produced is ``weight``. LUT-B tiles are range
       normalized with E8M0 scales during fitting; the CT compressor writes the
       final codebooks and scales from the resulting quantized weights.
@@ -40,10 +42,13 @@ class GPTQLutBModifier(GPTQModifier):
     # columns, so it is unsupported and defaults to off (base default is static).
     actorder: ActivationOrdering | None = None
 
+    # Reuse GPTQ's accumulated input Hessian diagonal as per-column E[x^2].
+    use_imatrix: bool = False
+
     # LUT-B produces a non-uniform codebook, not a scale/zero-point grid. The
     # output weight contains scaled E4M3 center values, so no separate GPTQ
     # qparams need to be broadcast; CT emits the canonical book and E8M0 scale.
-    _q_param_names: ClassVar[list[str]] = ["weight"]
+    _q_param_names: ClassVar[list[str]] = ["weight", "weight_codebook", "weight_scale"]
 
     def on_sequential_epoch_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
@@ -53,12 +58,14 @@ class GPTQLutBModifier(GPTQModifier):
         self.compress_modules()
 
     def _quantize_weight(self, module, quant_args, hessian):
+        importance = torch.diagonal(hessian).clamp_min(0) if self.use_imatrix else None
         return quantize_weight_lut_b(
             module=module,
             quant_args=quant_args,
             hessian=hessian,
             blocksize=self.block_size,
             percdamp=self.dampening_frac,
+            importance=importance,
         )
 
     def compress_module_list(self, module_list):
@@ -84,6 +91,9 @@ class GPTQLutBModifier(GPTQModifier):
             if used_rtn_fallback:
                 self._rtn_fallback_module_names.append(name)
             for attr, value in q_param_dict.items():
-                update_offload_parameter(module, attr, value)
+                if hasattr(module, attr):
+                    update_offload_parameter(module, attr, value)
+                else:
+                    module.register_buffer(attr, value, persistent=True)
 
             self._num_compressed_modules += 1

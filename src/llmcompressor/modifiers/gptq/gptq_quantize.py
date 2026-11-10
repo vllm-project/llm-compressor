@@ -17,6 +17,7 @@ from compressed_tensors.utils.triton import (
     triton,
     triton_req,
 )
+from loguru import logger
 
 from llmcompressor.modifiers.gptq.helpers import (
     GPTQ_PRECISION,
@@ -25,7 +26,6 @@ from llmcompressor.modifiers.gptq.helpers import (
     factorize_hessian,
     get_triton_gptq_config,
 )
-from loguru import logger
 
 __all__ = [
     "quantize_weight",
@@ -533,12 +533,15 @@ def quantize_weight_lut_b(
     hessian: torch.Tensor,
     blocksize: int = 128,
     percdamp: float = 0.01,
+    importance: torch.Tensor | None = None,
 ) -> tuple[float, dict[str, torch.Tensor], bool]:
     """Run GPTQ error compensation using one E4M3 codebook per LUT-B tile."""
     from compressed_tensors.quantization.utils.lut_b import (
         LUT_B_LLOYD_ITERATIONS,
+        LUT_B_MAX_TILES_PER_CHUNK,
         _decode_lut_b_scales,
         _fit_codebooks,
+        _importance_to_tiles,
         _scale_lut_b_tiles,
         _weight_to_tiles,
         is_lut_b_quantization,
@@ -565,9 +568,20 @@ def quantize_weight_lut_b(
 
     tiles = _weight_to_tiles(weight, quant_args)
     normalized_tiles, scales = _scale_lut_b_tiles(tiles)
-    _, centers = _fit_codebooks(
-        normalized_tiles, quant_args, LUT_B_LLOYD_ITERATIONS
-    )
+    centers = []
+    for start in range(0, normalized_tiles.shape[0], LUT_B_MAX_TILES_PER_CHUNK):
+        end = min(start + LUT_B_MAX_TILES_PER_CHUNK, normalized_tiles.shape[0])
+        importance_tiles = _importance_to_tiles(
+            importance, weight, quant_args, start, end
+        )
+        _, chunk_centers = _fit_codebooks(
+            normalized_tiles[start:end],
+            quant_args,
+            LUT_B_LLOYD_ITERATIONS,
+            importance=importance_tiles,
+        )
+        centers.append(chunk_centers)
+    centers = torch.cat(centers, dim=0)
     row_tiles = num_rows // block_n
     column_tiles = num_columns // block_k
     centers = centers.to(torch.float32).reshape(row_tiles, column_tiles, codebook_size)
@@ -622,7 +636,9 @@ def quantize_weight_lut_b(
             quantized = column_centers.gather(1, nearest.unsqueeze(1)).squeeze(1)
 
             quantized_block[:, offset] = quantized
-            block_losses[:, offset] = (value - quantized).square() / diagonal_value.square()
+            block_losses[:, offset] = (
+                value - quantized
+            ).square() / diagonal_value.square()
             error = (value - quantized) / diagonal_value
             weight_block[:, offset:] -= error.unsqueeze(1) * inverse_block[
                 offset, offset:
@@ -635,4 +651,12 @@ def quantize_weight_lut_b(
 
     quantized_weight = weight.reshape(final_shape).to(final_dtype)
     loss = torch.sum(losses).item()
-    return loss, {"weight": quantized_weight}, used_rtn_fallback
+    return (
+        loss,
+        {
+            "weight": quantized_weight,
+            "weight_codebook": centers.to(torch.float8_e4m3fn),
+            "weight_scale": scales.reshape(row_tiles, column_tiles),
+        },
+        used_rtn_fallback,
+    )

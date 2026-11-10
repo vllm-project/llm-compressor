@@ -40,6 +40,7 @@ def quantize_weight_lut_b_delayed(
     percdamp: float | None = 0.01,
     *,
     column_order: torch.Tensor | None = None,
+    importance: torch.Tensor | None = None,
 ) -> tuple[float, dict[str, torch.Tensor], bool]:
     """Run GPTQ while fitting each LUT-B tile's qparams when first reached.
 
@@ -93,6 +94,17 @@ def quantize_weight_lut_b_delayed(
             f"hessian width {hessian.shape[0]} does not match weight width "
             f"{num_columns}"
         )
+    if importance is not None:
+        importance = torch.as_tensor(
+            importance, device=original_weight.device, dtype=GPTQ_PRECISION
+        )
+        if importance.ndim != 1 or importance.numel() != num_columns:
+            raise ValueError(
+                "importance must be a one-dimensional score per input column; "
+                f"got shape {tuple(importance.shape)} for {num_columns} columns"
+            )
+        if not torch.isfinite(importance).all() or torch.any(importance < 0):
+            raise ValueError("importance must contain finite, non-negative values")
 
     device = original_weight.device
     if column_order is None:
@@ -139,6 +151,19 @@ def quantize_weight_lut_b_delayed(
     quantized = torch.empty_like(weight)
     losses = torch.zeros(num_rows, dtype=GPTQ_PRECISION, device=device)
     fitted_qparams: dict[int, torch.Tensor] = {}
+    fitted_codebooks = torch.empty(
+        num_row_tiles,
+        num_columns // block_k,
+        codebook_size,
+        dtype=torch.float8_e4m3fn,
+        device=device,
+    )
+    fitted_scales = torch.empty(
+        num_row_tiles,
+        num_columns // block_k,
+        dtype=torch.uint8,
+        device=device,
+    )
 
     for chunk_start in range(0, num_columns, blocksize):
         chunk_end = min(chunk_start + blocksize, num_columns)
@@ -146,9 +171,7 @@ def quantize_weight_lut_b_delayed(
         quantized_block = torch.empty_like(weight_block)
         errors = torch.zeros_like(weight_block)
         block_losses = torch.zeros_like(weight_block)
-        inverse_block = hessian_inverse[
-            chunk_start:chunk_end, chunk_start:chunk_end
-        ]
+        inverse_block = hessian_inverse[chunk_start:chunk_end, chunk_start:chunk_end]
 
         for offset in range(chunk_end - chunk_start):
             position = chunk_start + offset
@@ -164,7 +187,9 @@ def quantize_weight_lut_b_delayed(
                             "columns had already been processed"
                         )
                     if tile_position < chunk_end:
-                        tile_columns.append(weight_block[:, tile_position - chunk_start])
+                        tile_columns.append(
+                            weight_block[:, tile_position - chunk_start]
+                        )
                     else:
                         tile_column = weight[:, tile_position]
                         if offset:
@@ -173,28 +198,36 @@ def quantize_weight_lut_b_delayed(
                             # this block so the first-use fit sees the same
                             # residual-updated weights as columnwise GPTQ.
                             tile_column = tile_column - errors[:, :offset].matmul(
-                                hessian_inverse[
-                                    chunk_start:position, tile_position
-                                ]
+                                hessian_inverse[chunk_start:position, tile_position]
                             )
                         tile_columns.append(tile_column)
                 current_tile = torch.stack(tile_columns, dim=1)
                 # [row tiles, block_n * block_k] in canonical tile order.
-                current_tile = (
-                    current_tile
-                    .reshape(num_row_tiles, block_n, block_k)
-                    .reshape(num_row_tiles, block_n * block_k)
-                )
+                current_tile = current_tile.reshape(
+                    num_row_tiles, block_n, block_k
+                ).reshape(num_row_tiles, block_n * block_k)
                 normalized, encoded_scales = _scale_lut_b_tiles(current_tile)
+                tile_importance = None
+                if importance is not None:
+                    column_start = tile_index * block_k
+                    tile_importance = importance[
+                        column_start : column_start + block_k
+                    ].repeat(block_n)
+                    tile_importance = tile_importance.unsqueeze(0).expand(
+                        num_row_tiles, -1
+                    )
                 _, centers = _fit_codebooks(
                     normalized,
                     quant_args,
                     LUT_B_LLOYD_ITERATIONS,
+                    importance=tile_importance,
                 )
                 scale_factors = _decode_lut_b_scales(encoded_scales).reshape(-1)
                 centers = centers.to(torch.float32).reshape(
                     num_row_tiles, codebook_size
                 )
+                fitted_codebooks[:, tile_index] = centers.to(torch.float8_e4m3fn)
+                fitted_scales[:, tile_index] = encoded_scales.reshape(-1)
                 fitted_qparams[tile_index] = centers[row_to_tile] * scale_factors[
                     row_to_tile
                 ].unsqueeze(1)
@@ -202,9 +235,7 @@ def quantize_weight_lut_b_delayed(
             column_centers = fitted_qparams[tile_index]
             value = weight_block[:, offset]
             nearest = (value.unsqueeze(1) - column_centers).abs().argmin(dim=1)
-            quantized_column = column_centers.gather(
-                1, nearest.unsqueeze(1)
-            ).squeeze(1)
+            quantized_column = column_centers.gather(1, nearest.unsqueeze(1)).squeeze(1)
             quantized_block[:, offset] = quantized_column
 
             diagonal = inverse_block[offset, offset]
@@ -227,7 +258,11 @@ def quantize_weight_lut_b_delayed(
     restored[:, order] = quantized
     return (
         losses.sum().item(),
-        {"weight": restored.to(dtype=original_weight.dtype)},
+        {
+            "weight": restored.to(dtype=original_weight.dtype),
+            "weight_codebook": fitted_codebooks,
+            "weight_scale": fitted_scales,
+        },
         bool(used_rtn_fallback.item()),
     )
 
@@ -245,9 +280,9 @@ class GPTQLutBDelayedModifier(GPTQLutBModifier):
     def _quantize_weight(self, module, quant_args, hessian):
         column_order = None
         if self.actorder is not None:
-            column_order = torch.argsort(
-                torch.diagonal(hessian), descending=True
-            )
+            column_order = torch.argsort(torch.diagonal(hessian), descending=True)
+
+        importance = torch.diagonal(hessian).clamp_min(0) if self.use_imatrix else None
 
         return quantize_weight_lut_b_delayed(
             module=module,
@@ -256,4 +291,5 @@ class GPTQLutBDelayedModifier(GPTQLutBModifier):
             blocksize=self.block_size,
             percdamp=self.dampening_frac,
             column_order=column_order,
+            importance=importance,
         )
