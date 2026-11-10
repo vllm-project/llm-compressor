@@ -88,7 +88,6 @@ class CompressionSession:
         start: float | None = None,
         steps_per_epoch: int | None = None,
         batches_per_step: int | None = None,
-        model_transformations: Any | None = None,
         **kwargs,
     ) -> ModifiedState:
         """
@@ -114,7 +113,6 @@ class CompressionSession:
         :param val_data: the validation data to use for the compression
         :param test_data: the testing data to use for the compression
         :param calib_data: the calibration data to use for the compression
-        :param model_transformations: temporary transformations applied to model scopes
         :param copy_data: True to copy the data, False otherwise
         :param start: the start epoch to use for the compression
         :param steps_per_epoch: the number of steps per epoch to use for the
@@ -136,7 +134,6 @@ class CompressionSession:
             val_data=val_data,
             test_data=test_data,
             calib_data=calib_data,
-            model_transformations=model_transformations,
             copy_data=copy_data,
             start=start,
             steps_per_epoch=steps_per_epoch,

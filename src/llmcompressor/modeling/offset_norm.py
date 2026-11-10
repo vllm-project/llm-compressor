@@ -182,29 +182,15 @@ class NormCalibrationTransformations:
 
 
 @contextlib.contextmanager
-def norm_calibration_context(
-    model: PreTrainedModel,
-    *,
-    lazy: bool = False,
-) -> "Iterator[NormCalibrationTransformations]":
-    """Convert offset norms for calibration, eagerly or by pipeline scope.
-
-    With ``lazy=True``, entering scans module names and types but does not load or
-    copy norm weights. The sequential pipeline applies the returned transformations
-    after onloading each scope and restores them before recompression and offload.
-    With ``lazy=False``, all registered norms are converted when the context opens,
-    preserving the original context-manager behavior for direct callers.
-    Transformations still active when the context exits are restored.
+def norm_calibration_context(model: PreTrainedModel) -> "Iterator[None]":
+    """Convert all registered offset norms for the duration of a context.
 
     :param model: model whose offset-norm modules need calibration transforms
-    :param lazy: defer each conversion until its module scope is onloaded
-    :yield: lazy transformations associated with this model
     """
     transformations = NormCalibrationTransformations(model)
     try:
-        if not lazy:
-            transformations.apply()
-        yield transformations
+        transformations.apply()
+        yield
     finally:
         transformations.restore_all()
 

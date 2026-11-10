@@ -17,6 +17,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.offset_norm import NormCalibrationTransformations
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -86,6 +87,22 @@ class SequentialPipeline(CalibrationPipeline):
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
     ):
+        """Run sequential calibration with scoped offset-norm transformations."""
+        norm_transformations = NormCalibrationTransformations(model)
+        try:
+            return SequentialPipeline._run(
+                model, dataloader, dataset_args, norm_transformations
+            )
+        finally:
+            norm_transformations.restore_all()
+
+    @staticmethod
+    def _run(
+        model: torch.nn.Module,
+        dataloader: DataLoader,
+        dataset_args: "DatasetArguments",
+        norm_transformations: NormCalibrationTransformations,
+    ):
         """
         Run a sequential data pipeline according to the following steps:
 
@@ -112,7 +129,6 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
-        model_transformations = session.state.model_transformations
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -149,8 +165,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         if dataset_args.layerwise_decompression:
             decompress_subgraph_modules(list(persistent_modules.values()))
-        if model_transformations is not None:
-            model_transformations.apply(list(persistent_modules.values()))
+        norm_transformations.apply(list(persistent_modules.values()))
         LifecycleCallbacks.sequential_subgraph_start(
             list(persistent_modules.values()),
         )
@@ -281,8 +296,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # start event then prepares model state and calibration hooks.
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(list(subgraph_modules.values()))
-                if model_transformations is not None:
-                    model_transformations.apply(list(subgraph_modules.values()))
+                norm_transformations.apply(list(subgraph_modules.values()))
                 LifecycleCallbacks.sequential_subgraph_start(
                     list(subgraph_modules.values()),
                     warn_on_inference_mode=False,
@@ -353,8 +367,7 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
-                if model_transformations is not None:
-                    model_transformations.restore(list(subgraph_modules.values()))
+                norm_transformations.restore(list(subgraph_modules.values()))
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(subgraph_modules.values()))
@@ -368,8 +381,7 @@ class SequentialPipeline(CalibrationPipeline):
             LifecycleCallbacks.sequential_subgraph_end(
                 list(persistent_modules.values()),
             )
-            if model_transformations is not None:
-                model_transformations.restore(list(persistent_modules.values()))
+            norm_transformations.restore(list(persistent_modules.values()))
             if persistent_modules:
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(persistent_modules.values()))

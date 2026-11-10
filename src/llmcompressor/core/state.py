@@ -106,7 +106,6 @@ class State:
     current_batch_idx: int = -1
     sequential_activations: Any = None
     sequential_propagate_error: bool = True
-    model_transformations: Any = None
 
     @property
     def compression_ready(self) -> bool:
@@ -134,7 +133,6 @@ class State:
         start: float = None,
         steps_per_epoch: int = None,
         batches_per_step: int = None,
-        model_transformations: Any = None,
         **kwargs,
     ) -> dict:
         """
@@ -156,8 +154,6 @@ class State:
         :type test_data: Any
         :param calib_data: The calibration data to update the state with
         :type calib_data: Any
-        :param model_transformations: Temporary transformations applied to model scopes
-        :type model_transformations: Any
         :param copy_data: Whether or not to copy the data
         :type copy_data: bool
         :param start: The start index to update the state with
@@ -204,9 +200,6 @@ class State:
             self.data.test = test_data if not copy_data else deepcopy(test_data)
         if calib_data is not None:
             self.data.calib = calib_data if not copy_data else deepcopy(calib_data)
-        if model_transformations is not None:
-            self.model_transformations = model_transformations
-
         if "device" in kwargs:
             self.hardware.device = kwargs["device"]
 
