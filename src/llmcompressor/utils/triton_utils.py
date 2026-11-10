@@ -76,9 +76,30 @@ def scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
 
 
 @triton.jit
-def _fake_round_to_bf16(value):
-    """Emulate an FP32-to-BF16 round while keeping the result in FP32."""
-    if is_xpu_target():
+def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
+    """Round an FP32 value to the requested dtype and return it as FP32."""
+    tl.static_assert(value.dtype == tl.float32, "value must be FP32")
+
+    if COMPUTE_DTYPE == _TRITON_FP8_E4M3:
+        return value.to(tl.float8e4nv).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_FP16 and not is_xpu_target():
+        return value.to(tl.float16).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_BF16 and not is_xpu_target():
+        return value.to(tl.bfloat16).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_FP16 and is_xpu_target():
+        half = value.to(tl.float16)
+        # The identity FMA forces the Intel backend to materialize the
+        # FP16 value; a plain cast is optimized away in arithmetic chains.
+        return tldevice.fma(
+            half,
+            tl.full((), 1.0, tl.float16),
+            tl.full((), 0.0, tl.float16),
+        ).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_BF16 and is_xpu_target():
         # Intel Triton promotes BF16 arithmetic to FP32, even across an
         # explicit BF16 cast, so round through the FP32 bit representation.
         bits = value.to(tl.int32, bitcast=True)
@@ -86,32 +107,7 @@ def _fake_round_to_bf16(value):
         bits = bits + 0x7FFF + least_significant_bit
         bits = bits & -65536
         return bits.to(tl.float32, bitcast=True)
-    return value.to(tl.bfloat16).to(tl.float32)
 
-
-@triton.jit
-def _fake_round_to_fp16(value):
-    """Emulate an FP32-to-FP16 round while keeping the result in FP32."""
-    half = value.to(tl.float16)
-    if is_xpu_target():
-        # The identity FMA forces the Intel backend to materialize the FP16
-        # value; a plain cast is optimized away in arithmetic chains.
-        return tldevice.fma(
-            half,
-            tl.full((), 1.0, tl.float16),
-            tl.full((), 0.0, tl.float16),
-        ).to(tl.float32)
-    return half.to(tl.float32)
-
-
-@triton.jit
-def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
-    """Round an FP32 value to the compute dtype and return it as FP32."""
-    tl.static_assert(value.dtype == tl.float32, "value must be FP32")
-    if COMPUTE_DTYPE == _TRITON_FP16:
-        return _fake_round_to_fp16(value)
-    if COMPUTE_DTYPE == _TRITON_BF16:
-        return _fake_round_to_bf16(value)
     return value
 
 
@@ -121,11 +117,11 @@ def round_candidate_scale(
 ):
     """Round a floating candidate scale as compressed-tensors qparams do."""
     if SCALE_ROUND_TYPE == _TRITON_FP16:
-        return _fake_round_to_fp16(tl.minimum(scale, 65504.0))
+        return round_fp32_as_dtype(tl.minimum(scale, 65504.0), _TRITON_FP16)
     if SCALE_ROUND_TYPE == _TRITON_BF16:
-        return _fake_round_to_bf16(scale)
+        return round_fp32_as_dtype(scale, _TRITON_BF16)
     if SCALE_ROUND_TYPE == _TRITON_FP8_E4M3:
-        return tl.minimum(scale, 448.0).to(tl.float8e4nv).to(tl.float32)
+        return round_fp32_as_dtype(tl.minimum(scale, 448.0), _TRITON_FP8_E4M3)
     if SCALE_ROUND_TYPE == _TRITON_E8M0:
         # E8M0 stores the power-of-two scale after accounting for the element
         # format's largest exponent (FP4: 2, FP8: 8).
@@ -205,7 +201,7 @@ def quantize_dequantize(
                 tl.float32
             ) * 256.0
         else:
-            rounded = normalized.to(tl.float8e4nv).to(tl.float32)
+            rounded = round_fp32_as_dtype(normalized, _TRITON_FP8_E4M3)
     if HAS_ZP:
         rounded -= zero_point
     return tldevice.mul_rn(rounded, scale)
