@@ -261,9 +261,10 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self.start_calibration(state.model, modules=modules)
         for module in state.model.modules() if modules is None else modules:
             if self._is_decoding_layer(module):
-                self._capture_hooks[module._tmp_name] = self.register_hook(
+                handle = self.register_hook(
                     module, self.input_capture_hook, "forward_pre", with_kwargs=True
                 )
+                self._capture_hooks[module._tmp_name] = handle
 
     def _prepare_sequential_subgraph(
         self,
