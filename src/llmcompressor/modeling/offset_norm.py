@@ -55,7 +55,7 @@ class NormCalibrationModule(ABC, RegistryMixin):
     @abstractmethod
     def restore(self) -> None:
         """Restore the offset convention after calibration transformations."""
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 @NormCalibrationModule.register(
