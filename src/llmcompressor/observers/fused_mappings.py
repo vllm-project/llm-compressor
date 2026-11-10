@@ -29,11 +29,16 @@ class FusedMapping:
         parent only when all of these are present
     :param optional_names: layers that are packed only in some model
         configurations. When the mapping applies, those present join the group
+    :param model_types: when non-empty, the mapping applies only to modules
+        whose config has one of these ``model_type`` values. Used for models
+        whose packed groups differ from the common layout, e.g. Ricursive's
+        q/k/g attention gate
     """
 
     fused_name: str
     names: tuple[str, ...]
     optional_names: tuple[str, ...] = ()
+    model_types: tuple[str, ...] = ()
 
 
 # Single source of truth for linear-layer groups that vLLM packs together
@@ -43,6 +48,15 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
     # MLP / expert gate and up projections
     FusedMapping("gate_up_proj", ("gate_proj", "up_proj")),
     FusedMapping("gate_up_proj", ("w1", "w3")),
+    # Ricursive (Ripple-65B) gated attention. vLLM packs q, k and the attention
+    # gate g into qkg_proj; v_proj stays separate because it reads the
+    # value-residual blend. Listed before the q/k/v mapping so it wins the tie
+    # on group size for this model_type and v_proj is not fused.
+    FusedMapping(
+        "qkg_proj",
+        ("q_proj", "k_proj", "g_proj"),
+        model_types=("ricursive",),
+    ),
     # Attention q/k/v. Gemma 4 `attention_k_eq_v` layers have no v_proj, and
     # vLLM loads k_proj into both the k and v shards of qkv_proj
     FusedMapping("qkv_proj", ("q_proj", "k_proj"), optional_names=("v_proj",)),
@@ -89,7 +103,10 @@ FUSED_MODULE_NAMES: frozenset[str] = frozenset(
 )
 
 
-def resolve_fused_names(present_names: Collection[str]) -> list[tuple[str, ...]]:
+def resolve_fused_names(
+    present_names: Collection[str],
+    model_type: str | None = None,
+) -> list[tuple[str, ...]]:
     """
     Resolve the fused groups among the layers present under one parent module.
 
@@ -99,16 +116,22 @@ def resolve_fused_names(present_names: Collection[str]) -> list[tuple[str, ...]]
     example, Kimi `g_proj` is packed into `in_proj_qkvgfab` on delta attention
     layers and into `fused_qkv_a_g_proj` on MLA layers.
 
+    Mappings with a non-empty `model_types` apply only when `model_type`
+    matches, so a model can override the common layout.
+
     Larger groups take precedence, and a group that shares a layer with an
     already chosen group is dropped. For example, a Kimi delta attention layer
     resolves to one q/k/v/b/f_a group rather than a q/k/v group.
 
     :param present_names: layer names present under one parent, relative to it
+    :param model_type: the parent module's config `model_type`, if known
     :return: disjoint groups of layer names. The first name of each group is
         always one of its mapping's required `names`
     """
     candidates: list[tuple[str, ...]] = []
     for mapping in FUSED_MODULE_MAPPINGS:
+        if mapping.model_types and model_type not in mapping.model_types:
+            continue
         if all(name in present_names for name in mapping.names):
             optional = tuple(n for n in mapping.optional_names if n in present_names)
             candidates.append(mapping.names + optional)
@@ -141,9 +164,12 @@ def get_fused_layers(module: Module) -> list[dict[str, Module]]:
         if isinstance(layer, Module):
             present_layers[name] = layer
 
+    config = getattr(module, "config", None)
+    model_type = getattr(config, "model_type", None)
+
     return [
         {name: present_layers[name] for name in group}
-        for group in resolve_fused_names(present_layers.keys())
+        for group in resolve_fused_names(present_layers.keys(), model_type=model_type)
     ]
 
 
