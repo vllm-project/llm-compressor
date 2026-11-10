@@ -130,6 +130,45 @@ def test_enabled_propagate_true(
     assert sqnr_values[0] == pytest.approx(EXPECTED_SQNR, abs=0.01)
 
 
+@pytest.mark.parametrize(
+    ("lazy", "expected_calls"),
+    [(False, 0), (True, NUM_SUBGRAPHS)],
+)
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.partition_subgraphs")
+def test_moe_processing_only_runs_per_subgraph_when_lazy(
+    mock_partition,
+    mock_targets,
+    fake_pipeline,
+    fake_subgraphs,
+    fake_dataloader,
+    monkeypatch,
+    lazy,
+    expected_calls,
+):
+    mock_partition.return_value = fake_subgraphs
+    model, _ = fake_pipeline
+    linearize_calls = []
+    monkeypatch.setattr(
+        sequential_pipeline,
+        "linearize_moe",
+        lambda *args, **kwargs: (
+            linearize_calls.append(args),
+            (args[1], kwargs["offload_kwargs"]),
+        )[1],
+    )
+    SequentialPipeline()(
+        model,
+        fake_dataloader,
+        DatasetArguments(
+            moe_lazy_linearization_and_repack=lazy,
+            repack_moe_layers=True,
+        ),
+    )
+
+    assert len(linearize_calls) == expected_calls
+
+
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
 @patch(f"{_PIPELINE}.partition_subgraphs")
 def test_enabled_propagate_false(

@@ -3,11 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, ClassVar
 
 import torch
-from compressed_tensors.offload import (
-    get_cache_init_kwargs,
-    get_execution_device,
-    offload_module,
-)
+from compressed_tensors.offload import get_execution_device
 from transformers import PreTrainedConfig
 from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
@@ -282,6 +278,7 @@ class LinearExperts2D(torch.nn.ModuleList):
         cls, experts_cls: type[FusedExpertsProtocol]
     ) -> type["LinearExperts2D"]:
         if linear_experts_cls := cls.get_registration(experts_cls):
+            linear_experts_cls._source_experts_cls = experts_cls
             return linear_experts_cls
 
         experts_cls_args = get_use_experts_implementation_args(experts_cls)
@@ -297,18 +294,27 @@ class LinearExperts2D(torch.nn.ModuleList):
 
         # reuse existing classes to avoid creating excessive types
         linear_experts_cls = type("LinearExperts2D", (cls,), experts_cls_args)
+        linear_experts_cls._source_experts_cls = experts_cls
         cls._registry[experts_cls] = linear_experts_cls
         return linear_experts_cls
 
     @classmethod
     @torch.no_grad()
     def from_experts_module(
-        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+        cls,
+        experts: FusedExpertsProtocol,
+        config: PreTrainedConfig,
+        construction_device: torch.device | str | None = None,
     ):
-        # Offloaded parameters are represented by meta tensors while onloading is
-        # disabled. Construct on the module's execution device instead of using a
-        # parameter's storage device so copying from the source works reliably.
-        construction_device = get_execution_device(experts)
+        """Build 2D experts on the requested device.
+
+        :param construction_device: device for the new module. Defaults to the
+            source experts' execution device.
+        """
+        if construction_device is None:
+            # Offloaded parameters may be meta tensors while onloading is disabled.
+            # Construct on the execution device so copying from the source works.
+            construction_device = get_execution_device(experts)
         with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
@@ -320,11 +326,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         # fused experts class and config (see issue #2699).
         self._record_source_metadata(experts, config)
 
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
-
         return self
 
     def _record_source_metadata(
@@ -334,10 +335,15 @@ class LinearExperts2D(torch.nn.ModuleList):
         self._source_config = config
 
     @torch.no_grad()
-    def to_experts_module(self) -> FusedExpertsProtocol:
+    def to_experts_module(
+        self, construction_device: torch.device | str | None = None
+    ) -> FusedExpertsProtocol:
         """
         Pack this linearized experts module back into the native fused 3D experts
         module it was created from.
+
+        :param construction_device: device on which to construct the fused module.
+            Defaults to this module's execution device.
 
         Dense experts (still have ``weight``) restore native fused Parameters
         and fuse any extra qparams alongside. Compressed experts (no
@@ -351,10 +357,10 @@ class LinearExperts2D(torch.nn.ModuleList):
         experts_cls, config = self._require_source_metadata()
         config = _narrowed_config(config, self.num_experts)
         pack_mode = self._expert_pack_mode()
-
         # ``self.parameters()`` may yield meta tensors for a disk-offloaded module.
         # Use the configured onload device when constructing the replacement.
-        construction_device = get_execution_device(self)
+        if construction_device is None:
+            construction_device = get_execution_device(self)
         with torch.device(construction_device), skip_weights_initialize():
             fused: FusedExpertsProtocol = experts_cls(config)
 
@@ -380,17 +386,9 @@ class LinearExperts2D(torch.nn.ModuleList):
                 for index in range(self.num_experts):
                     self[index].copy_bias_to_experts_module(fused, index)
 
-        # novices remain identical; skip the assignment for modules without
-        # them, so e.g. REAP-pruned layers don't serialize an empty tensor
-        if self.novices is not None:
-            with torch.device(construction_device):
-                fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
-
-        offload_kwargs = get_cache_init_kwargs(self)
-        offload_module(fused, **offload_kwargs)
-        for child in fused.children():
-            if isinstance(child, CompressedFusedLinear):
-                offload_module(child, **offload_kwargs)
+        # novices remain identical
+        with torch.device(construction_device):
+            fused.novices = torch.nn.Parameter(self.novices, requires_grad=False)
         return fused
 
     def _require_source_metadata(self) -> tuple[type, PreTrainedConfig]:
@@ -517,6 +515,9 @@ class LinearExperts2D(torch.nn.ModuleList):
         return packed
 
     def __init__(self, config: PreTrainedConfig, *args, **kwargs):
+        # Checkpoint conversion can construct this class directly, without going
+        # through from_experts_module(). Preserve the information needed to repack.
+        self._source_config = config
         moe_config = MoEConfig.from_config(config)
 
         # store num_experts before appending `act_fn` to module list
