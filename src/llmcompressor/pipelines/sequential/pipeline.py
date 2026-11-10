@@ -87,22 +87,6 @@ class SequentialPipeline(CalibrationPipeline):
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
     ):
-        """Run sequential calibration with scoped offset-norm transformations."""
-        norm_transformations = NormCalibrationTransformations(model)
-        try:
-            return SequentialPipeline._run(
-                model, dataloader, dataset_args, norm_transformations
-            )
-        finally:
-            norm_transformations.restore_all()
-
-    @staticmethod
-    def _run(
-        model: torch.nn.Module,
-        dataloader: DataLoader,
-        dataset_args: "DatasetArguments",
-        norm_transformations: NormCalibrationTransformations,
-    ):
         """
         Run a sequential data pipeline according to the following steps:
 
@@ -126,6 +110,7 @@ class SequentialPipeline(CalibrationPipeline):
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
         """
+        norm_transformations = NormCalibrationTransformations(model)
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
