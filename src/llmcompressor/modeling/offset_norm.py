@@ -14,13 +14,12 @@ offload.
 
 import contextlib
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING
 
 import torch
 from compressed_tensors.offload import OffloadCache, update_offload_parameter
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
-from loguru import logger
 from torch.nn import Module
 from transformers import PreTrainedModel
 
@@ -30,7 +29,8 @@ if TYPE_CHECKING:
 __all__ = [
     "CalibrationOffsetNorm",
     "NormCalibrationModule",
-    "NormCalibrationTransformations",
+    "apply_norm_calibration",
+    "restore_norm_calibration",
     "norm_calibration_context",
 ]
 
@@ -40,9 +40,8 @@ class NormCalibrationModule(ABC, RegistryMixin):
 
     is_permanent: bool = False
 
-    def __init__(self, original: Module, config):
+    def __init__(self, original: Module):
         self.original = original
-        self.config = config
         self._original_dtype: torch.dtype | None = None
         self._original_forward = None
         self._forward_is_offload_wrapped = False
@@ -127,52 +126,34 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         self._active = False
 
 
-class NormCalibrationTransformations:
-    """A model-wide plan whose norm conversions run only for active scopes."""
+def apply_norm_calibration(modules: Iterable[Module]) -> list[NormCalibrationModule]:
+    """Apply registered norm transformations to modules in an onloaded scope.
 
-    def __init__(self, model: PreTrainedModel):
-        self._transforms: dict[Module, NormCalibrationModule] = {}
-        self._active: set[Module] = set()
+    Returns the transformations that were applied. Keep this list until the scope
+    finishes and pass it to :func:`restore_norm_calibration`.
+    """
+    transformations = []
+    for module in modules:
+        class_name = module.__class__.__name__
+        if not _is_registered(class_name, NormCalibrationModule):
+            continue
 
-        for _, module in model.named_modules():
-            class_name = module.__class__.__name__
-            if not _is_registered(class_name, NormCalibrationModule):
-                continue
-
-            self._transforms[module] = NormCalibrationModule.load_from_registry(
-                class_name,
-                original=module,
-                config=model.config,
-            )
-
-        logger.info(
-            "Prepared lazy calibration transformations for {} offset-norm modules",
-            len(self._transforms),
+        transformation = NormCalibrationModule.load_from_registry(
+            class_name,
+            original=module,
         )
+        transformation.apply()
+        transformations.append(transformation)
 
-    def apply(self, modules: Iterable[Module] | None = None) -> None:
-        """Apply transformations for modules in the onloaded scope."""
-        module_scope = None if modules is None else set(modules)
-        for module, transform in self._transforms.items():
-            if module in self._active:
-                continue
-            if module_scope is None or module in module_scope:
-                transform.apply()
-                self._active.add(module)
+    return transformations
 
-    def restore(self, modules: Iterable[Module] | None = None) -> None:
-        """Restore transformed modules in a completed scope."""
-        module_scope = None if modules is None else set(modules)
-        for module in reversed(tuple(self._transforms)):
-            if module not in self._active:
-                continue
-            if module_scope is None or module in module_scope:
-                self._transforms[module].restore()
-                self._active.remove(module)
 
-    def restore_all(self) -> None:
-        """Restore any scope left active by an interrupted pipeline."""
-        self.restore()
+def restore_norm_calibration(
+    transformations: Sequence[NormCalibrationModule],
+) -> None:
+    """Restore transformations applied to a completed scope."""
+    for transformation in reversed(transformations):
+        transformation.restore()
 
 
 @contextlib.contextmanager
@@ -181,12 +162,12 @@ def norm_calibration_context(model: PreTrainedModel) -> "Iterator[None]":
 
     :param model: model whose offset-norm modules need calibration transforms
     """
-    transformations = NormCalibrationTransformations(model)
+    transformations = []
     try:
-        transformations.apply()
+        transformations = apply_norm_calibration(model.modules())
         yield
     finally:
-        transformations.restore_all()
+        restore_norm_calibration(transformations)
 
 
 def _standard_rms_norm_forward(module: Module, x: torch.Tensor) -> torch.Tensor:
