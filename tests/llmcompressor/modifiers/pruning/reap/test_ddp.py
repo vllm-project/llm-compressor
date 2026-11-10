@@ -978,7 +978,10 @@ def test_reap_ddp_qwen3():
         # Single-GPU reference (before init_dist)
         with load_context():
             model_ref = AutoModelForCausalLM.from_pretrained(
-                QWEN_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
+                QWEN_MODEL,
+                dtype=torch.bfloat16,
+                device_map="auto_offload",
+                attn_implementation="eager",
             )
 
         ref_modifier = _DiagnosticREAPPruningModifier(
@@ -1025,7 +1028,10 @@ def test_reap_ddp_qwen3():
 
         with load_context():
             model_ddp = AutoModelForCausalLM.from_pretrained(
-                QWEN_MODEL, dtype=torch.bfloat16, device_map="auto_offload"
+                QWEN_MODEL,
+                dtype=torch.bfloat16,
+                device_map="auto_offload",
+                attn_implementation="eager",
             )
 
         ddp_modifier = _DiagnosticREAPPruningModifier(
