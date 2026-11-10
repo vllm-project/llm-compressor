@@ -291,10 +291,8 @@ class NVFP4ExpandedIMatrixObserver(IMatrixMSEObserver):
     IMatrix observer with candidate range and grid defaults tuned for NVFP4.
 
     Covers 1.8x down to ~0.8x of the per-group range, matching the candidate
-    range of :class:`NVFP4ExpandedMSEObserver`. It uses a default error power
-    of ``3.0`` and retains imatrix's default magnitude normalization. GPTQ
-    overrides the power to ``2.0`` and disables magnitude normalization for
-    either iMatrix observer.
+    range of :class:`NVFP4ExpandedMSEObserver`. It retains imatrix's default
+    magnitude normalization.
 
     Usage::
 
@@ -314,5 +312,5 @@ class NVFP4ExpandedIMatrixObserver(IMatrixMSEObserver):
             self.expand = kw.get("expand", 1.8)
             self.maxshrink = kw.get("maxshrink", 1 - 0.8 / 1.8)
         self.grid = kw.get("grid", 200)
-        self.norm = kw.get("norm", 3.0)
+        self.norm = kw.get("norm", 2.4)
         self.patience = kw.get("patience", 1000)

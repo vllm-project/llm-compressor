@@ -40,7 +40,6 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
-from llmcompressor.observers.imatrix import IMatrixMSEObserver
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -218,16 +217,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
-        # GPTQ uses squared error and no group-max normalization for iMatrix ranges.
-        for module in self._module_names:
-            observer = getattr(module, "weight_observer", None)
-            if isinstance(observer, IMatrixMSEObserver):
-                observer.norm = 2.0
-                observer.magnitude_normalization = False
-                observer.args.observer_kwargs.update(
-                    norm=2.0, magnitude_normalization=False
-                )
-
         QuantizationMixin.start_calibration(self, state.model)
 
         # register gptq hooks
