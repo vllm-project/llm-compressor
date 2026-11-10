@@ -106,6 +106,24 @@ the model; pruning-only runs can set `moe_calibrate_all_experts=False`. If REAP
 is combined with quantization, keep all-expert calibration enabled when the
 quantizer needs statistics from every expert.
 
+### HOPEPruningModifier ###
+
+HOPE follows the same data-parallel calibration strategy as REAP, with its
+pairwise expert interaction statistics in place of the per-expert saliency
+sums:
+
+1. Interaction sums, co-selection counts, and routed-token counts are reduced
+   across ranks.
+2. The source rank solves each layer's prune-set quadratic program over the
+   globally reduced interaction matrix.
+3. The retained expert indices are broadcast to every rank.
+4. Every rank applies the same structural pruning and updates the model config.
+
+As with REAP, DDP pruning decisions match a single-GPU run over the combined
+calibration data, and `moe_calibrate_all_experts=False` suffices for
+pruning-only runs. The prune-set quadratic program is solved with `scipy`
+(`pip install llmcompressor[hope]`).
+
 ### GPTQModifier ###
 
 GPTQ, being a more expensive technique, can make further use of parallelization by doing weight-parallel compression. Once each rank has accumulated a partial Hessian for every module during the forward pass on its data partition, the modifier then:
