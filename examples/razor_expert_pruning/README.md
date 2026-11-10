@@ -48,7 +48,7 @@ routing-weighted consensus residual).
 
 The router scores are recomputed each batch from the router's linear
 projection of the experts-block input, transformed by the router's native
-score function (`softmax`, `sigmoid`, or `sqrt_softplus`, e.g.
+score function (`softmax`, `sigmoid`, or `sqrtsoftplus`, e.g.
 DeepSeek-V4's `sqrt(softplus(z))`), which is read from the model config and
 falls back to `softmax` when the architecture does not declare one. An
 `e_score_correction_bias` (e.g. DeepSeek-V3, Hy3) steers which unselected

@@ -22,7 +22,6 @@ from transformers.modeling_utils import local_torch_dtype
 
 from llmcompressor.core import State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
-from llmcompressor.modeling.moe.helpers import ScoreFunction
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
@@ -48,22 +47,20 @@ _DENOM_CLAMP = 1e-6
 _SCORE_SUM_CLAMP = 1e-20
 
 
-def _apply_score_function(
-    logits: torch.Tensor, score_function: ScoreFunction
-) -> torch.Tensor:
+def _apply_score_function(logits: torch.Tensor, score_function: str) -> torch.Tensor:
     """
     Transform raw router logits into nonnegative mixture scores.
 
     :param logits: router logits, ``[num_tokens, num_experts]``
     :param score_function: one of ``"softmax"``, ``"sigmoid"``,
-        ``"sqrt_softplus"``
+        ``"sqrtsoftplus"``
     :return: the nonnegative scores, of the same shape as ``logits``
     """
     if score_function == "softmax":
         return logits.softmax(dim=-1)
     if score_function == "sigmoid":
         return logits.sigmoid()
-    if score_function == "sqrt_softplus":
+    if score_function == "sqrtsoftplus":
         return F.softplus(logits).sqrt()
     raise ValueError(f"Unknown score function {score_function!r}")
 

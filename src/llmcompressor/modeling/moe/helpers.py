@@ -2,7 +2,7 @@ import ast
 import importlib
 import inspect
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Literal
+from typing import Any, Callable, ClassVar
 
 import torch
 from compressed_tensors.offload import disable_onloading
@@ -18,27 +18,6 @@ NUM_EXPERTS_CONFIG_KEYS = [
     "num_experts",
     "n_routed_experts",
 ]
-
-# canonical router score functions: the transformation a router applies to
-# its logits to produce the nonnegative scores which select and weight the
-# experts (e.g. ``sqrt_softplus`` is DeepSeek-V4's ``sqrt(softplus(z))``)
-ScoreFunction = Literal["softmax", "sigmoid", "sqrt_softplus"]
-
-# config fields which declare a model's native router score transformation,
-# checked in this order when resolving ``score_function``
-SCORE_FUNCTION_CONFIG_KEYS = [
-    "scoring_func",
-    "score_func",
-    "moe_router_activation_func",
-]
-
-# config values mapped onto the canonical score functions above; values
-# which are not listed (or absent fields) fall back to ``softmax``
-SCORE_FUNCTION_CONFIG_VALUES = {
-    "softmax": "softmax",
-    "sigmoid": "sigmoid",
-    "sqrtsoftplus": "sqrt_softplus",
-}
 
 
 class FusedExpertsProtocol(TorchModuleProtocol):
@@ -138,7 +117,7 @@ class MoEConfig:
     num_experts_per_tok: int
 
     # router scoring
-    score_function: ScoreFunction
+    score_function: str
 
     # group-limited routing
     n_group: int | None
@@ -167,7 +146,12 @@ class MoEConfig:
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
             ),
-            score_function="softmax",
+            score_function=_getattr_fallbacks(
+                config,
+                ["scoring_func", "score_func", "moe_router_activation_func"],
+                "softmax",
+                warn_on_default=True,
+            ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
             top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
             group_size=None,
@@ -186,15 +170,6 @@ class MoEConfig:
             alpha=None,
             dtype=_getattr_fallbacks(config, ["dtype"]),
         )
-
-        # resolve the router's native score transformation from the config,
-        # falling back to softmax for architectures which do not declare one
-        # (or declare an unknown one)
-        for key in SCORE_FUNCTION_CONFIG_KEYS:
-            value = getattr(config, key, None)
-            if isinstance(value, str) and value in SCORE_FUNCTION_CONFIG_VALUES:
-                self.score_function = SCORE_FUNCTION_CONFIG_VALUES[value]
-                break
 
         # compute group_size
         if self.n_group is not None:
@@ -237,13 +212,21 @@ def import_or_none(paths: str | list[str]) -> object | None:
 
 
 def _getattr_fallbacks(
-    target: object, attrs: list[str], default: Any = Sentinel("None")
+    target: object,
+    attrs: list[str],
+    default: Any = Sentinel("None"),
+    warn_on_default: bool = False,
 ) -> Any:
     for attr in attrs:
         if hasattr(target, attr):
             return getattr(target, attr)
 
     if default is not Sentinel("None"):
+        if warn_on_default:
+            logger.warning(
+                f"{target} does not have any of {attrs} attributes. "
+                f"Defaulting to {default}"
+            )
         return default
 
     raise AttributeError(f"{target} does not have any of {attrs} attributes")
