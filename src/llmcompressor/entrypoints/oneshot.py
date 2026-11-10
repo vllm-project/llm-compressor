@@ -36,9 +36,9 @@ from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.modeling import create_model_transformations
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
-from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.recipe import Recipe
@@ -297,12 +297,11 @@ class Oneshot:
             )
             linearize_moe(self.model)
 
+        model_transformations = create_model_transformations(self.model)
+
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            norm_calibration_transformations = stack.enter_context(
-                norm_calibration_context(self.model, lazy=True)
-            )
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -324,9 +323,7 @@ class Oneshot:
                 calib_data=calibration_dataloader,
                 sequential_targets=self.dataset_args.sequential_targets,
                 pipeline=self.dataset_args.pipeline,
-            )
-            session.state.norm_calibration_transformations = (
-                norm_calibration_transformations
+                model_transformations=model_transformations,
             )
 
             user_pipeline = self.dataset_args.pipeline
@@ -334,11 +331,15 @@ class Oneshot:
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
 
-            pipeline(
-                self.model,
-                calibration_dataloader,
-                self.dataset_args,
-            )
+            try:
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                )
+            finally:
+                if model_transformations is not None:
+                    model_transformations.restore_all()
 
         session.finalize()
 

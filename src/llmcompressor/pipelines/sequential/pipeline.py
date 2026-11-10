@@ -112,9 +112,7 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
-        norm_calibration_transformations = (
-            session.state.norm_calibration_transformations
-        )
+        model_transformations = session.state.model_transformations
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -151,8 +149,8 @@ class SequentialPipeline(CalibrationPipeline):
 
         if dataset_args.layerwise_decompression:
             decompress_subgraph_modules(list(persistent_modules.values()))
-        if norm_calibration_transformations is not None:
-            norm_calibration_transformations.apply(list(persistent_modules.values()))
+        if model_transformations is not None:
+            model_transformations.apply(list(persistent_modules.values()))
         LifecycleCallbacks.sequential_subgraph_start(
             list(persistent_modules.values()),
         )
@@ -283,10 +281,8 @@ class SequentialPipeline(CalibrationPipeline):
                 # start event then prepares model state and calibration hooks.
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(list(subgraph_modules.values()))
-                if norm_calibration_transformations is not None:
-                    norm_calibration_transformations.apply(
-                        list(subgraph_modules.values())
-                    )
+                if model_transformations is not None:
+                    model_transformations.apply(list(subgraph_modules.values()))
                 LifecycleCallbacks.sequential_subgraph_start(
                     list(subgraph_modules.values()),
                     warn_on_inference_mode=False,
@@ -357,10 +353,8 @@ class SequentialPipeline(CalibrationPipeline):
                             f"subgraph {subgraph_index + 1}/{num_subgraphs} | "
                             f"sequential error (SQNR dB): {sqnr:.2f}",
                         )
-                if norm_calibration_transformations is not None:
-                    norm_calibration_transformations.restore(
-                        list(subgraph_modules.values())
-                    )
+                if model_transformations is not None:
+                    model_transformations.restore(list(subgraph_modules.values()))
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(subgraph_modules.values()))
@@ -374,10 +368,8 @@ class SequentialPipeline(CalibrationPipeline):
             LifecycleCallbacks.sequential_subgraph_end(
                 list(persistent_modules.values()),
             )
-            if norm_calibration_transformations is not None:
-                norm_calibration_transformations.restore(
-                    list(persistent_modules.values())
-                )
+            if model_transformations is not None:
+                model_transformations.restore(list(persistent_modules.values()))
             if persistent_modules:
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(list(persistent_modules.values()))

@@ -36,12 +36,12 @@ class DataFreePipeline(CalibrationPipeline):
         set_onload_device(model, onload_device)
 
         modules = list(model.modules())
-        transformations = active_session().state.norm_calibration_transformations
+        model_transformations = active_session().state.model_transformations
         try:
-            if transformations is not None:
-                transformations.apply(modules)
+            if model_transformations is not None:
+                model_transformations.apply(modules)
             LifecycleCallbacks.sequential_subgraph_start()
             LifecycleCallbacks.sequential_subgraph_end(modules)
         finally:
-            if transformations is not None:
-                transformations.restore(modules)
+            if model_transformations is not None:
+                model_transformations.restore(modules)

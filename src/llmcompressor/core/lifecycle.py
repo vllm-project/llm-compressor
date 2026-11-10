@@ -75,6 +75,7 @@ class CompressionLifecycle:
         recipe: RecipeInput | None = None,
         recipe_stage: RecipeStageInput | None = None,
         recipe_args: RecipeArgsInput | None = None,
+        model_transformations: Any | None = None,
         **kwargs,
     ) -> list[Any]:
         """
@@ -85,7 +86,7 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
 
-        self.state.update(**kwargs)
+        self.state.update(model_transformations=model_transformations, **kwargs)
         if self.initialized_:  # TODO: do not initialize twice
             return
 
