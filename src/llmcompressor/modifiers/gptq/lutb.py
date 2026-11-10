@@ -31,9 +31,8 @@ class GPTQLutBModifier(GPTQModifier):
       quantization routine, so there are no scale/zero-point qparams to observe.
     - ``use_imatrix`` weights Lloyd-Max centroid updates by the normalized
       diagonal of the calibration Hessian (mean squared input activation).
-    - The only GPTQ parameter produced is ``weight``. LUT-B tiles are range
-      normalized with E8M0 scales during fitting; the CT compressor writes the
-      final codebooks and scales from the resulting quantized weights.
+    - GPTQ returns the selected ``weight_codebook`` and ``weight_scale`` with
+      ``weight`` so CT can pack the indices without refitting the codebooks.
     - Activation ordering is unsupported: LUT-B uses 2D block tiling
       (``[block_n, block_k]``) and actorder would scatter a tile's columns.
     """

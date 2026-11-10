@@ -535,7 +535,12 @@ def quantize_weight_lut_b(
     percdamp: float = 0.01,
     importance: torch.Tensor | None = None,
 ) -> tuple[float, dict[str, torch.Tensor], bool]:
-    """Run GPTQ error compensation using one E4M3 codebook per LUT-B tile."""
+    """Run LUT-B GPTQ and return quantized weights with their fitted qparams.
+
+    When supplied, ``importance`` weights the Lloyd-Max fit per input column
+    using calibration activation energy. The returned codebooks and E8M0 scales
+    are the exact qparams used by GPTQ, so CT compression does not refit them.
+    """
     from compressed_tensors.quantization.utils.lut_b import (
         LUT_B_LLOYD_ITERATIONS,
         LUT_B_MAX_TILES_PER_CHUNK,

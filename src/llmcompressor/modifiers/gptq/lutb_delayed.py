@@ -62,8 +62,9 @@ def quantize_weight_lut_b_delayed(
     :param percdamp: Fraction of the mean Hessian diagonal used for damping.
     :param column_order: Optional permutation from execution position to
         original column index.
-    :return: Total GPTQ loss, a weight-only qparam dictionary, and whether
-        Hessian factorization fell back to RTN.
+    :return: Total GPTQ loss, a qparam dictionary containing the quantized
+        weight, fitted codebooks and E8M0 scales, and whether Hessian
+        factorization fell back to RTN.
     """
     if not is_lut_b_quantization(quant_args):
         raise ValueError(
