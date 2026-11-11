@@ -134,7 +134,7 @@ def test_build_layer_config_for_autoround_supports_mixed_weight_only_schemes():
         },
     )
     layer = _MixedFakeDecoderLayer()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
 
     wrapped = _wrap_decoding_layer(layer)
     layer_config = modifier._build_layer_config_for_autoround(wrapped)
@@ -153,7 +153,7 @@ def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
         scheme="MXFP4",
     )
     layer = _FakeDecoderLayer()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
 
     wrapped = _wrap_decoding_layer(layer)
     layer_config = modifier._build_layer_config_for_autoround(wrapped)
@@ -176,7 +176,7 @@ def test_build_layer_config_for_autoround_skips_activation_only_schemes():
         scheme="W4A16",
     )
     layer = _DecoderLayerWithAttention()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
 
     # Simulate a prior modifier (e.g. QuantizationModifier) having already
     # attached an activation-only quantization_scheme to the attention module.
@@ -310,7 +310,7 @@ def test_build_layer_config_for_autoround_ignores_kv_cache_only_scheme():
         ignore=["lm_head"], iters=0, scheme="W4A16", bypass_divisibility_checks=True
     )
     layer = _FakeDecoderLayer()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
     layer.k_proj.quantization_scheme = QuantizationScheme(
         targets=["k_proj"],
         output_activations=QuantizationArgs(

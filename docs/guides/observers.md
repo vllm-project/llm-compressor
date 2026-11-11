@@ -56,6 +56,8 @@ All MinMax observers compute min/max values by tracking the minimum and maximum 
 #### [memoryless_minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py)
 Computes min/max from each observed tensor independently, with no memory of past observations. Each observation is handled in isolation.
 
+This is the default weight observer when no calibration data is available (e.g. data-free quantization).
+
 Best used when:
 - Only a single observation e.g. for weight quantization
 - You want the most recent observation to fully determine the range
@@ -118,6 +120,8 @@ The table preserves the PR's reported `+delta` values i.e. increase in PPL above
 The IMatrix observer weights quantization error by per-input-channel activation importance (E[x²]), so channels that carry more signal get more careful range optimization.
 
 Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` modules. Falls back silently to uniform MSE (i.e., standard `memoryless_mse` behavior) whenever importance data is unavailable.
+
+This observer (`imatrix_mse`) is the **default weight observer whenever calibration data is available**, (except for AWQ) since activation importance can only be accumulated by running calibration data through the model. When there is no calibration data (e.g. data-free flows), weight observers default to `memoryless_minmax` instead.
 
 Best used when:
 - 4-bit weight quantization accuracy is critical
