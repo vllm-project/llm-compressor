@@ -303,7 +303,13 @@ class DataCollatorWithTruncation:
     def __call__(
         self, features: list[dict[str, Any]], return_tensors: str = "pt"
     ) -> dict[str, Any]:
-        for key in ("input_ids", "labels", "attention_mask", "loss_mask"):
+        for key in (
+            "input_ids",
+            "labels",
+            "attention_mask",
+            "loss_mask",
+            "mm_token_type_ids",
+        ):
             if any(key not in feature for feature in features):
                 continue
 
