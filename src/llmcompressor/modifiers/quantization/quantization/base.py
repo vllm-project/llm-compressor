@@ -91,9 +91,9 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             QuantizationMixin.start_calibration(self, state.model)
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: dict[str, torch.nn.Module], **kwargs
     ):
-        modules = [module for module in modules if is_module_quantized(module)]
+        modules = [module for module in modules.values() if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS)
 
