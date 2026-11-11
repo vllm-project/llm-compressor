@@ -27,11 +27,12 @@ export CADENCE=commit
 export UV_TORCH_BACKEND=auto
 export HF_HOME=/model-cache
 
-# install RELEASE dependencies for oder releases
+# install RELEASE dependencies for oder releases;
 # add torch and torchvision specific install here
-# to make sure uv picks up the compatible versions
+# to make sure uv picks up the compatible versions due
+# to uv bug: https://github.com/astral-sh/uv/issues/22965
 export BUILD_TYPE=release
-uv pip install .[dev] "torch>=2.7.0,<=2.9.1" torchvision --torch-backend=auto
+uv pip install .[dev] "torch>=2.7.0,<=2.9.1" "torchvision>=0.24,<0.25" --torch-backend=auto
 
 echo "--- Installed packages"
 uv pip list
