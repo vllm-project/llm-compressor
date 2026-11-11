@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import torch
+import torch.distributed as dist
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -46,7 +47,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
+from llmcompressor.observers import ACTIVATION_OBS, Observer, fuse_weight_observers
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -335,15 +336,24 @@ class QuantizationMixin(HooksMixin):
         if not is_distributed():
             return
 
-        pending_comms = []
+        observers = []
         synced_obs = {None}  # ignore None observers
         for module in modules:
             for base_name in ACTIVATION_OBS + ("weight",):
                 observer = getattr(module, f"{base_name}_observer", None)
                 if observer not in synced_obs:
                     synced_obs.add(observer)
-                    pending_comms.extend(observer.sync_activation_stats())
+                    observers.append(observer)
+
+        averaged = _fill_missing_act_stats(observers)
+        pending_comms = []
+        for observer in observers:
+            pending_comms.extend(observer.sync_activation_stats())
         wait_for_comms(pending_comms)
+
+        # an average over all ranks counted the filled-in zeros
+        for value, num_ranks in averaged:
+            value.mul_(dist.get_world_size() / num_ranks)
 
     @model_validator(mode="after")
     def _set_requires_calibration_data(self):
@@ -565,3 +575,81 @@ def _has_observer_statistics(module: torch.nn.Module) -> bool:
         for base_name in ACTIVATION_OBS + ("weight",)
         if (observer := getattr(module, f"{base_name}_observer", None)) is not None
     )
+
+
+def _fill_missing_act_stats(
+    observers: list[Observer],
+) -> list[tuple[torch.Tensor, int]]:
+    """
+    A rank can hold no statistics for an observer which other ranks have, for
+    example when token masking removed every token of its calibration samples, or
+    when an expert was routed no tokens. Such a rank would skip the all-reduces
+    which the other ranks issue, and calibration would hang. Fill the missing
+    statistics with values which do not change the reduction, so that every rank
+    issues the same all-reduces and ends with the same statistics.
+
+    :param observers: observers to sync, in the same order on every rank
+    :return: filled-in statistics which are averaged, with the number of ranks
+        which hold them, so the caller can rescale the average
+    """
+    stats = [
+        (observer, name, op)
+        for observer in observers
+        for name, op in observer._act_sync_dict.items()
+    ]
+    if not stats:
+        return []
+
+    # gloo reduces cpu tensors, other backends tensors on the rank's accelerator
+    if dist.get_backend() == "gloo":
+        device = torch.device("cpu")
+    else:
+        device = torch.device(
+            torch.accelerator.current_accelerator().type,
+            torch.accelerator.current_device_index(),
+        )
+    world_size = dist.get_world_size()
+    num_ranks = torch.tensor(
+        [getattr(obs, name, None) is not None for obs, name, _ in stats],
+        dtype=torch.int32,
+        device=device,
+    )
+    dist.all_reduce(num_ranks, op=dist.ReduceOp.SUM)
+    num_ranks = num_ranks.tolist()
+    partial = [i for i, count in enumerate(num_ranks) if 0 < count < world_size]
+    if not partial:
+        return []
+
+    # shapes and dtypes of the partial statistics, from the ranks which hold them
+    held = {
+        i: (tuple(value.shape), value.dtype)
+        for i in partial
+        if (value := getattr(stats[i][0], stats[i][1], None)) is not None
+    }
+    gathered = [None] * world_size
+    dist.all_gather_object(gathered, held)
+    for rank_held in gathered:
+        held.update(rank_held)
+
+    averaged = []
+    for i in partial:
+        observer, name, op = stats[i]
+        shape, dtype = held[i]
+        identity = _reduction_identity(op, dtype)  # raises on every rank alike
+        if getattr(observer, name, None) is None:
+            value = torch.full(shape, identity, dtype=dtype, device=device)
+            setattr(observer, name, value)
+        if op == dist.ReduceOp.AVG:
+            averaged.append((getattr(observer, name), num_ranks[i]))
+    return averaged
+
+
+def _reduction_identity(op: dist.ReduceOp, dtype: torch.dtype) -> float:
+    info = torch.finfo(dtype) if dtype.is_floating_point else torch.iinfo(dtype)
+    if op == dist.ReduceOp.MIN:
+        return info.max
+    if op == dist.ReduceOp.MAX:
+        return info.min
+    if op in (dist.ReduceOp.SUM, dist.ReduceOp.AVG):
+        return 0
+    raise ValueError(f"Cannot sync observer statistics reduced with {op}")

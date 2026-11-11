@@ -41,7 +41,11 @@ from llmcompressor.modifiers.transform.awq.mappings import (
     ResolvedMapping,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
-from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
+from llmcompressor.modifiers.utils.pytorch_helpers import (
+    apply_loss_mask,
+    get_current_loss_mask,
+    is_moe_model,
+)
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.helpers import fuse_weight_observers
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -496,23 +500,11 @@ class AWQModifier(Modifier):
             ):
                 activations = args[0].abs().detach()
 
-                # Get loss mask for current batch from state
-                session = active_session()
-                state = session.state
-                loss_masks = state.loss_masks if state else None
-                batch_idx = state.current_batch_idx if state else -1
-                loss_mask = (
-                    loss_masks[batch_idx] if loss_masks and batch_idx >= 0 else None
+                # [batch, seq, hidden] -> [num_tokens, hidden], keeping only the
+                # tokens selected by the loss mask (if use_loss_mask=True)
+                masked_activations = apply_loss_mask(
+                    activations, get_current_loss_mask()
                 )
-
-                if loss_mask is not None:
-                    # Mask: [batch, seq] -> [batch, seq, 1]
-                    mask = loss_mask.to(activations.device).unsqueeze(-1)
-                    flat_activations = activations.flatten(0, -2)  # [batch*seq, hidden]
-                    flat_mask = mask.flatten(0, -2).squeeze(-1)
-                    masked_activations = flat_activations[flat_mask.bool()]
-                else:
-                    masked_activations = activations.flatten(0, -2)
 
                 # accumulate activation sum&count
                 new_sum = masked_activations.float().sum(dim=0).cpu()
