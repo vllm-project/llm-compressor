@@ -40,7 +40,6 @@ from llmcompressor.utils.helpers import (
     numeric_sorted_names,
     values_by_decoder_layer,
 )
-from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["ExpertPruningModifierBase"]
 
@@ -259,7 +258,7 @@ class ExpertPruningModifierBase(Modifier):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: dict[str, torch.nn.Module] | None = None,
         **kwargs,
     ):
         """
@@ -276,9 +275,13 @@ class ExpertPruningModifierBase(Modifier):
         if modules is None:
             moe_names = list(self._moe_stats)
         else:
-            # TODO: refactor `modules` to be a dict
-            m_to_n = get_module_to_name_dict(model)
-            moe_names = [m_to_n[m] for m in modules if m_to_n[m] in self._moe_stats]
+            # compare by identity: a shared module can be listed under another alias
+            subgraph_modules = set(modules.values())
+            moe_names = [
+                name
+                for name in self._moe_stats
+                if model.get_submodule(name) in subgraph_modules
+            ]
 
         # sort by layer name to keep the sequence of distributed collectives identical
         pruned_layers = 0

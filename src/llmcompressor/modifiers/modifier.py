@@ -281,7 +281,7 @@ class Modifier(ModifierInterface, HooksMixin):
         pass
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: dict[str, torch.nn.Module], **kwargs
     ):
         """
         on_sequential_epoch_end is called at the end of a sequential layer
@@ -289,8 +289,8 @@ class Modifier(ModifierInterface, HooksMixin):
 
         :param state: The current state of the model
         :param event: The event that triggered the sequential epoch end
-        :param modules: List of de-duplicated modules which were included in the
-            sequential subgraph
+        :param modules: De-duplicated modules which were included in the
+            sequential subgraph, keyed by their qualified names
         :param kwargs: Additional arguments for the sequential epoch end
         """
         pass

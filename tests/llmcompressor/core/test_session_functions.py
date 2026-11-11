@@ -2,7 +2,7 @@ from llmcompressor.core import EventType, LifecycleCallbacks
 
 
 def test_sequential_epoch_end_passes_modules(monkeypatch):
-    modules = [object()]
+    modules = {"layer": object()}
     seen = {}
 
     def fake_event(cls, event_type, **kwargs):

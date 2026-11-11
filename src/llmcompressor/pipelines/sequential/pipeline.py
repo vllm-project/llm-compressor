@@ -267,15 +267,14 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                modules = subgraph.submodules(model)
 
                 # Decompress and initialize only this subgraph after onloading it.
                 if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
+                    decompress_subgraph_modules(subgraph_modules)
                     for modifier in modifiers:
                         if hasattr(modifier, "start_layerwise_calibration"):
                             modifier.start_layerwise_calibration(
-                                session.state, model, modules
+                                session.state, model, subgraph_modules
                             )
 
                 # do a preliminary pass to trigger modifier hooks
@@ -305,7 +304,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(modules)
+                LifecycleCallbacks.sequential_epoch_end(subgraph_modules)
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
@@ -343,7 +342,7 @@ class SequentialPipeline(CalibrationPipeline):
                         )
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
-                    compress_subgraph_modules(modules)
+                    compress_subgraph_modules(subgraph_modules)
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################

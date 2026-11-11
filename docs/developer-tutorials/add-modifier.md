@@ -86,10 +86,11 @@ class MyModifier(Modifier):
         ...
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: dict[str, torch.nn.Module], **kwargs
     ):
         # Called at the end of a sequential layer group (sequential pipeline) or
         # once for the entire model (basic/data-free pipelines).
+        # `modules` maps qualified names to the modules that were calibrated.
         # This is where quantization modifiers compute weight and activation
         # quantization parameters.
         ...
