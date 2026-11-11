@@ -29,7 +29,7 @@ export HF_HOME=/model-cache
 
 # install RELEASE dependencies for oder releases
 export BUILD_TYPE=release
-uv pip install .[dev]
+uv pip install .[dev] --torch-backend=auto
 
 echo "--- Installed packages"
 uv pip list
