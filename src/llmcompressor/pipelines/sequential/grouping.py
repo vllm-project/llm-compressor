@@ -253,7 +253,9 @@ def get_module_costs(
             module = model.get_submodule(name)
             held, scratch = get_onload_bytes(module), 0
             for modifier in modifiers:
-                estimate = modifier.estimate_sequential_memory(module, num_tokens)
+                estimate = modifier.estimate_sequential_memory(
+                    module, num_tokens, module_name=name
+                )
                 if estimate is None:
                     unknown_modifiers.add(type(modifier).__name__)
                     continue

@@ -16,6 +16,7 @@ from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import (
     get_execution_device,
     getattr_chain,
+    is_match,
     match_named_modules,
 )
 from loguru import logger
@@ -87,7 +88,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     - _prepare_sequential_subgraph
         - apply config to the current scope
-        - resolve module names
     - on_sequential_subgraph_start
         - add activation calibration hooks
         - add gptq weight calibration hooks
@@ -141,7 +141,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     batched_quantization: Literal["auto"] | StrictInt | None = "auto"
 
     # private variables
-    _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
@@ -149,7 +148,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
     _num_compressed_modules: int = PrivateAttr(default=0)
     _rtn_fallback_module_names: list[str] = PrivateAttr(default_factory=list)
     _has_gptq_modules: bool = PrivateAttr(default=False)
-    _configured_weight_modules: set[torch.nn.Module] = PrivateAttr(default_factory=set)
 
     @field_validator("batched_quantization")
     @classmethod
@@ -198,21 +196,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         return config
 
     def on_initialize(self, state: State, **kwargs) -> bool:
-        """Resolve GPTQ targets for both memory estimates and scoped setup."""
-        self._module_names = dict(
-            (module, name)
-            for name, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            )
-        )
-        self._configured_weight_modules = {
-            module
-            for scheme in self.resolved_config.config_groups.values()
-            if scheme.weights is not None
-            for _, module in match_named_modules(
-                state.model, scheme.targets, self.ignore
-            )
-        }
+        """GPTQ setup is deferred until the pipeline initializes each scope."""
         return True
 
     def on_sequential_subgraph_start(self, state: State, event: Event, **kwargs):
@@ -231,7 +215,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         ):
             if module_scope is not None and module not in module_scope:
                 continue
-            if self._is_calibrated(module):
+            if self._is_calibrated(module, name):
                 self.register_hook(module, self.calibrate_module, "forward")
                 self._has_gptq_modules = True
 
@@ -246,23 +230,23 @@ class GPTQModifier(Modifier, QuantizationMixin):
             QuantizationMixin.initialize_quantization(
                 self, state.model, modules=modules
             )
-        module_scope = None if modules is None else set(modules)
-        self._module_names = dict(
-            (module, name)
-            for name, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            )
-            if module_scope is None or module in module_scope
-        )
 
     def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
+        module_scope = set(modules)
+        module_names = {
+            module: name
+            for name, module in match_named_modules(
+                state.model, self.resolved_targets, self.ignore
+            )
+            if module in module_scope
+        }
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
-        self.compress_modules(modules)
+        self.compress_modules(modules, module_names=module_names)
 
     def _cleanup_sequential_subgraph(self, state: State, event: Event, **kwargs):
         """
@@ -273,7 +257,11 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self.remove_hooks(modules=modules)
 
     def estimate_sequential_memory(
-        self, module: torch.nn.Module, num_tokens: int
+        self,
+        module: torch.nn.Module,
+        num_tokens: int,
+        *,
+        module_name: str | None = None,
     ) -> tuple[int, int]:
         """
         Estimate the Hessian held for a module until its subgraph is compressed, and
@@ -281,9 +269,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         :param module: module belonging to the subgraph being calibrated
         :param num_tokens: number of calibration tokens, unused
+        :param module_name: fully-qualified module name in the model
         :return: tuple of (held, scratch) bytes
         """
-        if not self._is_calibrated(module):
+        if module_name is None:
+            raise ValueError("GPTQ memory estimation requires the module name")
+        if not self._is_calibrated(module, module_name):
             return 0, 0
 
         # the Hessian is allocated from the weight's second dimension whatever its
@@ -302,16 +293,26 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
         return held, scratch
 
-    def _is_calibrated(self, module: torch.nn.Module) -> bool:
+    def _is_calibrated(
+        self, module: torch.nn.Module, module_name: str
+    ) -> bool:
         """Whether this modifier accumulates a Hessian for the module"""
         # HACK: previously, embeddings were not quantized because they were not
         # accessible by the layer compressor. For now, we manually ignore it,
         # but in the FUTURE this should be ignored by the user
+        is_target = is_match(
+            module_name, module, self.resolved_targets, ignore=self.ignore
+        )
+        has_configured_weights = any(
+            scheme.weights is not None
+            and is_match(module_name, module, scheme.targets, ignore=self.ignore)
+            for scheme in self.resolved_config.config_groups.values()
+        )
         return (
-            module in self._module_names
+            is_target
             and (
                 getattr_chain(module, "quantization_scheme.weights", None) is not None
-                or module in self._configured_weight_modules
+                or has_configured_weights
             )
             and not isinstance(module, torch.nn.Embedding)
         )
@@ -349,7 +350,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
             self._num_samples[module],
         )
 
-    def compress_modules(self, modules: list[torch.nn.Module] | None = None):
+    def compress_modules(
+        self,
+        modules: list[torch.nn.Module] | None = None,
+        *,
+        module_names: dict[torch.nn.Module, str] | None = None,
+    ):
         """
         Quantize modules which have been calibrated
         """
@@ -360,7 +366,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         ]
         ### Not Distributed
         if not is_distributed():
-            self.compress_module_list(calibrated)
+            self.compress_module_list(calibrated, module_names=module_names)
             return
 
         ### Distributed
@@ -377,18 +383,28 @@ class GPTQModifier(Modifier, QuantizationMixin):
         # send hessians to assigned ranks
         self._reduce_hessian_to_target_rank(module_list, module_to_rank)
 
-        self.compress_module_list(rank_to_modules[rank])
+        self.compress_module_list(rank_to_modules[rank], module_names=module_names)
 
         # broadcast compressed modules to each rank
         broadcast_qparams_and_cleanup(module_list, module_to_rank, _GPTQ_Q_PARAMS)
 
-    def compress_module_list(self, module_list):
+    def compress_module_list(
+        self,
+        module_list,
+        *,
+        module_names: dict[torch.nn.Module, str] | None = None,
+    ):
         for batch in assign_batches(
             module_list, self.batched_quantization, self.block_size
         ):
             quant_args = getattr_chain(batch[0], "quantization_scheme.weights")
             batch_qparams = [module.weight_observer.get_qparams() for module in batch]
-            names = [self._module_names[module] for module in batch]
+            names = [
+                module_names.get(module, type(module).__name__)
+                if module_names is not None
+                else type(module).__name__
+                for module in batch
+            ]
             logger.info(f"Quantizing {len(batch)} module(s): {names}")
 
             with (
@@ -499,7 +515,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "GPTQModifier was unable to find any modules to quantize. Please "
                 "check quantization `config_groups` and `targets` in recipe"
             )
-        self._module_names.clear()
         self._initialized_modules.clear()
         if not self.ended_:
             self.on_end(state, None)

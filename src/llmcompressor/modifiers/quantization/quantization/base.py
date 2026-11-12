@@ -129,7 +129,11 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         )
 
     def estimate_sequential_memory(
-        self, module: torch.nn.Module, num_tokens: int
+        self,
+        module: torch.nn.Module,
+        num_tokens: int,
+        *,
+        module_name: str | None = None,
     ) -> tuple[int, int]:
         """
         Observers keep only small per-module statistics, but observing a weight when

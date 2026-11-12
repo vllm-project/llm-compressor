@@ -575,7 +575,6 @@ def test_compress_module_list_batches_same_shape(tmp_path):
 
     modifier = GPTQModifier()
     for idx, module in enumerate(modules):
-        modifier._module_names[module] = f"model.layers.0.experts.{idx}"
         modifier._hessians[module] = _make_spd_hessian(
             module.weight.shape[1], module.weight.device, seed=idx
         )
@@ -591,9 +590,6 @@ def test_compress_module_list_batches_same_shape(tmp_path):
     modifier._num_compressed_modules = 0
     modules_b = [make_module(64, 48, seed) for seed in range(3)]
     modules_b.append(make_module(32, 48, seed=3))
-    modifier._module_names = {
-        m: f"model.layers.0.experts.{i}" for i, m in enumerate(modules_b)
-    }
     modifier._hessians = {
         m: _make_spd_hessian(m.weight.shape[1], m.weight.device, seed=i)
         for i, m in enumerate(modules_b)

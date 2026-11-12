@@ -324,7 +324,11 @@ class Modifier(ModifierInterface, HooksMixin):
         pass
 
     def estimate_sequential_memory(
-        self, module: torch.nn.Module, num_tokens: int
+        self,
+        module: torch.nn.Module,
+        num_tokens: int,
+        *,
+        module_name: str | None = None,
     ) -> tuple[int, int] | None:
         """
         Estimate the device memory this modifier needs for a module, for
@@ -334,6 +338,7 @@ class Modifier(ModifierInterface, HooksMixin):
 
         :param module: module belonging to the subgraph being calibrated
         :param num_tokens: number of calibration tokens, including padding
+        :param module_name: fully-qualified module name in the model
         :return: (held, scratch) bytes, or None if unknown. Held memory is kept until
             the subgraph is compressed, scratch only while the module is compressed
         """

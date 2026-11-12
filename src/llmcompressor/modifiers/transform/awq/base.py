@@ -234,7 +234,11 @@ class AWQModifier(Modifier):
         self._setup_activation_cache_hooks(resolved)
 
     def estimate_sequential_memory(
-        self, module: Module, num_tokens: int
+        self,
+        module: Module,
+        num_tokens: int,
+        *,
+        module_name: str | None = None,
     ) -> tuple[int, int]:
         """
         Estimate the inputs cached for a mapping parent until it is smoothed (held,

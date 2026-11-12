@@ -207,12 +207,12 @@ def test_get_node_modules():
 class _KnownModifier:
     """Holds a byte per calibration token for every module, and 20 bytes of scratch"""
 
-    def estimate_sequential_memory(self, module, num_tokens):
+    def estimate_sequential_memory(self, module, num_tokens, *, module_name=None):
         return num_tokens, 20
 
 
 class _UnknownModifier:
-    def estimate_sequential_memory(self, module, num_tokens):
+    def estimate_sequential_memory(self, module, num_tokens, *, module_name=None):
         return None
 
 

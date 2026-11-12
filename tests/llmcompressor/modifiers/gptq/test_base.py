@@ -139,7 +139,6 @@ def test_gptq_resolves_replaced_modules_as_subgraphs_load():
 
     assert len(model[0]._forward_hooks) == 1
     assert len(model[1]._forward_hooks) == 0
-    assert modifier._module_names == {model[0]: "0"}
     assert not old_module._forward_hooks
     modifier.remove_hooks()
 
@@ -309,12 +308,18 @@ def test_estimate_sequential_memory(batched_quantization):
     # fp32 Hessian of the input width, and the activation ordering peak:
     # (3 * 256 * 256 + 2 * 128 * 256) * 4 bytes for one module
     batch_size = 4 if batched_quantization == 4 else 1
-    held, scratch = modifier.estimate_sequential_memory(model[0], num_tokens=64)
+    held, scratch = modifier.estimate_sequential_memory(
+        model[0], num_tokens=64, module_name="0"
+    )
     assert held == 256 * 256 * 4
     assert scratch == batch_size * (3 * 256 * 256 + 2 * 128 * 256) * 4
 
-    assert modifier.estimate_sequential_memory(model[1], 64) == (0, 0)  # ignored
-    assert modifier.estimate_sequential_memory(model[2], 64) == (0, 0)  # not targeted
+    assert modifier.estimate_sequential_memory(
+        model[1], 64, module_name="1"
+    ) == (0, 0)  # ignored
+    assert modifier.estimate_sequential_memory(
+        model[2], 64, module_name="2"
+    ) == (0, 0)  # not targeted
 
 
 def test_estimate_sequential_memory_non_2d_weights():
@@ -326,7 +331,9 @@ def test_estimate_sequential_memory_non_2d_weights():
     # Hessian GPTQ allocates from the second dimension (see `make_empty_hessian`),
     # and the quantization peak of the weight flattened to [128, 64 * 3 * 3]
     model[0].weight = torch.nn.Parameter(torch.zeros(128, 64, 3, 3))
-    held, scratch = modifier.estimate_sequential_memory(model[0], num_tokens=64)
+    held, scratch = modifier.estimate_sequential_memory(
+        model[0], num_tokens=64, module_name="0"
+    )
     assert held == 64 * 64 * 4
     assert scratch == (3 * 576 * 576 + 2 * 128 * 576) * 4
 

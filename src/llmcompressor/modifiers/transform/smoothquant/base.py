@@ -185,7 +185,11 @@ class SmoothQuantModifier(Modifier):
         self.remove_hooks(modules=modules)
 
     def estimate_sequential_memory(
-        self, module: Module, num_tokens: int
+        self,
+        module: Module,
+        num_tokens: int,
+        *,
+        module_name: str | None = None,
     ) -> tuple[int, int]:
         """
         Estimate the per-channel minimum and maximum kept for a smoothed layer (held),
