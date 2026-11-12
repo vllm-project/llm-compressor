@@ -11,9 +11,10 @@ import torch
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import disable_onloading
+from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
 from compressed_tensors.quantization.utils import is_module_quantized
-from compressed_tensors.utils import patch_attr
+from compressed_tensors.utils import getattr_chain, patch_attr
 from compressed_tensors.utils.match import match_named_modules
 from loguru import logger
 from torch.fx import Graph, GraphModule, Node
@@ -162,16 +163,35 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
     return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
 
 
+def _has_weight_quantization(module: Module) -> bool:
+    """Check whether a quantized module has a weight quantization scheme."""
+    if not is_module_quantized(module):
+        return False
+
+    return getattr_chain(module, "quantization_scheme.weights", None) is not None
+
+
 def decompress_subgraph_modules(modules: list[Module]) -> None:
-    """Decompress quantized modules owned by one subgraph."""
-    compressed_modules = [module for module in modules if is_module_quantized(module)]
+    """Decompress compressed quantized modules owned by one subgraph."""
+    # Standard oneshot loading may already have decompressed the checkpoint.
+    compressed_modules = [
+        module
+        for module in modules
+        if _has_weight_quantization(module)
+        and getattr(module, "quantization_status", None)
+        == QuantizationStatus.COMPRESSED
+    ]
     for module in tqdm(compressed_modules, desc="Decompressing modules"):
         decompress_module(module, leave_decompressed=False)
 
 
 def compress_subgraph_modules(modules: list[Module]) -> None:
-    """Compress quantized modules owned by one subgraph."""
-    quantized_modules = [module for module in modules if is_module_quantized(module)]
+    """Compress weight-quantized modules owned by one subgraph."""
+    # Activation-only schemes, such as KV-cache quantization, have no weight state
+    # for the module compressor to pack.
+    quantized_modules = [
+        module for module in modules if _has_weight_quantization(module)
+    ]
     if is_distributed():
         replace_module_parallel(
             quantized_modules, compress_module, desc="Compressing modules"

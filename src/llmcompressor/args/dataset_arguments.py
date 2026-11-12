@@ -349,11 +349,11 @@ class DatasetArguments(CustomDatasetArguments):
         },
     )
     layerwise_compression: bool = field(
-        default=False,
+        default=True,
         metadata={
             "help": "When True, each layer is compressed after propagation in the "
             "sequential pipeline. Reduces peak memory by keeping only the "
-            "active layer decompressed. Default False."
+            "active layer decompressed. Default True."
         },
     )
 

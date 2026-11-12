@@ -35,13 +35,17 @@ class IndependentPipeline(CalibrationPipeline):
         session = active_session()
         modifiers = session.lifecycle.recipe.modifiers
         with patch_attr(session.lifecycle.recipe, "modifiers", None):
-            for modifier in modifiers:
+            for index, modifier in enumerate(modifiers):
                 mod_type = type(modifier).__name__
                 session.lifecycle.recipe.modifiers = [modifier]
                 pipeline = CalibrationPipeline.from_modifiers([modifier])
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                pipeline(model, dataloader, dataset_args)
+                compress_last = dataset_args.layerwise_compression and (
+                    index >= len(modifiers) - 1
+                )
+                with patch_attr(dataset_args, "layerwise_compression", compress_last):
+                    pipeline(model, dataloader, dataset_args)
 
                 # restore modifiers on exit so model can be compressed based on recipe
