@@ -9,7 +9,7 @@ cat /etc/issue
 echo "--- Installing system packages"
 git fetch --tags --unshallow 2>/dev/null || git fetch --tags
 apt-get update -qq && apt-get install -y -qq curl ffmpeg g++ gcc make python3-dev
-curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -LsSf https://github.com/astral-sh/uv/releases/download/0.8.15/uv-installer.sh | sh
 
 export LD_LIBRARY_PATH=/usr/local/nvidia/lib64
 export PATH="$HOME/.local/bin:/usr/local/nvidia/bin:$PATH"
@@ -32,7 +32,7 @@ export HF_HOME=/model-cache
 # to uv bug: https://github.com/astral-sh/uv/issues/22965
 export BUILD_TYPE=release
 export UV_TORCH_BACKEND=cu129
-uv pip install .[dev] "torch==2.9.1" "torchvision==0.24.1" "torchcodec==0.9.1" --torch-backend=cu129
+uv pip install .[dev] "torch==2.9.1" "torchvision==0.24.1" "torchcodec==0.9.1"
 
 echo "--- Installed packages"
 uv pip list
