@@ -123,3 +123,30 @@ def materialize_meta_module(
             )
 
     initializer(module)
+
+    # ``to_empty`` only handles registered parameters and buffers. Tensor-valued
+    # attributes are converted to meta by ``copy_module_to_meta`` too, so fail here
+    # with a useful error instead of letting a later forward encounter meta state.
+    for submodule in (module.modules() if recurse else (module,)):
+        for name, value in submodule.__dict__.items():
+            if name in {"_parameters", "_buffers", "_modules"}:
+                continue
+            if _contains_meta_tensor(value):
+                raise ValueError(
+                    "Cannot materialize unregistered tensor attribute "
+                    f"{submodule.__class__.__name__}.{name}; register it as a "
+                    "parameter or buffer, or materialize it in the transform"
+                )
+
+
+def _contains_meta_tensor(value: Any) -> bool:
+    if isinstance(value, torch.Tensor):
+        return value.device.type == "meta"
+    if isinstance(value, dict):
+        return any(
+            _contains_meta_tensor(key) or _contains_meta_tensor(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (tuple, list, set)):
+        return any(_contains_meta_tensor(item) for item in value)
+    return False

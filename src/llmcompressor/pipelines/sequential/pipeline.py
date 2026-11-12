@@ -123,6 +123,8 @@ class SequentialPipeline(CalibrationPipeline):
             set_onload_device(model, onload_device)
         elif lazy_modules.model is not model:
             raise ValueError("lazy_modules.model must be the calibrated model")
+        else:
+            lazy_modules.offload_sources(onload_device)
 
         def source_modules_for(
             target_modules: dict[str, torch.nn.Module],
@@ -181,22 +183,47 @@ class SequentialPipeline(CalibrationPipeline):
                     onload_device,
                 )
                 subgraph_onload_modules(persistent_modules)
+                subgraph_offload_modules(
+                    persistent_source_modules, persistent_source_kwargs
+                )
                 # Persistent modules stay onloaded for the full calibration run.
 
         LifecycleCallbacks.calibration_start()
 
         # partitioned once modifiers have started, so that "auto" can estimate the
         # memory they need
+        targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
+        if (
+            lazy_modules is not None
+            and isinstance(targets_per_subgraph, str)
+            and targets_per_subgraph.casefold() == "auto"
+        ):
+            warnings.warn(
+                'sequential_targets_per_subgraph="auto" cannot account for detached '
+                "source modules during lazy materialization. Falling back to one "
+                "target per subgraph; a single transform can still exceed the "
+                "available device memory.",
+                UserWarning,
+                stacklevel=2,
+            )
+            targets_per_subgraph = 1
+
         subgraphs = partition_subgraphs(
             model,
             graph,
             targets,
-            dataset_args.sequential_targets_per_subgraph,
+            targets_per_subgraph,
             dataloader,
             modifiers,
             dataset_args,
         )
         num_subgraphs = len(subgraphs)
+        last_lazy_use: dict[str, int] = {}
+        if lazy_modules is not None:
+            for index, subgraph in enumerate(subgraphs):
+                target_modules = subgraph.submodule_dict(model)
+                for fqn in lazy_modules.transformed_fqns_for(target_modules):
+                    last_lazy_use[fqn] = index
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -415,6 +442,13 @@ class SequentialPipeline(CalibrationPipeline):
                 if lazy_modules is not None:
                     subgraph_offload_modules(
                         source_subgraph_modules, source_offload_kwargs
+                    )
+                    lazy_modules.release_sources(
+                        {
+                            fqn
+                            for fqn, last_index in last_lazy_use.items()
+                            if last_index == subgraph_index
+                        }
                     )
                 #######################
                 #### END OF ONLOAD ####

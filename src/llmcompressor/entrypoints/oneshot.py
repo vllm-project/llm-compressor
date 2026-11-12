@@ -22,6 +22,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -51,10 +52,30 @@ from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
 )
-from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
+
+
+def _uses_sequential_pipeline(
+    user_pipeline: str | None,
+    recipe: str | Recipe | None,
+    recipe_stage: str | None,
+) -> bool:
+    """Resolve whether lazy transforms will run in the sequential pipeline."""
+    if user_pipeline:
+        return standardize_lookup_name(user_pipeline) == standardize_lookup_name(
+            "sequential"
+        )
+    if not recipe:
+        return False
+
+    recipe_instance = Recipe.create_instance(recipe, target_stage=recipe_stage)
+    return isinstance(
+        CalibrationPipeline.from_modifiers(recipe_instance.modifiers),
+        SequentialPipeline,
+    )
+
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
@@ -296,7 +317,11 @@ class Oneshot:
         session.reset()
 
         has_unlinearized_moe = len(get_non_linearized_moes(self.model)) > 0
-        use_lazy_modules = self.dataset_args.pipeline == "sequential"
+        use_lazy_modules = _uses_sequential_pipeline(
+            self.dataset_args.pipeline,
+            self.recipe,
+            recipe_stage,
+        )
         lazy_modules = None
         lazy_transforms = (
             build_lazy_module_transforms(
@@ -307,11 +332,7 @@ class Oneshot:
             else {}
         )
         if lazy_transforms:
-            lazy_modules = LazyModuleSet.prepare(
-                self.model,
-                lazy_transforms,
-                get_main_device(),
-            )
+            lazy_modules = LazyModuleSet.prepare(self.model, lazy_transforms)
             self.model = lazy_modules.model
             self.model_args.model = self.model
         elif has_unlinearized_moe:
@@ -374,9 +395,12 @@ class Oneshot:
                         calibration_dataloader,
                         self.dataset_args,
                     )
-            finally:
                 if lazy_modules is not None:
                     lazy_modules.finalize()
+            except BaseException:
+                if lazy_modules is not None:
+                    lazy_modules.abort()
+                raise
 
         session.finalize()
 

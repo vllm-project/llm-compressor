@@ -48,7 +48,7 @@ class ModuleTransform(Protocol):
 
 @dataclass
 class LazyModuleRecord:
-    source: Module
+    source: Module | None
     target: Module
     transform: ModuleTransform
     offload_kwargs: dict
@@ -61,32 +61,65 @@ class LazyModuleSet:
     def __init__(self, model: Module, records: dict[str, LazyModuleRecord]):
         self.model = model
         self.records = records
+        self._sources_offloaded = False
 
     @classmethod
     def prepare(
         cls,
         model: Module,
         transforms: Mapping[str, ModuleTransform],
-        onload_device: torch.device,
     ) -> LazyModuleSet:
-        """Offload the source model, then replace only selected FQNs with meta trees."""
+        """Replace selected FQNs with meta trees while retaining real sources."""
         _validate_transform_paths(transforms)
-        set_onload_device(model, onload_device)
 
         records = {}
-        for fqn, transform in transforms.items():
-            source = _get_submodule(model, fqn)
-            offload_kwargs = get_cache_init_kwargs(source)
-            target = transform.to_meta(source, model)
-            model.set_submodule(fqn, target)
-            records[fqn] = LazyModuleRecord(
-                source=source,
-                target=target,
-                transform=transform,
-                offload_kwargs=offload_kwargs,
-            )
+        try:
+            for fqn, transform in transforms.items():
+                source = _get_submodule(model, fqn)
+                target = transform.to_meta(source, model)
+                model.set_submodule(fqn, target)
+                records[fqn] = LazyModuleRecord(
+                    source=source,
+                    target=target,
+                    transform=transform,
+                    offload_kwargs={},
+                )
+        except BaseException:
+            # A failed transform must not leave an earlier FQN replaced by a meta
+            # module whose real source is about to go out of scope.
+            for fqn, record in reversed(list(records.items())):
+                if record.source is not None:
+                    model.set_submodule(fqn, record.source)
+            raise
 
         return cls(model, records)
+
+    def offload_sources(self, onload_device: torch.device) -> None:
+        """Offload real sources after modifiers have initialized on the meta model."""
+        if self._sources_offloaded:
+            return
+
+        # set_onload_device must see the real source modules, and should run after
+        # modifier initialization so initialization does not trigger model-wide
+        # onloads merely by inspecting parameters.
+        targets = {}
+        for fqn, record in self.records.items():
+            if record.source is None:
+                raise ValueError(f"Missing source module for lazy transform {fqn}")
+            targets[fqn] = self.model.get_submodule(fqn)
+            self.model.set_submodule(fqn, record.source)
+
+        set_onload_device(self.model, onload_device)
+
+        for fqn, record in self.records.items():
+            source = record.source
+            if source is None:
+                raise ValueError(f"Missing source module for lazy transform {fqn}")
+            record.offload_kwargs = get_cache_init_kwargs(source)
+            record.target = targets[fqn]
+            self.model.set_submodule(fqn, targets[fqn])
+
+        self._sources_offloaded = True
 
     @property
     def fqns(self) -> set[str]:
@@ -97,13 +130,29 @@ class LazyModuleSet:
     ) -> dict[str, Module]:
         """Find source modules for transformed targets owned by a subgraph."""
         modules = {}
-        for fqn, record in self.records.items():
-            if not _subgraph_owns_fqn(target_modules, fqn):
+        for fqn in self.transformed_fqns_for(target_modules):
+            record = self.records[fqn]
+            if record.materialized or record.source is None:
                 continue
             for relative_name, module in record.source.named_modules():
                 name = f"{fqn}.{relative_name}" if relative_name else fqn
                 modules[name] = module
         return modules
+
+    def transformed_fqns_for(self, target_modules: Mapping[str, Module]) -> set[str]:
+        """Return transformed roots owned by the given target modules."""
+        return {
+            fqn
+            for fqn in self.records
+            if _subgraph_owns_fqn(target_modules, fqn)
+        }
+
+    def release_sources(self, fqns: set[str]) -> None:
+        """Drop sources after their targets finish calibration and need no restore."""
+        for fqn in fqns:
+            record = self.records[fqn]
+            if getattr(record.transform, "finalize", None) is None:
+                record.source = None
 
     def materialize_subgraph(
         self,
@@ -143,6 +192,26 @@ class LazyModuleSet:
             finalize = getattr(record.transform, "finalize", None)
             if finalize is not None:
                 finalize(fqn, self.model, record)
+            elif not record.materialized and record.source is not None:
+                self.model.set_submodule(fqn, record.source)
+        # No transformed target needs its detached source after a successful run.
+        # Offset norm finalizers reattach the source to the model before this point.
+        for record in self.records.values():
+            record.source = None
+
+    def abort(self) -> None:
+        """Restore sources still held if initialization or calibration fails.
+
+        Transforms whose calibration completed have already committed their targets
+        and released their sources. In-flight and not-yet-used transforms are restored.
+        """
+        for fqn, record in reversed(list(self.records.items())):
+            source = record.source
+            if source is None:
+                continue
+            for submodule in record.target.modules():
+                remove_module_offload(submodule, onload_tensors=False)
+            self.model.set_submodule(fqn, source)
 
 
 class OffsetNormTransform:
@@ -179,6 +248,8 @@ class OffsetNormTransform:
 
     def finalize(self, fqn: str, model: Module, record: LazyModuleRecord) -> None:
         source = record.source
+        if source is None:
+            raise ValueError(f"Offset norm source for {fqn} has already been released")
         if not record.materialized:
             model.set_submodule(fqn, source)
             return
