@@ -7,7 +7,11 @@ import torch.nn as nn
 from auto_round import AutoRound
 from auto_round.schemes import PRESET_SCHEMES as AR_PRESET_SCHEMES
 from auto_round.schemes import QuantizationScheme as ARQuantizationScheme
-from auto_round.utils import check_to_quantized
+from auto_round.utils import (
+    INNER_SUPPORTED_LAYER_TYPES,
+    SUPPORTED_LAYER_TYPES,
+    check_to_quantized,
+)
 from auto_round.wrapper import WrapperWALayer
 from compressed_tensors.offload import get_execution_device, get_offloaded_device
 from compressed_tensors.offload.cache.base import OffloadCache
@@ -459,10 +463,25 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self._capture_hooks.clear()
 
     def get_unquantized_layer_names(self, wrapped_model: torch.nn.Module) -> list[str]:
+        """
+        Names of layers AutoRound must leave untouched. AutoRound quantizes every
+        supported layer of the block that is not ignored, so this covers layers
+        outside this modifier's targets (or in its `ignore` list) as well as
+        targets that have no quantization scheme.
+        """
+        autoround_targets = self._match_autoround_targets(wrapped_model)
         unquantized_layers = []
 
-        for name, module in match_named_modules(wrapped_model, self.resolved_targets):
-            if getattr(module, "quantization_scheme", None) is None:
+        for name, module in wrapped_model.named_modules():
+            if not (
+                isinstance(module, SUPPORTED_LAYER_TYPES)
+                or type(module).__name__ in INNER_SUPPORTED_LAYER_TYPES
+            ):
+                continue
+            if (
+                module not in autoround_targets
+                or getattr(module, "quantization_scheme", None) is None
+            ):
                 unquantized_layers.append(name)
         return unquantized_layers
 
