@@ -5,6 +5,10 @@ from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
+from llmcompressor.modeling.offset_norm import (
+    apply_norm_calibration,
+    restore_norm_calibration,
+)
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.utils.dev import get_main_device
 
@@ -34,5 +38,11 @@ class DataFreePipeline(CalibrationPipeline):
         onload_device = get_main_device()
         set_onload_device(model, onload_device)
 
-        LifecycleCallbacks.sequential_subgraph_start()
-        LifecycleCallbacks.sequential_subgraph_end(list(model.modules()))
+        modules = list(model.modules())
+        norm_transformations = []
+        try:
+            norm_transformations = apply_norm_calibration(modules)
+            LifecycleCallbacks.sequential_subgraph_start()
+            LifecycleCallbacks.sequential_subgraph_end(modules)
+        finally:
+            restore_norm_calibration(norm_transformations)
