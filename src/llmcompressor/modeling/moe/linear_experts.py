@@ -4,6 +4,7 @@ from typing import Any, Callable, ClassVar
 
 import torch
 from compressed_tensors.offload import (
+    disable_onloading,
     get_cache_init_kwargs,
     get_execution_device,
     offload_module,
@@ -13,6 +14,7 @@ from transformers.activations import ACT2FN
 from transformers.integrations.moe import _default_apply_gate
 
 from llmcompressor.utils.dev import skip_weights_initialize
+from llmcompressor.utils.pytorch.meta import materialize_meta_module
 
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
@@ -326,6 +328,66 @@ class LinearExperts2D(torch.nn.ModuleList):
             offload_module(module, **offload_kwargs)
 
         return self
+
+    @classmethod
+    @torch.no_grad()
+    def meta_from_experts_module(
+        cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
+    ):
+        """Build the linearized module graph on meta and validate source layouts."""
+        with torch.device("meta"), skip_weights_initialize():
+            self = cls(config)
+
+        # Run the normal model-specific slicing path against meta tensors. This
+        # validates projection dimensions without loading or copying source values.
+        with disable_onloading():
+            for index in range(self.num_experts):
+                self[index].copy_from_experts_module(experts, index)
+
+        self._record_source_metadata(experts, config)
+        return self
+
+    @torch.no_grad()
+    def materialize_from_experts_module(
+        self,
+        experts: FusedExpertsProtocol,
+        *,
+        device: torch.device | str,
+        offload_kwargs: dict | None = None,
+    ) -> dict:
+        """Populate the meta structure from its corresponding onloaded source."""
+        for attribute in (
+            "is_concatenated",
+            "is_transposed",
+            "has_bias",
+            "has_gate",
+        ):
+            if hasattr(type(self), attribute):
+                setattr(experts, attribute, getattr(type(self), attribute))
+
+        def initialize(module: torch.nn.Module) -> None:
+            for child in module.modules():
+                for name, tensor in child._parameters.items():
+                    if tensor is None:
+                        continue
+                    if name.endswith("_zero_point"):
+                        tensor.zero_()
+                    elif name.endswith("_scale"):
+                        tensor.fill_(1)
+                for tensor in child._buffers.values():
+                    if tensor is not None:
+                        tensor.zero_()
+
+            for index in range(self.num_experts):
+                expert: ExpertMLP = self[index]
+                expert.copy_from_experts_module(experts, index)
+
+        materialize_meta_module(self, device=device, initializer=initialize)
+        if offload_kwargs is None:
+            offload_kwargs = get_cache_init_kwargs(experts)
+        for module in self.modules():
+            offload_module(module, **offload_kwargs)
+        return offload_kwargs
 
     def _record_source_metadata(
         self, experts: FusedExpertsProtocol, config: PreTrainedConfig

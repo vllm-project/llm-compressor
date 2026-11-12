@@ -37,10 +37,16 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
+from llmcompressor.modeling.moe.linearize import (
+    MoELinearizationTransform,
+    get_non_linearized_moes,
+    linearize_moe,
+)
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.pipelines.sequential.meta import MetaModel
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
@@ -289,7 +295,18 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        if len(get_non_linearized_moes(self.model)) > 0:
+        has_unlinearized_moe = len(get_non_linearized_moes(self.model)) > 0
+        use_meta_model = (
+            self.dataset_args.pipeline == "sequential"
+            and not self.dataset_args.layerwise_decompression
+        )
+
+        if has_unlinearized_moe and use_meta_model:
+            logger.info(
+                "Detected an unlinearized MoE model. Preparing its linearized "
+                "calibration structure on meta and materializing experts per subgraph."
+            )
+        elif has_unlinearized_moe:
             logger.warning(
                 "Detected an MoE model which has not been linearized. First load "
                 "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
@@ -297,14 +314,27 @@ class Oneshot:
             )
             linearize_moe(self.model)
 
+        meta_state = MetaModel(self.model) if use_meta_model else None
+        if meta_state is not None:
+            # Keep the source model as the weight store and run modifiers on the
+            # structure-only copy. SequentialPipeline materializes each target
+            # subgraph from its source immediately before calibration.
+            self.model = meta_state.model
+            self.model_args.model = self.model
+
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
+            if meta_state is not None:
+                stack.enter_context(norm_calibration_context(meta_state.source_model))
             stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
+
+            if meta_state is not None and has_unlinearized_moe:
+                meta_state.apply_transform(MoELinearizationTransform())
 
             session.state.layerwise_decompression = (
                 self.dataset_args.layerwise_decompression
@@ -329,11 +359,24 @@ class Oneshot:
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
 
-            pipeline(
-                self.model,
-                calibration_dataloader,
-                self.dataset_args,
-            )
+            if meta_state is not None:
+                if not isinstance(pipeline, SequentialPipeline):
+                    raise RuntimeError(
+                        "Meta-model calibration prototype requires the sequential "
+                        "pipeline"
+                    )
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                    meta_model=meta_state,
+                )
+            else:
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                )
 
         session.finalize()
 

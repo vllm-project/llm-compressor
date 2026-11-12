@@ -1,9 +1,10 @@
 import contextlib
 from functools import wraps
-from typing import Type
+from typing import TYPE_CHECKING, Type
 
 import torch
 import tqdm
+from compressed_tensors.offload import get_cache_init_kwargs
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -25,6 +26,9 @@ from .conversion_mappings import (
     set_save_conversion_mapping,
 )
 from .linear_experts import LinearExperts2D
+
+if TYPE_CHECKING:
+    from llmcompressor.pipelines.sequential.meta import MaterializationPlan
 
 
 def _patch_replace_with_fp8_linear_for_moe():
@@ -155,6 +159,49 @@ def linearize_moe(model: PreTrainedModel):
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+class MoELinearizationTransform:
+    """Plan MoE linearization on meta and populate each target from its source."""
+
+    def apply_to_meta(
+        self, model: torch.nn.Module, plan: "MaterializationPlan"
+    ) -> None:
+        for name, module in get_non_linearized_moes(model):
+            config = _experts_config(module, model)
+            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(
+                module.__class__
+            )
+            linear_moe = linear_experts_cls.meta_from_experts_module(module, config)
+            model.set_submodule(name, linear_moe)
+
+            # The target tree no longer mirrors the fused source module. Route the
+            # transformed subtree through this materializer as one unit.
+            plan.remove_subtree(name)
+            plan.register(
+                name,
+                (name,),
+                self._materialize,
+                include_descendants=True,
+            )
+
+    @staticmethod
+    def _materialize(target, sources, source_offload_kwargs, device):
+        if len(sources) != 1:
+            raise ValueError("MoE linearization requires one fused source module")
+        source_name, source = next(iter(sources.items()))
+        offload_kwargs = source_offload_kwargs.get(
+            source_name, get_cache_init_kwargs(source)
+        )
+        target.materialize_from_experts_module(
+            source,
+            device=device,
+            offload_kwargs=offload_kwargs,
+        )
+        return {
+            relative_name: offload_kwargs
+            for relative_name, _ in target.named_modules()
+        }
 
 
 def _experts_config(

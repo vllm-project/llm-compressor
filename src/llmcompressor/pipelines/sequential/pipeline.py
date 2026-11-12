@@ -25,6 +25,7 @@ from llmcompressor.pipelines.sequential.error_logging import (
     process_batch_error,
 )
 from llmcompressor.pipelines.sequential.helpers import (
+    Subgraph,
     compress_subgraph_modules,
     decompress_subgraph_modules,
     find_modules_outside_graph,
@@ -32,6 +33,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     partition_subgraphs,
     trace_graph,
 )
+from llmcompressor.pipelines.sequential.meta import MetaModel
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -85,6 +87,8 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        *,
+        meta_model: MetaModel | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -116,7 +120,23 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        set_onload_device(model, onload_device)
+        if meta_model is None:
+            set_onload_device(model, onload_device)
+        else:
+            if meta_model.model is not model:
+                raise ValueError("meta_model.model must be the calibrated model")
+            if dataset_args.layerwise_decompression:
+                raise ValueError(
+                    "The meta-model prototype does not support layerwise "
+                    "decompression yet"
+                )
+            set_onload_device(meta_model.source_model, onload_device)
+
+        def source_modules_for(subgraph: Subgraph) -> dict[str, torch.nn.Module]:
+            target_modules = subgraph.submodule_dict(model)
+            if meta_model is None:
+                return target_modules
+            return meta_model.source_modules_for(target_modules)
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -142,7 +162,21 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            subgraph_onload_modules(persistent_modules)
+            if meta_model is None:
+                subgraph_onload_modules(persistent_modules)
+            else:
+                persistent_sources = meta_model.source_modules_for(
+                    persistent_modules
+                )
+                persistent_offload_kwargs = subgraph_onload_modules(
+                    persistent_sources
+                )
+                meta_model.materialize_subgraph(
+                    persistent_modules,
+                    persistent_sources,
+                    persistent_offload_kwargs,
+                    onload_device,
+                )
 
         LifecycleCallbacks.calibration_start()
 
@@ -214,7 +248,7 @@ class SequentialPipeline(CalibrationPipeline):
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
             # Prefetch first subgraph modules
-            next_subgraph_modules = subgraphs[0].submodule_dict(model)
+            next_subgraph_modules = source_modules_for(subgraphs[0])
             prefetched_staging = _submit_subgraph_staging(
                 stage_executor,
                 next_subgraph_modules,
@@ -223,10 +257,12 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
+                target_subgraph_modules = subgraph.submodule_dict(model)
                 if prefetched_staging is None:
-                    subgraph_modules = subgraph.submodule_dict(model)
+                    source_subgraph_modules = source_modules_for(subgraph)
                     subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                        source_subgraph_modules,
+                        pin_memory=stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -236,7 +272,7 @@ class SequentialPipeline(CalibrationPipeline):
                         stacklevel=2,
                     )
                 else:
-                    subgraph_modules, stage_future = prefetched_staging
+                    source_subgraph_modules, stage_future = prefetched_staging
                     stage_future.result()
                 prefetched_staging = None
 
@@ -253,20 +289,31 @@ class SequentialPipeline(CalibrationPipeline):
                 # Submit the next subgraph's staging before onloading the
                 # current subgraph so staging can overlap with onload work.
                 if subgraph_index + 1 < num_subgraphs:
-                    next_subgraph_modules = subgraphs[
-                        subgraph_index + 1
-                    ].submodule_dict(model)
+                    next_subgraph_modules = source_modules_for(
+                        subgraphs[subgraph_index + 1]
+                    )
                     prefetched_staging = _submit_subgraph_staging(
                         stage_executor,
                         next_subgraph_modules,
-                        subgraph_modules,
+                        source_subgraph_modules,
                         stage_weights_in_pinned_memory,
                     )
 
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                source_offload_kwargs = subgraph_onload_modules(
+                    source_subgraph_modules
+                )
+                if meta_model is None:
+                    offload_kwargs = source_offload_kwargs
+                else:
+                    offload_kwargs = meta_model.materialize_subgraph(
+                        target_subgraph_modules,
+                        source_subgraph_modules,
+                        source_offload_kwargs,
+                        onload_device,
+                    )
                 modules = subgraph.submodules(model)
 
                 # Decompress and initialize only this subgraph after onloading it.
@@ -345,7 +392,11 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(target_subgraph_modules, offload_kwargs)
+                if meta_model is not None:
+                    subgraph_offload_modules(
+                        source_subgraph_modules, source_offload_kwargs
+                    )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
