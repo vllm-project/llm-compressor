@@ -1,5 +1,5 @@
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from functools import partial, wraps
 from typing import Any, ClassVar
 
@@ -120,7 +120,7 @@ class HooksMixin(BaseModel):
         self,
         handles: set[RemovableHandle] | None = None,
         *,
-        modules: list[torch.nn.Module] | None = None,
+        modules: Collection[torch.nn.Module] | None = None,
     ) -> set[RemovableHandle]:
         """
         Removes hooks registered by this modifier
@@ -134,8 +134,7 @@ class HooksMixin(BaseModel):
             handles = self._hooks
         handles = set(handles)
         if modules is not None:
-            scope = set(modules)
-            handles = {h for h in handles if self._hook_owners.get(h) in scope}
+            handles = {h for h in handles if self._hook_owners.get(h) in modules}
 
         for hook in handles:
             hook.remove()

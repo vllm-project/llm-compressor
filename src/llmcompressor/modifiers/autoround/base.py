@@ -33,6 +33,7 @@ from llmcompressor.modifiers.autoround.utils import (
 )
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.typing import ModuleScope
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.pytorch import infer_sequential_targets
@@ -216,18 +217,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
     def start_calibration(
         self,
         model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
     ):
         """
         Set calibration status and enable quantization without attaching observers.
 
         :param model: model to prepare for calibration
         """
-        module_scope = None if modules is None else set(modules)
         targets = [
             (name, module)
             for name, module in match_named_modules(model, self.targets, self.ignore)
-            if module_scope is None or module in module_scope
+            if modules is None or module in modules
         ]
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
@@ -270,7 +270,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         model = state.model
@@ -282,9 +282,8 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             with disable_onloading():
                 self.initialize_quantization(model, modules=modules)
 
-        module_scope = None if modules is None else set(modules)
         for name, module in match_named_modules(model, self._sequential_targets):
-            if module_scope is not None and module not in module_scope:
+            if modules is not None and module not in modules:
                 continue
             module._tmp_name = name
 
@@ -296,7 +295,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module],
+        modules: ModuleScope,
         **kwargs,
     ):
         self.apply_autoround(state, modules)
@@ -567,7 +566,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         return model
 
     def _remove_temporary_names(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+        self, model: torch.nn.Module, modules: ModuleScope | None = None
     ):
         for mod in model.modules() if modules is None else modules:
             if hasattr(mod, "_tmp_name"):

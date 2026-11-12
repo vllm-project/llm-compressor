@@ -145,11 +145,14 @@ class SequentialPipeline(CalibrationPipeline):
         persistent_offload_kwargs = (
             subgraph_onload_modules(persistent_modules) if persistent_modules else {}
         )
+        persistent_scope = {
+            module: name for name, module in persistent_modules.items()
+        }
 
         if dataset_args.layerwise_decompression:
             decompress_subgraph_modules(list(persistent_modules.values()))
         LifecycleCallbacks.sequential_subgraph_start(
-            list(persistent_modules.values()),
+            persistent_scope,
         )
 
         # partitioned once modifiers have started, so that "auto" can estimate the
@@ -245,6 +248,9 @@ class SequentialPipeline(CalibrationPipeline):
                     subgraph_modules, stage_future = prefetched_staging
                     stage_future.result()
                 prefetched_staging = None
+                subgraph_scope = {
+                    module: name for name, module in subgraph_modules.items()
+                }
 
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
@@ -279,7 +285,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_decompression:
                     decompress_subgraph_modules(list(subgraph_modules.values()))
                 LifecycleCallbacks.sequential_subgraph_start(
-                    list(subgraph_modules.values()),
+                    subgraph_scope,
                     warn_on_inference_mode=False,
                 )
 
@@ -311,7 +317,7 @@ class SequentialPipeline(CalibrationPipeline):
                     session.state.sequential_activations = None
 
                 LifecycleCallbacks.sequential_subgraph_end(
-                    list(subgraph_modules.values()),
+                    subgraph_scope,
                 )
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
@@ -359,7 +365,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Persistent modules collect statistics throughout the subgraph loop.
             LifecycleCallbacks.sequential_subgraph_end(
-                list(persistent_modules.values()),
+                persistent_scope,
             )
             if persistent_modules:
                 if dataset_args.layerwise_compression:

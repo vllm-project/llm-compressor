@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 
 import torch
@@ -269,7 +269,7 @@ class QuantizationMixin(HooksMixin):
     def start_calibration(
         self,
         model: torch.nn.Module,
-        modules: Iterable[torch.nn.Module] | None = None,
+        modules: Collection[torch.nn.Module] | None = None,
         *,
         warn_on_inference_mode: bool = True,
     ):
@@ -279,15 +279,12 @@ class QuantizationMixin(HooksMixin):
 
         :param model: model to prepare for calibration
         """
-        if modules is not None:
-            modules = list(modules)
-        module_scope = None if modules is None else set(modules)
         targets = list(
             (name, module)
             for name, module in match_named_modules(
                 model, self.resolved_targets, self.ignore
             )
-            if module_scope is None or module in module_scope
+            if modules is None or module in modules
         )
         if targets_embeddings(model, targets):
             untie_word_embeddings(model)
@@ -304,7 +301,7 @@ class QuantizationMixin(HooksMixin):
         fuse_weight_observers(model, modules=modules)
 
     def end_calibration(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
+        self, model: torch.nn.Module, modules: Collection[torch.nn.Module] | None = None
     ):
         """
         Remove calibration hooks and observers, and set the model status to frozen.
@@ -315,20 +312,23 @@ class QuantizationMixin(HooksMixin):
         """
         removed = self.remove_hooks(self._calibration_hooks, modules=modules)
         self._calibration_hooks.difference_update(removed)
-        module_scope = None if modules is None else set(modules)
-        modules = [
-            module
-            for _, module in match_named_modules(
+        target_modules = {
+            module: name
+            for name, module in match_named_modules(
                 model, self.resolved_targets, self.ignore
             )
-            if module_scope is None or module in module_scope
-        ]
+            if modules is None or module in modules
+        }
 
         # observer statistics are consumed when qparams are updated. Modules which
         # still have statistics were never passed to `on_sequential_subgraph_end`, for
         # example modules which are traced through rather than called by a sequential
         # subgraph (e.g. attention when using `sequential_targets="Linear"`)
-        remaining = [module for module in modules if _has_observer_statistics(module)]
+        remaining = {
+            module: name
+            for module, name in target_modules.items()
+            if _has_observer_statistics(module)
+        }
         if len(remaining) > 0:
             module_types = sorted({type(module).__name__ for module in remaining})
             logger.warning(
@@ -344,7 +344,7 @@ class QuantizationMixin(HooksMixin):
                 modules=remaining,
             )
 
-        for module in modules:
+        for module in target_modules:
             freeze_module_quantization(module)  # remove observers
             enable_quantization(module)
 

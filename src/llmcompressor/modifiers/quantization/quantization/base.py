@@ -16,6 +16,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.typing import ModuleScope
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 __all__ = ["QuantizationModifier"]
@@ -85,13 +86,13 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         self.initialize_quantization(state.model, modules=modules)
 
     def on_sequential_subgraph_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: ModuleScope, **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)

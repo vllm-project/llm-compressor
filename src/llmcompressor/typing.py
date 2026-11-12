@@ -2,6 +2,7 @@
 Defines type aliases for the llm-compressor library.
 """
 
+from collections.abc import Mapping
 from typing import Iterable, Protocol, _ProtocolMeta
 
 import torch
@@ -23,6 +24,8 @@ DatasetType = Dataset | DatasetDict | IterableDataset
 
 # Torch types
 NamedModules = Iterable[tuple[str, torch.nn.Module]]
+# Mapping from modules in a pipeline scope to their fully qualified model names.
+ModuleScope = Mapping[torch.nn.Module, str]
 
 
 class TorchModuleProtocolMeta(_ProtocolMeta):

@@ -21,6 +21,7 @@ from llmcompressor.modifiers import Modifier
 from llmcompressor.modifiers.quantization.calibration import observe, update_qparams
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
+from llmcompressor.typing import ModuleScope
 from llmcompressor.utils.pytorch import infer_sequential_targets
 
 __all__ = ["QADModifier"]
@@ -161,13 +162,12 @@ class QADModifier(Modifier):
         self._register_capture_hooks(state, modules)
 
     def _register_capture_hooks(
-        self, state: State, modules: list[torch.nn.Module] | None
+        self, state: State, modules: ModuleScope | None
     ):
-        module_scope = None if modules is None else set(modules)
         for name, seq_target in match_named_modules(
             state.model, self._seq_target_patterns
         ):
-            if module_scope is not None and seq_target not in module_scope:
+            if modules is not None and seq_target not in modules:
                 continue
             self._seq_target_names[seq_target] = name or type(seq_target).__name__
             self.register_hook(
@@ -223,14 +223,13 @@ class QADModifier(Modifier):
         self._cur_seq_target_output = _get_first(output)
 
     def on_sequential_subgraph_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: ModuleScope, **kwargs
     ):
         self._cur_seq_target = None
         self._cur_seq_target_output = None
         # The cache holds this subgraph's targets in execution order
-        subgraph = set(modules)
         seq_targets = [
-            seq_target for seq_target in self._input_caches if seq_target in subgraph
+            seq_target for seq_target in self._input_caches if seq_target in modules
         ]
         if not seq_targets:
             return

@@ -19,7 +19,7 @@ from transformers import PreTrainedModel
 from llmcompressor.core import Event, State
 from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
-from llmcompressor.typing import NamedModules
+from llmcompressor.typing import ModuleScope, NamedModules
 from llmcompressor.utils import (
     get_high_precision,
     targets_embeddings,
@@ -169,7 +169,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         model = state.model
@@ -206,34 +206,31 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     def _get_targets(
         self,
         model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
     ) -> NamedModules:
-        module_scope = None if modules is None else set(modules)
         return [
             target
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
             for target in match_named_modules(model, arg.targets, arg.ignore)
-            if module_scope is None or target[1] in module_scope
+            if modules is None or target[1] in modules
         ]
 
     def _center_embeddings(
-        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
+        self, model: PreTrainedModel, modules: ModuleScope | None = None
     ):
-        module_scope = None if modules is None else set(modules)
         for _, embedding in match_named_modules(
             model,
             [self.mappings.embedding],
             warn_on_fail=modules is None,
         ):
-            if module_scope is not None and embedding not in module_scope:
+            if modules is not None and embedding not in modules:
                 continue
             center_embeddings(embedding)
 
     def _fuse_norms(
-        self, model: PreTrainedModel, modules: list[torch.nn.Module] | None = None
+        self, model: PreTrainedModel, modules: ModuleScope | None = None
     ):
-        module_scope = None if modules is None else set(modules)
         for mapping in self.norm_mappings:
             for norm, *linears in match_modules_set(
                 model, (mapping.norm, *mapping.linears)
@@ -242,9 +239,9 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
                 assert len(norm) == 1
                 norm_layer = norm[0]
                 linear_layers = tree_leaves(linears)
-                if module_scope is not None:
+                if modules is not None:
                     mapping_modules = [norm_layer, *linear_layers]
-                    in_scope = [module in module_scope for module in mapping_modules]
+                    in_scope = [module in modules for module in mapping_modules]
                     if any(in_scope) and not all(in_scope):
                         raise ValueError(
                             "SpinQuant norm mapping spans sequential subgraphs. "

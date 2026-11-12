@@ -35,4 +35,4 @@ class DataFreePipeline(CalibrationPipeline):
         set_onload_device(model, onload_device)
 
         LifecycleCallbacks.sequential_subgraph_start()
-        LifecycleCallbacks.sequential_subgraph_end(list(model.modules()))
+        LifecycleCallbacks.sequential_subgraph_end()

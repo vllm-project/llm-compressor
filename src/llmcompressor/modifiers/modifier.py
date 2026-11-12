@@ -7,6 +7,7 @@ from llmcompressor.core.events import Event, EventType
 from llmcompressor.core.state import State
 from llmcompressor.modifiers.interface import ModifierInterface
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.typing import ModuleScope
 
 __all__ = ["Modifier"]
 
@@ -281,7 +282,7 @@ class Modifier(ModifierInterface, HooksMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         """
@@ -290,14 +291,14 @@ class Modifier(ModifierInterface, HooksMixin):
 
         :param state: The current state of the model
         :param event: The event that triggered scope initialization
-        :param modules: List of de-duplicated modules included in the sequential
-            subgraph
+        :param modules: mapping of de-duplicated modules to their model names in the
+            sequential subgraph
         :param kwargs: Additional arguments for scope initialization
         """
         pass
 
     def on_sequential_subgraph_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: ModuleScope, **kwargs
     ):
         """
         Called at the end of a sequential calibration subgraph or a whole-model
@@ -305,7 +306,7 @@ class Modifier(ModifierInterface, HooksMixin):
 
         :param state: The current state of the model
         :param event: The event that triggered the sequential subgraph end
-        :param modules: List of de-duplicated modules which were included in the
+        :param modules: mapping of de-duplicated modules to their model names in the
             sequential subgraph
         :param kwargs: Additional arguments for the sequential subgraph end
         """

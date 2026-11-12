@@ -1,4 +1,5 @@
 import contextlib
+from collections.abc import Mapping
 from typing import Literal
 
 import torch
@@ -42,6 +43,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
+from llmcompressor.typing import ModuleScope
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
 
@@ -209,11 +211,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         )
 
         # register gptq hooks
-        module_scope = None if modules is None else set(modules)
         for name, module in match_named_modules(
             state.model, self.resolved_targets, self.ignore
         ):
-            if module_scope is not None and module not in module_scope:
+            if modules is not None and module not in modules:
                 continue
             if self._is_calibrated(module, name):
                 self.register_hook(module, self.calibrate_module, "forward")
@@ -223,7 +224,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         if QuantizationMixin.has_config(self):
@@ -232,17 +233,24 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
 
     def on_sequential_subgraph_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: ModuleScope, **kwargs
     ):
-        modules = [module for module in modules if is_module_quantized(module)]
-        module_scope = set(modules)
-        module_names = {
-            module: name
-            for name, module in match_named_modules(
-                state.model, self.resolved_targets, self.ignore
-            )
-            if module in module_scope
-        }
+        if isinstance(modules, Mapping):
+            module_names = {
+                module: name
+                for module, name in modules.items()
+                if is_module_quantized(module)
+            }
+            modules = list(module_names)
+        else:
+            modules = [module for module in modules if is_module_quantized(module)]
+            module_names = {
+                module: name
+                for name, module in match_named_modules(
+                    state.model, self.resolved_targets, self.ignore
+                )
+                if module in modules
+            }
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())

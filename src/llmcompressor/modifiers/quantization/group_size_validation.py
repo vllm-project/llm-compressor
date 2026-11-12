@@ -24,7 +24,7 @@ strategy_cdiv in compressed_tensors.quantization.utils.helpers.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection
 
 import torch
 from compressed_tensors.offload import disable_onloading
@@ -63,7 +63,7 @@ def get_layers_indivisible_by_group_size(
     model: torch.nn.Module,
     resolved_targets: set[str],
     ignore: list[str],
-    modules: Iterable[torch.nn.Module] | None = None,
+    modules: Collection[torch.nn.Module] | None = None,
 ) -> list[tuple[str, int, int]]:
     """
     Find targeted layers whose weight columns are not divisible by group_size.
@@ -83,11 +83,10 @@ def get_layers_indivisible_by_group_size(
     :return: List of (fqn, columns, group_size) for each layer that would
         fail at save/forward due to indivisibility.
     """
-    module_scope = None if modules is None else set(modules)
     with disable_onloading():
         indivisible: list[tuple[str, int, int]] = []
         for name, module in match_named_modules(model, resolved_targets, ignore):
-            if module_scope is not None and module not in module_scope:
+            if modules is not None and module not in modules:
                 continue
             scheme: QuantizationScheme | None = getattr(
                 module, "quantization_scheme", None
@@ -107,7 +106,7 @@ def validate_group_size_divisibility(
     ignore: list[str],
     *,
     bypass: bool = False,
-    modules: Iterable[torch.nn.Module] | None = None,
+    modules: Collection[torch.nn.Module] | None = None,
 ) -> None:
     """
     Ensure targeted group/tensor_group layers have columns divisible by group_size.

@@ -25,6 +25,7 @@ from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
 from llmcompressor.modifiers.transform.smoothquant.utils import (
     handle_mapping_resolution_errors,
 )
+from llmcompressor.typing import ModuleScope
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
@@ -171,12 +172,12 @@ class SmoothQuantModifier(Modifier):
         self._setup_scale_hooks(mappings)
 
     def _prepare_sequential_subgraph(
-        self, state: State, event: Event, modules: list[Module] | None = None, **kwargs
+        self, state: State, event: Event, modules: ModuleScope | None = None, **kwargs
     ):
         self._initialize_scope(state.model, modules)
 
     def on_sequential_subgraph_end(
-        self, state: State, event: Event, modules: list[Module], **kwargs
+        self, state: State, event: Event, modules: ModuleScope, **kwargs
     ):
         self._apply_smoothing(state.model, modules=modules)
 
@@ -242,7 +243,7 @@ class SmoothQuantModifier(Modifier):
         return get_layer_mappings_from_model(model)
 
     @handle_mapping_resolution_errors
-    def _initialize_scope(self, model: Module, modules: list[Module] | None) -> None:
+    def _initialize_scope(self, model: Module, modules: ModuleScope | None) -> None:
         resolved = self._resolve_mappings(model, modules=modules)
         existing_names = {
             mapping.smooth_name for mapping in (self.resolved_mappings_ or [])
@@ -253,7 +254,7 @@ class SmoothQuantModifier(Modifier):
         self.resolved_mappings_.extend(new_mappings)
 
     def _resolve_mappings(
-        self, model: Module, modules: list[Module] | None = None
+        self, model: Module, modules: ModuleScope | None = None
     ) -> list[SmoothQuantMapping]:
         """
         Transforms the list of activations to smooth and their corresponding weights
@@ -266,7 +267,6 @@ class SmoothQuantModifier(Modifier):
         """
         resolved_mappings = []
         module_to_name = get_module_to_name_dict(model)
-        module_scope = None if modules is None else set(modules)
         # Get names of modules that are not ignored
         ignored_names = set()
         if self.ignore:
@@ -295,9 +295,9 @@ class SmoothQuantModifier(Modifier):
                     for balance_layer in balance_layers
                 ]
 
-                if module_scope is not None:
+                if modules is not None:
                     mapping_modules = [smooth_layer, *balance_layers]
-                    in_scope = [module in module_scope for module in mapping_modules]
+                    in_scope = [module in modules for module in mapping_modules]
                     if any(in_scope) and not all(in_scope):
                         raise ValueError(
                             "SmoothQuant mapping spans sequential subgraphs. Choose "
@@ -403,7 +403,7 @@ class SmoothQuantModifier(Modifier):
         wait_for_comms(pending_comms)
 
     @torch.no_grad()
-    def _apply_smoothing(self, model: Module, modules: list[Module] | None = None):
+    def _apply_smoothing(self, model: Module, modules: ModuleScope | None = None):
         """
         After calibration, apply smoothing to the activations and push the transform
         into the following weights by applying the inverse to each balance weight.
@@ -418,14 +418,13 @@ class SmoothQuantModifier(Modifier):
 
         This modifies the weights of the model in-place.
         """
-        module_scope = None if modules is None else set(modules)
         mappings = self.resolved_mappings_
-        if module_scope is not None:
+        if modules is not None:
             mappings = [
                 mapping
                 for mapping in mappings
-                if mapping.smooth_layer in module_scope
-                and all(layer in module_scope for layer in mapping.balance_layers)
+                if mapping.smooth_layer in modules
+                and all(layer in modules for layer in mapping.balance_layers)
             ]
 
         if is_distributed():

@@ -8,6 +8,7 @@ subclasses to implement their own saliency calculations and pruning
 import json
 from abc import abstractmethod
 from collections import defaultdict
+from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
 from typing import Any, ClassVar, Optional
@@ -35,6 +36,7 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     get_experts_router,
     prune_moe_layer,
 )
+from llmcompressor.typing import ModuleScope
 from llmcompressor.utils.helpers import (
     getattr_fallbacks,
     numeric_sorted_names,
@@ -225,7 +227,7 @@ class ExpertPruningModifierBase(Modifier):
     def _register_moe_hooks(
         self,
         model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
     ):
         """
         Detect the model's MoE layers and prepare them for calibration.
@@ -237,12 +239,11 @@ class ExpertPruningModifierBase(Modifier):
         :param model: Model being calibrated
         :param modules: Modules in the active scope, or ``None`` for the whole model
         """
-        module_scope = None if modules is None else set(modules)
         num_experts = self._moe_config.num_experts
         hidden_dim = self._moe_config.hidden_dim
 
         for moe_name, moe in model.named_modules():
-            if module_scope is not None and moe not in module_scope:
+            if modules is not None and moe not in modules:
                 continue
             if moe_name in self._hooked_moe_names or moe_name in self._report:
                 continue
@@ -278,7 +279,7 @@ class ExpertPruningModifierBase(Modifier):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         """
@@ -294,8 +295,9 @@ class ExpertPruningModifierBase(Modifier):
         model: torch.nn.Module = state.model
         if modules is None:
             moe_names = list(self._moe_stats)
+        elif isinstance(modules, Mapping):
+            moe_names = [name for name in modules.values() if name in self._moe_stats]
         else:
-            # TODO: refactor `modules` to be a dict
             m_to_n = get_module_to_name_dict(model)
             moe_names = [m_to_n[m] for m in modules if m_to_n[m] in self._moe_stats]
 

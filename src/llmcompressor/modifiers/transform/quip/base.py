@@ -13,7 +13,7 @@ from pydantic import Field, PrivateAttr, ValidationInfo, field_validator
 
 from llmcompressor.core import Event, State
 from llmcompressor.modifiers import Modifier
-from llmcompressor.typing import NamedModules
+from llmcompressor.typing import ModuleScope, NamedModules
 from llmcompressor.utils import (
     get_high_precision,
     targets_embeddings,
@@ -117,7 +117,7 @@ class QuIPModifier(Modifier):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
         **kwargs,
     ):
         model = state.model
@@ -138,15 +138,14 @@ class QuIPModifier(Modifier):
     def _get_targets(
         self,
         model: torch.nn.Module,
-        modules: list[torch.nn.Module] | None = None,
+        modules: ModuleScope | None = None,
     ) -> NamedModules:
-        module_scope = None if modules is None else set(modules)
         return [
             target
             for scheme in self.transform_config.config_groups.values()
             for arg in scheme.apply
             for target in match_named_modules(model, arg.targets, arg.ignore)
-            if module_scope is None or target[1] in module_scope
+            if modules is None or target[1] in modules
         ]
 
     def _create_config(self) -> TransformConfig:

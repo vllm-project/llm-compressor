@@ -163,12 +163,12 @@ def _flatten_attention(value: torch.Tensor, args: QuantizationArgs):
 
 
 def _fused_layers_in_scope(
-    fused_layers: dict[str, Module], module_scope: set[Module]
+    fused_layers: dict[str, Module], module_scope: Collection[Module]
 ) -> bool:
     group = set(fused_layers.values())
-    if group.isdisjoint(module_scope):
+    if not any(layer in module_scope for layer in group):
         return False
-    if group.issubset(module_scope):
+    if all(layer in module_scope for layer in group):
         return True
 
     if any(
@@ -192,10 +192,9 @@ def _fused_layers_in_scope(
 
 def validate_fused_layer_scope(model: Module, modules: Collection[Module]):
     """Validate TENSOR_GROUP scopes, including modifiers that do not use observers."""
-    module_scope = set(modules)
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
-            _fused_layers_in_scope(fused_layers, module_scope)
+            _fused_layers_in_scope(fused_layers, modules)
 
 
 def fuse_weight_observers(model: Module, modules: Collection[Module] | None = None):
@@ -214,15 +213,12 @@ def fuse_weight_observers(model: Module, modules: Collection[Module] | None = No
     """
     from llmcompressor.observers.fusion import FusionHandler
 
-    module_scope = None if modules is None else set(modules)
     for submodule in model.modules():
         for fused_layers in get_fused_layers(submodule):
             layers_to_fuse = list(fused_layers.values())
             fusion_name_group = tuple(fused_layers.keys())
 
-            if module_scope is not None and not _fused_layers_in_scope(
-                fused_layers, module_scope
-            ):
+            if modules is not None and not _fused_layers_in_scope(fused_layers, modules):
                 continue
 
             only_obs = True

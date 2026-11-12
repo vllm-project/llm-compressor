@@ -42,6 +42,7 @@ from llmcompressor.modifiers.transform.awq.mappings import (
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import is_moe_model
+from llmcompressor.typing import ModuleScope
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.helpers import fuse_weight_observers
 from llmcompressor.pipelines.cache import IntermediatesCache
@@ -285,7 +286,7 @@ class AWQModifier(Modifier):
         return held, scratch
 
     def on_sequential_subgraph_end(
-        self, state: State, event: Event, modules: list[Module], **kwargs
+        self, state: State, event: Event, modules: ModuleScope, **kwargs
     ):
         self._apply_smoothing(state.model, modules=modules)
 
@@ -348,7 +349,7 @@ class AWQModifier(Modifier):
     def _set_resolved_mappings(
         self,
         model: Module,
-        modules: list[Module] | None = None,
+        modules: ModuleScope | None = None,
         require_targets: bool = True,
     ) -> list[ResolvedMapping]:
         """
@@ -364,7 +365,6 @@ class AWQModifier(Modifier):
         """
         resolved_mappings: list[ResolvedMapping] = []
         module_to_name = get_module_to_name_dict(model)
-        module_scope = None if modules is None else set(modules)
 
         num_incompatible = 0
         for mapping in self.mappings:
@@ -388,9 +388,9 @@ class AWQModifier(Modifier):
                     for balance_layer in balance_layers
                 ]
 
-                if module_scope is not None:
+                if modules is not None:
                     mapping_modules = [smooth_layer, *balance_layers]
-                    in_scope = [module in module_scope for module in mapping_modules]
+                    in_scope = [module in modules for module in mapping_modules]
                     if not any(in_scope):
                         continue
 
@@ -430,7 +430,7 @@ class AWQModifier(Modifier):
 
                     continue
 
-                if module_scope is not None and not all(in_scope):
+                if modules is not None and not all(in_scope):
                     raise ValueError(
                         "AWQ mapping spans sequential subgraphs. Choose "
                         "sequential targets that keep each smooth layer and its "
@@ -587,7 +587,7 @@ class AWQModifier(Modifier):
 
     @torch.no_grad()
     def _apply_smoothing(
-        self, model: Module, modules: list[Module] | None = None
+        self, model: Module, modules: ModuleScope | None = None
     ) -> None:
         """
         Calculate the best scaling factors for each layer to smooth activations and
@@ -598,12 +598,11 @@ class AWQModifier(Modifier):
         """
         # NOTE: When using SequentialPipeline, not all the mappings
         # will have cached activations in the segment being updated
-        module_scope = None if modules is None else set(modules)
         mappings_to_smooth = [
             mapping
             for mapping in self._resolved_mappings
             if mapping.smooth_name in self._smooth_activation_stats
-            and (module_scope is None or mapping.smooth_layer in module_scope)
+            and (modules is None or mapping.smooth_layer in modules)
         ]
         for mapping in tqdm(mappings_to_smooth, desc="Smoothing"):
             smooth_layer = mapping.smooth_layer

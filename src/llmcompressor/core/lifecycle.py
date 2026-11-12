@@ -208,7 +208,9 @@ class CompressionLifecycle:
             # QAD needs the preceding quantizer's observers until its work finishes.
             callbacks.append("_cleanup_sequential_subgraph")
             if kwargs.get("modules") is None:
-                kwargs["modules"] = list(self.state.model.modules())
+                kwargs["modules"] = {
+                    module: name for name, module in self.state.model.named_modules()
+                }
 
         for callback in callbacks:
             for mod in self.recipe.modifiers:

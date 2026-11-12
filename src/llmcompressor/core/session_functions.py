@@ -16,7 +16,7 @@ from llmcompressor.core.session import CompressionSession
 from llmcompressor.core.state import ModifiedState
 
 if TYPE_CHECKING:
-    from torch.nn import Module
+    from llmcompressor.typing import ModuleScope
 
 
 __all__ = [
@@ -145,27 +145,28 @@ class LifecycleCallbacks:
 
     @classmethod
     def sequential_subgraph_start(
-        cls, modules: list["Module"] | None = None, **kwargs
+        cls, modules: "ModuleScope | None" = None, **kwargs
     ) -> ModifiedState:
         """
         Prepare an onloaded scope and start its calibration. All modifiers prepare
         the scope before any modifier installs calibration hooks.
 
-        :param modules: optional list of modules already onloaded by the pipeline,
-            or None to prepare the whole model.
+        :param modules: optional module-to-name mapping for modules already onloaded
+            by the pipeline, or None to prepare the whole model.
         :param kwargs: additional kwargs to pass to the current session's event method
         """
         return cls.event(EventType.SEQUENTIAL_SUBGRAPH_START, modules=modules, **kwargs)
 
     @classmethod
     def sequential_subgraph_end(
-        cls, modules: list["Module"] | None = None, **kwargs
+        cls, modules: "ModuleScope | None" = None, **kwargs
     ) -> ModifiedState:
         """
         Finish processing a scope, then clean up its observers and hooks after all
         modifiers have completed their work.
 
-        :param modules: modules in the completed scope, or None for the whole model
+        :param modules: module-to-name mapping for the completed scope, or None for
+            the whole model
         :param kwargs: additional kwargs to pass to the current session's event method
         """
         return cls.event(EventType.SEQUENTIAL_SUBGRAPH_END, modules=modules, **kwargs)
