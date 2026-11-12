@@ -67,7 +67,7 @@ steps:
             python: ["3.12"]
 
   - group: ":test_tube: Pytorch Tests (H100)"
-    key: "base-tests"
+    key: "pytorch-tests"
     steps:
       - label: ":python: Pytorch Tests py{{matrix.python}}"
         agents:
