@@ -4,6 +4,8 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.compressors import decompress_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -18,6 +20,7 @@ from transformers.conversion_mapping import (
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
+from llmcompressor.utils.pytorch.meta import copy_module_to_meta
 
 from .conversion_mappings import (
     get_linearize_load_mappings,
@@ -155,6 +158,46 @@ def linearize_moe(model: PreTrainedModel):
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+class MoELinearizationModuleTransform:
+    """Module-scoped MoE transform for sequential meta initialization."""
+
+    def __init__(self, decompress: bool = False):
+        self.decompress = decompress
+
+    def to_meta(
+        self, source: torch.nn.Module, model: torch.nn.Module
+    ) -> torch.nn.Module:
+        if not isinstance(model, PreTrainedModel):
+            raise TypeError("MoE linearization requires a PreTrainedModel root")
+        config = _experts_config(source, model)
+        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(source.__class__)
+        meta_source = copy_module_to_meta(source)
+        if self.decompress:
+            for submodule in list(meta_source.modules()):
+                if is_module_quantized(submodule):
+                    decompress_module(submodule, leave_decompressed=False)
+        return linear_experts_cls.meta_from_experts_module(meta_source, config)
+
+    def materialize(
+        self,
+        target: torch.nn.Module,
+        source: torch.nn.Module,
+        device: torch.device,
+        offload_kwargs: dict,
+    ) -> dict[str, dict]:
+        if not isinstance(target, LinearExperts2D):
+            raise TypeError("MoE lazy target must be a LinearExperts2D module")
+        if self.decompress:
+            for submodule in list(source.modules()):
+                if is_module_quantized(submodule):
+                    decompress_module(submodule, leave_decompressed=False)
+        return target.materialize_from_experts_module(
+            source,
+            device=device,
+            offload_kwargs=offload_kwargs,
+        )
 
 
 def _experts_config(
