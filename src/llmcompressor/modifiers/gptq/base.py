@@ -161,15 +161,16 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def resolve_quantization_config(self) -> QuantizationConfig:
         config = super().resolve_quantization_config()
 
-        def resolve_actorder(existing, existing_is_set: bool):
-            # The sentinel default supplies static ordering only when the config
-            # leaves actorder unset. An explicit null in the config disables it.
-            if self.actorder == Sentinel("static"):
-                return existing if existing_is_set else ActivationOrdering.STATIC
+        def resolve_actorder(weights):
+            existing = weights.actorder
+            is_set = "actorder" in weights.model_fields_set
 
-            # An explicitly provided modifier value may fill an unset config field,
-            # but conflicts with any explicitly provided config value, including None.
-            if not existing_is_set or self.actorder == existing:
+            # sentinel default only overrides if actorder is not set
+            if self.actorder == Sentinel("static"):
+                return existing if is_set else ActivationOrdering.STATIC
+
+            # user-provided value always attempts to override
+            if not is_set or self.actorder == existing:
                 return self.actorder
 
             # if existing provided and conflicts
@@ -192,10 +193,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 QuantizationStrategy.BLOCK,
             ):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
-                scheme.weights.actorder = resolve_actorder(
-                    scheme.weights.actorder,
-                    "actorder" in scheme.weights.model_fields_set,
-                )
+                scheme.weights.actorder = resolve_actorder(scheme.weights)
 
         return config
 
