@@ -32,20 +32,24 @@ export HF_HOME=/model-cache
 # to uv bug: https://github.com/astral-sh/uv/issues/22965
 export BUILD_TYPE=release
 export UV_TORCH_BACKEND=cu129
-uv pip install .[dev] "torch>=2.7.0,<=2.9.1" "torchvision>=0.24,<0.25" --torch-backend=auto
+uv pip install .[dev] "torch==2.9.1" "torchvision==0.24.1" "torchcodec==0.9.1" --torch-backend=cu129
 
 echo "--- Installed packages"
 uv pip list
 
 TEST_EXIT_CODE=0
 if [ "${TEST_TYPE}" = "base" ]; then
+  echo "+++ Running base tests"
+  make test || TEST_EXIT_CODE=$?
+elif [ "${TEST_TYPE}" = "pytorch" ]; then
   echo "+++ Running pytorch tests"
   pytest -v tests/llmcompressor/pytorch || TEST_EXIT_CODE=$?
 elif [ "${TEST_TYPE}" = "transformers" ]; then
   echo "+++ Running transformers tests"
-  for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
-    echo "=== Running: ${test_file} ==="
-    pytest -v "${test_file}" || TEST_EXIT_CODE=$?
+  for eachfolder in compression data gptq autoround oneshot sparsegpt tracing kv_cache
+  do
+    echo "=== Running: tests/llmcompressor/transformers/${eachfolder} ==="
+    pytest -vra "tests/llmcompressor/transformers/${eachfolder}" || TEST_EXIT_CODE=$?
   done
 else
   echo "Unknown test type: ${TEST_TYPE}"
