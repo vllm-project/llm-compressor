@@ -142,7 +142,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     # private variables
     _module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
-    _model_module_names: dict[torch.nn.Module, str] = PrivateAttr(default_factory=dict)
     _hessians: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(default_factory=dict)
     _num_samples: dict[torch.nn.Module, torch.Tensor] = PrivateAttr(
         default_factory=dict
@@ -202,13 +201,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """Resolve GPTQ targets for both memory estimates and scoped setup."""
-        self._model_module_names = dict(
+        self._module_names = dict(
             (module, name)
             for name, module in match_named_modules(
                 state.model, self.resolved_targets, self.ignore
             )
         )
-        self._module_names = self._model_module_names.copy()
         self._configured_weight_modules = {
             module
             for scheme in self.resolved_config.config_groups.values()
@@ -251,27 +249,17 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 self, state.model, modules=modules
             )
         module_scope = None if modules is None else set(modules)
-        self._model_module_names = dict(
+        self._module_names = dict(
             (module, name)
             for name, module in match_named_modules(
                 state.model, self.resolved_targets, self.ignore
             )
-        )
-        self._module_names = {
-            module: name
-            for module, name in self._model_module_names.items()
             if module_scope is None or module in module_scope
-        }
+        )
 
     def on_sequential_subgraph_end(
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
-        module_scope = set(modules)
-        self._module_names = {
-            module: name
-            for module, name in self._model_module_names.items()
-            if module in module_scope
-        }
         modules = [module for module in modules if is_module_quantized(module)]
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
@@ -514,7 +502,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 "check quantization `config_groups` and `targets` in recipe"
             )
         self._module_names.clear()
-        self._model_module_names.clear()
         self._initialized_modules.clear()
         if not self.ended_:
             self.on_end(state, None)
