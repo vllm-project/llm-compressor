@@ -27,9 +27,6 @@ class _FakeSubgraph:
         self.module = module
         self.events = events
 
-    def submodules(self, model):
-        return [self.module]
-
     def submodule_dict(self, model):
         return {"0": self.module}
 
@@ -149,9 +146,9 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         "calibration_start",
         "onload",
         ("decompress_module", module, False),
-        ("start_layerwise_calibration", [module]),
+        ("start_layerwise_calibration", {"0": module}),
         "forward",
-        ("sequential_epoch_end", [module]),
+        ("sequential_epoch_end", {"0": module}),
         ("compress_module", module),
         "offload",
         "calibration_end",

@@ -72,7 +72,7 @@ def test_gptq_distributed_global_scale_writeback():
     modifier.on_calibration_start(state, None)
 
     torch.manual_seed(100 + dist.get_rank())  # different calibration data per rank
-    modules = [m for m in model.modules() if isinstance(m, nn.Linear)]
+    modules = {name: m for name, m in model.named_modules() if isinstance(m, nn.Linear)}
     for _ in range(4):
         model(torch.randn(2, 8, HIDDEN, device=device))
 

@@ -35,5 +35,5 @@ class DataFreePipeline(CalibrationPipeline):
         set_onload_device(model, onload_device)
 
         LifecycleCallbacks.calibration_start()
-        LifecycleCallbacks.sequential_epoch_end(list(model.modules()))
+        LifecycleCallbacks.sequential_epoch_end(dict(model.named_modules()))
         LifecycleCallbacks.calibration_end()

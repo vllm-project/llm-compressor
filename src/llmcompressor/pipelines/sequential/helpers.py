@@ -161,16 +161,20 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
     return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
 
 
-def decompress_subgraph_modules(modules: list[Module]) -> None:
+def decompress_subgraph_modules(modules: dict[str, Module]) -> None:
     """Decompress quantized modules owned by one subgraph."""
-    compressed_modules = [module for module in modules if is_module_quantized(module)]
+    compressed_modules = [
+        module for module in modules.values() if is_module_quantized(module)
+    ]
     for module in tqdm(compressed_modules, desc="Decompressing modules"):
         decompress_module(module, leave_decompressed=False)
 
 
-def compress_subgraph_modules(modules: list[Module]) -> None:
+def compress_subgraph_modules(modules: dict[str, Module]) -> None:
     """Compress quantized modules owned by one subgraph."""
-    quantized_modules = [module for module in modules if is_module_quantized(module)]
+    quantized_modules = [
+        module for module in modules.values() if is_module_quantized(module)
+    ]
     if is_distributed():
         replace_module_parallel(
             quantized_modules, compress_module, desc="Compressing modules"
