@@ -31,7 +31,7 @@ export HF_HOME=/model-cache
 # to make sure uv picks up the compatible versions due
 # to uv bug: https://github.com/astral-sh/uv/issues/22965
 export BUILD_TYPE=release
-export UV_TORCH_BACKEND=cu129
+export UV_TORCH_BACKEND=cu128
 uv pip install ".[dev]" "torch==2.7.1" "transformers==4.55.2" "torchvision==0.22.1" "torchcodec==0.7.0"
 
 echo "--- Installed packages"
