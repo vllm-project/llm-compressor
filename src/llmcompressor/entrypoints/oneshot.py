@@ -296,11 +296,11 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        lazy_transforms = build_lazy_module_transforms(
+        transforms = build_lazy_module_transforms(
             self.model,
             layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
-        prepare_lazy_module_transforms(self.model, lazy_transforms)
+        transforms_by_fqn = prepare_lazy_module_transforms(self.model, transforms)
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
@@ -341,12 +341,12 @@ class Oneshot:
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
-                    lazy_transforms=lazy_transforms,
+                    lazy_transforms=transforms_by_fqn,
                 )
             else:
                 materialize_lazy_module_transforms_eagerly(
                     self.model,
-                    lazy_transforms,
+                    transforms_by_fqn,
                     get_main_device(),
                 )
                 pipeline(
@@ -354,7 +354,7 @@ class Oneshot:
                     calibration_dataloader,
                     self.dataset_args,
                 )
-            restore_lazy_module_transforms(self.model, lazy_transforms)
+            restore_lazy_module_transforms(self.model, transforms_by_fqn)
 
         session.finalize()
 

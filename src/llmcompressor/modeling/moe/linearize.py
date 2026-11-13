@@ -168,6 +168,7 @@ class MoELinearizationModuleTransform:
         self.decompress = decompress
         self.source: torch.nn.Module | None = None
         self.target: torch.nn.Module | None = None
+        self.source_modules: dict[str, torch.nn.Module] = {}
         self.offload_kwargs: dict = {}
         self.source_offloaded = False
         self.materialized = False

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import warnings
+from collections.abc import Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
@@ -37,7 +38,7 @@ from llmcompressor.pipelines.sequential.lazy import (
     offload_lazy_module_sources,
     release_lazy_module_sources,
     restore_lazy_module_transforms,
-    source_modules_for as get_source_modules_for,
+    source_modules_for_subgraph,
     transformed_fqns_for,
 )
 from llmcompressor.utils.dev import get_main_device
@@ -87,10 +88,10 @@ def _get_batches(
 
 def _targets_per_subgraph_for_lazy_transforms(
     targets_per_subgraph: int | str,
-    lazy_transforms: list[ModuleTransform],
+    transforms_by_fqn: Mapping[str, ModuleTransform],
 ) -> int | str:
     """Use one target per subgraph when detached sources defeat auto sizing."""
-    if not lazy_transforms or not (
+    if not transforms_by_fqn or not (
         isinstance(targets_per_subgraph, str)
         and targets_per_subgraph.casefold() == "auto"
     ):
@@ -116,7 +117,7 @@ class SequentialPipeline(CalibrationPipeline):
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
         *,
-        lazy_transforms: list[ModuleTransform] | None = None,
+        lazy_transforms: Mapping[str, ModuleTransform] | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -144,21 +145,18 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
-        lazy_transforms = lazy_transforms or []
+        transforms_by_fqn = lazy_transforms or {}
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        offload_lazy_module_sources(model, lazy_transforms, onload_device)
-
-        def source_modules_for(
-            target_modules: dict[str, torch.nn.Module],
-        ) -> dict[str, torch.nn.Module]:
-            return get_source_modules_for(lazy_transforms, target_modules)
+        offload_lazy_module_sources(model, transforms_by_fqn, onload_device)
 
         def staging_modules_for(subgraph) -> dict[str, torch.nn.Module]:
             target_modules = subgraph.submodule_dict(model)
-            source_modules = source_modules_for(target_modules)
+            source_modules = source_modules_for_subgraph(
+                transforms_by_fqn, target_modules
+            )
             modules = {
                 f"target:{name}": module for name, module in target_modules.items()
             }
@@ -191,13 +189,15 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            persistent_source_modules = source_modules_for(persistent_modules)
+            persistent_source_modules = source_modules_for_subgraph(
+                transforms_by_fqn, persistent_modules
+            )
             subgraph_onload_modules(persistent_modules)
             persistent_source_kwargs = subgraph_onload_modules(
                 persistent_source_modules
             )
             materialize_lazy_module_transforms(
-                lazy_transforms,
+                transforms_by_fqn,
                 persistent_modules,
                 persistent_source_modules,
                 persistent_source_kwargs,
@@ -215,7 +215,7 @@ class SequentialPipeline(CalibrationPipeline):
         # memory they need
         targets_per_subgraph = _targets_per_subgraph_for_lazy_transforms(
             dataset_args.sequential_targets_per_subgraph,
-            lazy_transforms,
+            transforms_by_fqn,
         )
 
         subgraphs = partition_subgraphs(
@@ -231,7 +231,7 @@ class SequentialPipeline(CalibrationPipeline):
         last_lazy_use: dict[str, int] = {}
         for index, subgraph in enumerate(subgraphs):
             target_modules = subgraph.submodule_dict(model)
-            for fqn in transformed_fqns_for(lazy_transforms, target_modules):
+            for fqn in transformed_fqns_for(transforms_by_fqn, target_modules):
                 last_lazy_use[fqn] = index
 
         with contextlib.ExitStack() as stack:
@@ -299,7 +299,9 @@ class SequentialPipeline(CalibrationPipeline):
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 target_subgraph_modules = subgraph.submodule_dict(model)
-                source_subgraph_modules = source_modules_for(target_subgraph_modules)
+                source_subgraph_modules = source_modules_for_subgraph(
+                    transforms_by_fqn, target_subgraph_modules
+                )
                 current_staging_modules = {
                     f"target:{name}": module
                     for name, module in target_subgraph_modules.items()
@@ -358,7 +360,7 @@ class SequentialPipeline(CalibrationPipeline):
                     source_subgraph_modules
                 )
                 lazy_offload_kwargs = materialize_lazy_module_transforms(
-                    lazy_transforms,
+                    transforms_by_fqn,
                     target_subgraph_modules,
                     source_subgraph_modules,
                     source_offload_kwargs,
@@ -459,17 +461,18 @@ class SequentialPipeline(CalibrationPipeline):
                 }
                 restore_after_subgraph = {
                     transform.fqn
-                    for transform in lazy_transforms
+                    for transform in transforms_by_fqn.values()
                     if transform.restore_after_subgraph
                     and transform.fqn in completed_transforms
                 }
                 restore_lazy_module_transforms(
                     model,
-                    lazy_transforms,
+                    transforms_by_fqn,
                     restore_after_subgraph,
                 )
                 release_lazy_module_sources(
-                    lazy_transforms, completed_transforms - restore_after_subgraph
+                    transforms_by_fqn,
+                    completed_transforms - restore_after_subgraph,
                 )
                 #######################
                 #### END OF ONLOAD ####

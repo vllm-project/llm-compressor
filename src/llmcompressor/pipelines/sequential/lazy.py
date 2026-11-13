@@ -41,7 +41,7 @@ __all__ = [
     "prepare_lazy_module_transforms",
     "release_lazy_module_sources",
     "restore_lazy_module_transforms",
-    "source_modules_for",
+    "source_modules_for_subgraph",
     "transformed_fqns_for",
 ]
 
@@ -52,6 +52,7 @@ class ModuleTransform(Protocol):
     fqn: str
     source: Module | None
     target: Module | None
+    source_modules: dict[str, Module]
     offload_kwargs: dict
     source_offloaded: bool
     materialized: bool
@@ -75,20 +76,31 @@ class ModuleTransform(Protocol):
 
 def prepare_lazy_module_transforms(
     model: Module, transforms: Sequence[ModuleTransform]
-) -> None:
-    """Install all meta targets before modifiers initialize against the model."""
+) -> dict[str, ModuleTransform]:
+    """Install meta targets and index each source/target pair by module FQN."""
     _validate_transform_paths(transforms)
+    transforms_by_fqn: dict[str, ModuleTransform] = {}
     for transform in transforms:
         source = _get_submodule(model, transform.fqn)
         transform.source = source
         target = transform.to_meta(source, model)
         transform.target = target
+        transform.source_modules = {
+            (
+                f"{transform.fqn}.{relative_name}"
+                if relative_name
+                else transform.fqn
+            ): module
+            for relative_name, module in source.named_modules()
+        }
         model.set_submodule(transform.fqn, target)
+        transforms_by_fqn[transform.fqn] = transform
+    return transforms_by_fqn
 
 
 def offload_lazy_module_sources(
     model: Module,
-    transforms: Sequence[ModuleTransform],
+    transforms: Mapping[str, ModuleTransform],
     onload_device: torch.device,
 ) -> None:
     """Configure model and retained-source offloading after modifier initialization."""
@@ -98,7 +110,7 @@ def offload_lazy_module_sources(
 
     pending = [
         transform
-        for transform in transforms
+        for transform in transforms.values()
         if transform.source is not None and not transform.source_offloaded
     ]
     if not pending:
@@ -126,41 +138,35 @@ def offload_lazy_module_sources(
         transform.source_offloaded = True
 
 
-def source_modules_for(
-    transforms: Sequence[ModuleTransform],
+def source_modules_for_subgraph(
+    transforms: Mapping[str, ModuleTransform],
     target_modules: Mapping[str, Module],
 ) -> dict[str, Module]:
-    """Find retained source modules for transforms owned by a subgraph."""
-    modules = {}
-    for transform in transforms:
+    """Return pre-indexed source modules for transforms owned by a subgraph."""
+    modules: dict[str, Module] = {}
+    for fqn, transform in transforms.items():
         if (
             transform.source is None
             or transform.materialized
             or transform.restored
-            or not _subgraph_owns_fqn(target_modules, transform.fqn)
+            or not _subgraph_owns_fqn(target_modules, fqn)
         ):
             continue
-        for relative_name, module in transform.source.named_modules():
-            name = (
-                f"{transform.fqn}.{relative_name}" if relative_name else transform.fqn
-            )
-            modules[name] = module
+        modules.update(transform.source_modules)
     return modules
 
 
 def transformed_fqns_for(
-    transforms: Sequence[ModuleTransform], target_modules: Mapping[str, Module]
+    transforms: Mapping[str, ModuleTransform], target_modules: Mapping[str, Module]
 ) -> set[str]:
     """Return transformed roots owned by the given target modules."""
     return {
-        transform.fqn
-        for transform in transforms
-        if _subgraph_owns_fqn(target_modules, transform.fqn)
+        fqn for fqn in transforms if _subgraph_owns_fqn(target_modules, fqn)
     }
 
 
 def materialize_lazy_module_transforms(
-    transforms: Sequence[ModuleTransform],
+    transforms: Mapping[str, ModuleTransform],
     target_modules: Mapping[str, Module],
     source_modules: Mapping[str, Module],
     source_offload_kwargs: Mapping[str, dict],
@@ -168,19 +174,19 @@ def materialize_lazy_module_transforms(
 ) -> dict[str, dict]:
     """Populate the initialized targets owned by the current subgraph."""
     target_offload_kwargs: dict[str, dict] = {}
-    for transform in transforms:
+    for fqn, transform in transforms.items():
         if (
             transform.materialized
             or transform.restored
-            or not _subgraph_owns_fqn(target_modules, transform.fqn)
+            or not _subgraph_owns_fqn(target_modules, fqn)
         ):
             continue
 
         if transform.target is None:
-            raise ValueError(f"Missing target module for {transform.fqn}")
+            raise ValueError(f"Missing target module for {fqn}")
         source = source_modules.get(transform.fqn)
         if source is None:
-            raise ValueError(f"Missing source module for {transform.fqn}")
+            raise ValueError(f"Missing source module for {fqn}")
         offload_kwargs = source_offload_kwargs.get(
             transform.fqn, transform.offload_kwargs
         )
@@ -201,7 +207,7 @@ def materialize_lazy_module_transforms(
 
 def materialize_lazy_module_transforms_eagerly(
     model: Module,
-    transforms: Sequence[ModuleTransform],
+    transforms: Mapping[str, ModuleTransform],
     onload_device: torch.device,
 ) -> None:
     """Populate every target before running a pipeline without subgraph support."""
@@ -209,18 +215,19 @@ def materialize_lazy_module_transforms_eagerly(
         return
 
     offload_lazy_module_sources(model, transforms, onload_device)
-    for transform in transforms:
+    for transform in transforms.values():
         if transform.materialized or transform.restored:
             continue
 
         if transform.target is None:
             raise ValueError(f"Missing target module for {transform.fqn}")
         target_modules = {transform.fqn: transform.target}
-        source_modules = source_modules_for([transform], target_modules)
+        transform_map = {transform.fqn: transform}
+        source_modules = source_modules_for_subgraph(transform_map, target_modules)
         source_offload_kwargs = subgraph_onload_modules(source_modules)
         try:
             materialize_lazy_module_transforms(
-                [transform],
+                transform_map,
                 target_modules,
                 source_modules,
                 source_offload_kwargs,
@@ -232,26 +239,29 @@ def materialize_lazy_module_transforms_eagerly(
 
 def restore_lazy_module_transforms(
     model: Module,
-    transforms: Sequence[ModuleTransform],
+    transforms: Mapping[str, ModuleTransform],
     fqns: set[str] | None = None,
 ) -> None:
     """Commit or restore selected transforms and release their retained modules."""
-    for transform in transforms:
-        if transform.restored or (fqns is not None and transform.fqn not in fqns):
+    for fqn, transform in transforms.items():
+        if transform.restored or (fqns is not None and fqn not in fqns):
             continue
         transform.restore(model)
         transform.source = None
         transform.target = None
+        transform.source_modules = {}
         transform.restored = True
 
 
 def release_lazy_module_sources(
-    transforms: Sequence[ModuleTransform], fqns: set[str]
+    transforms: Mapping[str, ModuleTransform], fqns: set[str]
 ) -> None:
     """Drop source modules after their final materialization use."""
-    for transform in transforms:
-        if transform.fqn in fqns:
+    for fqn in fqns:
+        transform = transforms.get(fqn)
+        if transform is not None:
             transform.source = None
+            transform.source_modules = {}
 
 
 class OffsetNormTransform:
@@ -263,6 +273,7 @@ class OffsetNormTransform:
         self.config: Any = None
         self.source: Module | None = None
         self.target: Module | None = None
+        self.source_modules: dict[str, Module] = {}
         self.offload_kwargs: dict = {}
         self.source_offloaded = False
         self.materialized = False
@@ -319,6 +330,7 @@ class DecompressionTransform:
         self.fqn = fqn
         self.source: Module | None = None
         self.target: Module | None = None
+        self.source_modules: dict[str, Module] = {}
         self.offload_kwargs: dict = {}
         self.source_offloaded = False
         self.materialized = False
