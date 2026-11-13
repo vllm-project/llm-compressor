@@ -30,7 +30,6 @@ __all__ = [
     "create_session",
     "active_session",
     "reset_session",
-    "apply",
     "callbacks",
     "LifecycleCallbacks",
 ]
