@@ -169,10 +169,14 @@ def format_calibration_data(
     kwargs: dict[str, Any] = {}
     if num_workers > 0:
         kwargs["persistent_workers"] = True
+    # when all ranks share a dataset, _make_sampler partitions it per rank and
+    # returns a sampler whose indices are local to that partition; the DataLoader
+    # must therefore index the same partition rather than the full dataset
+    sampler = _make_sampler(args, tokenized_dataset)
     return DataLoader(
-        tokenized_dataset,
+        sampler.data_source,
         batch_size=args.batch_size,
-        sampler=_make_sampler(args, tokenized_dataset),
+        sampler=sampler,
         collate_fn=_make_collate_fn(args, processor),
         pin_memory=pin_memory,
         num_workers=num_workers,
@@ -254,7 +258,11 @@ def _get_partition_start_end(
     return start, end
 
 
-def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
+def _make_sampler(
+    args: DatasetArguments, dataset: Dataset
+) -> "RandomSampler | LengthAwareSampler":
+    # both samplers expose data_source, which format_calibration_data relies on
+    # to build the DataLoader over the same (possibly per-rank) partition
     num_samples = args.num_calibration_samples
     shuffle = args.shuffle_calibration_samples
     batch_size = args.batch_size
