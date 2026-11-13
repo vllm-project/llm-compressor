@@ -54,6 +54,7 @@ Review the [LLM Compressor v0.15.0 release notes](https://github.com/vllm-projec
 | **SpinQuant** | Rotation-based transforms | Improved low-bit accuracy |
 | **QuIP** | Incoherence processing | Advanced quantization preprocessing |
 | **REAP** | Router-weighted expert activation pruning | Reduce the memory footprint of MoE models by removing low-saliency experts |
+| **HOPE** | Higher-order expert pruning | MoE expert pruning which accounts for pairwise expert interactions, for aggressive pruning rates |
 | **FP8 KV Cache** | KV cache quantization | Long context inference on Hopper-class and newer GPUs |
 | **AutoRound** | Optimizes rounding and clipping ranges via sign-gradient descent | Broad compatibility |
 
