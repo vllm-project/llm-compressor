@@ -179,6 +179,10 @@ def _patch_forward(module: torch.nn.Module, forward: Callable):
     restores the forward that offloading wrapped, so patching only `module.forward`
     would be undone. The original forward is restored upon exit
 
+    Exit restores the forward that was set on entry, so patches of the same module
+    must be exited in reverse order of entry (as nested `with` blocks do). A patch
+    still applied on top at exit is discarded
+
     :param module: module whose forward to patch
     :param forward: bound method which replaces the module's forward
     """
