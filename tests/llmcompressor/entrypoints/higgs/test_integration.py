@@ -240,3 +240,36 @@ def test_alpha_heuristic_layer_types():
     attn_alpha = alphas["model.layers.0.self_attn.q_proj"]
     # Embedding should be highest
     assert embed_alpha > attn_alpha
+
+
+def test_mse_collector_keeps_schemes_that_share_a_bitwidth_name(require_higgs_cbc):
+    """Schemes differing only by group size must both reach the ILP."""
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=[
+            QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(
+                    num_bits=4,
+                    type="int",
+                    symmetric=True,
+                    strategy="group",
+                    group_size=group_size,
+                ),
+            )
+            for group_size in (32, 128)
+        ],
+        targets="Linear",
+        ignore=[],
+    )
+    torch.manual_seed(0)
+    tensors = {
+        f"model.layers.{i}.mlp.down_proj.weight": torch.randn(256, 256)
+        for i in range(2)
+    }
+
+    collector.process(tensors)
+    config = collector.create_config()
+
+    assert len(collector.candidate_schemes) == 2
+    group_sizes = {group.weights.group_size for group in config.config_groups.values()}
+    assert group_sizes == {32}
