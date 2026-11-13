@@ -9,7 +9,7 @@ BUILD_TYPE?=dev
 export BUILD_TYPE
 
 TARGETS := ""  # targets for running pytests: deepsparse,keras,onnx,pytorch,pytorch_models,export,pytorch_datasets,tensorflow_v1,tensorflow_v1_models,tensorflow_v1_datasets
-PYTEST_ARGS ?= ""
+PYTEST_ARGS ?= "--ignore tests/lmeval"
 ifneq ($(findstring transformers,$(TARGETS)),transformers)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/llmcompressor/transformers
 endif
