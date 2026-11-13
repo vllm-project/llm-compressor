@@ -3,7 +3,6 @@ from compressed_tensors.quantization.quant_scheme import (
     MXFP8,
     QuantizationScheme,
 )
-from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
     DeepseekV4PreTrainedModel,
@@ -32,60 +31,9 @@ with load_context():
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Select calibration dataset.
-DATASET_ID = "HuggingFaceH4/ultrachat_200k"
-DATASET_SPLIT = "train_sft"
-
-# Select number of samples. 512 samples is a good place to start.
-# Increasing the number of samples can improve accuracy.
-NUM_CALIBRATION_SAMPLES = 64  # 1024
-MAX_SEQUENCE_LENGTH = 512
-
-# Load dataset and preprocess.
-ds = load_dataset(
-    DATASET_ID,
-    split=f"{DATASET_SPLIT}[:{NUM_CALIBRATION_SAMPLES}]",
-)
-ds = ds.shuffle(seed=42)
-
-
-def preprocess(example):
-    # DeepSeek-V4 does not have a traditional chat template.
-    # Encode manually per https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/tree/main/encoding
-    BOS = "<｜begin▁of▁sentence｜>"
-    EOS = "<｜end▁of▁sentence｜>"
-    text = BOS
-    for message in example["messages"]:
-        role = message["role"]
-        content = message["content"]
-        if role == "system":
-            text += content
-        elif role == "user":
-            text += f"<｜User｜>{content}"
-        elif role == "assistant":
-            text += f"<｜Assistant｜></think>{content}{EOS}"
-
-    return {"text": text}
-
-
-ds = ds.map(preprocess)
-
-
-def tokenize(sample):
-    return tokenizer(
-        sample["text"],
-        padding=False,
-        max_length=MAX_SEQUENCE_LENGTH,
-        truncation=True,
-        add_special_tokens=False,
-    )
-
-
-ds = ds.map(tokenize, remove_columns=ds.column_names)
-
 # Configure the quantization algorithm to run.
-#   * quantize mlp/expert weights to NVFP4
-#   * quantize attention projection weights to FP8_BLOCK
+#   * quantize mlp/expert weights and input activations to MXFP4
+#   * quantize attention projection weights and input activations to MXFP8
 # model.model.layers.0.self_attn.q_a_proj
 #
 # wq_a  | q_a_proj
@@ -113,20 +61,12 @@ recipe = QuantizationModifier(
     ignore=[],
 )
 
-# Apply algorithms.
-# due to the large size of DeepSeek-V4, we specify sequential targets such that
-# only one block is loaded into GPU memory at a time
+# MXFP4 and MXFP8 use RTN for weights and dynamic activation quantization, so no
+# calibration dataset is required.
 oneshot(
     model=model,
-    processor=tokenizer,
-    dataset=ds,
     recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    sequential_targets=["DeepseekV4DecoderLayer"],
-    batch_size=1,
-    shuffle_calibration_samples=True,
-    propagate_error=False,  # work around reliance on transformers cache
+    pipeline="datafree",
 )
 
 # Save to disk compressed.
