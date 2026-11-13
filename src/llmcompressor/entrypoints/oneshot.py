@@ -37,12 +37,10 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.lazy import (
-    abort_lazy_module_transforms,
     build_lazy_module_transforms,
     materialize_lazy_module_transforms_eagerly,
     prepare_lazy_module_transforms,
@@ -302,14 +300,11 @@ class Oneshot:
             self.model,
             layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
-        if lazy_transforms:
-            prepare_lazy_module_transforms(self.model, lazy_transforms)
+        prepare_lazy_module_transforms(self.model, lazy_transforms)
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            if not lazy_transforms:
-                stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -322,51 +317,44 @@ class Oneshot:
                 self.dataset_args.layerwise_compression
             )
 
-            try:
-                session.initialize(
-                    model=self.model,
-                    start=-1,
-                    recipe=self.recipe,
-                    recipe_stage=recipe_stage,
-                    recipe_args=self.recipe_args.recipe_args,
-                    calib_data=calibration_dataloader,
-                    sequential_targets=self.dataset_args.sequential_targets,
-                    pipeline=self.dataset_args.pipeline,
-                )
+            session.initialize(
+                model=self.model,
+                start=-1,
+                recipe=self.recipe,
+                recipe_stage=recipe_stage,
+                recipe_args=self.recipe_args.recipe_args,
+                calib_data=calibration_dataloader,
+                sequential_targets=self.dataset_args.sequential_targets,
+                pipeline=self.dataset_args.pipeline,
+            )
 
-                user_pipeline = self.dataset_args.pipeline
-                pipeline = CalibrationPipeline.from_modifiers(
-                    session.lifecycle.recipe.modifiers, user=user_pipeline
-                )
+            user_pipeline = self.dataset_args.pipeline
+            pipeline = CalibrationPipeline.from_modifiers(
+                session.lifecycle.recipe.modifiers, user=user_pipeline
+            )
 
-                # Modifiers always initialize against the transformed module
-                # structure. Sequential calibration can fill targets by subgraph;
-                # other pipelines need all targets ready before their first pass.
-                if lazy_transforms and isinstance(pipeline, SequentialPipeline):
-                    pipeline(
-                        self.model,
-                        calibration_dataloader,
-                        self.dataset_args,
-                        lazy_transforms=lazy_transforms,
-                    )
-                else:
-                    if lazy_transforms:
-                        materialize_lazy_module_transforms_eagerly(
-                            self.model,
-                            lazy_transforms,
-                            get_main_device(),
-                        )
-                    pipeline(
-                        self.model,
-                        calibration_dataloader,
-                        self.dataset_args,
-                    )
-                if lazy_transforms:
-                    restore_lazy_module_transforms(self.model, lazy_transforms)
-            except BaseException:
-                if lazy_transforms:
-                    abort_lazy_module_transforms(self.model, lazy_transforms)
-                raise
+            # Modifiers always initialize against the transformed module structure.
+            # Sequential calibration can fill targets by subgraph; other pipelines
+            # need all targets ready before their first pass.
+            if isinstance(pipeline, SequentialPipeline):
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                    lazy_transforms=lazy_transforms,
+                )
+            else:
+                materialize_lazy_module_transforms_eagerly(
+                    self.model,
+                    lazy_transforms,
+                    get_main_device(),
+                )
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                )
+            restore_lazy_module_transforms(self.model, lazy_transforms)
 
         session.finalize()
 

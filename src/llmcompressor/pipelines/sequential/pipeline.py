@@ -127,7 +127,7 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        if lazy_transforms is None:
+        if not lazy_transforms:
             set_onload_device(model, onload_device)
         else:
             offload_lazy_module_sources(model, lazy_transforms, onload_device)
@@ -135,7 +135,7 @@ class SequentialPipeline(CalibrationPipeline):
         def source_modules_for(
             target_modules: dict[str, torch.nn.Module],
         ) -> dict[str, torch.nn.Module]:
-            if lazy_transforms is None:
+            if not lazy_transforms:
                 return {}
             return get_source_modules_for(lazy_transforms, target_modules)
 
@@ -174,7 +174,7 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            if lazy_transforms is None:
+            if not lazy_transforms:
                 subgraph_onload_modules(persistent_modules)
             else:
                 persistent_source_modules = source_modules_for(persistent_modules)
@@ -201,7 +201,7 @@ class SequentialPipeline(CalibrationPipeline):
         # memory they need
         targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
         if (
-            lazy_transforms is not None
+            lazy_transforms
             and isinstance(targets_per_subgraph, str)
             and targets_per_subgraph.casefold() == "auto"
         ):
@@ -226,7 +226,7 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
         last_lazy_use: dict[str, int] = {}
-        if lazy_transforms is not None:
+        if lazy_transforms:
             for index, subgraph in enumerate(subgraphs):
                 target_modules = subgraph.submodule_dict(model)
                 for fqn in transformed_fqns_for(lazy_transforms, target_modules):
@@ -353,7 +353,7 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(target_subgraph_modules)
                 source_offload_kwargs = {}
-                if lazy_transforms is not None:
+                if lazy_transforms:
                     source_offload_kwargs = subgraph_onload_modules(
                         source_subgraph_modules
                     )
@@ -447,7 +447,7 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(modules)
 
                 subgraph_offload_modules(target_subgraph_modules, offload_kwargs)
-                if lazy_transforms is not None:
+                if lazy_transforms:
                     subgraph_offload_modules(
                         source_subgraph_modules, source_offload_kwargs
                     )

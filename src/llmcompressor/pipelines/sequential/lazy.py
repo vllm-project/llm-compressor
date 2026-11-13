@@ -34,7 +34,6 @@ from llmcompressor.utils.pytorch.meta import (
 
 __all__ = [
     "ModuleTransform",
-    "abort_lazy_module_transforms",
     "build_lazy_module_transforms",
     "materialize_lazy_module_transforms",
     "materialize_lazy_module_transforms_eagerly",
@@ -79,16 +78,12 @@ def prepare_lazy_module_transforms(
 ) -> None:
     """Install all meta targets before modifiers initialize against the model."""
     _validate_transform_paths(transforms)
-    try:
-        for transform in transforms:
-            source = _get_submodule(model, transform.fqn)
-            transform.source = source
-            target = transform.to_meta(source, model)
-            transform.target = target
-            model.set_submodule(transform.fqn, target)
-    except BaseException:
-        abort_lazy_module_transforms(model, transforms)
-        raise
+    for transform in transforms:
+        source = _get_submodule(model, transform.fqn)
+        transform.source = source
+        target = transform.to_meta(source, model)
+        transform.target = target
+        model.set_submodule(transform.fqn, target)
 
 
 def offload_lazy_module_sources(
@@ -253,23 +248,6 @@ def release_lazy_module_sources(
     for transform in transforms:
         if transform.fqn in fqns:
             transform.source = None
-
-
-def abort_lazy_module_transforms(
-    model: Module, transforms: Sequence[ModuleTransform]
-) -> None:
-    """Roll back targets whose transforms have not already been restored."""
-    for transform in reversed(transforms):
-        source = transform.source
-        if source is None or transform.restored:
-            continue
-        if transform.target is not None:
-            for submodule in transform.target.modules():
-                remove_module_offload(submodule, onload_tensors=False)
-        model.set_submodule(transform.fqn, source)
-        transform.source = None
-        transform.target = None
-        transform.restored = True
 
 
 class OffsetNormTransform:
