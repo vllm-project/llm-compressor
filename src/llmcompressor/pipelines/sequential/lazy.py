@@ -91,7 +91,11 @@ def offload_lazy_module_sources(
     transforms: Sequence[ModuleTransform],
     onload_device: torch.device,
 ) -> None:
-    """Configure offloading on retained sources after modifier initialization."""
+    """Configure model and retained-source offloading after modifier initialization."""
+    if not transforms:
+        set_onload_device(model, onload_device)
+        return
+
     pending = [
         transform
         for transform in transforms
