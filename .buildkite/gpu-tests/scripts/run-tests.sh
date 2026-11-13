@@ -32,7 +32,7 @@ export HF_HOME=/model-cache
 # to uv bug: https://github.com/astral-sh/uv/issues/22965
 export BUILD_TYPE=release
 export UV_TORCH_BACKEND=cu129
-uv pip install .[dev] \
+uv pip install ".[dev]" \
   "torch==2.10.0" "torchvision==0.25" "torchcodec==0.10.0" \
   --torch-backend=cu129
 
