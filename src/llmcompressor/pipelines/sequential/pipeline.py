@@ -84,28 +84,6 @@ def _get_batches(
         yield batch_idx, inputs
 
 
-def _targets_per_subgraph_for_lazy_transforms(
-    targets_per_subgraph: int | str,
-    transforms: Sequence[ModuleTransform],
-) -> int | str:
-    """Use one target per subgraph when detached sources defeat auto sizing."""
-    if not any(transform.modules for transform in transforms) or not (
-        isinstance(targets_per_subgraph, str)
-        and targets_per_subgraph.casefold() == "auto"
-    ):
-        return targets_per_subgraph
-
-    warnings.warn(
-        'sequential_targets_per_subgraph="auto" cannot account for detached '
-        "source modules during lazy materialization. Falling back to one "
-        "target per subgraph; a single transform can still exceed the "
-        "available device memory.",
-        UserWarning,
-        stacklevel=2,
-    )
-    return 1
-
-
 @CalibrationPipeline.register("sequential")
 class SequentialPipeline(CalibrationPipeline):
     @staticmethod
@@ -190,10 +168,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         # partitioned once modifiers have started, so that "auto" can estimate the
         # memory they need
-        targets_per_subgraph = _targets_per_subgraph_for_lazy_transforms(
-            dataset_args.sequential_targets_per_subgraph,
-            transforms,
-        )
+        targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
 
         subgraphs = partition_subgraphs(
             model,
