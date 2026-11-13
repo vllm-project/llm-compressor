@@ -5,7 +5,6 @@ from compressed_tensors.offload import dispatch_model
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer, DefaultDataCollator
-from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import oneshot
 from llmcompressor.args import DatasetArguments
@@ -100,10 +99,11 @@ def setup_model_and_config(request, tmpdir_factory):
 def test_quantization_reload(setup_model_and_config):
     model, config, output_dir = setup_model_and_config
 
-    model_reloaded = AutoModelForCausalLM.from_pretrained(
-        output_dir,
-        quantization_config=CompressedTensorsConfig(dequantize=True),
-    )
+    # load through the compressed-tensors quantizer without dequantizing, so
+    # that the reloaded model keeps its quantization schemes and scales.
+    # note: transformers>=5.23 loads a plain dense model (with no quantization
+    # metadata) when `CompressedTensorsConfig(dequantize=True)` is used
+    model_reloaded = AutoModelForCausalLM.from_pretrained(output_dir)
 
     og_weights, og_inputs = _get_quant_info(model)
     reloaded_weights, reloaded_inputs = _get_quant_info(model_reloaded)
