@@ -2,6 +2,7 @@ import tempfile
 import warnings
 
 import pytest
+import torch
 import yaml
 
 # Suppress deprecation warning for AWQModifier import as this test
@@ -11,10 +12,14 @@ with warnings.catch_warnings():
     from llmcompressor.modifiers.awq import AWQModifier
 
 from llmcompressor.modifiers.gptq import GPTQModifier
+from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import AWQModifier as AWQTransformModifier
+from llmcompressor.modifiers.transform import SmoothQuantModifier
+from llmcompressor.modifiers.transform.smoothquant.base import SmoothQuantMapping
 from llmcompressor.recipe import Recipe
 from llmcompressor.recipe.utils import append_recipe_dict
+from llmcompressor.sentinel import Sentinel
 from tests.llmcompressor.helpers import valid_recipe_strings
 
 
@@ -43,6 +48,93 @@ def test_serialization(recipe_str):
     actual_dict = recipe_from_serialized.to_dict()
 
     assert expected_dict == actual_dict
+
+
+def test_serialization_of_default_quantization_type():
+    # `type` is left out, so compressed-tensors keeps the QuantizationType default
+    modifier = QuantizationModifier(
+        config_groups={
+            "group_0": {
+                "targets": ["Linear"],
+                "weights": {"num_bits": 8, "symmetric": True, "strategy": "channel"},
+            }
+        },
+        kv_cache_scheme={"num_bits": 8, "symmetric": True, "strategy": "tensor"},
+    )
+    serialized_recipe = Recipe.from_modifiers(modifier).yaml()
+    assert "!!python" not in serialized_recipe
+
+    reloaded = Recipe.create_instance(serialized_recipe).modifiers[0]
+    assert reloaded.config_groups["group_0"].weights.type == "int"
+    assert reloaded.kv_cache_scheme.type == "int"
+
+
+@pytest.mark.parametrize(
+    "offload_device", [None, torch.device("cpu")], ids=["default", "cpu"]
+)
+def test_serialization_of_awq_offload_device(offload_device):
+    awq = AWQTransformModifier()
+    if offload_device is not None:
+        # set by AWQModifier.on_initialize for MoE models
+        awq.offload_device = offload_device
+    modifiers = [awq, QuantizationModifier(targets="Linear", scheme="W4A16")]
+    serialized_recipe = Recipe.from_modifiers(modifiers).yaml()
+    assert "!!python" not in serialized_recipe
+
+    reloaded = Recipe.create_instance(serialized_recipe).modifiers[0]
+    if offload_device is None:
+        # the default is resolved again when the modifier is initialized
+        assert isinstance(reloaded.offload_device, Sentinel)
+    else:
+        assert torch.device(reloaded.offload_device) == offload_device
+
+
+def test_serialization_of_qad_offload_device():
+    modifier = QADModifier(offload_device=torch.device("cpu"))
+    serialized_recipe = Recipe.from_modifiers(modifier).yaml()
+    assert "!!python" not in serialized_recipe
+
+    reloaded = Recipe.create_instance(serialized_recipe).modifiers[0]
+    assert reloaded.offload_device == "cpu"
+    # saving the reloaded recipe gives the same file
+    assert Recipe.from_modifiers(reloaded).yaml() == serialized_recipe
+
+
+def test_serialization_skips_resolved_mappings():
+    # resolved_mappings_ holds modules until the modifier is finalized
+    modifier = SmoothQuantModifier()
+    layer = torch.nn.Linear(2, 2)
+    modifier.resolved_mappings_ = [SmoothQuantMapping("layer", layer, [layer])]
+    serialized_recipe = Recipe.from_modifiers(modifier).yaml()
+    assert "resolved_mappings_" not in serialized_recipe
+
+    Recipe.create_instance(serialized_recipe)
+
+
+def test_serialization_skips_callables():
+    modifier = SmoothQuantModifier(calibration_function=lambda module: module)
+    serialized_recipe = Recipe.from_modifiers(modifier).yaml()
+    assert "!!python" not in serialized_recipe
+
+    reloaded = Recipe.create_instance(serialized_recipe).modifiers[0]
+    assert reloaded.calibration_function is None
+
+
+def test_recipe_yaml_appends_to_saved_recipe(tmp_path):
+    modifier = QuantizationModifier(
+        config_groups={"group_0": {"targets": ["Linear"], "weights": {"num_bits": 8}}}
+    )
+    recipe_path = tmp_path / "recipe.yaml"
+    Recipe.from_modifiers(modifier).yaml(file_path=recipe_path)
+
+    # what a later oneshot does when the model directory has a recipe.yaml
+    next_recipe = Recipe.from_modifiers(
+        QuantizationModifier(targets="lm_head", scheme="FP8_DYNAMIC")
+    )
+    merged = next_recipe.yaml(existing_recipe_path=recipe_path)
+
+    reloaded = Recipe.create_instance(merged)
+    assert len(reloaded.modifiers) == 2
 
 
 def test_recipe_creates_correct_modifier():

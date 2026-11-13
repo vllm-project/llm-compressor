@@ -56,6 +56,8 @@ All MinMax observers compute min/max values by tracking the minimum and maximum 
 #### [memoryless_minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py)
 Computes min/max from each observed tensor independently, with no memory of past observations. Each observation is handled in isolation.
 
+This is the default weight observer when no calibration data is available (e.g. data-free quantization).
+
 Best used when:
 - Only a single observation e.g. for weight quantization
 - You want the most recent observation to fully determine the range
@@ -119,6 +121,8 @@ The IMatrix observer weights quantization error by per-input-channel activation 
 
 Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` modules. Falls back silently to uniform MSE (i.e., standard `memoryless_mse` behavior) whenever importance data is unavailable.
 
+This observer (`imatrix_mse`) is the **default weight observer whenever calibration data is available**, (except for AWQ) since activation importance can only be accumulated by running calibration data through the model. When there is no calibration data (e.g. data-free flows), weight observers default to `memoryless_minmax` instead.
+
 Best used when:
 - 4-bit weight quantization accuracy is critical
 - You want to combine with GPTQ for further improvement
@@ -154,8 +158,11 @@ This design eliminates the need to explicitly observe all fused modules before c
 
 The fused layer groups are defined in `FUSED_MODULE_MAPPINGS` (`llmcompressor.observers.fused_mappings`), which `model_free_ptq` uses as well. A group applies to a parent module when all of its required layers are present, and its optional layers join when present:
 - `gate_proj` / `up_proj`, `w1` / `w3` (MLP and MoE expert layers)
+- `c_fc_0` / `c_fc_1` (EXAONE 3 and 3.5 MLP)
 - `q_proj` / `k_proj`, optional `v_proj` (attention; Gemma 4 `attention_k_eq_v` layers have no `v_proj`)
 - `q_proj` / `k_proj` / `v_proj` / `b_proj` / `f_a_proj`, optional `g_proj` (Kimi delta attention)
+- `in_proj_qkv` / `in_proj_z` and `in_proj_b` / `in_proj_a` (Qwen3.5 gated delta net)
+- `q_proj` / `k_proj` / `v_proj` / `g_proj`, when unpacked `a_proj` and `b_proj` are also present (OLMo-Hybrid gated delta net)
 - `q_a_proj` / `kv_a_proj_with_mqa`, optional `g_proj` (multi-latent attention; Kimi MLA output gate)
 - `wq_a` / `wkv_a_with_mqa` (multi-latent attention, Mistral checkpoint names)
 - `q_a_proj` / `kv_proj` and `kv_proj` / `gate_proj` (DeepSeek V4 attention and compressors; checkpoint names `wq_a` / `wkv` and `wkv` / `wgate`)

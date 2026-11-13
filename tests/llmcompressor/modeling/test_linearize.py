@@ -139,10 +139,7 @@ def assert_keys_exist(model_path: Path, keys: list[str]):
 
     Args:
         model_path: Path to the saved model directory
-        expected_patterns: List of key patterns to check for
-
-    Returns:
-        True if all expected patterns are found in the model checkpoint
+        keys: List of key patterns to check for
     """
     safetensor_files = list(model_path.glob("*.safetensors"))
     all_keys = set()

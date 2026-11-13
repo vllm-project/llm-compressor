@@ -1,3 +1,15 @@
+"""
+Unit tests for the MoNe pruning modifier.
+
+The shared pruning lifecycle is tested in
+``tests/llmcompressor/modifiers/pruning/test_base.py``; the tests here cover
+MoNe's own behavior: the fusion saliency metric
+``S_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``, the novice
+vectors collapsed experts are replaced with, the structural collapse
+(retained experts left-shifted, router kept at full width), novice serving
+and checkpoint serialization, and distributed calibration.
+"""
+
 import glob
 import json
 import os
@@ -5,398 +17,263 @@ import os
 import pytest
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from safetensors import safe_open
 from torch import distributed as dist
-from transformers.configuration_utils import PretrainedConfig
 
-from llmcompressor.core import Event, EventType, State
-from llmcompressor.modeling.moe.linear_experts import ExpertMLP, LinearExperts2D
-from llmcompressor.modifiers.factory import ModifierFactory
+from llmcompressor.core import Event, EventType
+from llmcompressor.modeling.moe import context as moe_context
+from llmcompressor.modeling.moe.helpers import MoEConfig
+from llmcompressor.modeling.moe.linear_experts import ExpertMLP
+from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
 from llmcompressor.modifiers.pruning.mone import MoNePruningModifier
-from llmcompressor.modifiers.pruning.mone.utils import (
-    MoNeSaliencyTracker,
-    build_moe_num_experts,
-    collapse_moe_layer,
+from llmcompressor.modifiers.pruning.mone.utils import mone_collapse_moe_layer
+from tests.llmcompressor.modifiers.pruning.fake_moe import (
+    FakeLinearExperts2D,
+    FakeMoEConfig,
+    FakeMoEModel,
+    find_moe_blocks,
+    make_state,
 )
-from llmcompressor.modifiers.pruning.reap.utils import get_moe_attrs
 from tests.testing_utils import requires_gpu, torchrun
 
-# ---------------------------------------------------------------------------
-# Helpers: tiny synthetic MoE model with LinearExperts2D for testing
-# ---------------------------------------------------------------------------
+
+def _stats_modifier(num_experts: int = 4, hidden_dim: int = 2) -> MoNePruningModifier:
+    """A MoNe modifier with initialized statistics for a single layer."""
+    modifier = MoNePruningModifier(sparsity=0.5)
+    modifier._moe_config = MoEConfig.from_config(FakeMoEConfig(num_experts=num_experts))
+    modifier._n_experts_to_drop = num_experts // 2
+    modifier.init_moe_stats("layer", num_experts, hidden_dim, torch.device("cpu"))
+    return modifier
 
 
-class FakeMoEConfig(PretrainedConfig):
-    """Minimal PreTrainedConfig for testing LinearExperts2D."""
+def _run_batch(
+    modifier: MoNePruningModifier,
+    expert_outputs: dict[int, torch.Tensor],
+    topk_indices: torch.Tensor,
+    topk_weights: torch.Tensor,
+):
+    """Feed one calibration batch through the modifier's hooks.
 
-    model_type = "fake_moe"
-
-    def __init__(
-        self,
-        num_experts: int = 8,
-        hidden_size: int = 32,
-        intermediate_size: int = 64,
-        num_hidden_layers: int = 2,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self.num_experts = num_experts
-        self.num_experts_per_tok = 2
-        self.hidden_size = hidden_size
-        self.intermediate_size = intermediate_size
-        self.hidden_act = "silu"
-        self.use_bias = False
-        self.dtype = torch.float32
-        self.num_hidden_layers = num_hidden_layers
-        self.norm_topk_prob = True
-
-
-class FakeLinearExperts2D(LinearExperts2D):
-    is_concatenated = False
-    is_transposed = False
-    has_bias = False
-    has_gate = True
-
-    @staticmethod
-    def _apply_gate(gate_up_out: torch.Tensor) -> torch.Tensor:
-        gate, up = gate_up_out.chunk(2, dim=-1)
-        return torch.nn.functional.silu(gate) * up
-
-
-class FakeRouter(nn.Module):
-    def __init__(self, config: FakeMoEConfig):
-        super().__init__()
-        self.top_k = config.num_experts_per_tok
-        self.num_experts = config.num_experts
-        self.norm_topk_prob = config.norm_topk_prob
-        self.hidden_dim = config.hidden_size
-        self.out_features = config.num_experts
-        self.weight = nn.Parameter(torch.randn(config.num_experts, config.hidden_size))
-
-    def forward(self, hidden_states: torch.Tensor):
-        hidden_states = hidden_states.reshape(-1, self.hidden_dim)
-        router_logits = F.linear(hidden_states, self.weight)
-        router_probs = F.softmax(router_logits, dim=-1, dtype=torch.float32)
-        router_weights, selected_experts = torch.topk(router_probs, self.top_k, dim=-1)
-        if self.norm_topk_prob:
-            router_weights = router_weights / router_weights.sum(dim=-1, keepdim=True)
-        router_weights = router_weights.to(router_logits.dtype)
-        return router_logits, router_weights, selected_experts
-
-
-class FakeMoEBlock(nn.Module):
-    def __init__(self, config: FakeMoEConfig):
-        super().__init__()
-        self.gate = FakeRouter(config)
-        self.experts = FakeLinearExperts2D(config)
-        self.num_experts = config.num_experts
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        batch_size, seq_len, hidden_dim = hidden_states.shape
-        hidden_states_flat = hidden_states.view(-1, hidden_dim)
-        _, router_weights, selected_experts = self.gate(hidden_states_flat)
-        expert_output = self.experts(
-            hidden_states_flat, selected_experts, router_weights
-        )
-        return expert_output.view(batch_size, seq_len, hidden_dim)
-
-
-class FakeMoEModel(nn.Module):
-    def __init__(self, config: FakeMoEConfig):
-        super().__init__()
-        self.config = config
-        self.layers = nn.ModuleList(
-            [FakeMoEBlock(config) for _ in range(config.num_hidden_layers)]
-        )
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
-            hidden_states = layer(hidden_states)
-        return hidden_states
-
-
-def _make_state(model):
-    return State(
-        model=model,
-        teacher_model=None,
-        optimizer=None,
-        optim_wrapped=False,
-        loss=None,
-        batch_data=None,
+    ``expert_outputs`` maps each expert index to the output its forward hook
+    saw for the batch: the expert's routed tokens only under sparse
+    execution, and every token under calibrate-all execution."""
+    for expert_idx, output in expert_outputs.items():
+        modifier.expert_hook("layer", expert_idx, None, (), output)
+    hidden = torch.zeros(topk_indices.shape[0], 1)
+    modifier.experts_block_hook(
+        "layer", None, (hidden, topk_indices, topk_weights), None
     )
 
 
 # ---------------------------------------------------------------------------
-# Tests: MoNeSaliencyTracker
+# Tests: fusion saliency metric and novices
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
-class TestMoNeSaliencyTracker:
-    def test_fusion_saliency_metric(self):
-        """Saliency is ``||std(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``."""
-        import llmcompressor.modeling.moe.context as context
+@pytest.mark.parametrize("calibrate_all", [False, True])
+def test_fusion_saliency_metric(calibrate_all, monkeypatch):
+    """``S_j = ||std_tokens(f_j)||_2 * E_tokens[g_j * 1(j in top-k)]``: the
+    product of the expert's output fluctuation and its frequency-weighted
+    mean router gate weight. The sparse and calibrate-all execution paths
+    must produce the same statistic from the same routing."""
+    monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+    modifier = _stats_modifier(num_experts=4, hidden_dim=2)
 
-        original_state = context._CALIBRATE_ALL_EXPERTS
-        context._CALIBRATE_ALL_EXPERTS = False
-        try:
-            tracker = MoNeSaliencyTracker(
-                num_experts=4, hidden_dim=2, device=torch.device("cpu")
-            )
+    # token 0 routes to experts 0 and 1, token 1 to experts 1 and 2; expert 3
+    # is never routed
+    topk_indices = torch.tensor([[0, 1], [1, 2]])
+    topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
 
-            # routing over two tokens: expert 0 and 1 are always selected
-            tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.6, 0.4]]))
-            tracker.update_routing(torch.tensor([[0, 1]]), torch.tensor([[0.8, 0.2]]))
-
-            # expert outputs over the tokens routed to each expert
-            tracker.update_outputs(
-                torch.tensor([[0, 1]]),
-                {0: torch.tensor([[1.0, 2.0]]), 1: torch.tensor([[10.0, 10.0]])},
-            )
-            tracker.update_outputs(
-                torch.tensor([[0, 1]]),
-                {0: torch.tensor([[3.0, 4.0]]), 1: torch.tensor([[12.0, 14.0]])},
-            )
-
-            # routing_score = sum_gate / token_count (token_count == 2)
-            routing = tracker.routing_score
-            torch.testing.assert_close(
-                routing,
-                torch.tensor([0.7, 0.3, 0.0, 0.0], dtype=torch.float32),
-            )
-
-            # fluctuation = L2 norm over dims of per-dim std
-            # expert 0: std=[1,1] -> sqrt(2); expert 1: std=[1,2] -> sqrt(5)
-            fluc = tracker.output_fluctuation
-            assert fluc[0].item() == pytest.approx(2**0.5)
-            assert fluc[1].item() == pytest.approx(5**0.5)
-            assert fluc[2].item() == pytest.approx(0.0)
-            assert fluc[3].item() == pytest.approx(0.0)
-
-            saliency = tracker.saliency
-            assert saliency[0].item() == pytest.approx(2**0.5 * 0.7)
-            assert saliency[1].item() == pytest.approx(5**0.5 * 0.3)
-            assert saliency[2].item() == pytest.approx(0.0)
-            assert saliency[3].item() == pytest.approx(0.0)
-
-            # lowest-saliency experts (2, 3) are dropped
-            retained = tracker.compute_retained_experts(n_experts_to_drop=2)
-            assert sorted(retained.tolist()) == [0, 1]
-        finally:
-            context._CALIBRATE_ALL_EXPERTS = original_state
-
-    def test_update_outputs_and_compute_novices(self):
-        """Novices are the mean output over tokens routed to each expert."""
-        import llmcompressor.modeling.moe.context as context
-
-        original_state = context._CALIBRATE_ALL_EXPERTS
-        context._CALIBRATE_ALL_EXPERTS = False
-        try:
-            tracker = MoNeSaliencyTracker(
-                num_experts=4, hidden_dim=2, device=torch.device("cpu")
-            )
-            # expert 1 gets two tokens across two batches, expert 3 one token
-            topk_indices = torch.tensor([[1, 3]])
-            tracker.update_outputs(
-                topk_indices,
-                {1: torch.tensor([[1.0, 2.0]]), 3: torch.tensor([[7.0, 8.0]])},
-            )
-            tracker.update_outputs(
-                torch.tensor([[1, 0]]),
-                {1: torch.tensor([[3.0, 4.0]]), 0: torch.tensor([[0.0, 0.0]])},
-            )
-            novices = tracker.compute_novices(dropped=[1, 3])
-            assert novices.shape == (2, 2)
-            # expert 1 mean: ([1,2] + [3,4]) / 2 = [2, 3]
-            torch.testing.assert_close(
-                novices[0], torch.tensor([2.0, 3.0], dtype=torch.float32)
-            )
-            # expert 3 mean: [7, 8] / 1
-            torch.testing.assert_close(
-                novices[1], torch.tensor([7.0, 8.0], dtype=torch.float32)
-            )
-        finally:
-            context._CALIBRATE_ALL_EXPERTS = original_state
-
-    def test_compute_novices_ordering_matches_dropped(self):
-        tracker = MoNeSaliencyTracker(
-            num_experts=4, hidden_dim=1, device=torch.device("cpu")
-        )
-        tracker.sum_output = torch.tensor(
-            [[0.0], [10.0], [20.0], [30.0]], dtype=torch.float32
-        )
-        tracker.output_count = torch.ones(4, dtype=torch.float32)
-        novices = tracker.compute_novices(dropped=[3, 0])
-        torch.testing.assert_close(
-            novices[:, 0], torch.tensor([30.0, 0.0], dtype=torch.float32)
-        )
-
-
-# ---------------------------------------------------------------------------
-# Tests: LinearExperts2D novice forward
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestNoviceForward:
-    def test_forward_without_novices_matches_baseline(self):
-        config = FakeMoEConfig(num_experts=4, hidden_size=8, intermediate_size=16)
-        experts = FakeLinearExperts2D(config)
-        assert experts.novices is None
-
-        hidden = torch.randn(5, 8)
-        top_k_index = torch.tensor([[0, 2], [1, 3], [2, 3], [0, 1], [3, 2]])
-        top_k_weights = torch.rand(5, 2)
-
-        out = experts(hidden, top_k_index, top_k_weights)
-        assert out.shape == (5, 8)
-        assert not torch.isnan(out).any()
-
-    def test_forward_with_novices_matches_manual(self):
-        torch.manual_seed(3)
-        config = FakeMoEConfig(num_experts=4, hidden_size=8, intermediate_size=16)
-        experts = FakeLinearExperts2D(config)
-
-        # keep 2 experts, add 2 novices
-        experts._modules = {
-            "0": experts[0],
-            "1": experts[1],
-            "act_fn": experts.act_fn,
+    if calibrate_all:
+        # dense execution: every expert runs on every token, and outputs of
+        # tokens which were not routed to the expert are masked out
+        outputs = {
+            0: torch.tensor([[1.0, 2.0], [3.0, 6.0]]),
+            1: torch.tensor([[10.0, 10.0], [12.0, 14.0]]),
+            2: torch.tensor([[9.0, 9.0], [5.0, 5.0]]),
+            3: torch.tensor([[7.0, 7.0], [8.0, 8.0]]),
         }
-        experts.num_experts = 2
-        novices = torch.randn(2, 8)
-        experts.register_parameter(
-            "novices", nn.Parameter(novices, requires_grad=False)
-        )
+    else:
+        # sparse execution: experts run on their routed tokens only
+        outputs = {
+            0: torch.tensor([[1.0, 2.0]]),
+            1: torch.tensor([[10.0, 10.0], [12.0, 14.0]]),
+            2: torch.tensor([[5.0, 5.0]]),
+            3: torch.empty(0, 2),
+        }
+    _run_batch(modifier, outputs, topk_indices, topk_weights)
 
-        hidden = torch.randn(5, 8)
-        top_k_index = torch.tensor([[0, 2], [1, 3], [2, 3], [0, 1], [3, 2]])
-        top_k_weights = torch.rand(5, 2)
-
-        out = experts(hidden, top_k_index, top_k_weights)
-
-        ref = torch.zeros_like(hidden)
-        for t in range(5):
-            for slot in range(2):
-                e = top_k_index[t, slot].item()
-                w = top_k_weights[t, slot].item()
-                if e < 2:
-                    ref[t] += w * experts[e](hidden[t : t + 1]).squeeze(0)
-                else:
-                    ref[t] += w * novices[e - 2]
-        torch.testing.assert_close(out, ref, atol=1e-5, rtol=1e-5)
-
-
-# ---------------------------------------------------------------------------
-# Tests: collapse_moe_layer
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestCollapse:
-    def test_collapse_keeps_router_width_and_sets_novices(self):
-        config = FakeMoEConfig(num_experts=8, num_hidden_layers=1, hidden_size=16)
-        model = FakeMoEModel(config)
-        attrs = get_moe_attrs(model, ignore=[])
-
-        layer_name = attrs.moe_layer_names[0]
-        block = model.get_submodule(layer_name)
-        original_experts = [
-            e for e in block.experts.children() if isinstance(e, ExpertMLP)
-        ]
-        original_router = block.gate.weight.detach().clone()
-
-        retained = [1, 2, 4, 6, 7]
-        dropped = [0, 3, 5]
-        novices = torch.arange(len(dropped) * 16, dtype=torch.float32).reshape(
-            len(dropped), 16
-        )
-
-        collapse_moe_layer(model, layer_name, retained, novices, attrs)
-
-        # retained experts left-shifted (object identity preserved)
-        pruned = [e for e in block.experts.children() if isinstance(e, ExpertMLP)]
-        assert len(pruned) == 5
-        for i, orig_idx in enumerate(retained):
-            assert pruned[i] is original_experts[orig_idx]
-        assert block.experts.num_experts == 5
-
-        # router keeps full R + N width, reordered to retained + dropped
-        assert block.gate.weight.shape[0] == 8
-        assert block.gate.out_features == 8
-        torch.testing.assert_close(
-            block.gate.weight, original_router[retained + dropped]
-        )
-
-        # novices installed, matching dropped order
-        assert block.experts.novices is not None
-        assert block.experts.novices.shape == (3, 16)
-        torch.testing.assert_close(block.experts.novices, novices)
-
-    def test_collapse_forward_preserves_retained_experts(self):
-        """A collapsed model routed only to retained experts matches the original."""
-        torch.manual_seed(7)
-        config = FakeMoEConfig(num_experts=6, num_hidden_layers=1, hidden_size=8)
-        model = FakeMoEModel(config)
-        attrs = get_moe_attrs(model, ignore=[])
-        layer_name = attrs.moe_layer_names[0]
-        block = model.get_submodule(layer_name)
-
-        hidden = torch.randn(4, 8)
-        retained = [0, 1, 2, 3]
-        # force routing to retained experts only
-        top_k_index = torch.tensor([[0, 1], [2, 3], [0, 2], [1, 3]])
-        top_k_weights = torch.rand(4, 2)
-        baseline = block.experts(hidden, top_k_index, top_k_weights)
-
-        novices = torch.randn(2, 8)
-        collapse_moe_layer(model, layer_name, retained, novices, attrs)
-
-        # after collapse, retained experts occupy rows 0..3 unchanged
-        out = block.experts(hidden, top_k_index, top_k_weights)
-        torch.testing.assert_close(out, baseline, atol=1e-5, rtol=1e-5)
-
-
-# ---------------------------------------------------------------------------
-# Tests: modifier registration / validation / lifecycle
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-@pytest.mark.usefixtures("setup_modifier_factory")
-def test_mone_is_registered():
-    modifier = ModifierFactory.create(
-        type_="MoNePruningModifier",
-        allow_experimental=False,
-        allow_registered=True,
-        sparsity=0.5,
+    # routing score: mean gate weight over the 2 tokens, zero when never
+    # routed (experts 0, 1, 2 get 1, 2, and 1 tokens respectively)
+    torch.testing.assert_close(
+        modifier._routing_score("layer"),
+        torch.tensor([0.3, 0.45, 0.25, 0.0]),
+        rtol=1e-6,
+        atol=1e-6,
     )
-    assert isinstance(modifier, MoNePruningModifier)
+
+    # output fluctuation: L2 norm over dims of the per-dim output std.
+    # expert 0: 1 token -> 0; expert 1: std=[1, 2] -> sqrt(5);
+    # expert 2: 1 token -> 0
+    fluctuation = modifier._output_fluctuation("layer")
+    assert fluctuation[0].item() == pytest.approx(0.0)
+    assert fluctuation[1].item() == pytest.approx(5**0.5)
+    assert fluctuation[2:].tolist() == [0.0, 0.0]
+
+    saliency = modifier.saliency("layer")
+    assert saliency[0].item() == pytest.approx(0.0)
+    assert saliency[1].item() == pytest.approx(5**0.5 * 0.45)
+    assert saliency[2:].tolist() == [0.0, 0.0]
 
 
 @pytest.mark.unit
-def test_mone_validation():
-    with pytest.raises(ValueError, match="sparsity"):
-        MoNePruningModifier(sparsity=1.0)
+def test_novices_are_mean_output_of_dropped_experts():
+    """Each collapsed expert is replaced by its mean output over the tokens
+    routed to it, with novice rows ordered to match the dropped experts."""
+    modifier = _stats_modifier(num_experts=4, hidden_dim=2)
 
-    with pytest.raises(ValueError, match="sparsity"):
-        MoNePruningModifier(sparsity=-0.1)
+    # expert 1 is routed two tokens, expert 3 one, expert 0 one
+    _run_batch(
+        modifier,
+        {1: torch.tensor([[1.0, 2.0]]), 3: torch.tensor([[7.0, 8.0]])},
+        torch.tensor([[1, 3]]),
+        torch.tensor([[0.5, 0.5]]),
+    )
+    _run_batch(
+        modifier,
+        {1: torch.tensor([[3.0, 4.0]]), 0: torch.tensor([[0.0, 0.0]])},
+        torch.tensor([[1, 0]]),
+        torch.tensor([[0.5, 0.5]]),
+    )
 
-    # report_path must end with .json
-    with pytest.raises(ValueError, match=r"\.json"):
-        MoNePruningModifier(sparsity=0.5, report_path="report.pkl")
+    # expert 1 mean: ([1, 2] + [3, 4]) / 2; expert 3 mean: [7, 8] / 1
+    novices = modifier._compute_novices("layer", dropped=[1, 3])
+    torch.testing.assert_close(novices, torch.tensor([[2.0, 3.0], [7.0, 8.0]]))
 
-    # sparsity=0.0 (report-only) requires a report_path
-    with pytest.raises(ValueError, match="report_path"):
-        MoNePruningModifier(sparsity=0.0)
+    # novice rows follow the order of ``dropped``
+    torch.testing.assert_close(
+        modifier._compute_novices("layer", dropped=[3, 1]),
+        torch.tensor([[7.0, 8.0], [2.0, 3.0]]),
+    )
 
-    # sparsity=0.0 with a report_path is valid
-    MoNePruningModifier(sparsity=0.0, report_path="report.json")
+
+# ---------------------------------------------------------------------------
+# Tests: novice serving
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_linear_experts_serves_novices():
+    """Tokens routed past the retained experts are served the corresponding
+    novice vector, weighted by their routing weight."""
+    torch.manual_seed(3)
+    config = FakeMoEConfig(num_experts=4, hidden_size=8, intermediate_size=16)
+    experts = FakeLinearExperts2D(config)
+
+    # keep 2 experts, collapse the other 2 into novices
+    experts._modules = {"0": experts[0], "1": experts[1], "act_fn": experts.act_fn}
+    experts.num_experts = 2
+    novices = torch.randn(2, 8)
+    experts.register_parameter("novices", nn.Parameter(novices, requires_grad=False))
+
+    hidden = torch.randn(5, 8)
+    top_k_index = torch.tensor([[0, 2], [1, 3], [2, 3], [0, 1], [3, 2]])
+    top_k_weights = torch.rand(5, 2)
+
+    out = experts(hidden, top_k_index, top_k_weights)
+
+    ref = torch.zeros_like(hidden)
+    for t in range(5):
+        for slot in range(2):
+            expert = top_k_index[t, slot].item()
+            weight = top_k_weights[t, slot].item()
+            if expert < 2:
+                ref[t] += weight * experts[expert](hidden[t : t + 1]).squeeze(0)
+            else:
+                ref[t] += weight * novices[expert - 2]
+    torch.testing.assert_close(out, ref, atol=1e-5, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Tests: mone_collapse_moe_layer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_collapse_keeps_router_width_and_sets_novices():
+    config = FakeMoEConfig(num_experts=8, num_hidden_layers=1, hidden_size=16)
+    model = FakeMoEModel(config)
+    layer = model.layers[0]
+    original_experts = [
+        expert for expert in layer.experts.children() if isinstance(expert, ExpertMLP)
+    ]
+    original_router = layer.gate.weight.detach().clone()
+
+    retained = [1, 2, 4, 6, 7]
+    dropped = [0, 3, 5]
+    novices = torch.arange(len(dropped) * 16, dtype=torch.float32).reshape(
+        len(dropped), 16
+    )
+
+    mone_collapse_moe_layer("layers.0", layer, retained, dropped, novices)
+
+    # retained experts left-shifted (same module objects)
+    pruned = [
+        expert for expert in layer.experts.children() if isinstance(expert, ExpertMLP)
+    ]
+    assert len(pruned) == 5
+    for new_idx, original_idx in enumerate(retained):
+        assert pruned[new_idx] is original_experts[original_idx]
+    assert layer.experts.num_experts == 5
+
+    # router keeps full R + N width, reordered to [retained..., dropped...]
+    assert layer.gate.weight.shape[0] == 8
+    assert layer.gate.out_features == 8
+    torch.testing.assert_close(layer.gate.weight, original_router[retained + dropped])
+
+    # novices installed, matching the dropped order
+    assert layer.experts.novices is not None
+    assert layer.experts.novices.shape == (3, 16)
+    torch.testing.assert_close(layer.experts.novices, novices)
+
+
+@pytest.mark.unit
+def test_collapse_forward_preserves_retained_experts():
+    """A collapsed model routed only to retained experts matches the
+    original."""
+    torch.manual_seed(7)
+    config = FakeMoEConfig(num_experts=6, num_hidden_layers=1, hidden_size=8)
+    model = FakeMoEModel(config)
+    layer = model.layers[0]
+
+    hidden = torch.randn(4, 8)
+    retained = [0, 1, 2, 3]
+    # force routing to retained experts only
+    top_k_index = torch.tensor([[0, 1], [2, 3], [0, 2], [1, 3]])
+    top_k_weights = torch.rand(4, 2)
+    baseline = layer.experts(hidden, top_k_index, top_k_weights)
+
+    novices = torch.randn(2, 8)
+    mone_collapse_moe_layer("layers.0", layer, retained, [4, 5], novices)
+
+    # after collapse, retained experts occupy rows 0..3 unchanged
+    out = layer.experts(hidden, top_k_index, top_k_weights)
+    torch.testing.assert_close(out, baseline, atol=1e-5, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Tests: lifecycle
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 def test_mone_full_lifecycle():
+    """Calibration accumulates routing and output statistics, and
+    ``SEQUENTIAL_EPOCH_END`` collapses every layer's lowest-saliency experts
+    into novices: retained experts are left-shifted, the router keeps its
+    full width, and the collapse is recorded in the expert-sparsity
+    config."""
     torch.manual_seed(42)
     config = FakeMoEConfig(
         num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
@@ -405,176 +282,59 @@ def test_mone_full_lifecycle():
     model.eval()
 
     modifier = MoNePruningModifier(sparsity=0.5)
-    state = _make_state(model)
+    state = make_state(model)
 
     modifier.initialize(state)
     assert modifier._n_experts_to_drop == 4
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
-    assert len(modifier._saliency_trackers) == 2
+    assert len(modifier._moe_stats) == 2
 
     with torch.no_grad():
         for _ in range(5):
             model(torch.randn(2, 8, config.hidden_size))
 
     modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 0
+    assert len(modifier._moe_stats) == 0
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
     modifier.finalize(state)
 
-    # router keeps full width; config num_experts unchanged (unlike REAP)
     assert model.config.num_experts == 8
-
     for layer in model.layers:
-        assert layer.experts.num_experts == 4
         expert_count = sum(
             1 for m in layer.experts.children() if isinstance(m, ExpertMLP)
         )
         assert expert_count == 4
+        assert layer.experts.num_experts == 4
+        # unlike plain pruning, the router keeps its full width so the
+        # novices keep receiving their routing weights
         assert layer.gate.weight.shape[0] == 8
         assert layer.experts.novices is not None
         assert layer.experts.novices.shape == (4, config.hidden_size)
 
-    # moe_sparsity_config recorded for serialization
-    assert hasattr(model, "_moe_sparsity_config")
     assert model._moe_sparsity_config.method.value == "novice"
     assert model._moe_sparsity_config.num_experts == [4, 4]
 
     with torch.no_grad():
         out = model(torch.randn(2, 4, config.hidden_size))
-        assert out.shape == (2, 4, config.hidden_size)
-        assert not torch.isnan(out).any()
+    assert out.shape == (2, 4, config.hidden_size)
+    assert not torch.isnan(out).any()
 
 
 @pytest.mark.unit
 def test_mone_group_limited_router_not_implemented():
     """Group-limited routers are explicitly unsupported."""
-    config = FakeMoEConfig(num_experts=8, num_hidden_layers=1)
-    config.n_group = 2
-    config.topk_group = 1
+    config = FakeMoEConfig(num_experts=8, n_group=2, topk_group=1)
     model = FakeMoEModel(config)
 
     modifier = MoNePruningModifier(sparsity=0.5)
-    state = _make_state(model)
-
     with pytest.raises(NotImplementedError, match="group-limited"):
-        modifier.initialize(state)
-
-
-@pytest.mark.unit
-def test_mone_report_only_does_not_modify_model(tmp_path):
-    """With sparsity=0.0, saliency is reported but weights/config are untouched."""
-    torch.manual_seed(42)
-
-    config = FakeMoEConfig(
-        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
-    )
-    model = FakeMoEModel(config)
-    model.eval()
-
-    report_path = str(tmp_path / "report.json")
-    modifier = MoNePruningModifier(sparsity=0.0, report_path=report_path)
-    state = _make_state(model)
-
-    modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
-
-    with torch.no_grad():
-        for _ in range(5):
-            x = torch.randn(2, 8, config.hidden_size)
-            model(x)
-
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
-    modifier.finalize(state)
-
-    # Model config and weights are unchanged; no sparsity config is recorded
-    assert model.config.num_experts == 8
-    assert not hasattr(model, "_moe_sparsity_config")
-    for layer in model.layers:
-        expert_count = sum(
-            1 for m in layer.experts.children() if isinstance(m, ExpertMLP)
-        )
-        assert expert_count == 8
-        assert layer.gate.weight.shape[0] == 8
-        assert layer.experts.novices is None
-
-    # Report holds per-expert statistics for each MoE layer, ordered by layer
-    with open(report_path) as f:
-        report = json.load(f)
-
-    assert sorted(report) == ["count", "saliency"]
-    for values in report.values():
-        assert len(values) == 2
-
-    for layer_counts, layer_saliency in zip(report["count"], report["saliency"]):
-        assert len(layer_counts) == 8
-        assert len(layer_saliency) == 8
-        assert all(isinstance(value, float) for value in layer_saliency)
-        # every expert was routed to at least once across the 5 batches
-        assert all(count > 0 for count in layer_counts)
-
-
-@pytest.mark.unit
-def test_mone_layer_without_data_collapses_after_later_epoch():
-    """A layer which saw no calibration tokens keeps its tracker (in case data
-    arrives in a later epoch) and is collapsed once it does."""
-    torch.manual_seed(42)
-    config = FakeMoEConfig(
-        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
-    )
-    model = FakeMoEModel(config)
-    model.eval()
-
-    modifier = MoNePruningModifier(sparsity=0.5)
-    state = _make_state(model)
-
-    modifier.initialize(state)
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
-
-    # first epoch end: no layer has seen any data yet, so nothing is
-    # finalized and the trackers are kept
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 2
-    for tracker in modifier._saliency_trackers.values():
-        assert tracker.total_count == 0
-    for layer in model.layers:
-        assert layer.experts.num_experts == 8
-
-    # second epoch: data arrives for every layer
-    with torch.no_grad():
-        for _ in range(5):
-            model(torch.randn(2, 8, config.hidden_size))
-
-    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
-    assert len(modifier._saliency_trackers) == 0
-
-    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
-    modifier.finalize(state)
-
-    for layer in model.layers:
-        assert layer.experts.num_experts == 4
-        assert layer.experts.novices is not None
-        assert layer.experts.novices.shape == (4, config.hidden_size)
-
-
-@pytest.mark.unit
-def test_build_moe_num_experts_marks_dense_layers():
-    config = FakeMoEConfig(num_experts=8, num_hidden_layers=4)
-    model = FakeMoEModel(config)
-    attrs = get_moe_attrs(model, ignore=[])
-    # only layers 1 and 3 collapsed
-    retained = {
-        attrs.moe_layer_names[1]: [0, 1, 2, 3],
-        attrs.moe_layer_names[3]: [0, 1, 2, 3, 4],
-    }
-    per_layer = build_moe_num_experts(model, attrs, retained)
-    assert per_layer == [None, 4, None, 5]
+        modifier.initialize(make_state(model))
 
 
 # ---------------------------------------------------------------------------
-# Tests: serialization (save-only; checkpoint layout + config)
+# Tests: checkpoint serialization (linearize / repack / save)
 # ---------------------------------------------------------------------------
 
 
@@ -609,65 +369,72 @@ def _tiny_qwen3_vl_moe():
     return model
 
 
-@pytest.mark.unit
-def test_linearized_state_dict_contains_novices():
+def _linearized_and_collapsed(retained=(0, 2)):
+    """A tiny linearized Qwen3VLMoe model whose single MoE layer keeps
+    ``retained`` experts, with the rest collapsed into random novices.
+
+    Returns the model and its ``(moe_name, moe_block)`` pair."""
     from llmcompressor.modeling.moe.linearize import linearize_moe
 
     model = _tiny_qwen3_vl_moe()
     linearize_moe(model)
-    attrs = get_moe_attrs(model, ignore=[])
-    layer_name = attrs.moe_layer_names[0]
-    collapse_moe_layer(model, layer_name, [0, 2], torch.randn(2, 64), attrs)
+    ((moe_name, block),) = find_moe_blocks(model).items()
 
-    experts = getattr(model.get_submodule(layer_name), attrs.experts_attr)
-    keys = set(experts.state_dict())
-    assert "novices" in keys
-    assert experts.state_dict()["novices"].shape == (2, 64)
-    # retained experts left-shifted to 0..R-1
-    assert any(k.startswith("0.") for k in keys)
-    assert not any(k.startswith("2.") for k in keys)
+    dropped = [i for i in range(4) if i not in retained]
+    novices = torch.randn(len(dropped), 64)
+    mone_collapse_moe_layer(moe_name, block, list(retained), dropped, novices)
+    return model, moe_name, block
 
 
 @pytest.mark.unit
-def test_packed_repack_contains_novices():
-    from llmcompressor.modeling.moe.linearize import linearize_moe, repack_moe
+def test_collapse_survives_linearize_and_repack():
+    """The collapsed layout survives the linearize/repack round trip: the
+    retained experts are left-shifted and packed, and the novices stay a
+    tensor on the experts module with the router at full width."""
+    from llmcompressor.modeling.moe.linearize import repack_moe
 
-    model = _tiny_qwen3_vl_moe()
-    linearize_moe(model)
-    attrs = get_moe_attrs(model, ignore=[])
-    layer_name = attrs.moe_layer_names[0]
-    collapse_moe_layer(model, layer_name, [0, 2], torch.randn(2, 64), attrs)
+    model, moe_name, block = _linearized_and_collapsed()
+    experts, router = get_experts_router(moe_name, block)
 
-    block = model.get_submodule(layer_name)
-    router = getattr(block, attrs.router_attr)
-    assert router.weight.shape[0] == 4  # R + N preserved
+    # linearized layout: retained experts left-shifted to 0..R-1, novices
+    # installed as a parameter on the experts module
+    keys = set(experts.state_dict())
+    assert "novices" in keys
+    assert experts.state_dict()["novices"].shape == (2, 64)
+    assert any(key.startswith("0.") for key in keys)
+    assert not any(key.startswith("2.") for key in keys)
 
+    # the router keeps its full R + N width
+    assert router.weight.shape[0] == 4
+
+    # repack fuses the retained experts and keeps the novices
+    experts_attr = next(
+        name for name, child in block.named_children() if child is experts
+    )
     repack_moe(model)
-    experts = getattr(model.get_submodule(layer_name), attrs.experts_attr)
-    # packed retained experts (R), novices (N)
-    assert experts.gate_up_proj.shape[0] == 2
-    assert experts.down_proj.shape[0] == 2
-    assert experts.novices.shape == (2, 64)
+    fused = getattr(block, experts_attr)
+    assert fused.gate_up_proj.shape[0] == 2
+    assert fused.down_proj.shape[0] == 2
+    assert fused.novices.shape == (2, 64)
 
 
 @pytest.mark.unit
 def test_save_pretrained_writes_moe_sparsity_config_and_novices(tmp_path):
     from compressed_tensors.config import ExpertSparsityConfig, MoESparsityMethod
 
-    from llmcompressor.modeling.moe.linearize import linearize_moe, repack_moe
+    from llmcompressor.modeling.moe.linearize import repack_moe
     from llmcompressor.transformers.compression.compressed_tensors_utils import (
         modify_save_pretrained,
     )
+    from llmcompressor.utils.helpers import values_by_decoder_layer
 
-    model = _tiny_qwen3_vl_moe()
-    linearize_moe(model)
-    attrs = get_moe_attrs(model, ignore=[])
-    layer_name = attrs.moe_layer_names[0]
-    collapse_moe_layer(model, layer_name, [0, 2], torch.randn(2, 64), attrs)
+    model, moe_name, _ = _linearized_and_collapsed()
 
+    # the modifier's finalize step records the per-layer retained counts
+    num_layers = model.config.get_text_config().num_hidden_layers
     model._moe_sparsity_config = ExpertSparsityConfig(
         method=MoESparsityMethod.NOVICE,
-        num_experts=build_moe_num_experts(model, attrs, {layer_name: [0, 2]}),
+        num_experts=values_by_decoder_layer({moe_name: 2}, num_layers),
     )
     repack_moe(model)
 
@@ -727,7 +494,7 @@ def test_mone_distributed_uneven_data():
             model.eval()
 
             modifier = MoNePruningModifier(sparsity=0.5)
-            state = _make_state(model)
+            state = make_state(model)
 
             modifier.initialize(state)
             modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
@@ -743,7 +510,6 @@ def test_mone_distributed_uneven_data():
             modifier.finalize(state)
 
             # every layer was collapsed from the globally summed statistics
-            assert len(modifier._saliency_trackers) == 0
             for layer in model.layers:
                 assert layer.experts.num_experts == 4
                 assert layer.experts.novices is not None
@@ -767,8 +533,8 @@ def test_mone_distributed_uneven_data():
 @pytest.mark.unit
 @requires_gpu
 @torchrun(world_size=1, init_dist=True)
-def test_mone_distributed_nccl_reduces_on_gpu():
-    """The saliency reduction runs on the gpu (float32) over the default
+def test_mone_distributed_nccl_collapses_on_gpu():
+    """The reduction and collapse run on the gpu (float32) over the default
     nccl-backed process group, rather than on host copies."""
     # nccl is a cuda-only backend; other accelerators (e.g. xpu) use ccl
     if not torch.accelerator.is_available() or (
@@ -787,7 +553,7 @@ def test_mone_distributed_nccl_reduces_on_gpu():
     model.eval()
 
     modifier = MoNePruningModifier(sparsity=0.5)
-    state = _make_state(model)
+    state = make_state(model)
 
     modifier.initialize(state)
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
@@ -801,7 +567,6 @@ def test_mone_distributed_nccl_reduces_on_gpu():
     modifier.finalize(state)
 
     # every layer collapsed, with novices installed on the gpu
-    assert len(modifier._saliency_trackers) == 0
     for layer in model.layers:
         assert layer.experts.num_experts == 4
         assert layer.experts.novices is not None

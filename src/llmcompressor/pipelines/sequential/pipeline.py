@@ -274,7 +274,9 @@ class SequentialPipeline(CalibrationPipeline):
                     decompress_subgraph_modules(modules)
                     for modifier in modifiers:
                         if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(model, modules)
+                            modifier.start_layerwise_calibration(
+                                session.state, model, modules
+                            )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(

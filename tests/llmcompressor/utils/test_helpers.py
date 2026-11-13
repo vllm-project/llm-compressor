@@ -11,6 +11,7 @@ from llmcompressor.utils import (
     calibration_forward_context,
     disable_cache,
     disable_lm_head,
+    values_by_decoder_layer,
 )
 from llmcompressor.utils.dev import skip_weights_download
 from tests.testing_utils import requires_gpu, requires_hf_token
@@ -22,6 +23,45 @@ def test_DisableQuantization():
     with DisableQuantization(model):
         assert not model.quantization_enabled
     assert model.quantization_enabled
+
+
+@pytest.mark.unit
+def test_values_by_decoder_layer():
+    """Values are positioned at their name's decoder layer index, with
+    ``None`` at every other index, ordered by layer rather than by name."""
+    values = {
+        "model.layers.10.mlp.experts": 2,
+        "model.layers.2.mlp.experts": 4,
+    }
+    assert values_by_decoder_layer(values, num_layers=11) == (
+        [None, None, 4] + [None] * 7 + [2]
+    )
+
+
+@pytest.mark.unit
+def test_values_by_decoder_layer_without_num_layers():
+    """Without ``num_layers`` the list is sized to cover the largest decoder
+    layer index parsed from the names, so trailing decoder layers are not
+    represented."""
+    values = {
+        "model.layers.0.mlp.experts": 4,
+        "model.layers.2.mlp.experts": 2,
+    }
+    assert values_by_decoder_layer(values) == [4, None, 2]
+    assert values_by_decoder_layer({}) == []
+
+
+@pytest.mark.unit
+def test_values_by_decoder_layer_rejects_bad_names():
+    with pytest.raises(ValueError, match="decoder layer index"):
+        values_by_decoder_layer({"model.decoder.0.mlp.experts": 4}, num_layers=1)
+    with pytest.raises(ValueError, match="out of"):
+        values_by_decoder_layer({"model.layers.1.mlp.experts": 4}, num_layers=1)
+    with pytest.raises(ValueError, match="cannot be positioned"):
+        values_by_decoder_layer(
+            {"vision.layers.0.experts": 4, "model.layers.0.mlp.experts": 2},
+            num_layers=1,
+        )
 
 
 @pytest.mark.unit

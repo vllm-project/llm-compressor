@@ -1,14 +1,55 @@
 """Low-level Triton helpers shared by observer kernels."""
 
+from enum import IntEnum
+
 import torch
 from compressed_tensors.quantization import QuantizationType
 from compressed_tensors.quantization.utils.fp4_utils import _round_to_fp4
 from compressed_tensors.utils.triton import tl, tldevice, triton, triton_req
 
+try:
+    from triton.runtime.jit import constexpr_function
+except ImportError:
+    constexpr_function = None
+
+
+class TritonDType(IntEnum):
+    """Shared Triton dtype codes; FP8 and E8M0 are used for scales only."""
+
+    FP32 = 0
+    FP16 = 1
+    BF16 = 2
+    FP8_E4M3 = 3
+    E8M0 = 4
+
+
+# Triton JIT functions require module globals to be `tl.constexpr` values.
+_TRITON_FP32 = tl.constexpr(TritonDType.FP32.value)
+_TRITON_FP16 = tl.constexpr(TritonDType.FP16.value)
+_TRITON_BF16 = tl.constexpr(TritonDType.BF16.value)
+_TRITON_FP8_E4M3 = tl.constexpr(TritonDType.FP8_E4M3.value)
+_TRITON_E8M0 = tl.constexpr(TritonDType.E8M0.value)
+
+
+if constexpr_function is not None:
+
+    @constexpr_function
+    def is_xpu_target():
+        """Return whether Triton is compiling for the Intel XPU backend."""
+        target = tl.target_info.current_target()
+        return target is not None and target.backend == "xpu"
+
+else:
+
+    @triton.jit
+    def is_xpu_target():
+        """Report a non-XPU target when Triton has no constexpr functions."""
+        return False
+
 
 def observer_triton_req(observed, args, *unused_args, **unused_kwargs) -> bool:
     """Check whether observer inputs use a format supported by the shared kernels."""
-    if not triton_req(observed) or not observed.is_cuda:
+    if not triton_req(observed):
         return False
     if observed.dtype not in (torch.float32, torch.float16, torch.bfloat16):
         return False
@@ -22,16 +63,52 @@ def observer_triton_req(observed, args, *unused_args, **unused_kwargs) -> bool:
 def scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
     """Return the Triton scale rounding mode and minimum valid scale."""
     if dtype is None or dtype == torch.float32:
-        return 0, torch.finfo(torch.float32).eps
+        return TritonDType.FP32.value, torch.finfo(torch.float32).eps
     if dtype == torch.float16:
-        return 1, torch.finfo(torch.float16).eps
+        return TritonDType.FP16.value, torch.finfo(torch.float16).eps
     if dtype == torch.bfloat16:
-        return 2, torch.finfo(torch.bfloat16).eps
+        return TritonDType.BF16.value, torch.finfo(torch.bfloat16).eps
     if dtype == torch.float8_e4m3fn:
-        return 3, 0.125
+        return TritonDType.FP8_E4M3.value, 0.125
     if dtype == torch.uint8:
-        return 4, 2.0**-127
+        return TritonDType.E8M0.value, 2.0**-127
     raise ValueError(f"Unsupported Triton scale dtype: {dtype}")
+
+
+@triton.jit
+def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
+    """Round an FP32 value to the requested dtype and return it as FP32."""
+    tl.static_assert(value.dtype == tl.float32, "value must be FP32")
+
+    if COMPUTE_DTYPE == _TRITON_FP8_E4M3:
+        return value.to(tl.float8e4nv).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_FP16 and not is_xpu_target():
+        return value.to(tl.float16).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_BF16 and not is_xpu_target():
+        return value.to(tl.bfloat16).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_FP16 and is_xpu_target():
+        half = value.to(tl.float16)
+        # The identity FMA forces the Intel backend to materialize the
+        # FP16 value; a plain cast is optimized away in arithmetic chains.
+        return tldevice.fma(
+            half,
+            tl.full((), 1.0, tl.float16),
+            tl.full((), 0.0, tl.float16),
+        ).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_BF16 and is_xpu_target():
+        # Intel Triton promotes BF16 arithmetic to FP32, even across an
+        # explicit BF16 cast, so round through the FP32 bit representation.
+        bits = value.to(tl.int32, bitcast=True)
+        least_significant_bit = (bits >> 16) & 1
+        bits = bits + 0x7FFF + least_significant_bit
+        bits = bits & -65536
+        return bits.to(tl.float32, bitcast=True)
+
+    return value
 
 
 @triton.jit
@@ -39,13 +116,13 @@ def round_candidate_scale(
     scale, SCALE_ROUND_TYPE: tl.constexpr, QUANT_TYPE: tl.constexpr
 ):
     """Round a floating candidate scale as compressed-tensors qparams do."""
-    if SCALE_ROUND_TYPE == 1:
-        return tl.minimum(scale, 65504.0).to(tl.float16).to(tl.float32)
-    if SCALE_ROUND_TYPE == 2:
-        return scale.to(tl.bfloat16).to(tl.float32)
-    if SCALE_ROUND_TYPE == 3:
-        return tl.minimum(scale, 448.0).to(tl.float8e4nv).to(tl.float32)
-    if SCALE_ROUND_TYPE == 4:
+    if SCALE_ROUND_TYPE == _TRITON_FP16:
+        return round_fp32_as_dtype(tl.minimum(scale, 65504.0), _TRITON_FP16)
+    if SCALE_ROUND_TYPE == _TRITON_BF16:
+        return round_fp32_as_dtype(scale, _TRITON_BF16)
+    if SCALE_ROUND_TYPE == _TRITON_FP8_E4M3:
+        return round_fp32_as_dtype(tl.minimum(scale, 448.0), _TRITON_FP8_E4M3)
+    if SCALE_ROUND_TYPE == _TRITON_E8M0:
         # E8M0 stores the power-of-two scale after accounting for the element
         # format's largest exponent (FP4: 2, FP8: 8).
         is_zero = scale == 0.0
@@ -64,32 +141,33 @@ def round_candidate_scale(
 def calculate_candidate_scale(
     min_value,
     max_value,
-    p,
     q_min,
     q_max,
     SCALE_ROUND_TYPE: tl.constexpr,
     QUANT_TYPE: tl.constexpr,
     SYMMETRIC: tl.constexpr,
+    COMPUTE_DTYPE: tl.constexpr,
 ):
-    """Derive and round a candidate scale from its original min/max range."""
-    scaled_min = min_value * p
-    scaled_max = max_value * p
-    if SCALE_ROUND_TYPE == 4:
+    """Derive and round a candidate scale from candidate min/max bounds."""
+    if SCALE_ROUND_TYPE == _TRITON_E8M0:
         # MX/E8M0 operates on the group absmax before element-format scaling.
         return round_candidate_scale(
-            tl.maximum(tl.abs(scaled_min), tl.abs(scaled_max)),
+            tl.maximum(tl.abs(min_value), tl.abs(max_value)),
             SCALE_ROUND_TYPE=SCALE_ROUND_TYPE,
             QUANT_TYPE=QUANT_TYPE,
         )
     if SYMMETRIC:
-        scale = tl.maximum(tl.abs(scaled_min), tl.abs(scaled_max)) / (
+        scale = tl.maximum(tl.abs(min_value), tl.abs(max_value)) / (
             (q_max - q_min) * 0.5
         )
     else:
-        scale = (scaled_max - scaled_min) / (q_max - q_min)
-    return round_candidate_scale(
+        scale = (max_value - min_value) / (q_max - q_min)
+    scale = round_candidate_scale(
         scale, SCALE_ROUND_TYPE=SCALE_ROUND_TYPE, QUANT_TYPE=QUANT_TYPE
     )
+    if SCALE_ROUND_TYPE == _TRITON_FP32:
+        return round_fp32_as_dtype(scale, COMPUTE_DTYPE)
+    return scale
 
 
 @triton.jit
@@ -103,68 +181,48 @@ def quantize_dequantize(
     NUM_BITS: tl.constexpr,
     HAS_ZP: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
+    USE_FP8_E4B15: tl.constexpr = False,
 ):
     """GPTQ-style QDQ shared by MSE and importance-weighted observer kernels."""
     normalized = tldevice.div_rn(values, scale)
-    if COMPUTE_DTYPE == 1:
-        normalized = normalized.to(tl.float16).to(tl.float32)
-    elif COMPUTE_DTYPE == 2:
-        normalized = normalized.to(tl.bfloat16).to(tl.float32)
+    normalized = round_fp32_as_dtype(normalized, COMPUTE_DTYPE)
     if HAS_ZP:
         # fake_quantize adds the zero point in the input dtype
         normalized += zero_point
-        if COMPUTE_DTYPE == 1:
-            normalized = normalized.to(tl.float16).to(tl.float32)
-        elif COMPUTE_DTYPE == 2:
-            normalized = normalized.to(tl.bfloat16).to(tl.float32)
+        normalized = round_fp32_as_dtype(normalized, COMPUTE_DTYPE)
     normalized = tl.clamp(normalized, q_min, q_max)
     if QUANT_TYPE == 0:
         rounded = tldevice.rint(normalized)
     elif NUM_BITS == 4:
         rounded = _round_to_fp4(normalized)
     else:
-        rounded = normalized.to(tl.float8e4nv).to(tl.float32)
+        if USE_FP8_E4B15:
+            rounded = (normalized * 0.00390625).to(tl.float8e4b15).to(
+                tl.float32
+            ) * 256.0
+        else:
+            rounded = round_fp32_as_dtype(normalized, _TRITON_FP8_E4M3)
     if HAS_ZP:
         rounded -= zero_point
     return tldevice.mul_rn(rounded, scale)
 
 
 @triton.jit
-def calculate_mse_error(
+def calculate_qdq_error(
     values,
     quantized,
     norm: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
-    ROUND_ERROR: tl.constexpr,
 ):
-    """Calculate the per-element powered QDQ error for the MSE observer."""
-    if COMPUTE_DTYPE == 1:
-        diff = tl.abs(quantized.to(tl.float16) - values.to(tl.float16))
-    elif COMPUTE_DTYPE == 2:
-        diff = tl.abs(quantized.to(tl.bfloat16) - values.to(tl.bfloat16))
-    else:
-        diff = tl.abs(quantized - values)
-
-    error_norm = tl.full((), norm, tl.float32)
-    if ROUND_ERROR:
-        if COMPUTE_DTYPE == 1:
-            error_norm = error_norm.to(tl.float16).to(tl.float32)
-        elif COMPUTE_DTYPE == 2:
-            error_norm = error_norm.to(tl.bfloat16).to(tl.float32)
-    diff = diff.to(tl.float32)
-    if error_norm == 3.0:
-        # PyTorch's eager ``pow(x, 3.0)`` follows this multiply sequence.
-        # libdevice.pow can land on the other side of a BF16 rounding midpoint
-        # for tiny errors, which changes the selected grid point after weighting.
-        diff_pow = (diff * diff) * diff
-    else:
-        diff_pow = tl.extra.cuda.libdevice.pow(diff, error_norm)
-    if ROUND_ERROR:
-        if COMPUTE_DTYPE == 1:
-            diff_pow = diff_pow.to(tl.float16)
-        elif COMPUTE_DTYPE == 2:
-            diff_pow = diff_pow.to(tl.bfloat16)
-    return diff_pow.to(tl.float32)
+    """Compute QDQ powers in FP32 after rounding the difference to input dtype."""
+    # Eager fake_quantize rounds its QDQ result and the observed values in their
+    # storage dtype before subtraction, then rounds the difference again. Keep
+    # that order here so the selected grid point matches eager.
+    quantized = round_fp32_as_dtype(quantized, COMPUTE_DTYPE)
+    values = round_fp32_as_dtype(values, COMPUTE_DTYPE)
+    diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)
+    error_norm = round_fp32_as_dtype(tl.full((), norm, tl.float32), COMPUTE_DTYPE)
+    return tldevice.pow(diff, error_norm)
 
 
 @triton.jit
@@ -177,15 +235,13 @@ def calculate_observer_error(
     HAS_IMPORTANCE: tl.constexpr,
     HAS_MAGNITUDE_NORMALIZATION: tl.constexpr,
     COMPUTE_DTYPE: tl.constexpr,
-    ROUND_ERROR: tl.constexpr,
 ):
     """Calculate MSE or importance-weighted QDQ error for observer search."""
-    error = calculate_mse_error(
+    error = calculate_qdq_error(
         values,
         quantized,
         norm,
         COMPUTE_DTYPE=COMPUTE_DTYPE,
-        ROUND_ERROR=ROUND_ERROR,
     )
     if HAS_IMPORTANCE:
         error = error * importance

@@ -1,4 +1,5 @@
 import contextlib
+import enum
 import inspect
 from collections import UserDict, deque
 from dataclasses import dataclass
@@ -64,14 +65,16 @@ class Subgraph:
     consumed_names: set[str]
     _code: PythonCode | None = None
 
-    def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
+    def _subgraph_module_dict(
+        self, model: Module, recurse: bool = True
+    ) -> dict[str, Module]:
         """
-        Qualified names of the modules owned by this subgraph, in graph order. Owned
+        Modules keyed by their qualified names, in graph order. Owned
         modules are `call_module` targets plus modules recorded by the tracer as having
         run inside a node (see `INVOKED_SUBMODULES_META_KEY`), optionally including
         their descendants. Names which do not exist in `model` raise
         """
-        ordered_names: list[str] = []
+        modules: dict[str, Module] = {}
         seen_modules: set[Module] = set()
 
         targets = [root for node in self.graph.nodes for root in get_node_roots(node)]
@@ -88,10 +91,10 @@ class Subgraph:
                     qualified_name = (
                         f"{target}.{relative_name}" if target else relative_name
                     )
-                ordered_names.append(qualified_name)
+                modules[qualified_name] = submodule
                 seen_modules.add(submodule)
 
-        return ordered_names
+        return modules
 
     def forward(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -110,18 +113,15 @@ class Subgraph:
         with append_autowrap_source_on_fail():
             return forward_fn(*args, **kwargs)
 
+    def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
+        return list(self._subgraph_module_dict(model, recurse=recurse))
+
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
-        return [
-            model.get_submodule(name)
-            for name in self._subgraph_module_names(model, recurse=recurse)
-        ]
+        return list(self._subgraph_module_dict(model, recurse=recurse).values())
 
     def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
         """Return subgraph modules keyed by their fully qualified model names."""
-        return {
-            name: model.get_submodule(name)
-            for name in self._subgraph_module_names(model, recurse=recurse)
-        }
+        return self._subgraph_module_dict(model, recurse=recurse)
 
 
 def collect_subgraph_modules(
@@ -521,6 +521,11 @@ class SequentialTracer(HFTracer):
         if isinstance(a, PretrainedConfig):
             kwargs = {k: self.create_arg(v) for k, v in a.to_dict().items()}
             return self.create_node("call_function", a.__class__, (), kwargs)
+
+        # special extension allows enums in the config values to be traced, such as
+        # `quantization_status: <QuantizationStatus.COMPRESSED: 'compressed'>`
+        elif isinstance(a, enum.Enum):
+            return self.create_node("call_function", getattr, (a.__class__, a.name))
 
         # special extension for supporting `UserDict`s (Gemma4 uses this)
         elif isinstance(a, UserDict):

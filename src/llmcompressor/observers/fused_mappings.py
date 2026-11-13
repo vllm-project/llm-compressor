@@ -29,11 +29,15 @@ class FusedMapping:
         parent only when all of these are present
     :param optional_names: layers that are packed only in some model
         configurations. When the mapping applies, those present join the group
+    :param context_names: layers that are not packed, but must be present for
+        the mapping to apply. Use them when another model has layers with the
+        same names that vLLM does not pack
     """
 
     fused_name: str
     names: tuple[str, ...]
     optional_names: tuple[str, ...] = ()
+    context_names: tuple[str, ...] = ()
 
 
 # Single source of truth for linear-layer groups that vLLM packs together
@@ -43,6 +47,8 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
     # MLP / expert gate and up projections
     FusedMapping("gate_up_proj", ("gate_proj", "up_proj")),
     FusedMapping("gate_up_proj", ("w1", "w3")),
+    # EXAONE 3 and 3.5 MLP (remote code model definition)
+    FusedMapping("gate_up_proj", ("c_fc_0", "c_fc_1")),
     # Attention q/k/v. Gemma 4 `attention_k_eq_v` layers have no v_proj, and
     # vLLM loads k_proj into both the k and v shards of qkv_proj
     FusedMapping("qkv_proj", ("q_proj", "k_proj"), optional_names=("v_proj",)),
@@ -57,6 +63,17 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
         "in_proj_qkvgfab",
         ("q_proj", "k_proj", "v_proj", "b_proj", "forget_gate.f_a_proj"),
         optional_names=("g_proj",),
+    ),
+    # Qwen3.5 gated delta net. Qwen3-Next checkpoints store these pre-fused
+    FusedMapping("in_proj_qkvz", ("in_proj_qkv", "in_proj_z")),
+    FusedMapping("in_proj_ba", ("in_proj_b", "in_proj_a")),
+    # OLMo-Hybrid gated delta net. a_proj and b_proj are not packed, but they
+    # tell these layers apart from gated attention layers (e.g. Laguna), whose
+    # g_proj vLLM does not pack
+    FusedMapping(
+        "in_proj_qkvg",
+        ("q_proj", "k_proj", "v_proj", "g_proj"),
+        context_names=("a_proj", "b_proj"),
     ),
     # Multi-latent attention (DeepSeek V2/V3/V3.2, Kimi). Kimi MLA layers with
     # `mla_use_output_gate` also pack g_proj, into fused_qkv_a_g_proj
@@ -82,7 +99,7 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
 FUSED_MODULE_NAMES: frozenset[str] = frozenset(
     name
     for mapping in FUSED_MODULE_MAPPINGS
-    for name in mapping.names + mapping.optional_names
+    for name in mapping.names + mapping.optional_names + mapping.context_names
 )
 
 
@@ -90,11 +107,11 @@ def resolve_fused_names(present_names: Collection[str]) -> list[tuple[str, ...]]
     """
     Resolve the fused groups among the layers present under one parent module.
 
-    A mapping applies when all of its `names` are present, and those of its
-    `optional_names` that are present join the group. This follows vLLM, which
-    packs a layer into whichever fused module exists on that parent. For
-    example, Kimi `g_proj` is packed into `in_proj_qkvgfab` on delta attention
-    layers and into `fused_qkv_a_g_proj` on MLA layers.
+    A mapping applies when all of its `names` and `context_names` are present,
+    and those of its `optional_names` that are present join the group. This
+    follows vLLM, which packs a layer into whichever fused module exists on
+    that parent. For example, Kimi `g_proj` is packed into `in_proj_qkvgfab` on
+    delta attention layers and into `fused_qkv_a_g_proj` on MLA layers.
 
     Larger groups take precedence, and a group that shares a layer with an
     already chosen group is dropped. For example, a Kimi delta attention layer
@@ -106,7 +123,7 @@ def resolve_fused_names(present_names: Collection[str]) -> list[tuple[str, ...]]
     """
     candidates: list[tuple[str, ...]] = []
     for mapping in FUSED_MODULE_MAPPINGS:
-        if all(name in present_names for name in mapping.names):
+        if all(n in present_names for n in mapping.names + mapping.context_names):
             optional = tuple(n for n in mapping.optional_names if n in present_names)
             candidates.append(mapping.names + optional)
 

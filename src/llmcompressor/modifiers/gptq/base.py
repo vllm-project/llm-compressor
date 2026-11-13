@@ -47,7 +47,12 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
-_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point"]
+_GPTQ_Q_PARAMS = [
+    "weight",
+    "weight_scale",
+    "weight_zero_point",
+    "weight_global_scale",
+]
 
 
 class GPTQModifier(Modifier, QuantizationMixin):
@@ -151,16 +156,23 @@ class GPTQModifier(Modifier, QuantizationMixin):
             raise ValueError("batched_quantization must be a positive integer")
         return value
 
-    def resolve_quantization_config(self) -> QuantizationConfig:
-        config = super().resolve_quantization_config()
+    def resolve_quantization_config(
+        self, has_calibration_data: bool = False
+    ) -> QuantizationConfig:
+        config = super().resolve_quantization_config(
+            has_calibration_data=has_calibration_data
+        )
 
-        def resolve_actorder(existing):
-            # sentinel default only overrides if existing is None
+        def resolve_actorder(weights):
+            existing = weights.actorder
+            is_set = "actorder" in weights.model_fields_set
+
+            # sentinel default only overrides if actorder is not set
             if self.actorder == Sentinel("static"):
-                return ActivationOrdering.STATIC if existing is None else existing
+                return existing if is_set else ActivationOrdering.STATIC
 
             # user-provided value always attempts to override
-            if existing is None or self.actorder == existing:
+            if not is_set or self.actorder == existing:
                 return self.actorder
 
             # if existing provided and conflicts
@@ -183,7 +195,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 QuantizationStrategy.BLOCK,
             ):
                 # Apply modifier-level actorder to already-constructed QuantizationArgs.
-                scheme.weights.actorder = resolve_actorder(scheme.weights.actorder)
+                scheme.weights.actorder = resolve_actorder(scheme.weights)
 
         return config
 
@@ -195,7 +207,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            QuantizationMixin.initialize_quantization(self, state)
 
         # prepare module names
         self._module_names = {

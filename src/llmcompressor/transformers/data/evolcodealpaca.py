@@ -37,7 +37,7 @@ class EvolCodeAlpacaDataset(TextGenerationDataset):
     def dataset_template(self, sample):
         prompt = self.EVOL_ALPACA_TEMPLATE.format(instruction=sample["instruction"])
         text = prompt
-        if "output" in text:
+        if "output" in sample:
             text += sample["output"]
 
         return {
