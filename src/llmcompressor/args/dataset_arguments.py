@@ -179,6 +179,16 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "whether to shuffle the dataset before selecting calibration data"
         },
     )
+    calibration_seed: int | None = field(
+        default=None,
+        metadata={
+            "help": (
+                "Seed for the calibration shuffle. When set, repeated runs draw "
+                "the same samples. When None, the shuffle stays unseeded. "
+                "Ignored when shuffle_calibration_samples is False."
+            )
+        },
+    )
     streaming: bool | None = field(
         default=False,
         metadata={"help": "True to stream data from a cloud dataset"},
