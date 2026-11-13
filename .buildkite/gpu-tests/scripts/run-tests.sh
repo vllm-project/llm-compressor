@@ -32,7 +32,7 @@ export HF_HOME=/model-cache
 # to uv bug: https://github.com/astral-sh/uv/issues/22965
 export BUILD_TYPE=release
 export UV_TORCH_BACKEND=cu129
-uv pip install ".[dev,autoround]" "torch==2.8.0" "torchvision==0.23.0" "torchcodec==0.7.0"
+uv pip install ".[dev]" "torch==2.7.1" "transformers==4.55.2" "torchvision==0.22.1" "torchcodec==0.7.0"
 
 echo "--- Installed packages"
 uv pip list
@@ -53,7 +53,7 @@ elif [ "${TEST_TYPE}" = "transformers" ]; then
   done
 else
   echo "Unknown test type: ${TEST_TYPE}"
-  echo "Usage: run-tests.sh <base|transformers>"
+  echo "Usage: run-tests.sh <base|pytorch|transformers>"
   exit 1
 fi
 
