@@ -42,6 +42,7 @@ __all__ = [
     "build_lazy_module_transforms",
     "materialize_lazy_module_transforms",
     "materialize_lazy_module_transforms_eagerly",
+    "onload_and_convert_meta_modules",
     "offload_lazy_module_sources",
     "prepare_lazy_module_transforms",
     "restore_lazy_module_transforms",
@@ -131,6 +132,39 @@ def materialize_lazy_module_transforms(
         )
 
     return target_offload_kwargs
+
+
+def onload_and_convert_meta_modules(
+    transforms: Sequence[ModuleTransform],
+    target_modules: Mapping[str, Module],
+    offload_kwargs: dict[str, dict],
+    device: torch.device,
+) -> None:
+    """Materialize and onload transformed targets owned by a subgraph.
+
+    Ordinary modules should already have been onloaded, with their cache settings
+    recorded in ``offload_kwargs``. Original modules retained by transforms are
+    onloaded here, used to populate their meta targets, and offloaded again. The
+    resulting target modules are then onloaded through the regular offload helper.
+    """
+    source_modules = source_modules_for_subgraph(transforms, target_modules)
+    if not source_modules:
+        return
+
+    source_offload_kwargs = subgraph_onload_modules(source_modules)
+    target_offload_kwargs = materialize_lazy_module_transforms(
+        transforms,
+        target_modules,
+        source_modules,
+        source_offload_kwargs,
+        device,
+    )
+    offload_kwargs.update(target_offload_kwargs)
+    subgraph_offload_modules(source_modules, source_offload_kwargs)
+
+    # Materialization creates normal offload caches on the targets. Reuse the
+    # standard path to onload them for calibration and capture their cache settings.
+    offload_kwargs.update(subgraph_onload_modules(target_modules))
 
 
 def materialize_lazy_module_transforms_eagerly(

@@ -34,10 +34,9 @@ from llmcompressor.pipelines.sequential.helpers import (
 )
 from llmcompressor.pipelines.sequential.lazy import (
     ModuleTransform,
-    materialize_lazy_module_transforms,
+    onload_and_convert_meta_modules,
     offload_lazy_module_sources,
     restore_lazy_module_transforms,
-    source_modules_for_subgraph,
     transformed_fqns_for,
 )
 from llmcompressor.utils.dev import get_main_device
@@ -152,17 +151,7 @@ class SequentialPipeline(CalibrationPipeline):
         offload_lazy_module_sources(model, transforms, onload_device)
 
         def staging_modules_for(subgraph) -> dict[str, torch.nn.Module]:
-            target_modules = subgraph.submodule_dict(model)
-            source_modules = source_modules_for_subgraph(
-                transforms, target_modules
-            )
-            modules = {
-                f"target:{name}": module for name, module in target_modules.items()
-            }
-            modules.update(
-                {f"source:{name}": module for name, module in source_modules.items()}
-            )
-            return modules
+            return subgraph.submodule_dict(model)
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -188,23 +177,12 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            persistent_source_modules = source_modules_for_subgraph(
-                transforms, persistent_modules
-            )
-            subgraph_onload_modules(persistent_modules)
-            persistent_source_kwargs = subgraph_onload_modules(
-                persistent_source_modules
-            )
-            materialize_lazy_module_transforms(
+            persistent_offload_kwargs = subgraph_onload_modules(persistent_modules)
+            onload_and_convert_meta_modules(
                 transforms,
                 persistent_modules,
-                persistent_source_modules,
-                persistent_source_kwargs,
+                persistent_offload_kwargs,
                 onload_device,
-            )
-            subgraph_onload_modules(persistent_modules)
-            subgraph_offload_modules(
-                persistent_source_modules, persistent_source_kwargs
             )
             # Persistent modules stay onloaded for the full calibration run.
 
@@ -298,19 +276,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 target_subgraph_modules = subgraph.submodule_dict(model)
-                source_subgraph_modules = source_modules_for_subgraph(
-                    transforms, target_subgraph_modules
-                )
-                current_staging_modules = {
-                    f"target:{name}": module
-                    for name, module in target_subgraph_modules.items()
-                }
-                current_staging_modules.update(
-                    {
-                        f"source:{name}": module
-                        for name, module in source_subgraph_modules.items()
-                    }
-                )
+                current_staging_modules = target_subgraph_modules
                 if prefetched_staging is None:
                     subgraph_stage_modules(
                         current_staging_modules,
@@ -355,18 +321,12 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(target_subgraph_modules)
-                source_offload_kwargs = subgraph_onload_modules(
-                    source_subgraph_modules
-                )
-                lazy_offload_kwargs = materialize_lazy_module_transforms(
+                onload_and_convert_meta_modules(
                     transforms,
                     target_subgraph_modules,
-                    source_subgraph_modules,
-                    source_offload_kwargs,
+                    offload_kwargs,
                     onload_device,
                 )
-                offload_kwargs.update(lazy_offload_kwargs)
-                offload_kwargs.update(subgraph_onload_modules(target_subgraph_modules))
                 modules = subgraph.submodules(model)
 
                 # Decompress and initialize only this subgraph after onloading it.
@@ -446,9 +406,6 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(modules)
 
                 subgraph_offload_modules(target_subgraph_modules, offload_kwargs)
-                subgraph_offload_modules(
-                    source_subgraph_modules, source_offload_kwargs
-                )
                 # Let each transform restore or release its mapped modules only
                 # after this subgraph's callbacks, propagation, and offload finish.
                 completed_transforms = {
