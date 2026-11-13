@@ -7,6 +7,7 @@ from compressed_tensors import (
     update_offload_parameter,
 )
 
+from llmcompressor.modeling.offset_norm import CalibrationOffsetNorm
 from llmcompressor.utils import get_high_precision
 
 __all__ = ["center_embeddings", "fuse_norm_linears"]
@@ -61,3 +62,5 @@ def fuse_norm_linears(norm: torch.nn.Module, linears: Iterable[torch.nn.Linear])
 
     new_norm_weight = torch.ones_like(norm.weight, device="cpu")
     update_offload_parameter(norm, "weight", new_norm_weight)
+    if isinstance(norm, CalibrationOffsetNorm):
+        norm.restore_live_scale()
