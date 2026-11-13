@@ -98,7 +98,8 @@ def prepare_batch(
     for module in batch:
         hessian = hessians_by_module.pop(module)
         num_samples = num_samples_by_module.pop(module).to(device=hessian.device)
-        hessian_list.append(hessian / num_samples)
+        # a module that saw no tokens has a zero Hessian and a count of zero
+        hessian_list.append(hessian / num_samples.clamp(min=1))
     hessians = torch.stack(hessian_list)
     del hessian_list
 
@@ -300,13 +301,24 @@ def factorize_hessian(
 ) -> torch.Tensor:
     """Dampen and factorize Hessians in place into GPTQ update factors.
 
-    Dead columns are zeroed in ``weights``. Non-positive-definite Hessians are
-    replaced with identity factors and marked for RTN fallback. Small batches
-    use per-item linear algebra because it is faster than batched CUDA calls.
+    Dead columns are zeroed in ``weights``, unless every column is dead: such a
+    module saw no tokens and is rounded to nearest. Non-positive-definite
+    Hessians are replaced with identity factors and marked for RTN fallback.
+    Small batches use per-item linear algebra because it is faster than batched
+    CUDA calls.
     """
     batch_size, _, num_columns = weights.shape
     diag = torch.diagonal(hessians, dim1=-2, dim2=-1)
     dead = diag == 0
+    # An all-zero Hessian means the module saw no tokens (for example an MoE
+    # expert the router never picked), not that every input feature is unused.
+    # An identity Hessian keeps its weights and rounds them to nearest.
+    unobserved = dead.all(dim=-1)
+    if unobserved.any():
+        dead[unobserved] = False
+        hessians[unobserved] = torch.eye(
+            num_columns, dtype=hessians.dtype, device=hessians.device
+        )
     if dead.any():
         diag.masked_fill_(dead, 1.0)
         weights.masked_fill_(dead.unsqueeze(1), 0)

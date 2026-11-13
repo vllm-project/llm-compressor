@@ -245,6 +245,28 @@ class GPTQModifier(Modifier, QuantizationMixin):
         observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+
+        # Modules in this subgraph whose hook never fired, such as MoE experts the
+        # router never picked, still need quantizing. An empty Hessian rounds them
+        # to nearest, and every rank then holds the same modules to reduce.
+        unobserved = [
+            module
+            for module in modules
+            if self._is_calibrated(module) and module not in self._num_samples
+        ]
+        for module in unobserved:
+            device = get_execution_device(module)
+            self._hessians[module] = make_empty_hessian(module, device=device)
+            self._num_samples[module] = torch.zeros(tuple(), device=device)
+        if unobserved:
+            names = [self._module_names[module] for module in unobserved]
+            logger.warning(
+                f"{len(names)} module(s) received no calibration tokens on this rank, "
+                "and are rounded to nearest unless another rank calibrates them: "
+                f"{', '.join(names[:10])}"
+                + (f", and {len(names) - 10} more" if len(names) > 10 else "")
+            )
+
         self.compress_modules()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
@@ -342,8 +364,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         world_size = dist.get_world_size()
 
         # Assign modules to ranks
+        # Hooks can register modules in a different order on each rank, so order
+        # by name before packing to give every rank the same assignment
         module_list, rank_to_modules, module_to_rank = greedy_bin_packing(
-            list(self._hessians.keys()),
+            sorted(self._hessians, key=self._module_names.__getitem__),
             world_size,
             item_weight_fn=lambda mod: self._hessians[mod].shape[0],
         )
