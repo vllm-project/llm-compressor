@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEST_TYPE="${1:?Usage: run-tests.sh <base|transformers>}"
+TEST_TYPE="${1:?Usage: run-tests.sh <base|pytorch|transformers>}"
 
 echo "~~~ System info"
 cat /etc/issue
@@ -53,7 +53,7 @@ elif [ "${TEST_TYPE}" = "transformers" ]; then
   done
 else
   echo "Unknown test type: ${TEST_TYPE}"
-  echo "Usage: run-tests.sh <base|transformers>"
+  echo "Usage: run-tests.sh <base|pytorch|transformers>"
   exit 1
 fi
 
