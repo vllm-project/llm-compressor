@@ -6,7 +6,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -17,6 +16,11 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.moe.linearize import (
+    get_pending_moe_onload_modules,
+    materialize_pending_moe_weights,
+    set_onload_device_for_pending_moes,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -116,7 +120,7 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        set_onload_device(model, onload_device)
+        set_onload_device_for_pending_moes(model, onload_device)
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -214,7 +218,9 @@ class SequentialPipeline(CalibrationPipeline):
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
             # Prefetch first subgraph modules
-            next_subgraph_modules = subgraphs[0].submodule_dict(model)
+            next_subgraph_modules = get_pending_moe_onload_modules(
+                subgraphs[0].submodule_dict(model)
+            )
             prefetched_staging = _submit_subgraph_staging(
                 stage_executor,
                 next_subgraph_modules,
@@ -226,7 +232,8 @@ class SequentialPipeline(CalibrationPipeline):
                 if prefetched_staging is None:
                     subgraph_modules = subgraph.submodule_dict(model)
                     subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                        get_pending_moe_onload_modules(subgraph_modules),
+                        pin_memory=stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -236,8 +243,9 @@ class SequentialPipeline(CalibrationPipeline):
                         stacklevel=2,
                     )
                 else:
-                    subgraph_modules, stage_future = prefetched_staging
+                    _, stage_future = prefetched_staging
                     stage_future.result()
+                    subgraph_modules = subgraph.submodule_dict(model)
                 prefetched_staging = None
 
                 # prepare tqdm description texts
@@ -253,9 +261,9 @@ class SequentialPipeline(CalibrationPipeline):
                 # Submit the next subgraph's staging before onloading the
                 # current subgraph so staging can overlap with onload work.
                 if subgraph_index + 1 < num_subgraphs:
-                    next_subgraph_modules = subgraphs[
-                        subgraph_index + 1
-                    ].submodule_dict(model)
+                    next_subgraph_modules = get_pending_moe_onload_modules(
+                        subgraphs[subgraph_index + 1].submodule_dict(model)
+                    )
                     prefetched_staging = _submit_subgraph_staging(
                         stage_executor,
                         next_subgraph_modules,
@@ -266,7 +274,10 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                onload_modules = get_pending_moe_onload_modules(subgraph_modules)
+                offload_kwargs = subgraph_onload_modules(onload_modules)
+                materialize_pending_moe_weights(subgraph_modules, offload_kwargs)
+                del onload_modules
                 modules = subgraph.submodules(model)
 
                 # Decompress and initialize only this subgraph after onloading it.
@@ -349,6 +360,31 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 #### END OF ONLOAD ####
                 #######################
+
+            # A traced calibration graph can omit model branches (for example, a
+            # modality absent from the calibration inputs). Materialize those MoEs
+            # before leaving the model so no deferred meta weights reach finalization
+            # or saving.
+            remaining_moe_modules: dict[str, torch.nn.Module] = {}
+            for name, module in model.named_modules():
+                if getattr(module, "_pending_source_experts", None) is None:
+                    continue
+                for child_name, child in module.named_modules():
+                    qualified_name = f"{name}.{child_name}" if child_name else name
+                    remaining_moe_modules[qualified_name] = child
+
+            if remaining_moe_modules:
+                onload_modules = get_pending_moe_onload_modules(
+                    remaining_moe_modules
+                )
+                remaining_offload_kwargs = subgraph_onload_modules(onload_modules)
+                materialize_pending_moe_weights(
+                    remaining_moe_modules, remaining_offload_kwargs
+                )
+                del onload_modules
+                subgraph_offload_modules(
+                    remaining_moe_modules, remaining_offload_kwargs
+                )
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
