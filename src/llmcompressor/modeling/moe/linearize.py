@@ -163,8 +163,18 @@ def linearize_moe(model: PreTrainedModel):
 class MoELinearizationModuleTransform:
     """Module-scoped MoE transform for sequential meta initialization."""
 
-    def __init__(self, decompress: bool = False):
+    def __init__(self, fqn: str, decompress: bool = False):
+        self.fqn = fqn
         self.decompress = decompress
+        self.source: torch.nn.Module | None = None
+        self.target: torch.nn.Module | None = None
+        self.offload_kwargs: dict = {}
+        self.source_offloaded = False
+        self.materialized = False
+        self.restored = False
+        # Keep LinearExperts2D in the model through Calibration_End so modifiers
+        # can clean up their target modules before the final repack.
+        self.restore_after_subgraph = False
 
     def to_meta(
         self, source: torch.nn.Module, model: torch.nn.Module
@@ -198,6 +208,20 @@ class MoELinearizationModuleTransform:
             device=device,
             offload_kwargs=offload_kwargs,
         )
+
+    def restore(self, model: torch.nn.Module) -> None:
+        """Repack calibrated experts after modifier calibration cleanup."""
+        source, target = self.source, self.target
+        if not self.materialized:
+            if source is not None:
+                model.set_submodule(self.fqn, source)
+            return
+        if target is None:
+            target = model.get_submodule(self.fqn)
+        if not isinstance(target, LinearExperts2D):
+            raise TypeError("MoE lazy target must be a LinearExperts2D module")
+
+        model.set_submodule(self.fqn, target.to_experts_module())
 
 
 def _experts_config(

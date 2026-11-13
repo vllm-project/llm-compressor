@@ -32,7 +32,15 @@ from llmcompressor.pipelines.sequential.helpers import (
     partition_subgraphs,
     trace_graph,
 )
-from llmcompressor.pipelines.sequential.lazy import LazyModuleSet
+from llmcompressor.pipelines.sequential.lazy import (
+    ModuleTransform,
+    materialize_lazy_module_transforms,
+    offload_lazy_module_sources,
+    release_lazy_module_sources,
+    restore_lazy_module_transforms,
+    source_modules_for as get_source_modules_for,
+    transformed_fqns_for,
+)
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
@@ -87,7 +95,7 @@ class SequentialPipeline(CalibrationPipeline):
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
         *,
-        lazy_modules: LazyModuleSet | None = None,
+        lazy_transforms: list[ModuleTransform] | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -119,19 +127,17 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        if lazy_modules is None:
+        if lazy_transforms is None:
             set_onload_device(model, onload_device)
-        elif lazy_modules.model is not model:
-            raise ValueError("lazy_modules.model must be the calibrated model")
         else:
-            lazy_modules.offload_sources(onload_device)
+            offload_lazy_module_sources(model, lazy_transforms, onload_device)
 
         def source_modules_for(
             target_modules: dict[str, torch.nn.Module],
         ) -> dict[str, torch.nn.Module]:
-            if lazy_modules is None:
+            if lazy_transforms is None:
                 return {}
-            return lazy_modules.source_modules_for(target_modules)
+            return get_source_modules_for(lazy_transforms, target_modules)
 
         def staging_modules_for(subgraph) -> dict[str, torch.nn.Module]:
             target_modules = subgraph.submodule_dict(model)
@@ -168,7 +174,7 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            if lazy_modules is None:
+            if lazy_transforms is None:
                 subgraph_onload_modules(persistent_modules)
             else:
                 persistent_source_modules = source_modules_for(persistent_modules)
@@ -176,7 +182,8 @@ class SequentialPipeline(CalibrationPipeline):
                 persistent_source_kwargs = subgraph_onload_modules(
                     persistent_source_modules
                 )
-                lazy_modules.materialize_subgraph(
+                materialize_lazy_module_transforms(
+                    lazy_transforms,
                     persistent_modules,
                     persistent_source_modules,
                     persistent_source_kwargs,
@@ -194,7 +201,7 @@ class SequentialPipeline(CalibrationPipeline):
         # memory they need
         targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
         if (
-            lazy_modules is not None
+            lazy_transforms is not None
             and isinstance(targets_per_subgraph, str)
             and targets_per_subgraph.casefold() == "auto"
         ):
@@ -219,10 +226,10 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
         last_lazy_use: dict[str, int] = {}
-        if lazy_modules is not None:
+        if lazy_transforms is not None:
             for index, subgraph in enumerate(subgraphs):
                 target_modules = subgraph.submodule_dict(model)
-                for fqn in lazy_modules.transformed_fqns_for(target_modules):
+                for fqn in transformed_fqns_for(lazy_transforms, target_modules):
                     last_lazy_use[fqn] = index
 
         with contextlib.ExitStack() as stack:
@@ -346,11 +353,12 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 offload_kwargs = subgraph_onload_modules(target_subgraph_modules)
                 source_offload_kwargs = {}
-                if lazy_modules is not None:
+                if lazy_transforms is not None:
                     source_offload_kwargs = subgraph_onload_modules(
                         source_subgraph_modules
                     )
-                    lazy_offload_kwargs = lazy_modules.materialize_subgraph(
+                    lazy_offload_kwargs = materialize_lazy_module_transforms(
+                        lazy_transforms,
                         target_subgraph_modules,
                         source_subgraph_modules,
                         source_offload_kwargs,
@@ -439,16 +447,32 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(modules)
 
                 subgraph_offload_modules(target_subgraph_modules, offload_kwargs)
-                if lazy_modules is not None:
+                if lazy_transforms is not None:
                     subgraph_offload_modules(
                         source_subgraph_modules, source_offload_kwargs
                     )
-                    lazy_modules.release_sources(
-                        {
-                            fqn
-                            for fqn, last_index in last_lazy_use.items()
-                            if last_index == subgraph_index
-                        }
+                    # Restore only after the calibration callbacks, propagation
+                    # pass, optional compression, and generic offload have finished.
+                    # Some transforms (notably MoE repacking) wait until
+                    # Calibration_End so modifier cleanup still sees their targets.
+                    completed_transforms = {
+                        fqn
+                        for fqn, last_index in last_lazy_use.items()
+                        if last_index == subgraph_index
+                    }
+                    restore_after_subgraph = {
+                        transform.fqn
+                        for transform in lazy_transforms
+                        if transform.restore_after_subgraph
+                        and transform.fqn in completed_transforms
+                    }
+                    restore_lazy_module_transforms(
+                        model,
+                        lazy_transforms,
+                        restore_after_subgraph,
+                    )
+                    release_lazy_module_sources(
+                        lazy_transforms, completed_transforms - restore_after_subgraph
                     )
                 #######################
                 #### END OF ONLOAD ####

@@ -44,8 +44,10 @@ from llmcompressor.modifiers.quantization.quantization.mixin import Quantization
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.lazy import (
-    LazyModuleSet,
+    abort_lazy_module_transforms,
     build_lazy_module_transforms,
+    prepare_lazy_module_transforms,
+    restore_lazy_module_transforms,
 )
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
@@ -317,24 +319,21 @@ class Oneshot:
         session.reset()
 
         has_unlinearized_moe = len(get_non_linearized_moes(self.model)) > 0
-        use_lazy_modules = _uses_sequential_pipeline(
+        use_lazy_transforms = _uses_sequential_pipeline(
             self.dataset_args.pipeline,
             self.recipe,
             recipe_stage,
         )
-        lazy_modules = None
         lazy_transforms = (
             build_lazy_module_transforms(
                 self.model,
                 layerwise_decompression=self.dataset_args.layerwise_decompression,
             )
-            if use_lazy_modules
-            else {}
+            if use_lazy_transforms
+            else []
         )
         if lazy_transforms:
-            lazy_modules = LazyModuleSet.prepare(self.model, lazy_transforms)
-            self.model = lazy_modules.model
-            self.model_args.model = self.model
+            prepare_lazy_module_transforms(self.model, lazy_transforms)
         elif has_unlinearized_moe:
             logger.warning(
                 "Detected an MoE model which has not been linearized. First load "
@@ -346,7 +345,7 @@ class Oneshot:
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            if lazy_modules is None:
+            if not lazy_transforms:
                 stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
@@ -377,7 +376,7 @@ class Oneshot:
                     session.lifecycle.recipe.modifiers, user=user_pipeline
                 )
 
-                if lazy_modules is not None:
+                if lazy_transforms:
                     if not isinstance(pipeline, SequentialPipeline):
                         raise RuntimeError(
                             "Module-scoped meta transforms require the sequential "
@@ -387,7 +386,7 @@ class Oneshot:
                         self.model,
                         calibration_dataloader,
                         self.dataset_args,
-                        lazy_modules=lazy_modules,
+                        lazy_transforms=lazy_transforms,
                     )
                 else:
                     pipeline(
@@ -395,11 +394,11 @@ class Oneshot:
                         calibration_dataloader,
                         self.dataset_args,
                     )
-                if lazy_modules is not None:
-                    lazy_modules.finalize()
+                if lazy_transforms:
+                    restore_lazy_module_transforms(self.model, lazy_transforms)
             except BaseException:
-                if lazy_modules is not None:
-                    lazy_modules.abort()
+                if lazy_transforms:
+                    abort_lazy_module_transforms(self.model, lazy_transforms)
                 raise
 
         session.finalize()
