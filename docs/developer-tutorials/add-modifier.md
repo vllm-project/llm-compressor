@@ -164,7 +164,7 @@ class MyModifier(Modifier):
     def _forward_hook(self, module, inputs, output):
         """
         Runs after every forward pass through this module
-        Using the `HooksMixin` interface ensures that your modifiers hooks are enabled during calibration passes through the model and disabled during propagation passes through the model. See [Sequential Pipeline](src/llmcompressor/pipelines/sequential/pipeline.py) for more information.
+        Using the `HooksMixin` interface ensures that your modifiers hooks are enabled during calibration passes through the model and disabled during propagation passes through the model. See [Sequential Pipeline](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/pipelines/sequential/pipeline.py) for more information.
         """
         ...
 ```
