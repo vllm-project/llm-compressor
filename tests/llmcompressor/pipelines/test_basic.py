@@ -83,6 +83,7 @@ def test_basic_pipeline_requires_loss_mask_column():
         session.initialize(model=model, start=-1)
         with pytest.raises(ValueError, match="loss_mask"):
             BasicPipeline()(model, dataloader, args)
+        session.finalize()
 
 
 @pytest.mark.parametrize("num_batches", [1, 3])
