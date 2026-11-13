@@ -29,6 +29,7 @@ Weight and activation quantization is best for maximum throughput on modern hard
 | Algorithm | Best for | Description |
 |-----------|----------|-------------|
 | REAP | Reducing the memory footprint of MoE models | Uses calibration data to score experts by router-weighted activation saliency, then structurally removes the least-salient experts from each MoE layer |
+| AIMER | Pruning MoE models without calibration data | Scores experts from their weights alone and prunes them directly from the checkpoint, without loading the model |
 
 REAP (`REAPPruningModifier`) is intended for Mixture-of-Experts models. Its
 `sparsity` value is the fraction of experts to remove per MoE layer; it does
@@ -55,6 +56,10 @@ oneshot(
 REAP can be combined with quantization in the same `oneshot` recipe. See the
 [REAP examples](../../examples/reap_expert_pruning/README.md), including the
 combined REAP + FP8/NVFP4 example.
+
+AIMER (`AIMERExpertPruner`) needs no calibration data: it ranks experts by a
+statistic of their weights and prunes them directly from the safetensors
+checkpoint. See the [AIMER example](../../examples/aimer_expert_pruning/README.md).
 
 ## KV cache and attention quantization
 
@@ -84,6 +89,7 @@ Use the table below to select the algorithm that best matches your deployment re
 | GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
 | SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
 | REAP | Lower VRAM requirements for MoE models by pruning low-saliency experts |
+| AIMER | Lower VRAM requirements for MoE models by pruning experts without calibration data |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |
 
