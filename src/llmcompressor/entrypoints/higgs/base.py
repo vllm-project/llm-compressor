@@ -42,6 +42,7 @@ from llmcompressor.entrypoints.higgs.utils import (
 from llmcompressor.entrypoints.model_free.converter import split_fused_moe_experts
 from llmcompressor.entrypoints.model_free.microscale import (
     get_fused_names,
+    index_fused_weights,
     is_microscale_scheme,
 )
 
@@ -86,6 +87,9 @@ class HiggsMSECollectorConverter(Converter):
         self.ilp_solution: Dict[str, str] = {}
         self.optimal_config: Optional[QuantizationConfig] = None
         self._fused_partners: Optional[Dict[str, set[str]]] = None
+        self._checkpoint_layers: Dict[str, Dict[str, str]] = {}
+        # tensor names of the processed shards, the context of create_config
+        self._processed_names: set[str] = set()
 
     def _resolve_schemes(
         self, schemes: List[Union[str, QuantizationScheme]]
@@ -152,6 +156,7 @@ class HiggsMSECollectorConverter(Converter):
         """Compute MSE for each candidate scheme; return tensors unchanged."""
         tensors = split_fused_moe_experts(tensors)
         logger.info(f"Collecting MSE data from shard with {len(tensors)} tensors")
+        self._processed_names.update(tensors)
 
         quantizable_tensors = list(
             match_quantizable_tensors(tensors, self.ignore, self.targets)
@@ -164,7 +169,10 @@ class HiggsMSECollectorConverter(Converter):
             for tensor_name in tensor_to_module
             if tensors[tensor_name].ndim == 2
         }
-        fused_groups = get_fused_names(matrix_tensor_names)
+        # a mapping's context layers can be ignored or in another shard
+        fused_groups = get_fused_names(
+            matrix_tensor_names, self._checkpoint_layers, tensors
+        )
 
         for tensor_name in matrix_tensor_names:
             module_name = tensor_to_module[tensor_name]
@@ -221,7 +229,11 @@ class HiggsMSECollectorConverter(Converter):
 
         fused_groups = [
             [tensor_name.removesuffix(".weight") for tensor_name in group.values()]
-            for group in get_fused_names(f"{name}.weight" for name in self.mse_matrix)
+            for group in get_fused_names(
+                (f"{name}.weight" for name in self.mse_matrix),
+                self._checkpoint_layers,
+                self._processed_names,
+            )
         ]
 
         def _bitwidths(attr):
@@ -291,10 +303,9 @@ class HiggsMSECollectorConverter(Converter):
 
     def set_weight_names(self, weight_names: set[str]) -> None:
         """Precompute fused dependencies from the complete checkpoint index."""
-        self._fused_partners = {}
-        for fused_group in get_fused_names(weight_names):
-            primary, *partners = fused_group.values()
-            self._fused_partners[primary] = set(partners)
+        self._checkpoint_layers, self._fused_partners = index_fused_weights(
+            weight_names
+        )
 
 
 # ---------------------------------------------------------------------------

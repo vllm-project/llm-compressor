@@ -10,7 +10,10 @@ from safetensors.torch import load_file, save_file
 
 from llmcompressor import model_free_ptq
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
-from llmcompressor.entrypoints.model_free.microscale import get_fused_names
+from llmcompressor.entrypoints.model_free.microscale import (
+    get_fused_names,
+    index_fused_weights,
+)
 
 KDA_ATTN = "model.layers.0.self_attn"
 KDA_TRANSFORMERS_ATTN = "model.layers.4.self_attn"
@@ -20,6 +23,7 @@ EXPERT = "model.layers.1.mlp.experts"
 V4_ATTN = "layers.3.attn"
 GDN = "model.language_model.layers.5.linear_attn"
 EXAONE_MLP = "transformer.h.6.mlp"
+BAILING_ATTN = "model.layers.7.attention"
 
 # fused groups of a checkpoint mixing the layer types that vLLM packs differently
 FUSED_GROUPS = [
@@ -44,6 +48,8 @@ FUSED_GROUPS = [
     [f"{V4_ATTN}.compressor.wkv", f"{V4_ATTN}.compressor.wgate"],
     # exaone 3 and 3.5 mlp
     [f"{EXAONE_MLP}.c_fc_0", f"{EXAONE_MLP}.c_fc_1"],
+    # bailing moe v3 delta attention
+    [f"{BAILING_ATTN}.{n}" for n in ("q_proj", "k_proj", "v_proj", "b_proj")],
 ]
 UNFUSED = [
     f"{KDA_ATTN}.f_b_proj",
@@ -54,6 +60,9 @@ UNFUSED = [
     f"{V4_ATTN}.wo_b",
     f"{GDN}.out_proj",
     f"{EXAONE_MLP}.c_proj",
+    f"{BAILING_ATTN}.g_proj",
+    f"{BAILING_ATTN}.f_proj",
+    f"{BAILING_ATTN}.dense",
 ]
 MODULE_NAMES = [name for group in FUSED_GROUPS for name in group] + UNFUSED
 
@@ -226,3 +235,133 @@ def test_get_fused_names_keeps_parent_modules_separate():
             "v_proj": "model.layers.1.self_attn.v_proj.weight",
         },
     ]
+
+
+def test_microscale_groups_see_ignored_context_without_weight_names():
+    """
+    Ignored tensors of the job are context too, so an OLMo-Hybrid q/k/v/g_proj
+    group with a_proj and b_proj ignored is fused without weight_names, as on
+    main
+    """
+    attn = "model.layers.0.linear_attn"
+    group = [f"{attn}.{n}.weight" for n in ("q_proj", "k_proj", "v_proj", "g_proj")]
+    context = [f"{attn}.a_proj", f"{attn}.b_proj"]
+    scheme = preset_name_to_scheme("NVFP4A16", ["Linear"])
+    converter = ModelFreePtqConverter(
+        QuantizationConfig(config_groups={"g": scheme}, ignore=context)
+    )
+
+    generator = torch.Generator().manual_seed(0)
+    tensors = {
+        name: torch.randn(32, 32, generator=generator) * (index + 1)
+        for index, name in enumerate(group + [f"{n}.weight" for n in context])
+    }
+    tensors = converter.process(tensors)
+
+    scales = [tensors[name + "_global_scale"] for name in group]
+    assert all(torch.equal(scales[0], scale) for scale in scales)
+
+
+def test_microscale_groups_see_context_in_other_shards():
+    """
+    A fused group is resolved on the whole checkpoint, so context layers that
+    decide it can be stored in another shard than the group
+    """
+    attn = "model.layers.0.linear_attn"
+    group = [f"{attn}.{n}.weight" for n in ("q_proj", "k_proj", "v_proj", "g_proj")]
+    context = [f"{attn}.a_proj.weight", f"{attn}.b_proj.weight"]
+    scheme = preset_name_to_scheme("NVFP4A16", ["Linear"])
+    converter = ModelFreePtqConverter(
+        QuantizationConfig(config_groups={"g": scheme}),
+        weight_names=group + context,
+    )
+
+    generator = torch.Generator().manual_seed(0)
+    tensors = {
+        name: torch.randn(32, 32, generator=generator) * (index + 1)
+        for index, name in enumerate(group)
+    }
+    tensors = converter.process(tensors)
+
+    scales = [tensors[name + "_global_scale"] for name in group]
+    assert all(torch.equal(scales[0], scale) for scale in scales)
+
+
+MLA_LAYERS = ("q_a_proj", "kv_a_proj_with_mqa", "g_proj", "q_b_proj", "dense")
+BAILING_KDA_LAYERS = ("q_proj", "k_proj", "v_proj", "b_proj", "g_proj", "f_proj")
+KIMI_KDA_LAYERS = ("q_proj", "k_proj", "v_proj", "b_proj", "f_a_proj", "f_b_proj")
+
+
+@pytest.mark.parametrize(
+    "checkpoint_layers, job_layers, expected",
+    [
+        # an optional layer outside the job does not join the group
+        (
+            MLA_LAYERS,
+            ("q_a_proj", "kv_a_proj_with_mqa"),
+            [("q_a_proj", "kv_a_proj_with_mqa")],
+        ),
+        (MLA_LAYERS, ("kv_a_proj_with_mqa", "g_proj"), []),
+        # nor does a required layer: Bailing MoE V3 delta attention without
+        # b_proj gives q/k/v, as on main. vLLM rejects a partly ignored packed
+        # NVFP4 layer either way
+        (
+            BAILING_KDA_LAYERS,
+            ("q_proj", "k_proj", "v_proj", "g_proj", "f_proj"),
+            [("q_proj", "k_proj", "v_proj")],
+        ),
+        (
+            KIMI_KDA_LAYERS,
+            ("q_proj", "k_proj", "v_proj", "b_proj", "f_b_proj"),
+            [("q_proj", "k_proj", "v_proj")],
+        ),
+        # a context layer outside the job still applies its mapping
+        (
+            ("q_proj", "k_proj", "v_proj", "g_proj", "a_proj", "b_proj"),
+            ("q_proj", "k_proj", "v_proj", "g_proj"),
+            [("q_proj", "k_proj", "v_proj", "g_proj")],
+        ),
+    ],
+)
+def test_get_fused_names_with_checkpoint_layers(
+    checkpoint_layers, job_layers, expected
+):
+    """
+    Checkpoint layers outside the job only satisfy context names: groups are
+    made of the job's layers
+    """
+    attn = "model.layers.0.attention"
+    index, _ = index_fused_weights(f"{attn}.{n}.weight" for n in checkpoint_layers)
+
+    groups = get_fused_names([f"{attn}.{n}.weight" for n in job_layers], index)
+
+    assert groups == [{n: f"{attn}.{n}.weight" for n in group} for group in expected]
+
+
+def test_microscale_groups_leave_out_ignored_layers():
+    """
+    As in HIGGS, groups are resolved from the quantized weights. With Kimi
+    f_a_proj ignored, q/k/v_proj share a global scale, and b_proj does not
+    join them through the q/k/v/b/f_a group the ignored f_a_proj would select
+    """
+    attn = "model.layers.0.self_attn"
+    names = [f"{attn}.{n}.weight" for n in KIMI_KDA_LAYERS]
+    scheme = preset_name_to_scheme("NVFP4A16", ["Linear"])
+    config = QuantizationConfig(
+        config_groups={"g": scheme}, ignore=[f"{attn}.f_a_proj", f"{attn}.f_b_proj"]
+    )
+    converter = ModelFreePtqConverter(config, weight_names=names)
+
+    generator = torch.Generator().manual_seed(0)
+    tensors = {
+        name: torch.randn(32, 32, generator=generator) * (index + 1)
+        for index, name in enumerate(names)
+    }
+    tensors = converter.process(tensors)
+
+    scale = {
+        n: tensors[f"{attn}.{n}.weight_global_scale"] for n in ("q_proj", "v_proj")
+    }
+    b_scale = tensors[f"{attn}.b_proj.weight_global_scale"]
+    assert torch.equal(scale["q_proj"], scale["v_proj"])
+    assert not torch.equal(scale["q_proj"], b_scale)
