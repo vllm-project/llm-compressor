@@ -26,6 +26,7 @@ from transformers import PreTrainedModel
 
 __all__ = [
     "NormCalibrationModule",
+    "get_norm_calibration_targets",
     "norm_calibration_context",
 ]
 
@@ -128,11 +129,7 @@ def norm_calibration_context(model: PreTrainedModel):
 
     # Step 1: Collect all offset-norm modules that need replacement
     logger.debug("Entering norm calibration context")
-    modules_to_replace = []
-    for name, module in model.named_modules():
-        class_name = module.__class__.__name__
-        if _is_registered(class_name, NormCalibrationModule):
-            modules_to_replace.append((name, module, class_name))
+    modules_to_replace = get_norm_calibration_targets(model)
 
     # Step 2: Replace modules
     if modules_to_replace:
@@ -155,6 +152,17 @@ def norm_calibration_context(model: PreTrainedModel):
         for name, (original, replacement) in replaced.items():
             restored = replacement.restore(original)
             model.set_submodule(name, restored)
+
+
+def get_norm_calibration_targets(
+    model: torch.nn.Module,
+) -> list[tuple[str, torch.nn.Module, str]]:
+    """Return modules converted by :func:`norm_calibration_context`."""
+    return [
+        (name, module, module.__class__.__name__)
+        for name, module in model.named_modules()
+        if _is_registered(module.__class__.__name__, NormCalibrationModule)
+    ]
 
 
 def _is_registered(name: str, subclass: RegistryMixin):

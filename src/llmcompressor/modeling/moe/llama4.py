@@ -1,5 +1,6 @@
 import torch
 from compressed_tensors.offload import (
+    disable_onloading,
     get_cache_init_kwargs,
     get_execution_device,
     offload_module,
@@ -61,6 +62,35 @@ class Llama4LinearExperts(LinearExperts2D):
         for module in self.modules():
             offload_module(module, **offload_kwargs)
 
+        return self
+
+    @classmethod
+    @torch.no_grad()
+    def meta_from_experts_module(
+        cls, experts: "Llama4TextExperts", config: Llama4Config
+    ):
+        if hasattr(config, "text_config"):
+            config = config.text_config
+        assert experts.num_experts == config.num_local_experts
+        experts.is_concatenated = cls.is_concatenated
+        experts.is_transposed = cls.is_transposed
+        experts.has_bias = cls.has_bias
+        experts.has_gate = cls.has_gate
+
+        with torch.device("meta"), skip_weights_initialize():
+            self = cls(
+                experts.num_experts,
+                experts.hidden_size,
+                experts.expert_dim,
+                config,
+            )
+            self.num_experts = experts.num_experts
+
+        with disable_onloading():
+            for index in range(experts.num_experts):
+                self[index].copy_from_experts_module(experts, index)
+
+        self._record_source_metadata(experts, config)
         return self
 
     def __init__(

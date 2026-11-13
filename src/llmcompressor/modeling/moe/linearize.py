@@ -4,6 +4,8 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.compressors import decompress_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -18,6 +20,8 @@ from transformers.conversion_mapping import (
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
+from llmcompressor.modeling.module_transform import ModuleTransform, fqn_overlaps
+from llmcompressor.utils.pytorch.meta import copy_module_to_meta
 
 from .conversion_mappings import (
     get_linearize_load_mappings,
@@ -155,6 +159,69 @@ def linearize_moe(model: PreTrainedModel):
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+class MoELinearizationModuleTransform(ModuleTransform):
+    """Model-wide MoE linearization with subgraph-scoped materialization."""
+
+    def __init__(self, decompress: bool = False):
+        super().__init__()
+        self.decompress = decompress
+        self.decompress_fqns: set[str] = set()
+
+    def to_meta(
+        self, model: torch.nn.Module, excluded_fqns: set[str]
+    ) -> set[str]:
+        moe_modules = get_non_linearized_moes(model)
+        if moe_modules and not isinstance(model, PreTrainedModel):
+            raise TypeError("MoE linearization requires a PreTrainedModel root")
+
+        transformed_fqns = set()
+        for fqn, source in moe_modules:
+            if fqn_overlaps(fqn, excluded_fqns | transformed_fqns):
+                continue
+            config = _experts_config(source, model)
+            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(
+                source.__class__
+            )
+            meta_source = copy_module_to_meta(source)
+            should_decompress = self.decompress and any(
+                is_module_quantized(child) for child in source.modules()
+            )
+            if should_decompress:
+                for submodule in list(meta_source.modules()):
+                    if is_module_quantized(submodule):
+                        decompress_module(submodule, leave_decompressed=False)
+                self.decompress_fqns.add(fqn)
+            target = linear_experts_cls.meta_from_experts_module(meta_source, config)
+            self.record_module(fqn, source, target)
+            model.set_submodule(fqn, target)
+            transformed_fqns.add(fqn)
+        return transformed_fqns
+
+    def materialize_module(
+        self,
+        fqn: str,
+        target: torch.nn.Module,
+        source: torch.nn.Module,
+        device: torch.device,
+        offload_kwargs: dict,
+    ) -> dict[str, dict]:
+        if not isinstance(target, LinearExperts2D):
+            raise TypeError("MoE lazy target must be a LinearExperts2D module")
+        if fqn in self.decompress_fqns:
+            for submodule in list(source.modules()):
+                if is_module_quantized(submodule):
+                    decompress_module(submodule, leave_decompressed=False)
+        return target.materialize_from_experts_module(
+            source,
+            device=device,
+            offload_kwargs=offload_kwargs,
+        )
+
+    def forget_module(self, fqn: str) -> None:
+        self.decompress_fqns.discard(fqn)
+        super().forget_module(fqn)
 
 
 def _experts_config(
