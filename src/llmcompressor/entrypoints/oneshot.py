@@ -22,7 +22,6 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
-from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -38,7 +37,6 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
@@ -46,6 +44,7 @@ from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.lazy import (
     abort_lazy_module_transforms,
     build_lazy_module_transforms,
+    materialize_lazy_module_transforms_eagerly,
     prepare_lazy_module_transforms,
     restore_lazy_module_transforms,
 )
@@ -54,29 +53,10 @@ from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
 )
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
-
-
-def _uses_sequential_pipeline(
-    user_pipeline: str | None,
-    recipe: str | Recipe | None,
-    recipe_stage: str | None,
-) -> bool:
-    """Resolve whether lazy transforms will run in the sequential pipeline."""
-    if user_pipeline:
-        return standardize_lookup_name(user_pipeline) == standardize_lookup_name(
-            "sequential"
-        )
-    if not recipe:
-        return False
-
-    recipe_instance = Recipe.create_instance(recipe, target_stage=recipe_stage)
-    return isinstance(
-        CalibrationPipeline.from_modifiers(recipe_instance.modifiers),
-        SequentialPipeline,
-    )
 
 
 if TYPE_CHECKING:
@@ -318,29 +298,12 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        has_unlinearized_moe = len(get_non_linearized_moes(self.model)) > 0
-        use_lazy_transforms = _uses_sequential_pipeline(
-            self.dataset_args.pipeline,
-            self.recipe,
-            recipe_stage,
-        )
-        lazy_transforms = (
-            build_lazy_module_transforms(
-                self.model,
-                layerwise_decompression=self.dataset_args.layerwise_decompression,
-            )
-            if use_lazy_transforms
-            else []
+        lazy_transforms = build_lazy_module_transforms(
+            self.model,
+            layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
         if lazy_transforms:
             prepare_lazy_module_transforms(self.model, lazy_transforms)
-        elif has_unlinearized_moe:
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(self.model)
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
@@ -376,12 +339,10 @@ class Oneshot:
                     session.lifecycle.recipe.modifiers, user=user_pipeline
                 )
 
-                if lazy_transforms:
-                    if not isinstance(pipeline, SequentialPipeline):
-                        raise RuntimeError(
-                            "Module-scoped meta transforms require the sequential "
-                            "pipeline"
-                        )
+                # Modifiers always initialize against the transformed module
+                # structure. Sequential calibration can fill targets by subgraph;
+                # other pipelines need all targets ready before their first pass.
+                if lazy_transforms and isinstance(pipeline, SequentialPipeline):
                     pipeline(
                         self.model,
                         calibration_dataloader,
@@ -389,6 +350,12 @@ class Oneshot:
                         lazy_transforms=lazy_transforms,
                     )
                 else:
+                    if lazy_transforms:
+                        materialize_lazy_module_transforms_eagerly(
+                            self.model,
+                            lazy_transforms,
+                            get_main_device(),
+                        )
                     pipeline(
                         self.model,
                         calibration_dataloader,

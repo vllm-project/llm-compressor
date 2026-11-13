@@ -12,7 +12,11 @@ from compressed_tensors.offload import (
     offload_module,
     set_onload_device,
 )
-from compressed_tensors.offload.module import remove_module_offload
+from compressed_tensors.offload.module import (
+    remove_module_offload,
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+)
 from compressed_tensors.quantization.utils import is_module_quantized
 from torch.nn import Module
 
@@ -33,6 +37,7 @@ __all__ = [
     "abort_lazy_module_transforms",
     "build_lazy_module_transforms",
     "materialize_lazy_module_transforms",
+    "materialize_lazy_module_transforms_eagerly",
     "offload_lazy_module_sources",
     "prepare_lazy_module_transforms",
     "release_lazy_module_sources",
@@ -193,6 +198,37 @@ def materialize_lazy_module_transforms(
             target_offload_kwargs[target_name] = kwargs
 
     return target_offload_kwargs
+
+
+def materialize_lazy_module_transforms_eagerly(
+    model: Module,
+    transforms: Sequence[ModuleTransform],
+    onload_device: torch.device,
+) -> None:
+    """Populate every target before running a pipeline without subgraph support."""
+    if not transforms:
+        return
+
+    offload_lazy_module_sources(model, transforms, onload_device)
+    for transform in transforms:
+        if transform.materialized or transform.restored:
+            continue
+
+        if transform.target is None:
+            raise ValueError(f"Missing target module for {transform.fqn}")
+        target_modules = {transform.fqn: transform.target}
+        source_modules = source_modules_for([transform], target_modules)
+        source_offload_kwargs = subgraph_onload_modules(source_modules)
+        try:
+            materialize_lazy_module_transforms(
+                [transform],
+                target_modules,
+                source_modules,
+                source_offload_kwargs,
+                onload_device,
+            )
+        finally:
+            subgraph_offload_modules(source_modules, source_offload_kwargs)
 
 
 def restore_lazy_module_transforms(
