@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEST_TYPE="${1:?Usage: run-tests.sh <base|transformers>}"
+TEST_TYPE="${1:?Usage: run-tests.sh <base|pytorch|transformers>}"
 
 echo "~~~ System info"
 cat /etc/issue
