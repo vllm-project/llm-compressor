@@ -17,6 +17,7 @@ from compressed_tensors.utils.triton import (
     triton,
     triton_req,
 )
+from loguru import logger
 
 from llmcompressor.modifiers.gptq.helpers import (
     GPTQ_PRECISION,
@@ -28,6 +29,7 @@ from llmcompressor.modifiers.gptq.helpers import (
 
 __all__ = [
     "quantize_weight",
+    "quantize_weight_lut_b",
 ]
 
 
@@ -523,3 +525,143 @@ if HAS_TRITON:
             work = tl.where(tail, tldevice.sub_rn(work, update), work)
 
         tl.store(work_ptr + work_offsets, work, mask=row_mask[:, None])
+
+
+def quantize_weight_lut_b(
+    module: torch.nn.Module,
+    quant_args: QuantizationArgs,
+    hessian: torch.Tensor,
+    blocksize: int = 128,
+    percdamp: float = 0.01,
+    importance: torch.Tensor | None = None,
+) -> tuple[float, dict[str, torch.Tensor], bool]:
+    """Run LUT-B GPTQ and return quantized weights with their fitted qparams.
+
+    When supplied, ``importance`` weights the Lloyd-Max fit per input column
+    using calibration activation energy. The returned codebooks and E8M0 scales
+    are the exact qparams used by GPTQ, so CT compression does not refit them.
+    """
+    from compressed_tensors.quantization.utils.lut_b import (
+        LUT_B_LLOYD_ITERATIONS,
+        LUT_B_MAX_TILES_PER_CHUNK,
+        _decode_lut_b_scales,
+        _fit_codebooks,
+        _importance_to_tiles,
+        _scale_lut_b_tiles,
+        _weight_to_tiles,
+        is_lut_b_quantization,
+    )
+
+    if not is_lut_b_quantization(quant_args):
+        raise ValueError(
+            "quantize_weight_lut_b requires a canonical LUT-B quantization scheme "
+            f"(codebook type, num_bits=3, block strategy), got {quant_args}"
+        )
+    if quant_args.actorder:
+        raise NotImplementedError(
+            "Activation ordering is not supported for LUT-B GPTQ; the 2D block "
+            "tiling requires contiguous columns. Unset `actorder`."
+        )
+
+    final_shape = module.weight.shape
+    final_dtype = module.weight.dtype
+    weight = module.weight.clone().to(dtype=GPTQ_PRECISION)
+    hessian = hessian.to(device=weight.device, dtype=GPTQ_PRECISION)
+    num_rows, num_columns = weight.shape
+    block_n, block_k = quant_args.block_structure
+    codebook_size = 1 << quant_args.num_bits
+
+    tiles = _weight_to_tiles(weight, quant_args)
+    normalized_tiles, scales = _scale_lut_b_tiles(tiles)
+    centers = []
+    for start in range(0, normalized_tiles.shape[0], LUT_B_MAX_TILES_PER_CHUNK):
+        end = min(start + LUT_B_MAX_TILES_PER_CHUNK, normalized_tiles.shape[0])
+        importance_tiles = _importance_to_tiles(
+            importance, weight, quant_args, start, end
+        )
+        _, chunk_centers = _fit_codebooks(
+            normalized_tiles[start:end],
+            quant_args,
+            LUT_B_LLOYD_ITERATIONS,
+            importance=importance_tiles,
+        )
+        centers.append(chunk_centers)
+    centers = torch.cat(centers, dim=0)
+    row_tiles = num_rows // block_n
+    column_tiles = num_columns // block_k
+    centers = centers.to(torch.float32).reshape(row_tiles, column_tiles, codebook_size)
+    scale_factors = _decode_lut_b_scales(scales).reshape(row_tiles, column_tiles)
+    row_block = torch.arange(num_rows, device=weight.device) // block_n
+
+    losses = torch.zeros(num_rows, device=weight.device)
+    dead = torch.diag(hessian) == 0
+    hessian[dead, dead] = 1
+    weight[:, dead] = 0
+
+    used_rtn_fallback = False
+    try:
+        damp = percdamp * torch.mean(torch.diag(hessian))
+        diagonal = torch.arange(hessian.shape[0], device=hessian.device)
+        hessian[diagonal, diagonal] += damp
+        factor = torch.linalg.cholesky(hessian)
+        factor = torch.cholesky_inverse(factor)
+        hessian_inverse = torch.linalg.cholesky(factor, upper=True)
+    except torch._C._LinAlgError:
+        logger.warning(
+            "Failed to invert hessian for LUT-B GPTQ. Falling back to round-to-nearest."
+        )
+        used_rtn_fallback = True
+        hessian_inverse = torch.eye(
+            num_columns, dtype=hessian.dtype, device=hessian.device
+        )
+
+    cur_column_tile = -1
+    column_centers = None
+    for start in range(0, num_columns, blocksize):
+        end = min(start + blocksize, num_columns)
+        count = end - start
+        weight_block = weight[:, start:end].clone()
+        quantized_block = torch.zeros_like(weight_block)
+        errors = torch.zeros_like(weight_block)
+        block_losses = torch.zeros_like(weight_block)
+        inverse_block = hessian_inverse[start:end, start:end]
+
+        for offset in range(count):
+            column = start + offset
+            value = weight_block[:, offset]
+            diagonal_value = inverse_block[offset, offset]
+            column_tile = column // block_k
+            if column_tile != cur_column_tile:
+                column_centers = centers[row_block, column_tile] * scale_factors[
+                    row_block, column_tile
+                ].unsqueeze(1)
+                cur_column_tile = column_tile
+
+            nearest = (value.unsqueeze(1) - column_centers).abs().argmin(dim=1)
+            quantized = column_centers.gather(1, nearest.unsqueeze(1)).squeeze(1)
+
+            quantized_block[:, offset] = quantized
+            block_losses[:, offset] = (
+                value - quantized
+            ).square() / diagonal_value.square()
+            error = (value - quantized) / diagonal_value
+            weight_block[:, offset:] -= error.unsqueeze(1) * inverse_block[
+                offset, offset:
+            ].unsqueeze(0)
+            errors[:, offset] = error
+
+        weight[:, start:end] = quantized_block
+        losses += torch.sum(block_losses, dim=1) / 2
+        weight[:, end:] -= errors.matmul(hessian_inverse[start:end, end:])
+
+    quantized_weight = weight.reshape(final_shape).to(final_dtype)
+    loss = torch.sum(losses).item()
+    return (
+        loss,
+        {
+            "weight": quantized_weight,
+            "weight_codebook": centers.to(torch.float8_e4m3fn),
+            "weight_scale": scales.reshape(row_tiles, column_tiles),
+        },
+        used_rtn_fallback,
+    )
