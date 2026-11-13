@@ -116,6 +116,9 @@ class MoEConfig:
     num_experts: int
     num_experts_per_tok: int
 
+    # router scoring
+    score_function: str
+
     # group-limited routing
     n_group: int | None
     top_k_group: int | None
@@ -138,10 +141,20 @@ class MoEConfig:
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
+        # special case: qwen3_5_moe does not specify scoring func in config
+        if config.model_type == "qwen3_5_moe_text":
+            config.scoring_func = "softmax"
+
         self = cls(
             num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
             num_experts_per_tok=_getattr_fallbacks(
                 config, ["top_k_experts", "num_experts_per_tok"]
+            ),
+            score_function=_getattr_fallbacks(
+                config,
+                ["scoring_func", "score_func", "moe_router_activation_func"],
+                "softmax",
+                warn_on_default=True,
             ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
             top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
@@ -203,13 +216,22 @@ def import_or_none(paths: str | list[str]) -> object | None:
 
 
 def _getattr_fallbacks(
-    target: object, attrs: list[str], default: Any = Sentinel("None")
+    target: object,
+    attrs: list[str],
+    default: Any = Sentinel("None"),
+    warn_on_default: bool = False,
 ) -> Any:
     for attr in attrs:
         if hasattr(target, attr):
             return getattr(target, attr)
 
     if default is not Sentinel("None"):
+        if warn_on_default:
+            logger.warning(
+                f"{target.__class__.__name__} does not have any of {attrs} attributes. "
+                f"Defaulting to {default}",
+                log_once=True,
+            )
         return default
 
     raise AttributeError(f"{target} does not have any of {attrs} attributes")

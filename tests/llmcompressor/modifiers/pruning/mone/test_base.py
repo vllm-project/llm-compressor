@@ -61,7 +61,7 @@ def _run_batch(
         modifier.expert_hook("layer", expert_idx, None, (), output)
     hidden = torch.zeros(topk_indices.shape[0], 1)
     modifier.experts_block_hook(
-        "layer", None, (hidden, topk_indices, topk_weights), None
+        "layer", None, None, (hidden, topk_indices, topk_weights), None
     )
 
 
