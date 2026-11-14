@@ -39,7 +39,7 @@ recipe = [
 ]
 ```
 
-Note that `QuIPModifier` can be customized. For a full list of the available arguments, see the [docstring](/src/llmcompressor/modifiers/transform/quip/base.py) or documentation.
+Note that `QuIPModifier` can be customized. For a full list of the available arguments, see the [docstring](../../src/llmcompressor/modifiers/transform/quip/base.py) or documentation.
 
 * `rotations` determines which of the input rotation (v) or output rotations (u) should be used. **By default, only input rotations (`["v"]`) are enabled, as output rotations are not performant and do not increase accuracy.**
 * `transform_block_size` determines the size of the hadamard. Smaller hadamards require less cost at runtime.
