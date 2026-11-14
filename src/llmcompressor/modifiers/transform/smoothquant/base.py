@@ -21,9 +21,15 @@ from llmcompressor.modifiers.transform.smoothquant.dynamic_mappings import (
 from llmcompressor.modifiers.transform.smoothquant.utils import (
     handle_mapping_resolution_errors,
 )
+from llmcompressor.modifiers.utils.pytorch_helpers import (
+    apply_loss_mask,
+    get_current_loss_mask,
+)
 from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 MINIMUM_SMOOTHING_SCALE = 1e-5
+# activation dtypes ranks can agree on when one of them saw no tokens
+_DTYPES = [torch.bfloat16, torch.float16, torch.float32, torch.float64]
 
 
 __all__ = ["SmoothQuantScale", "SmoothQuantMapping", "SmoothQuantModifier"]
@@ -293,8 +299,11 @@ class SmoothQuantModifier(Modifier):
                 if isinstance(out, tuple):
                     out = out[0]
 
-                hidden_dim = out.shape[-1]
-                out = out.view(-1, hidden_dim)
+                # [batch, seq, hidden] -> [num_tokens, hidden], keeping only the
+                # tokens selected by the loss mask (if use_loss_mask=True)
+                out = apply_loss_mask(out, get_current_loss_mask())
+                if out.shape[0] == 0:
+                    return
                 latest_mins = torch.min(out, dim=0)[0]
                 latest_maxes = torch.max(out, dim=0)[0]
 
@@ -333,6 +342,7 @@ class SmoothQuantModifier(Modifier):
         if not is_distributed():
             return
 
+        self._fill_missing_scales()
         pending_comms = []
         for layer_name, scale in self.scales_.items():
             pending_comms.append(
@@ -350,6 +360,51 @@ class SmoothQuantModifier(Modifier):
                 )
             )
         wait_for_comms(pending_comms)
+
+        # no rank saw a token of these layers
+        for name, scale in list(self.scales_.items()):
+            if scale.max_channel_vals.isneginf().all():
+                del self.scales_[name]
+
+    def _fill_missing_scales(self):
+        """
+        With token masking, a rank whose calibration tokens were all masked holds no
+        statistics and would skip the all-reduces the other ranks issue. Give every
+        rank one entry per mapping, in mapping order, filled with the identity of
+        each reduction where it saw no tokens.
+        """
+        if dist.get_backend() == "gloo":
+            device = torch.device("cpu")
+        else:
+            device = torch.device(
+                torch.accelerator.current_accelerator().type,
+                torch.accelerator.current_device_index(),
+            )
+        # a rank which saw no tokens takes the dtype of the ranks which did
+        held = {s.min_channel_vals.dtype for s in self.scales_.values()}
+        vote = torch.tensor(
+            [_DTYPES.index(held.pop()) if len(held) == 1 else -1], device=device
+        )
+        dist.all_reduce(vote, op=dist.ReduceOp.MAX)
+        dtype = _DTYPES[vote.item()] if vote.item() >= 0 else torch.float32
+
+        scales = {}
+        for mapping in self.resolved_mappings_:
+            name = mapping.smooth_name
+            if name in scales:
+                continue
+            if name in self.scales_:
+                mins = self.scales_[name].min_channel_vals
+                maxes = self.scales_[name].max_channel_vals
+            else:
+                size = mapping.smooth_layer.weight.shape[0]
+                mins = torch.full((size,), torch.inf)
+                maxes = torch.full((size,), -torch.inf)
+            scales[name] = SmoothQuantScale(
+                min_channel_vals=mins.to(device, dtype),
+                max_channel_vals=maxes.to(device, dtype),
+            )
+        self.scales_ = scales
 
     @torch.no_grad()
     def _apply_smoothing(self, model: Module):
