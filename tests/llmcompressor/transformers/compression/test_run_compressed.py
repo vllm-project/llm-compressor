@@ -2,7 +2,7 @@ import gc
 
 import pytest
 import torch
-from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.quantization import QuantizationMetadata, forward_quantize
 from compressed_tensors.quantization.utils import is_module_quantized
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
@@ -38,16 +38,25 @@ def decompressed_linear_uncompressed_linear_models(request):
     )
     # The uncompressed checkpoint stores dense weights alongside its quantization
     # parameters, so as loaded it keeps simulating the quantized model at runtime
-    # (weight QDQ and dynamic activation quantization). Materialize the
-    # fake-quantized weights and strip the quantization metadata so that the
-    # model is fully dense, matching the HFQuantizer load above. Note that
-    # transformers>=5.23 loads a plain dense model (dropping activation
-    # quantization) when `CompressedTensorsConfig(dequantize=True)` is used
-    # (see huggingface/transformers#50238)
+    # (weight QDQ and dynamic activation quantization). Materialize the weight QDQ
+    # and strip the quantization metadata so that the model is fully dense,
+    # matching the HFQuantizer load above. Note that transformers>=5.23 loads a
+    # plain dense model (dropping activation quantization) when
+    # `CompressedTensorsConfig(dequantize=True)` is used
+    # (see huggingface/transformers#50238). The weights are materialized through
+    # forward_quantize, the same QDQ the wrapped forward applies, rather than
+    # through compress_module: its triton quantize kernel divides in float32,
+    # which lands on a different grid than the checkpoint values on GPUs
     for module in uncompressed_model.modules():
         if is_module_quantized(module):
-            compress_module(module)
-            decompress_module(module, leave_decompressed=False)
+            scheme = module.quantization_scheme
+            if scheme.weights is not None:
+                module.weight.data = forward_quantize(
+                    module, module.weight.data, "weight", scheme.weights
+                )
+            QuantizationMetadata.clear_quantization(module)
+            if hasattr(module, "quantization_status"):
+                delattr(module, "quantization_status")
 
     tokenizer = AutoTokenizer.from_pretrained(config["compressed_model_stub"])
 
