@@ -2,10 +2,12 @@ import gc
 
 import pytest
 import torch
+from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.utils.quantization_config import CompressedTensorsConfig
 
-from tests.testing_utils import parse_params, requires_gpu
+from tests.testing_utils import parse_params, requires_gpu, requires_version
 
 COMPRESSED_LINEAR_CONFIG_DIR = (
     "tests/llmcompressor/transformers/compression/run_compressed_configs"
@@ -34,6 +36,18 @@ def decompressed_linear_uncompressed_linear_models(request):
         dtype=decompressed_model.dtype,
         device_map=decompressed_model.device,
     )
+    # The uncompressed checkpoint stores dense weights alongside its quantization
+    # parameters, so as loaded it keeps simulating the quantized model at runtime
+    # (weight QDQ and dynamic activation quantization). Materialize the
+    # fake-quantized weights and strip the quantization metadata so that the
+    # model is fully dense, matching the HFQuantizer load above. Note that
+    # transformers>=5.23 loads a plain dense model (dropping activation
+    # quantization) when `CompressedTensorsConfig(dequantize=True)` is used
+    # (see huggingface/transformers#50238)
+    for module in uncompressed_model.modules():
+        if is_module_quantized(module):
+            compress_module(module)
+            decompress_module(module, leave_decompressed=False)
 
     tokenizer = AutoTokenizer.from_pretrained(config["compressed_model_stub"])
 
@@ -49,6 +63,7 @@ def decompressed_linear_uncompressed_linear_models(request):
 
 
 @requires_gpu
+@requires_version("transformers", ">=5.23")
 def test_decompressed_linear_uncompressed_linear(
     decompressed_linear_uncompressed_linear_models,
 ):
