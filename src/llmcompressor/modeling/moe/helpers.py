@@ -184,7 +184,7 @@ class MoEConfig:
             case "nemotron_h":
                 if config.moe_latent_size is None:
                     self.hidden_dim = config.hidden_size
-            case "kimi_linear":
+            case "kimi_k3" | "kimi_linear":
                 # latent MoE: experts run at routed_expert_hidden_size, which is
                 # both their input and output width, rather than at the model
                 # hidden size
