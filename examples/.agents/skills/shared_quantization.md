@@ -176,13 +176,13 @@ Key `QuantizationArgs` fields:
 - `group_size` — group length for `"group"` / `"tensor_group"` strategy
 - `block_structure` — 2D block dims like `[128, 128]` for `"block"` strategy
 - `dynamic` — `True` for fully dynamic, `False` for static
-- `observer` — observer algorithm for calibration (default: `None`, which falls back to min-max for non-dynamic quantization):
+- `observer` — observer algorithm for calibration (default: `None`, which falls back to `imatrix_mse` for weights when calibration data is available (except for AWQ), `memoryless_minmax` for weights without calibration data, and `minmax` for non-dynamic activations):
   - `"minmax"` — running min/max
   - `"memoryless_minmax"` — min/max without history, uses only the current batch
   - `"static_minmax"` — computes scale once from the first batch, then freezes
   - `"mse"` — minimizes mean squared error between quantized and original values
   - `"memoryless_mse"` — MSE without history
-  - `"imatrix_mse"` — MSE weighted by importance matrix (use with `IMatrixGatherer` transform)
+  - `"imatrix_mse"` — MSE weighted by importance matrix accumulated from calibration activations
 
 Custom parameters work with `GPTQModifier` the same way — replace `QuantizationModifier` with `GPTQModifier` and use `config_groups`.
 
