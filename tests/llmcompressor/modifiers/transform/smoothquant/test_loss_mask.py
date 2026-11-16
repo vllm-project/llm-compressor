@@ -11,6 +11,7 @@ from llmcompressor.core import create_session, reset_session
 from llmcompressor.modifiers.transform.smoothquant.base import (
     SmoothQuantMapping,
     SmoothQuantModifier,
+    SmoothQuantScale,
 )
 from tests.testing_utils import torchrun
 
@@ -118,6 +119,38 @@ def test_reduce_drops_layers_no_rank_saw():
         assert modifier.scales_ == {}
     finally:
         dist.destroy_process_group()
+
+
+def test_fill_missing_scales_keeps_devices(monkeypatch):
+    """
+    Under gloo, held statistics stay where the hooks produced them and a layer this
+    rank saw no tokens of gets its execution device, so smoothing finds them next
+    to the weights. The meta device stands in for an accelerator.
+    """
+    modifier = SmoothQuantModifier()
+    modifier.resolved_mappings_ = [
+        SmoothQuantMapping(
+            name,
+            torch.nn.LayerNorm(8, device="meta"),
+            [torch.nn.Linear(8, 4, device="meta")],
+        )
+        for name in ("seen", "unseen")
+    ]
+    modifier.scales_ = {
+        "seen": SmoothQuantScale(
+            min_channel_vals=torch.zeros(8, device="meta"),
+            max_channel_vals=torch.ones(8, device="meta"),
+        )
+    }
+    monkeypatch.setattr(dist, "get_backend", lambda *args, **kwargs: "gloo")
+    monkeypatch.setattr(dist, "all_reduce", lambda *args, **kwargs: None)
+
+    modifier._fill_missing_scales()
+
+    assert list(modifier.scales_) == ["seen", "unseen"]
+    for scale in modifier.scales_.values():
+        assert scale.min_channel_vals.device.type == "meta"
+        assert scale.max_channel_vals.device.type == "meta"
 
 
 def _calibration_dataset(num_samples, seq_len, num_masked):

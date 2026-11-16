@@ -5,7 +5,11 @@ from typing import Literal
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import wait_for_comms
-from compressed_tensors.offload import disable_onloading, update_offload_parameter
+from compressed_tensors.offload import (
+    disable_onloading,
+    get_execution_device,
+    update_offload_parameter,
+)
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.utils import match_modules_set, match_named_modules
 from loguru import logger
@@ -371,7 +375,9 @@ class SmoothQuantModifier(Modifier):
         With token masking, a rank whose calibration tokens were all masked holds no
         statistics and would skip the all-reduces the other ranks issue. Give every
         rank one entry per mapping, in mapping order, filled with the identity of
-        each reduction where it saw no tokens.
+        each reduction where it saw no tokens. Held statistics keep their device and a
+        filled entry goes on its layer's execution device, where smoothing reads the
+        weights.
         """
         if dist.get_backend() == "gloo":
             device = torch.device("cpu")
@@ -398,11 +404,12 @@ class SmoothQuantModifier(Modifier):
                 maxes = self.scales_[name].max_channel_vals
             else:
                 size = mapping.smooth_layer.weight.shape[0]
-                mins = torch.full((size,), torch.inf)
-                maxes = torch.full((size,), -torch.inf)
+                layer_device = get_execution_device(mapping.smooth_layer)
+                mins = torch.full((size,), torch.inf, device=layer_device)
+                maxes = torch.full((size,), -torch.inf, device=layer_device)
             scales[name] = SmoothQuantScale(
-                min_channel_vals=mins.to(device, dtype),
-                max_channel_vals=maxes.to(device, dtype),
+                min_channel_vals=mins.to(dtype=dtype),
+                max_channel_vals=maxes.to(dtype=dtype),
             )
         self.scales_ = scales
 
