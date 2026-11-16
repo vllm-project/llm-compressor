@@ -41,10 +41,8 @@ from llmcompressor.modifiers.quantization.quantization.mixin import Quantization
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.lazy import (
-    build_lazy_module_transforms,
-    materialize_whole_model_meta_eagerly,
-    restore_lazy_module_transforms,
     WholeModelMetaTransform,
+    build_meta_operations,
 )
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
@@ -296,11 +294,10 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        transforms = build_lazy_module_transforms(
+        operations = build_meta_operations(
             layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
-        whole_model_transform = WholeModelMetaTransform(self.model, transforms)
-        source_model = whole_model_transform.source_model
+        whole_model_transform = WholeModelMetaTransform(self.model, operations)
         self.model = whole_model_transform.model
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
@@ -342,22 +339,16 @@ class Oneshot:
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
-                    lazy_transforms=transforms,
-                    source_model=source_model,
+                    whole_model_transform=whole_model_transform,
                 )
             else:
-                materialize_whole_model_meta_eagerly(
-                    self.model,
-                    source_model,
-                    transforms,
-                    get_main_device(),
-                )
+                whole_model_transform.materialize_all(get_main_device())
                 pipeline(
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
                 )
-            restore_lazy_module_transforms(self.model, transforms)
+            whole_model_transform.restore_all()
 
         session.finalize()
 
