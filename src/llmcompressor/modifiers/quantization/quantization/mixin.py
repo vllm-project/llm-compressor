@@ -1,7 +1,9 @@
 from collections.abc import Iterator
+from copy import deepcopy
 from typing import Any
 
 import torch
+from compressed_tensors.compressors import NVFP4PackedCompressor
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -30,7 +32,7 @@ from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from torch.utils.hooks import RemovableHandle
 
-from llmcompressor.core import Event, EventType, active_session
+from llmcompressor.core import Event, EventType, State, active_session
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     calibrate_input_hook,
@@ -82,6 +84,11 @@ class QuantizationMixin(HooksMixin):
         `update_qparams(modules, base_name="weight")`.
         See QuantizationModifier.on_event method for example
 
+    NOTE: When no observer is specified, weight observers default to
+        `imatrix_mse` if calibration data is available to the session and
+        `memoryless_minmax` otherwise. Activation observers default to
+        `minmax`.
+
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
     :param targets: list of layer names to quantize if a scheme is provided. If unset,
@@ -110,7 +117,9 @@ class QuantizationMixin(HooksMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     :param weight_observer: optional observer name for weight quantization.
         Overrides the default observer specified in the scheme. Valid values
-        include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
+        include "minmax", "mse", "static_minmax", "memoryless_minmax",
+        "memoryless_mse", and "imatrix_mse". Defaults to "imatrix_mse" when
+        calibration data is available and "memoryless_minmax" otherwise.
     :param input_observer: optional observer name for input activation quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
@@ -143,7 +152,6 @@ class QuantizationMixin(HooksMixin):
     bypass_divisibility_checks: bool = False
 
     _calibration_hooks: set[RemovableHandle] = PrivateAttr(default_factory=set)
-    _resolved_config: QuantizationConfig | None = PrivateAttr(None)
 
     @field_validator("targets", mode="before")
     def validate_targets(cls, value: str | list[str]) -> list[str]:
@@ -194,16 +202,6 @@ class QuantizationMixin(HooksMixin):
         return value
 
     @property
-    def resolved_config(self) -> QuantizationConfig:
-        """
-        Quantization config needs to be resolved just once based on
-        scheme and config_groups inputs.
-        """
-        if self._resolved_config is None:
-            self._resolved_config = self.resolve_quantization_config()
-        return self._resolved_config
-
-    @property
     def resolved_targets(self) -> set[str]:
         """
         Set of all resolved targets, i.e. all unique targets listed
@@ -211,32 +209,30 @@ class QuantizationMixin(HooksMixin):
         Use this property instead of the targets field, as targets can
         also come from config_groups depending on how recipe is configured.
         """
-        targets = set()
-        for config_group in self.resolved_config.config_groups.values():
-            for target in config_group.targets:
-                targets.add(target)
+        return _resolved_targets(self.resolve_quantization_config())
 
-        if self.resolved_config.kv_cache_scheme is not None:
-            # TODO: decouple reliance on this regex for matching attention
-            targets.update(KV_CACHE_TARGETS)
-
-        return targets
-
-    def initialize_quantization(self, model: torch.nn.Module):
+    def initialize_quantization(self, state: State):
         """
         Attach quantization schemes to modules in the model according to
         the quantization config specified on this modifier
 
-        :param model: model to attach schemes and observers to
+        :param state: session state holding the model to attach schemes and
+            observers to. Observer defaults are resolved according to
+            ``state.has_calibration_data``
         """
+        model = state.model
+        config = self.resolve_quantization_config(
+            has_calibration_data=state.has_calibration_data
+        )
+        targets = _resolved_targets(config)
 
-        for _, module in match_named_modules(model, self.resolved_targets, self.ignore):
+        for _, module in match_named_modules(model, targets, self.ignore):
             reset_quantization_status(module)  # reset any previously applied qconfigs
 
-        apply_quantization_config(model, self.resolved_config)
+        apply_quantization_config(model, config)
 
         if not self.bypass_divisibility_checks:
-            validate_group_size_divisibility(model, self.resolved_targets, self.ignore)
+            validate_group_size_divisibility(model, targets, self.ignore)
 
         # disable quantization until calibration
         model.apply(disable_quantization)
@@ -302,7 +298,7 @@ class QuantizationMixin(HooksMixin):
         model.apply(enable_quantization)  # keep quantization enabled
 
     def start_layerwise_calibration(
-        self, model: torch.nn.Module, modules: list[torch.nn.Module]
+        self, state: State, model: torch.nn.Module, modules: list[torch.nn.Module]
     ):
         """
         Set up quantization for a subset of modules after layerwise
@@ -310,10 +306,15 @@ class QuantizationMixin(HooksMixin):
         modules, then initializes observers, calibration hooks, and fuses
         weight observers.
 
+        :param state: session state, used to resolve observer defaults
+            according to ``state.has_calibration_data``
         :param model: the full model (needed for config application)
         :param modules: modules in the current subgraph to prepare
         """
-        apply_quantization_config(model, self.resolved_config, allowed_modules=modules)
+        config = self.resolve_quantization_config(
+            has_calibration_data=state.has_calibration_data
+        )
+        apply_quantization_config(model, config, allowed_modules=modules)
         for module in modules:
             if is_module_quantized(module):
                 self._initialize_observers(module)
@@ -354,7 +355,7 @@ class QuantizationMixin(HooksMixin):
             self.requires_calibration_data = True
             return self
 
-        for scheme in self.resolved_config.config_groups.values():
+        for scheme in self.resolve_quantization_config().config_groups.values():
             if scheme.weights is not None:
                 if scheme.weights.observer in (
                     "imatrix_mse",
@@ -385,13 +386,24 @@ class QuantizationMixin(HooksMixin):
             and self.kv_cache_scheme is None
         )
 
-    def resolve_quantization_config(self) -> QuantizationConfig:
+    def resolve_quantization_config(
+        self, has_calibration_data: bool = False
+    ) -> QuantizationConfig:
         """
         Returns the quantization config specified by this modifier
+
+        :param has_calibration_data: whether calibration data will be available
+            to this modifier. If True, the default weight observer is
+            ``imatrix_mse``, which weights quantization error by per-channel
+            activation importance; otherwise the default is
+            ``memoryless_minmax``
         """
         scheme = self.scheme
         targets = self.targets
-        config_groups = self.config_groups
+        # work on a copy so that the fields specified on this modifier are
+        # left untouched and resolution can be repeated with different
+        # `has_calibration_data` values
+        config_groups = deepcopy(self.config_groups)
         kv_cache_scheme = self.kv_cache_scheme
         ignore = self.ignore
 
@@ -415,7 +427,9 @@ class QuantizationMixin(HooksMixin):
                     )
 
                 # Apply observer overrides if specified
-                scheme_obj = self._apply_observer_overrides(scheme_obj)
+                scheme_obj = self._apply_observer_overrides(
+                    scheme_obj, has_calibration_data
+                )
 
                 group_name = f"group_{idx}"
                 config_groups[group_name] = scheme_obj
@@ -423,13 +437,15 @@ class QuantizationMixin(HooksMixin):
         if config_groups is None or len(config_groups) == 0:
             default_quant_scheme = QuantizationScheme(targets=targets)
             # Apply observer overrides to default scheme as well
-            default_quant_scheme = self._apply_observer_overrides(default_quant_scheme)
+            default_quant_scheme = self._apply_observer_overrides(
+                default_quant_scheme, has_calibration_data
+            )
             config_groups = {"group_0": default_quant_scheme}
         elif scheme is None:
             # Apply observer overrides to all config groups when config_groups
             # was provided directly (not derived from scheme)
             for scheme_obj in config_groups.values():
-                self._apply_observer_overrides(scheme_obj)
+                self._apply_observer_overrides(scheme_obj, has_calibration_data)
 
         return QuantizationConfig(
             config_groups=config_groups,
@@ -439,13 +455,20 @@ class QuantizationMixin(HooksMixin):
         )
 
     def _apply_observer_overrides(
-        self, scheme: QuantizationScheme
+        self, scheme: QuantizationScheme, has_calibration_data: bool = False
     ) -> QuantizationScheme:
         """
         Apply observer overrides from weight_observer, input_observer, output_observer,
         or observer dict to the quantization scheme.
 
+        Weight observers default to ``imatrix_mse`` when calibration data is
+        available (so that activation importance can be accumulated) and to
+        ``memoryless_minmax`` otherwise. Activation observers default to
+        ``minmax``.
+
         :param scheme: QuantizationScheme to modify
+        :param has_calibration_data: whether calibration data will be available
+            to this modifier
         :return: Modified QuantizationScheme with observers applied
         """
         # Validate that both individual params and dict are not specified
@@ -473,26 +496,61 @@ class QuantizationMixin(HooksMixin):
             output_obs = self.observer.get("output", output_obs)
 
         # Apply observers to QuantizationArgs if specified
+        # (modifier arg, scheme attribute, default observer, display name)
         update_map = [
-            (weight_obs, "weights", "memoryless_minmax"),
-            (input_obs, "input_activations", "minmax"),
-            (output_obs, "output_activations", "minmax"),
+            (weight_obs, "weights", None, "weight"),
+            (input_obs, "input_activations", "minmax", "input activation"),
+            (output_obs, "output_activations", "minmax", "output activation"),
         ]
 
-        for obs_value, scheme_attr, default_obs in update_map:
+        for obs_value, scheme_attr, default_obs, display_name in update_map:
             q_args = getattr(scheme, scheme_attr, None)
             if q_args is None:
                 continue
-            elif obs_value is None:
+            if scheme_attr == "weights":
+                default_obs = self._default_weight_observer(
+                    has_calibration_data, scheme
+                )
+            if obs_value is None:
                 if (
                     q_args.observer is not None
                     and "observer" in q_args.model_fields_set
                 ):
+                    if q_args.observer != default_obs:
+                        _log_observer_default_override(
+                            display_name, default_obs, q_args.observer
+                        )
                     continue
                 obs_value = None if q_args.dynamic is True else default_obs
+            elif obs_value != default_obs:
+                _log_observer_default_override(display_name, default_obs, obs_value)
             q_args.observer = obs_value
 
         return scheme
+
+    def _default_weight_observer(
+        self, has_calibration_data: bool, scheme: QuantizationScheme
+    ) -> str:
+        """Select the default observer based on calibration data and weight format."""
+        if has_calibration_data:
+            modifiers = active_session().lifecycle.recipe.modifiers
+            if any(modifier is self for modifier in modifiers):
+                from llmcompressor.modifiers.transform.awq import AWQModifier
+
+                # AWQ spins up its own observers so the quantizations shouldn't
+                # default to imat unless AWQ is updated to use real observers
+                if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
+                    return "memoryless_minmax"
+
+            # Use the compressor's scheme predicate to keep NVFP4 detection in
+            # sync with the packed format. Linear is a supported module type.
+            if NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme):
+                return "nvfp4_expanded_imatrix"
+
+        # The imatrix observer weights quantization error by per-channel
+        # activation importance, which can only be accumulated when
+        # calibration data is available.
+        return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
@@ -564,4 +622,40 @@ def _has_observer_statistics(module: torch.nn.Module) -> bool:
         getattr(observer, "has_statistics", False)
         for base_name in ACTIVATION_OBS + ("weight",)
         if (observer := getattr(module, f"{base_name}_observer", None)) is not None
+    )
+
+
+def _resolved_targets(config: QuantizationConfig) -> set[str]:
+    """
+    Set of all targets specified by a quantization config, i.e. all unique
+    targets listed in its config groups, plus the KV cache targets when a
+    kv cache scheme is present
+    """
+    targets = set()
+    for config_group in config.config_groups.values():
+        for target in config_group.targets:
+            targets.add(target)
+
+    if config.kv_cache_scheme is not None:
+        # TODO: decouple reliance on this regex for matching attention
+        targets.update(KV_CACHE_TARGETS)
+
+    return targets
+
+
+def _log_observer_default_override(
+    quantization_target: str, default_observer: str, observer: str
+):
+    """
+    Log when a default observer is overridden by an observer specified
+    through the recipe, either at the modifier level (weight_observer,
+    input_observer, output_observer, observer dict) or in a quantization
+    scheme
+    """
+    logger.info(
+        "Overriding default {} observer '{}' with '{}'",
+        quantization_target,
+        default_observer,
+        observer,
+        log_once=True,
     )
