@@ -129,9 +129,9 @@ Best used when:
 
 #### [NVFP4 expanded IMatrix](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py) (`nvfp4_expanded_imatrix`)
 
-`nvfp4_expanded_imatrix` applies the same NVFP4 range expansion and search as
-`nvfp4_expanded_mse`, but weighs each quantization error by per-input-channel
-importance like the normal ImatrixObserver
+`nvfp4_expanded_imatrix` uses the same expanded candidate range and grid as
+`nvfp4_expanded_mse`, while weighting quantization error by per-input-channel
+importance and using imatrix's default magnitude normalization.
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
 
@@ -234,11 +234,10 @@ observer inherits these options but overrides some defaults as described above.
 | Argument             | Default | Description |
 |----------------------|---------|-------------|
 | `maxshrink`          | `0.20`  | Maximum shrink amount in grid steps. Number of search steps is `int(maxshrink * grid)`. |
-| `patience`           | `5`     | Number of consecutive steps without improvement before early stopping. |
+| `patience`           | `5`     | Number of consecutive steps without strict improvement before early stopping in the eager implementation. Triton always evaluates the full grid. |
 | `grid`               | `100.0` | Resolution of the shrink search. Higher values give finer granularity. |
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
 | `expand`             | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; the NVFP4 expanded MSE observer defaults to `1.8`. |
-| `triton_error_buffer` | `0.30` for integer/FP8, `1.00` for FP4 | Relative error buffer used by the CUDA Triton implementation when applying per-group patience. The NVFP4 expanded MSE observer defaults to `1.00` i.e. exhaustive search. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
 | `grid_type` | `None` | `"linear"`, `"exponential"`. default spacing is exponential when MX scales are generated (E8M0), linear otherwise. Exponential candidates are `1, 1/2, 1/4, ...`. |
 | `magnitude_normalization` | `False` | Multiply each powered error by `sqrt(w² + group_absmax²)`, where `group_absmax` is the maximum absolute observed weight in the quantization group. |
@@ -255,13 +254,13 @@ range, grid, norm, and patience.
 | Argument      | Default | Description |
 |---------------|---------|-------------|
 | `maxshrink`   | `0.95`  | Maximum shrink factor for the grid search. The search evaluates `int(maxshrink * grid)` shrink steps. |
-| `patience`    | `5`     | Number of consecutive steps without improvement before early stopping. |
-| `grid`        | `20`    | Number of grid steps. Higher values give finer granularity at the cost of speed. |
-| `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
+| `patience`    | `5`     | Number of consecutive steps without strict improvement before early stopping in the eager implementation. Triton always evaluates the full grid. |
+| `grid`        | `100`   | Number of grid steps. Higher values give finer granularity at the cost of speed. |
+| `norm`        | `2.8`   | Exponent used when computing the importance-weighted error. |
 | `expand`      | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; `nvfp4_expanded_imatrix` defaults to `1.8`. |
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
 | `grid_type` | `None` | `"linear"`, `"exponential"`, default spacing is exponential when MX scales are generated (E8M0), linear otherwise. |
-| `magnitude_normalization` | `False` | Multiply each importance-weighted error by `sqrt(w² + group_absmax²)`. |
+| `magnitude_normalization` | `True` | Multiply each importance-weighted error by `sqrt(w² + group_absmax²)`. |
 
 ## DDP (Distributed) Support
 
