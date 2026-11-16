@@ -119,6 +119,26 @@ class State:
         logger.debug("Compression ready: {}", ready)
         return ready
 
+    @property
+    def has_calibration_data(self) -> bool:
+        """
+        Check if calibration data is available to the session.
+
+        :return: True if the calibration dataloader is not None and has at
+            least one sample, False otherwise
+        :rtype: bool
+        """
+        dataloader = self.data.calib
+        if dataloader is None:
+            return False
+
+        try:
+            return len(dataloader) > 0
+        except TypeError:
+            # dataloaders over unsized (iterable) datasets are assumed to
+            # contain data
+            return True
+
     def update(
         self,
         model: Any = None,

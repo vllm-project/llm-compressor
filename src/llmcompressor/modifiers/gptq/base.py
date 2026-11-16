@@ -155,8 +155,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
             raise ValueError("batched_quantization must be a positive integer")
         return value
 
-    def resolve_quantization_config(self) -> QuantizationConfig:
-        config = super().resolve_quantization_config()
+    def resolve_quantization_config(
+        self, has_calibration_data: bool = False
+    ) -> QuantizationConfig:
+        config = super().resolve_quantization_config(
+            has_calibration_data=has_calibration_data
+        )
 
         def resolve_actorder(weights):
             existing = weights.actorder
@@ -202,7 +206,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            QuantizationMixin.initialize_quantization(self, state)
 
         # prepare module names
         self._module_names = {

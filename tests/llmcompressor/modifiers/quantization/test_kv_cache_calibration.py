@@ -95,7 +95,7 @@ def test_attention_module_not_named_self_attn_gets_calibrated():
         assert "self_attn" not in name, f"{name} unexpectedly matches self_attn"
 
     # Apply qconfig (this uses is_cached_attention_module and WILL set scheme)
-    apply_quantization_config(model, modifier.resolved_config)
+    apply_quantization_config(model, modifier.resolve_quantization_config())
 
     # Verify schemes were applied to attention modules by _apply_kv_cache_scheme
     for _, m in attn_modules:

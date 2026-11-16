@@ -105,17 +105,24 @@ def test_mse_fp4():
         pytest.param("NVFP4A16", (8, 1024), id="nvfp4a16"),
     ],
 )
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_mse_triton_matches_eager_for_realistic_schemes(preset, observed_shape):
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+def test_mse_triton_matches_eager_for_realistic_schemes(
+    preset, observed_shape, norm, device
+):
     """Real W4A16 and NVFP4A16 group sizes preserve eager grid choices."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = preset_name_to_scheme(preset, ["Linear"]).weights
     torch.manual_seed(0)
     observed = flatten_for_calibration(
-        torch.randn(*observed_shape, device="cuda", dtype=torch.bfloat16),
+        torch.randn(*observed_shape, device=device, dtype=torch.bfloat16),
         "weight",
         args,
     )
-    search_args = (observed, args, 0.5, 5, 100.0, 2.4, 1.0)
+    search_args = (observed, args, 0.5, 5, 100.0, norm, 1.0)
     search_kwargs = {"expand": 1.0}
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
@@ -164,9 +171,13 @@ def _qdq_kernel(
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 @pytest.mark.parametrize("symmetric", [True, False])
 @pytest.mark.parametrize("num_bits", [4, 8])
-@pytest.mark.skipif(not torch.accelerator.is_available(), reason="requires CUDA Triton")
-def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype, device):
     """The shared QDQ helper reproduces fake_quantize bit for bit."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
     args = QuantizationArgs(
         num_bits=num_bits,
         symmetric=symmetric,
@@ -175,7 +186,7 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
     )
     torch.manual_seed(0)
     observed = flatten_for_calibration(
-        torch.randn(64, 1024, device="cuda", dtype=dtype), "weight", args
+        torch.randn(64, 1024, device=device, dtype=dtype), "weight", args
     )
     scale, zero_point = calculate_qparams(
         min_vals=torch.amin(observed, dim=(0, -1)),
@@ -208,6 +219,57 @@ def test_triton_qdq_matches_fake_quantize(num_bits, symmetric, dtype):
         BLOCK=block,
     )
     assert torch.equal(result.to(dtype).reshape(observed.shape), expected)
+
+
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+def test_triton_bf16_qdq_matches_fake_quantize_for_signed_values(device):
+    """BF16 QDQ must materialize rounding for negative normalized values."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
+    args = QuantizationArgs(
+        num_bits=4,
+        symmetric=True,
+        strategy=QuantizationStrategy.GROUP,
+        group_size=16,
+    )
+    observed = flatten_for_calibration(
+        torch.linspace(-4.0, 4.0, 64, device=device, dtype=torch.bfloat16).repeat(4, 1),
+        "weight",
+        args,
+    )
+    scale, zero_point = calculate_qparams(
+        min_vals=torch.amin(observed, dim=(0, -1)),
+        max_vals=torch.amax(observed, dim=(0, -1)),
+        quantization_args=args,
+        global_scale=None,
+    )
+    with patch_attr(args, "strategy", QuantizationStrategy.TOKEN):
+        expected = fake_quantize(
+            observed, scale.unsqueeze(-1), zero_point.unsqueeze(-1), args
+        )
+
+    values = observed.reshape(-1).contiguous()
+    result = torch.empty_like(values, dtype=torch.float32)
+    q_min, q_max = calculate_range(args, values.device)
+    block = 1024
+    _qdq_kernel[(triton.cdiv(values.numel(), block),)](
+        values,
+        scale.reshape(-1).to(torch.float32).contiguous(),
+        zero_point.reshape(-1).to(torch.float32).contiguous(),
+        result,
+        values.numel(),
+        args.group_size,
+        float(q_min),
+        float(q_max),
+        QUANT_TYPE=0,
+        NUM_BITS=4,
+        HAS_ZP=False,
+        COMPUTE_DTYPE=2,
+        BLOCK=block,
+    )
+    assert torch.equal(result.to(torch.bfloat16).reshape(observed.shape), expected)
 
 
 def test_mse_triton_error_buffer_defaults():
