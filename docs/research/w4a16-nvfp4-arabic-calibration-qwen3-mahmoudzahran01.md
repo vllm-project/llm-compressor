@@ -136,13 +136,15 @@ smaller than the 0.94-point gap between two English draws.
 I expected GPTQ, which uses the calibration activations for every weight update, to react more
 than NVFP4. On ArabicMMLU neither moved.
 
-### Arabic-only calibration cost English accuracy with W4A16
+### The Arabic-calibrated W4A16 checkpoint scored lower on English
 
-The one clear calibration effect was on the guard task: Arabic-only calibration lowered W4A16
-MMLU by 0.75 points [-1.24, -0.24], and the drop held after the overlap filter. The English
-re-draw moved MMLU by only 0.04 points, but that is a single comparison. The 50/50 mix did not
-show the drop. So with GPTQ, Arabic-only calibration bought no Arabic accuracy and cost some
-English, while the mix kept English intact.
+The one clear calibration difference was on the guard task: the Aya-calibrated W4A16 checkpoint
+scored 0.75 points lower on MMLU than the UltraChat-calibrated checkpoint in this run
+[-1.24, -0.24], and the gap held after the overlap filter. The English re-draw moved MMLU by
+only 0.04 points, but that is a single comparison and each set has one draw, so this is an
+observation about these checkpoints, not an established effect of Arabic calibration. The 50/50
+mix checkpoint did not show the gap. For these GPTQ checkpoints, Arabic-only calibration bought
+no Arabic accuracy and scored lower on English, while the mix kept English intact.
 
 NVFP4 mix scored +0.61 points on MMLU [+0.13, +1.10] (uncorrected p = 0.016). The guards are not
 corrected and there is one draw per set, so I would treat it as a lead rather than a finding.
@@ -291,8 +293,12 @@ p = min(1, 2 * min(P(delta <= 0), P(delta >= 0))).
 
 ```bash
 vllm serve Qwen3-8B-W4A16-en --gpu-memory-utilization 0.25 --max-model-len 4096 --seed 13
-vllm bench serve --backend vllm --endpoint /v1/completions --model Qwen3-8B-W4A16-en \
+
+# in a second shell, once the server is ready
+BENCH="vllm bench serve --backend vllm --endpoint /v1/completions --model Qwen3-8B-W4A16-en \
   --dataset-name random --random-input-len 1024 --random-output-len 256 --ignore-eos --seed 13 \
-  --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99 \
-  --num-prompts 128 --max-concurrency 16   # and --num-prompts 32 --max-concurrency 1
+  --percentile-metrics ttft,tpot,itl,e2el --metric-percentiles 50,90,99"
+$BENCH --num-prompts 8 --max-concurrency 1     # warm-up, results discarded
+$BENCH --num-prompts 32 --max-concurrency 1
+$BENCH --num-prompts 128 --max-concurrency 16
 ```
