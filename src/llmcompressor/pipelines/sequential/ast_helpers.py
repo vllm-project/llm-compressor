@@ -100,6 +100,15 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
     source = inspect.getsource(forward_fn)
     source = textwrap.dedent(source)
     tree = ast.parse(source)
+    tree.body.insert(
+        0,
+        ast.ImportFrom(
+            module="__future__",
+            names=[ast.alias(name="annotations")],
+            level=0,
+        ),
+    )
+    tree = ast.fix_missing_locations(tree)
 
     # construct namespace for our new code
     namespace = getattr(forward_fn, "__globals__", None)
