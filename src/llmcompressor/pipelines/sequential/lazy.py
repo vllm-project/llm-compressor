@@ -66,6 +66,8 @@ class WholeModelMetaTransform:
         self.transformed_fqns: set[str] = set()
         self.materialized_fqns: set[str] = set()
         self.restored_fqns: set[str] = set()
+        self.sources_offloaded = False
+        self.defer_subgraph_restore = False
 
         for operation in self.operations:
             operation.roots = operation.restructure_meta(
@@ -75,7 +77,10 @@ class WholeModelMetaTransform:
 
     def offload_sources(self, onload_device: torch.device) -> None:
         """Offload the unchanged live source model before sequential calibration."""
+        if self.sources_offloaded:
+            return
         set_onload_device(self.source_model, onload_device)
+        self.sources_offloaded = True
 
     def roots_for_subgraph(self, modules: Mapping[str, Module]) -> set[str]:
         return {
@@ -162,8 +167,14 @@ class WholeModelMetaTransform:
         self.materialized_fqns.clear()
         self.materialize_subgraph(target_modules, offload_kwargs, device)
         subgraph_offload_modules(target_modules, offload_kwargs)
+        self.defer_subgraph_restore = True
 
     def restore_subgraph(self, roots: set[str]) -> None:
+        if self.defer_subgraph_restore:
+            return
+        self._restore_subgraph(roots)
+
+    def _restore_subgraph(self, roots: set[str]) -> None:
         roots = roots - self.restored_fqns
         for root in roots - self.materialized_fqns:
             self.model.set_submodule(root, _get_submodule(self.source_model, root))
@@ -179,7 +190,8 @@ class WholeModelMetaTransform:
         self.restored_fqns.update(roots)
 
     def restore_all(self) -> None:
-        self.restore_subgraph(self.transformed_fqns - self.restored_fqns)
+        self.defer_subgraph_restore = False
+        self._restore_subgraph(self.transformed_fqns - self.restored_fqns)
 
     def _source_modules_for_subgraph(
         self, target_modules: Mapping[str, Module], roots: set[str]

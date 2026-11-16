@@ -10,6 +10,7 @@ from llmcompressor.modifiers import Modifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
+    from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 
 __all__ = ["CalibrationPipeline"]
 
@@ -21,6 +22,8 @@ class CalibrationPipeline(ABC, RegistryMixin):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        *,
+        whole_model_transform: "WholeModelMetaTransform",
     ):
         raise NotImplementedError()
 

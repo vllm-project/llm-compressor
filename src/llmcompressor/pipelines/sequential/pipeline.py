@@ -6,7 +6,6 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -87,7 +86,7 @@ class SequentialPipeline(CalibrationPipeline):
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
         *,
-        whole_model_transform: WholeModelMetaTransform | None = None,
+        whole_model_transform: WholeModelMetaTransform,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -111,6 +110,7 @@ class SequentialPipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param whole_model_transform: tracks the pre-initialization meta conversion
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
@@ -119,10 +119,7 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        if whole_model_transform is None:
-            set_onload_device(model, onload_device)
-        else:
-            whole_model_transform.offload_sources(onload_device)
+        whole_model_transform.offload_sources(onload_device)
 
         def staging_modules_for(subgraph) -> dict[str, torch.nn.Module]:
             return subgraph.submodule_dict(model)
@@ -152,12 +149,11 @@ class SequentialPipeline(CalibrationPipeline):
                 stacklevel=2,
             )
             persistent_offload_kwargs = subgraph_onload_modules(persistent_modules)
-            if whole_model_transform is not None:
-                whole_model_transform.materialize_subgraph(
-                    persistent_modules,
-                    persistent_offload_kwargs,
-                    onload_device,
-                )
+            whole_model_transform.materialize_subgraph(
+                persistent_modules,
+                persistent_offload_kwargs,
+                onload_device,
+            )
             # Persistent modules stay onloaded for the full calibration run.
 
         LifecycleCallbacks.calibration_start()
@@ -179,9 +175,8 @@ class SequentialPipeline(CalibrationPipeline):
         last_transform_use: dict[str, int] = {}
         for index, subgraph in enumerate(subgraphs):
             target_modules = subgraph.submodule_dict(model)
-            if whole_model_transform is not None:
-                for fqn in whole_model_transform.roots_for_subgraph(target_modules):
-                    last_transform_use[fqn] = index
+            for fqn in whole_model_transform.roots_for_subgraph(target_modules):
+                last_transform_use[fqn] = index
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -293,12 +288,11 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(target_subgraph_modules)
-                if whole_model_transform is not None:
-                    whole_model_transform.materialize_subgraph(
-                        target_subgraph_modules,
-                        offload_kwargs,
-                        onload_device,
-                    )
+                whole_model_transform.materialize_subgraph(
+                    target_subgraph_modules,
+                    offload_kwargs,
+                    onload_device,
+                )
                 modules = subgraph.submodules(model)
 
                 # Decompress and initialize only this subgraph after onloading it.
@@ -385,8 +379,7 @@ class SequentialPipeline(CalibrationPipeline):
                     for fqn, last_index in last_transform_use.items()
                     if last_index == subgraph_index
                 }
-                if whole_model_transform is not None:
-                    whole_model_transform.restore_subgraph(completed_transforms)
+                whole_model_transform.restore_subgraph(completed_transforms)
                 #######################
                 #### END OF ONLOAD ####
                 #######################

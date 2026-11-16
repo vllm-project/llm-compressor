@@ -334,20 +334,14 @@ class Oneshot:
             # Modifiers always initialize against the transformed module structure.
             # Sequential calibration can fill targets by subgraph; other pipelines
             # need all targets ready before their first pass.
-            if isinstance(pipeline, SequentialPipeline):
-                pipeline(
-                    self.model,
-                    calibration_dataloader,
-                    self.dataset_args,
-                    whole_model_transform=whole_model_transform,
-                )
-            else:
+            if not isinstance(pipeline, SequentialPipeline):
                 whole_model_transform.materialize_all(get_main_device())
-                pipeline(
-                    self.model,
-                    calibration_dataloader,
-                    self.dataset_args,
-                )
+            pipeline(
+                self.model,
+                calibration_dataloader,
+                self.dataset_args,
+                whole_model_transform=whole_model_transform,
+            )
             whole_model_transform.restore_all()
 
         session.finalize()
