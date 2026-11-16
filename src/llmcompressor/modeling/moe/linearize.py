@@ -149,12 +149,24 @@ def linearize_moe(model: PreTrainedModel):
     )
 
     for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = _experts_config(module, model)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
+        linear_moe = linearize_moe_module(module, model)
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+def linearize_moe_module(
+    experts: FusedExpertsProtocol,
+    model: torch.nn.Module,
+    *,
+    meta: bool = False,
+):
+    """Adapt a single source MoE module to the real or meta linearized structure."""
+    config = _experts_config(experts, model)
+    linear_experts_cls = LinearExperts2D.get_linear_experts_cls(experts.__class__)
+    if meta:
+        return linear_experts_cls.meta_from_experts_module(experts, config)
+    return linear_experts_cls.from_experts_module(experts, config)
 
 
 def _experts_config(
