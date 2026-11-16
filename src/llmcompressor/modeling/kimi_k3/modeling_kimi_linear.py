@@ -55,6 +55,7 @@ from torch import nn
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache
 from transformers.generation import GenerationMixin
+from transformers.integrations import use_experts_implementation
 from transformers.masking_utils import create_causal_mask
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_outputs import (
@@ -863,6 +864,65 @@ class KimiMoEGate(nn.Module):
         return topk_idx, topk_weight
 
 
+@use_experts_implementation
+class KimiLinearExperts(nn.Module):
+    """
+    Standard-format experts module for Kimi-K3, used only to register the
+    linearized replacement (``KimiLinearLinearExperts``). In practice this
+    class is never instantiated; LLM Compressor owns the definition directly
+    and ``KimiSparseMoeBlock`` instantiates the linearized experts itself.
+    """
+
+    def __init__(self, config: KimiLinearConfig):
+        super().__init__()
+        self.num_experts = config.num_experts
+        self.hidden_dim = config.hidden_size
+        self.intermediate_dim = config.moe_intermediate_size
+        self.gate_up_proj = nn.Parameter(
+            torch.empty(self.num_experts, 2 * self.intermediate_dim, self.hidden_dim)
+        )
+        self.down_proj = nn.Parameter(
+            torch.empty(self.num_experts, self.hidden_dim, self.intermediate_dim)
+        )
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        final_hidden_states = torch.zeros_like(hidden_states)
+        with torch.no_grad():
+            expert_mask = torch.nn.functional.one_hot(
+                top_k_index, num_classes=self.num_experts + 1
+            )
+            expert_mask = expert_mask.permute(2, 1, 0)
+            expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
+
+        for expert_idx in expert_hit:
+            expert_idx = expert_idx[0]
+            if expert_idx == self.num_experts:
+                continue
+            top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
+            current_state = hidden_states[token_idx]
+            gate, up = nn.functional.linear(
+                current_state, self.gate_up_proj[expert_idx]
+            ).chunk(2, dim=-1)
+            current_hidden_states = self.act_fn(gate) * up
+            current_hidden_states = nn.functional.linear(
+                current_hidden_states, self.down_proj[expert_idx]
+            )
+            current_hidden_states = current_hidden_states * top_k_weights[
+                token_idx, top_k_pos, None
+            ]
+            final_hidden_states.index_add_(
+                0, token_idx, current_hidden_states.to(final_hidden_states.dtype)
+            )
+
+        return final_hidden_states
+
+
 class KimiSparseMoeBlock(nn.Module):
     """
     Adapted from Deepseek-V3's MOE implementation
@@ -890,16 +950,10 @@ class KimiSparseMoeBlock(nn.Module):
         self.ep_size = 1
         self.experts_per_rank = config.num_experts
         self.ep_rank = 0
-        self.experts = nn.ModuleList(
-            [
-                KimiBlockSparseMLP(
-                    config,
-                    hidden_size=self.moe_hidden_size,
-                    intermediate_size=config.moe_intermediate_size,
-                )
-                for _ in range(config.num_experts)
-            ],
-        )
+
+        from llmcompressor.modeling.moe.kimi_linear import KimiLinearLinearExperts
+
+        self.experts = KimiLinearLinearExperts(config)
         self.gate = KimiMoEGate(config)
         if config.num_shared_experts is not None:
             intermediate_size = config.moe_intermediate_size * config.num_shared_experts
@@ -933,10 +987,8 @@ class KimiSparseMoeBlock(nn.Module):
 
         if self.use_latent_moe:
             hidden_states = self.routed_expert_down_proj(hidden_states)
-        if not get_calibrate_all_experts_flag():
-            y = self.moe_infer(hidden_states, topk_idx, topk_weight)
-        else:
-            y = self.moe_train(hidden_states, topk_idx, topk_weight)
+
+        y = self.experts(hidden_states, topk_idx, topk_weight)
 
         if self.use_latent_moe:
             if self.latent_moe_use_norm:
@@ -948,58 +1000,6 @@ class KimiSparseMoeBlock(nn.Module):
         if self.config.num_shared_experts is not None:
             y = y + self.shared_experts(identity)
         return y
-
-    def moe_train(self, x, topk_ids, topk_weight):
-        """Calibration-compatible MoE dispatch with gradient flow."""
-        y = torch.zeros_like(x)
-
-        with torch.no_grad():
-            expert_mask = F.one_hot(topk_ids, self.num_experts).permute(2, 1, 0)
-
-        for expert_idx, expert in enumerate(self.experts):
-            top_k_pos, token_indices = torch.where(expert_mask[expert_idx])
-
-            expert_out = expert(x)[token_indices]
-
-            expert_weights = topk_weight[token_indices, top_k_pos, None]
-            y.index_add_(0, token_indices, (expert_out * expert_weights).to(y.dtype))
-
-        return y
-
-    @torch.no_grad()
-    def moe_infer(self, x, topk_ids, topk_weight):
-        cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
-        cnts.scatter_(1, topk_ids, 1)
-        tokens_per_expert = cnts.sum(dim=0)
-        idxs = topk_ids.view(-1).argsort()
-        sorted_tokens = x[idxs // topk_ids.shape[1]]
-
-        tokens_per_expert = tokens_per_expert.cpu().numpy()
-
-        outputs = []
-        start_idx = 0
-        for i, num_tokens in enumerate(tokens_per_expert):
-            end_idx = start_idx + num_tokens
-            if num_tokens == 0:
-                continue
-            expert = self.experts[i + self.ep_rank * self.experts_per_rank]
-            tokens_for_this_expert = sorted_tokens[start_idx:end_idx]
-            expert_out = expert(tokens_for_this_expert)
-            outputs.append(expert_out)
-            start_idx = end_idx
-
-        outs = torch.cat(outputs, dim=0) if len(outputs) else sorted_tokens.new_empty(0)
-
-        new_x = torch.empty_like(outs)
-        new_x[idxs] = outs
-        final_out = (
-            new_x.view(*topk_ids.shape, -1)
-            .type(topk_weight.dtype)
-            .mul_(topk_weight.unsqueeze(dim=-1))
-            .sum(dim=1)
-            .type(new_x.dtype)
-        )
-        return final_out
 
 
 class KimiDecoderLayer(nn.Module):
