@@ -121,7 +121,7 @@ The IMatrix observer weights quantization error by per-input-channel activation 
 
 Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` modules. Falls back silently to uniform MSE (i.e., standard `memoryless_mse` behavior) whenever importance data is unavailable.
 
-This observer (`imatrix_mse`) is the **default weight observer whenever calibration data is available**, (except for AWQ) since activation importance can only be accumulated by running calibration data through the model. When there is no calibration data (e.g. data-free flows), weight observers default to `memoryless_minmax` instead.
+This observer (`imatrix_mse`) is the **default weight observer whenever calibration data is available**, (except for both AWQ which uses `minmax` and nvfp4 which uses `nvfp4_expanded_imatrix` below) since activation importance can only be accumulated by running calibration data through the model. When there is no calibration data (e.g. data-free flows), weight observers default to `memoryless_minmax` instead.
 
 Best used when:
 - 4-bit weight quantization accuracy is critical
