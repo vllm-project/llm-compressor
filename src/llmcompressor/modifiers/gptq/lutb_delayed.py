@@ -15,11 +15,9 @@ matches the canonical LUT-B tile layout.
 import torch
 from compressed_tensors.quantization import ActivationOrdering, QuantizationArgs
 from compressed_tensors.quantization.utils.lut_b import (
-    LUT_B_LLOYD_ITERATIONS,
-    _decode_lut_b_scales,
-    _fit_codebooks,
-    _scale_lut_b_tiles,
+    LUT_B_E8M0_BIAS,
     is_lut_b_quantization,
+    quantize_lut_b,
 )
 
 from llmcompressor.modifiers.gptq.helpers import (
@@ -82,6 +80,11 @@ def quantize_weight_lut_b_delayed(
         raise ValueError(f"blocksize must be positive, got {blocksize}")
 
     block_n, block_k = quant_args.block_structure
+    scale_n, scale_k = quant_args.scale_block_structure or quant_args.block_structure
+    if block_n // scale_n * (block_k // scale_k) != 1:
+        raise NotImplementedError(
+            "Delayed LUT-B GPTQ currently supports one scale per codebook tile"
+        )
     codebook_size = 1 << quant_args.num_bits
     original_weight = module.weight.detach()
     num_rows, num_columns = original_weight.shape
@@ -207,26 +210,26 @@ def quantize_weight_lut_b_delayed(
                 current_tile = current_tile.reshape(
                     num_row_tiles, block_n, block_k
                 ).reshape(num_row_tiles, block_n * block_k)
-                normalized, encoded_scales = _scale_lut_b_tiles(current_tile)
+                tile_weight = current_tile.reshape(
+                    num_row_tiles * block_n, block_k
+                )
                 tile_importance = None
                 if importance is not None:
                     column_start = tile_index * block_k
                     tile_importance = importance[
                         column_start : column_start + block_k
-                    ].repeat(block_n)
-                    tile_importance = tile_importance.unsqueeze(0).expand(
-                        num_row_tiles, -1
-                    )
-                _, centers = _fit_codebooks(
-                    normalized,
+                    ]
+                _, centers, encoded_scales = quantize_lut_b(
+                    tile_weight,
                     quant_args,
-                    LUT_B_LLOYD_ITERATIONS,
                     importance=tile_importance,
                 )
-                scale_factors = _decode_lut_b_scales(encoded_scales).reshape(-1)
                 centers = centers.to(torch.float32).reshape(
-                    num_row_tiles, codebook_size
-                )
+                    num_row_tiles, 1, codebook_size
+                )[:, 0]
+                scale_factors = torch.exp2(
+                    encoded_scales.to(torch.float32) - LUT_B_E8M0_BIAS
+                ).reshape(-1)
                 fitted_codebooks[:, tile_index] = centers.to(torch.float8_e4m3fn)
                 fitted_scales[:, tile_index] = encoded_scales.reshape(-1)
                 fitted_qparams[tile_index] = centers[row_to_tile] * scale_factors[

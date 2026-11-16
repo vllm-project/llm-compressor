@@ -537,19 +537,15 @@ def quantize_weight_lut_b(
 ) -> tuple[float, dict[str, torch.Tensor], bool]:
     """Run LUT-B GPTQ and return quantized weights with their fitted qparams.
 
-    When supplied, ``importance`` weights the Lloyd-Max fit per input column
+    When supplied, ``importance`` weights the DP codebook fit per input column
     using calibration activation energy. The returned codebooks and E8M0 scales
     are the exact qparams used by GPTQ, so CT compression does not refit them.
     """
     from compressed_tensors.quantization.utils.lut_b import (
-        LUT_B_LLOYD_ITERATIONS,
-        LUT_B_MAX_TILES_PER_CHUNK,
-        _decode_lut_b_scales,
-        _fit_codebooks,
-        _importance_to_tiles,
-        _scale_lut_b_tiles,
-        _weight_to_tiles,
+        LUT_B_E8M0_BIAS,
+        _lut_b_scale_factors,
         is_lut_b_quantization,
+        quantize_lut_b,
     )
 
     if not is_lut_b_quantization(quant_args):
@@ -571,27 +567,23 @@ def quantize_weight_lut_b(
     block_n, block_k = quant_args.block_structure
     codebook_size = 1 << quant_args.num_bits
 
-    tiles = _weight_to_tiles(weight, quant_args)
-    normalized_tiles, scales = _scale_lut_b_tiles(tiles)
-    centers = []
-    for start in range(0, normalized_tiles.shape[0], LUT_B_MAX_TILES_PER_CHUNK):
-        end = min(start + LUT_B_MAX_TILES_PER_CHUNK, normalized_tiles.shape[0])
-        importance_tiles = _importance_to_tiles(
-            importance, weight, quant_args, start, end
-        )
-        _, chunk_centers = _fit_codebooks(
-            normalized_tiles[start:end],
-            quant_args,
-            LUT_B_LLOYD_ITERATIONS,
-            importance=importance_tiles,
-        )
-        centers.append(chunk_centers)
-    centers = torch.cat(centers, dim=0)
+    _, centers, scales = quantize_lut_b(
+        weight,
+        quant_args,
+        importance=importance,
+    )
     row_tiles = num_rows // block_n
     column_tiles = num_columns // block_k
     centers = centers.to(torch.float32).reshape(row_tiles, column_tiles, codebook_size)
-    scale_factors = _decode_lut_b_scales(scales).reshape(row_tiles, column_tiles)
-    row_block = torch.arange(num_rows, device=weight.device) // block_n
+    scale_count = 1 if scales.ndim == 2 else scales.shape[-1]
+    scale_exponents = scales.reshape(-1, scale_count).to(torch.int32)
+    scale_exponents -= LUT_B_E8M0_BIAS
+    scale_factors = _lut_b_scale_factors(scale_exponents, quant_args).reshape(
+        row_tiles, column_tiles, block_n, block_k
+    )
+    row_ids = torch.arange(num_rows, device=weight.device)
+    row_block = row_ids // block_n
+    row_in_tile = row_ids % block_n
 
     losses = torch.zeros(num_rows, device=weight.device)
     dead = torch.diag(hessian) == 0
@@ -615,7 +607,7 @@ def quantize_weight_lut_b(
             num_columns, dtype=hessian.dtype, device=hessian.device
         )
 
-    cur_column_tile = -1
+    cur_column_scale = (-1, -1)
     column_centers = None
     for start in range(0, num_columns, blocksize):
         end = min(start + blocksize, num_columns)
@@ -631,11 +623,16 @@ def quantize_weight_lut_b(
             value = weight_block[:, offset]
             diagonal_value = inverse_block[offset, offset]
             column_tile = column // block_k
-            if column_tile != cur_column_tile:
-                column_centers = centers[row_block, column_tile] * scale_factors[
-                    row_block, column_tile
-                ].unsqueeze(1)
-                cur_column_tile = column_tile
+            column_in_tile = column % block_k
+            column_scale = (column_tile, column_in_tile)
+            if column_scale != cur_column_scale:
+                scale_for_rows = scale_factors[
+                    row_block, column_tile, row_in_tile, column_in_tile
+                ]
+                column_centers = centers[row_block, column_tile] * (
+                    scale_for_rows.unsqueeze(1)
+                )
+                cur_column_scale = column_scale
 
             nearest = (value.unsqueeze(1) - column_centers).abs().argmin(dim=1)
             quantized = column_centers.gather(1, nearest.unsqueeze(1)).squeeze(1)
@@ -661,7 +658,7 @@ def quantize_weight_lut_b(
         {
             "weight": quantized_weight,
             "weight_codebook": centers.to(torch.float8_e4m3fn),
-            "weight_scale": scales.reshape(row_tiles, column_tiles),
+            "weight_scale": scales,
         },
         used_rtn_fallback,
     )
