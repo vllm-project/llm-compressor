@@ -61,6 +61,7 @@ oneshot(
     recipe=recipe,
     max_seq_length=512,
     num_calibration_samples=64,  # or 512
+    processor=tokenizer,
 )
 
 model.save_pretrained(OUTPUT_DIR, save_compressed=True)
@@ -135,7 +136,7 @@ All experiments produced coherent outputs:
 
 1. **PyTorch CUDA**: Install with CUDA support:
    ```bash
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
    ```
 2. **Python version**: llm-compressor 0.15.0 requires Python 3.11+
 3. **Verify CUDA**: Check `torch.cuda.is_available()` returns `True`
