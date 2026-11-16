@@ -13,7 +13,7 @@ def test_observer_defaults_are_based_on_scheme_location():
         }
     )
 
-    scheme = modifier.resolved_config.config_groups["group_0"]
+    scheme = modifier.resolve_quantization_config().config_groups["group_0"]
     assert scheme.weights.observer == "memoryless_minmax"
     assert scheme.input_activations.observer == "minmax"
     assert scheme.output_activations.observer == "minmax"
@@ -30,7 +30,7 @@ def test_scheme_observer_is_preserved():
         }
     )
 
-    scheme = modifier.resolved_config.config_groups["group_0"]
+    scheme = modifier.resolve_quantization_config().config_groups["group_0"]
     assert scheme.weights.observer == "memoryless_mse"
     assert scheme.input_activations.observer == "static_minmax"
 
@@ -46,7 +46,7 @@ def test_modifier_observer_overrides_scheme():
         },
     )
 
-    scheme = modifier.resolved_config.config_groups["group_0"]
+    scheme = modifier.resolve_quantization_config().config_groups["group_0"]
     assert scheme.input_activations.observer == "mse"
 
 
@@ -59,7 +59,7 @@ def test_static_fp8_input_uses_minmax():
             }
         }
     )
-    scheme = modifier.resolved_config.config_groups["group_0"]
+    scheme = modifier.resolve_quantization_config().config_groups["group_0"]
 
     assert scheme.input_activations.dynamic is False
     assert scheme.input_activations.observer == "minmax"
@@ -77,7 +77,7 @@ def test_serialized_null_observer_gets_default():
         }
     )
 
-    scheme = modifier.resolved_config.config_groups["group_0"]
+    scheme = modifier.resolve_quantization_config().config_groups["group_0"]
     assert scheme.weights.observer == "memoryless_minmax"
     assert scheme.input_activations.observer == "minmax"
     assert scheme.output_activations.observer == "minmax"

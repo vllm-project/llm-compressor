@@ -29,6 +29,12 @@ __all__ = ["QADModifier"]
 # 2**16 scale down to 2**-16
 _LOSS_SCALE_ATTEMPTS = 32
 
+# RTN (round-to-nearest) weight quantization, i.e. the memoryless min/max
+# observer. QAD re-observes weight qparams after their statistics are
+# consumed, which the imatrix observers do not support
+_RTN_OBSERVER = "memoryless_minmax"
+_IMATRIX_OBSERVERS = ("imatrix_mse", "nvfp4_expanded_imatrix")
+
 
 class QADModifier(Modifier):
     """
@@ -79,8 +85,9 @@ class QADModifier(Modifier):
 
     :param reobserve_weights: re-observe weight qparams before training, after
         every epoch, and before writing the final weights. Requires the preceding
-        modifier to keep live weight observers. Set to False to keep its qparams
-        fixed. Defaults to True
+        modifier to keep live weight observers. Imatrix weight observers are
+        replaced with the RTN observer, which supports re-observation. Set to
+        False to keep its qparams fixed. Defaults to True
     :param num_epochs: training epochs per subgraph. Defaults to 1
     :param lr: AdamW learning rate. Defaults to 2e-6
     :param weight_decay: AdamW weight decay. Defaults to 0
@@ -147,6 +154,13 @@ class QADModifier(Modifier):
                 "Place QADModifier after a weight quantization modifier, such as "
                 "QuantizationModifier (RTN) or GPTQModifier, in the same recipe"
             )
+        if self.reobserve_weights:
+            # QAD re-observes weight qparams after their statistics are
+            # consumed, which the imatrix observers -- the default weight
+            # observers when calibration data is available -- do not support.
+            # Replace them with the RTN observer before observers are resolved
+            # and attached at the start of calibration
+            self._override_weight_observers(modules)
         # TODO add distributed support for QAD calibration
         if is_distributed() and torch.distributed.get_world_size() > 1:
             raise ValueError("QAD currently supports single-process calibration")
@@ -377,6 +391,32 @@ class QADModifier(Modifier):
                     )
 
     @torch.no_grad()
+    def _override_weight_observers(self, modules: list[torch.nn.Module]):
+        """
+        Replace imatrix weight observers with the RTN observer on the given
+        modules, before observers are resolved and attached at the start of
+        calibration.
+
+        QAD re-observes weight qparams after their statistics are consumed
+        (see ``_reobserve_weights``), which the imatrix observers do not
+        support.
+        """
+        overridden = [
+            module
+            for module in modules
+            if module.quantization_scheme.weights.observer in _IMATRIX_OBSERVERS
+        ]
+        for module in overridden:
+            module.quantization_scheme.weights.observer = _RTN_OBSERVER
+        if overridden:
+            logger.info(
+                "QAD re-observes weights after their statistics are consumed,"
+                " which the imatrix observer does not support; replaced the"
+                " weight observer with the RTN observer ({}) on {} modules",
+                _RTN_OBSERVER,
+                len(overridden),
+            )
+
     def _reobserve_weights(self, seq_targets, modules, stage):
         if not self.reobserve_weights:
             return
