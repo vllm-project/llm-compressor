@@ -3,13 +3,11 @@
 
 import concurrent.futures
 import json
-import os
 import subprocess
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -56,7 +54,6 @@ def run_is_complete(case_id: str) -> bool:
 def main() -> int:
     manifest_path = HERE / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
-    model = next(item for item in manifest["models"] if item["id"] == MODEL_ID)
     jobs = []
     for power in manifest["powers"]:
         power_tag = f"p{power:g}".replace(".", "p")
@@ -179,7 +176,10 @@ def main() -> int:
             time.sleep(20)
         success = run_is_complete(CURRENT_CASE)
         if not success:
-            report(f"existing case {CURRENT_CASE} ended without all task results; retrying")
+            report(
+                f"existing case {CURRENT_CASE} ended without all task results; "
+                "retrying"
+            )
             for attempt in range(1, 4):
                 log_path = (
                     ROOT

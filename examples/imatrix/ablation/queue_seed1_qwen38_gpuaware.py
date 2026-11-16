@@ -9,7 +9,6 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 ROOT = Path("/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02")
@@ -47,7 +46,9 @@ def find_active_evaluations() -> dict[str, tuple[int, int]]:
         args = process_args(pid)
         if (
             not args
-            or not any(arg.endswith("examples/imatrix/ablation/evaluate.py") for arg in args)
+            or not any(
+                arg.endswith("examples/imatrix/ablation/evaluate.py") for arg in args
+            )
             or "--model-id" not in args
             or args[args.index("--model-id") + 1] != MODEL_ID
             or "--seed-index" not in args
@@ -123,7 +124,9 @@ def descendants(pid: int) -> set[int]:
     while pending:
         parent = pending.pop()
         try:
-            children = Path(f"/proc/{parent}/task/{parent}/children").read_text().split()
+            children = (
+                Path(f"/proc/{parent}/task/{parent}/children").read_text().split()
+            )
         except OSError:
             continue
         for child in children:
@@ -221,7 +224,9 @@ def main() -> int:
             if key in old:
                 job[key] = old[key]
         if run_is_complete(case_id):
-            job.update(status="completed", finished_at=job.get("finished_at", utc_now()))
+            job.update(
+                status="completed", finished_at=job.get("finished_at", utc_now())
+            )
             continue
         if case_id in active_processes:
             pid, slot = active_processes[case_id]
@@ -295,6 +300,7 @@ def main() -> int:
             launch_reservations -= 1
 
     def run_job(job: dict, slot: int) -> bool:
+        nonlocal launch_reservations
         start_attempt = min(max(int(job.get("attempts", 0)) + 1, 1), 3)
         for attempt in range(start_attempt, 4):
             log_path = (
@@ -358,7 +364,9 @@ def main() -> int:
 
             if returncode == 0 and run_is_complete(job["case_id"]):
                 with state_lock:
-                    job.update(status="completed", log=str(log_path), finished_at=utc_now())
+                    job.update(
+                        status="completed", log=str(log_path), finished_at=utc_now()
+                    )
                     active.pop(str(slot), None)
                 save_status()
                 summarize()
@@ -396,7 +404,10 @@ def main() -> int:
                 summarize()
                 report(f"[slot {slot}] reconciled completed {job['case_id']}")
             else:
-                report(f"[slot {slot}] existing process ended incomplete; recovering {job['case_id']}")
+                report(
+                    f"[slot {slot}] existing process ended incomplete; "
+                    f"recovering {job['case_id']}"
+                )
                 if not run_job(job, slot):
                     with failed_lock:
                         failures += 1

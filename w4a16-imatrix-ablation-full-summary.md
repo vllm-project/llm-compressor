@@ -160,9 +160,9 @@ Mean strict exact-match score across all 48 configurations for each seed:
 
 ## Source artifacts
 
-- [Experiment manifest](/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/manifest.json)
-- [Original three-benchmark summary](/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/RESULTS.md)
-- [GSM8K Platinum, GPQA Diamond, and Math500 results matrix CSV](/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/results_matrix.csv)
-- [MMLU results matrix CSV, including seed scores](/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/mmlu_results_matrix.csv)
-- [MMLU orchestration status](/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/mmlu_status.json)
-- [Quantization and evaluation artifacts](/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/evaluations/)
+- Experiment manifest: `/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/manifest.json`
+- Original three-benchmark summary: `/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/RESULTS.md`
+- GSM8K Platinum, GPQA Diamond, and Math500 results matrix: `/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/results_matrix.csv`
+- MMLU results matrix, including seed scores: `/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/mmlu_results_matrix.csv`
+- MMLU orchestration status: `/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/mmlu_status.json`
+- Quantization and evaluation artifacts: `/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02/evaluations/`

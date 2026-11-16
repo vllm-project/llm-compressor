@@ -18,10 +18,11 @@ def main() -> int:
     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
 
     def load_timestamped_lm_eval_metrics(results_dir: Path, task_name: str) -> dict:
-        """Read timestamped lm-eval outputs whose names are not summary.py's expected name."""
+        """Read timestamped lm-eval outputs not named as summary.py expects."""
         values_by_seed: dict[int, dict[str, float]] = {}
         for result_path in sorted(
-            results_dir.glob(f"{task_name}_seed*.json"), key=lambda path: path.stat().st_mtime
+            results_dir.glob(f"{task_name}_seed*.json"),
+            key=lambda path: path.stat().st_mtime,
         ):
             match = re.search(r"_seed(\d+)", result_path.name)
             if match is None:
@@ -45,7 +46,9 @@ def main() -> int:
                 values_by_seed[int(match.group(1))] = metrics
 
         aggregated = {}
-        metric_names = {metric for metrics in values_by_seed.values() for metric in metrics}
+        metric_names = {
+            metric for metrics in values_by_seed.values() for metric in metrics
+        }
         for metric in metric_names:
             values = [
                 metrics[metric]
@@ -89,7 +92,9 @@ def main() -> int:
 
         if not final_outcomes:
             return None
-        completed = sum(outcome == "eval_completed" for outcome in final_outcomes.values())
+        completed = sum(
+            outcome == "eval_completed" for outcome in final_outcomes.values()
+        )
         failed = sum(outcome == "eval_failed" for outcome in final_outcomes.values())
         return completed, failed, failed_attempts
 
@@ -159,8 +164,10 @@ def main() -> int:
                             if "/" not in metric_path:
                                 continue
                             task_name, metric_name = metric_path.split("/", 1)
-                            result = summary.get("results", {}).get(task_name, {}).get(
-                                metric_name
+                            result = (
+                                summary.get("results", {})
+                                .get(task_name, {})
+                                .get(metric_name)
                             )
                             if not isinstance(result, dict):
                                 continue
@@ -175,14 +182,18 @@ def main() -> int:
                     for task_name, metrics in summary.get("results", {}).items():
                         for metric, result in metrics.items():
                             row[f"{task_name}/{metric}"] = result.get("mean")
-                            row[f"{task_name}/{metric}/seed_count"] = result.get("count")
+                            row[f"{task_name}/{metric}/seed_count"] = result.get(
+                                "count"
+                            )
                     raw_lm_metrics = load_timestamped_lm_eval_metrics(
                         args.root / "evaluations" / f"{case_id}-full" / "results",
                         "gsm8k_platinum_cot_llama",
                     )
                     for metric, result in raw_lm_metrics.items():
                         row[f"gsm8k_platinum_cot_llama/{metric}"] = result["mean"]
-                        row[f"gsm8k_platinum_cot_llama/{metric}/seed_count"] = result["count"]
+                        row[f"gsm8k_platinum_cot_llama/{metric}/seed_count"] = result[
+                            "count"
+                        ]
                 rows.append(row)
 
     out_json = args.root / "results_matrix.json"

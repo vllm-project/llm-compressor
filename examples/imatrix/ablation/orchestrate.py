@@ -96,7 +96,10 @@ class Experiment:
             ),
             "smoke_samples_per_task": 100,
             "seed_repetitions": 3,
-            "seed_schedule": "global sequential passes; finish each seed across all checkpoints before the next",
+            "seed_schedule": (
+                "global sequential passes; finish each seed across all checkpoints "
+                "before the next"
+            ),
         }
         self.manifest_path.write_text(json.dumps(self.manifest, indent=2) + "\n")
         self.cases = make_cases(self.manifest)
@@ -304,14 +307,16 @@ class Experiment:
         if case["model_id"] != "llama3.1-8b-instruct":
             return False
         run_dir = (
-            self.root
-            / "evaluations"
-            / f"preflight-{case['model_id']}-retry-smoke"
+            self.root / "evaluations" / f"preflight-{case['model_id']}-retry-smoke"
         )
         manifest_path = run_dir / "manifest.json"
         events_path = run_dir / "events.jsonl"
         server_log = run_dir / "logs" / "vllm_server.log"
-        if not manifest_path.exists() or not events_path.exists() or not server_log.exists():
+        if (
+            not manifest_path.exists()
+            or not events_path.exists()
+            or not server_log.exists()
+        ):
             return False
 
         try:
@@ -332,8 +337,7 @@ class Experiment:
             for task in event.get("tasks", [])
         }
         run_completed = any(
-            event.get("event") == "run_completed"
-            and event.get("status") == "completed"
+            event.get("event") == "run_completed" and event.get("status") == "completed"
             for event in events
         )
         if (
@@ -536,9 +540,7 @@ class Experiment:
                         completed.sort()
                 self._set(
                     case["case_id"],
-                    evaluation=(
-                        "completed" if seed_index == 2 else "running"
-                    ),
+                    evaluation=("completed" if seed_index == 2 else "running"),
                     active_stage=None,
                     evaluation_log=str(log_path),
                     last_completed_seed_index=seed_index,
@@ -592,7 +594,8 @@ class Experiment:
         seed_count = int(self.manifest["evaluation"]["seed_repetitions"])
         for seed_index in range(seed_count):
             print(
-                f"Starting global evaluation pass for seed {seed_index + 1}/{seed_count}",
+                "Starting global evaluation pass for seed "
+                f"{seed_index + 1}/{seed_count}",
                 flush=True,
             )
             pending_iter = iter(pending)
@@ -606,9 +609,7 @@ class Experiment:
                     if case is None:
                         return worker_failures
                     if not self._full_eval_case(case, slot, seed_index):
-                        worker_failures.add(
-                            f"{case['case_id']}@seed{seed_index + 1}"
-                        )
+                        worker_failures.add(f"{case['case_id']}@seed{seed_index + 1}")
 
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=self.slot_count

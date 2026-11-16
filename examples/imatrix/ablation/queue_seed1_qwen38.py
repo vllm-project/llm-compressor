@@ -7,7 +7,6 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 ROOT = Path("/mnt/data/engine/HDCharles/experiments/w4a16-imatrix-ablation-2026-10-02")
@@ -23,7 +22,6 @@ def utc_now() -> str:
 
 def main() -> int:
     manifest = json.loads((HERE / "manifest.json").read_text())
-    model = next(item for item in manifest["models"] if item["id"] == MODEL_ID)
     jobs = []
     for power in manifest["powers"]:
         power_tag = f"p{power:g}".replace(".", "p")
@@ -153,9 +151,7 @@ def main() -> int:
                 ]
                 with log_path.open("a") as output:
                     output.write(
-                        f"\nATTEMPT {attempt} COMMAND: "
-                        + " ".join(command)
-                        + "\n"
+                        f"\nATTEMPT {attempt} COMMAND: " + " ".join(command) + "\n"
                     )
                     output.flush()
                     result = subprocess.run(
