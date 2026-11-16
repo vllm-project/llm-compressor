@@ -34,9 +34,7 @@ def _lutb_args(scale_block_structure=None):
     "preset_name, expected_scale_block",
     [("LUTB", [8, 64]), ("LUTB32", [8, 2])],
 )
-def test_rtn_modifier_resolves_lutb_presets(
-    preset_name, expected_scale_block
-):
+def test_rtn_modifier_resolves_lutb_presets(preset_name, expected_scale_block):
     model = torch.nn.Sequential(torch.nn.Linear(64, 8, bias=False))
     modifier = QuantizationModifier(targets="Linear", scheme=preset_name)
     modifier.on_initialize(State(model=model))

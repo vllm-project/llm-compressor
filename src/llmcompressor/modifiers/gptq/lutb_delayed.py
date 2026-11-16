@@ -210,15 +210,11 @@ def quantize_weight_lut_b_delayed(
                 current_tile = current_tile.reshape(
                     num_row_tiles, block_n, block_k
                 ).reshape(num_row_tiles, block_n * block_k)
-                tile_weight = current_tile.reshape(
-                    num_row_tiles * block_n, block_k
-                )
+                tile_weight = current_tile.reshape(num_row_tiles * block_n, block_k)
                 tile_importance = None
                 if importance is not None:
                     column_start = tile_index * block_k
-                    tile_importance = importance[
-                        column_start : column_start + block_k
-                    ]
+                    tile_importance = importance[column_start : column_start + block_k]
                 _, centers, encoded_scales = quantize_lut_b(
                     tile_weight,
                     quant_args,

@@ -31,8 +31,6 @@ oneshot(
     moe_calibrate_all_experts=True,
 )
 
-save_dir = os.environ.get(
-    "SAVE_DIR", "Qwen3-30B-A3B-LUTB-MoE-GPTQ-Delayed"
-)
+save_dir = os.environ.get("SAVE_DIR", "Qwen3-30B-A3B-LUTB-MoE-GPTQ-Delayed")
 model.save_pretrained(save_dir, save_compressed=True)
 tokenizer.save_pretrained(save_dir)
