@@ -479,8 +479,8 @@ class SequentialTracer(HFTracer):
     def __init__(self, ancestors: set[Module]):
         self.ancestors = ancestors
         self._invoked: list[str] | None = None
-        # `UserDict`s seen while tracing, keyed by id, with the node that creates them
-        self._user_dict_nodes: dict[int, tuple[UserDict, Node]] = {}
+        # nodes creating the `UserDict`s seen while tracing, keyed by id
+        self._user_dict_nodes: dict[int, Node] = {}
 
         # skip any mask creation functions not already caught by the autowrapper
         super().__init__(autowrap_functions=_get_autowrap_functions())
@@ -538,8 +538,8 @@ class SequentialTracer(HFTracer):
                 node = self.create_node(
                     "call_function", a.__class__, (self.create_arg(dict(a)),), {}
                 )
-                self._user_dict_nodes[id(a)] = (a, node)
-            return self._user_dict_nodes[id(a)][1]
+                self._user_dict_nodes[id(a)] = node
+            return self._user_dict_nodes[id(a)]
 
         else:
             return super().create_arg(a)
