@@ -42,9 +42,9 @@ from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.lazy import (
     build_lazy_module_transforms,
-    materialize_lazy_module_transforms_eagerly,
-    prepare_lazy_module_transforms,
+    materialize_whole_model_meta_eagerly,
     restore_lazy_module_transforms,
+    WholeModelMetaTransform,
 )
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
@@ -299,7 +299,9 @@ class Oneshot:
         transforms = build_lazy_module_transforms(
             layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
-        prepare_lazy_module_transforms(self.model, transforms)
+        whole_model_transform = WholeModelMetaTransform(self.model, transforms)
+        source_model = whole_model_transform.source_model
+        self.model = whole_model_transform.model
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
@@ -341,10 +343,12 @@ class Oneshot:
                     calibration_dataloader,
                     self.dataset_args,
                     lazy_transforms=transforms,
+                    source_model=source_model,
                 )
             else:
-                materialize_lazy_module_transforms_eagerly(
+                materialize_whole_model_meta_eagerly(
                     self.model,
+                    source_model,
                     transforms,
                     get_main_device(),
                 )

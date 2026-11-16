@@ -94,6 +94,7 @@ class SequentialPipeline(CalibrationPipeline):
         dataset_args: "DatasetArguments",
         *,
         lazy_transforms: Sequence[ModuleTransform] | None = None,
+        source_model: torch.nn.Module | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -122,11 +123,12 @@ class SequentialPipeline(CalibrationPipeline):
 
         session = active_session()
         transforms = lazy_transforms or []
+        source_model = model if source_model is None else source_model
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        offload_lazy_module_sources(model, transforms, onload_device)
+        offload_lazy_module_sources(source_model, transforms, onload_device)
 
         def staging_modules_for(subgraph) -> dict[str, torch.nn.Module]:
             return subgraph.submodule_dict(model)
@@ -161,6 +163,7 @@ class SequentialPipeline(CalibrationPipeline):
                 persistent_modules,
                 persistent_offload_kwargs,
                 onload_device,
+                source_model,
             )
             # Persistent modules stay onloaded for the full calibration run.
 
@@ -301,6 +304,7 @@ class SequentialPipeline(CalibrationPipeline):
                     target_subgraph_modules,
                     offload_kwargs,
                     onload_device,
+                    source_model,
                 )
                 modules = subgraph.submodules(model)
 

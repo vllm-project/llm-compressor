@@ -42,12 +42,15 @@ __all__ = [
     "build_lazy_module_transforms",
     "materialize_lazy_module_transforms",
     "materialize_lazy_module_transforms_eagerly",
+    "materialize_whole_model_meta_eagerly",
     "onload_and_convert_meta_modules",
     "offload_lazy_module_sources",
     "prepare_lazy_module_transforms",
+    "prepare_whole_model_meta",
     "restore_lazy_module_transforms",
     "source_modules_for_subgraph",
     "transformed_fqns_for",
+    "WholeModelMetaTransform",
 ]
 
 
@@ -58,6 +61,36 @@ def prepare_lazy_module_transforms(
     transformed_fqns: set[str] = set()
     for transform in transforms:
         transformed_fqns.update(transform.to_meta(model, transformed_fqns))
+
+
+def prepare_whole_model_meta(
+    source_model: Module, transforms: Sequence[ModuleTransform]
+) -> Module:
+    """Copy the complete model to meta, then restructure its meta copy."""
+    meta_model = copy_module_to_meta(source_model)
+    prepare_lazy_module_transforms(meta_model, transforms)
+
+    # The transform discovery pass ran on the meta copy. Replace its retained
+    # source references with the real model modules used to populate the copy.
+    for transform in transforms:
+        for fqn in list(transform.modules):
+            transform.record_module(
+                fqn,
+                _get_submodule(source_model, fqn),
+                _get_submodule(meta_model, fqn),
+            )
+    return meta_model
+
+
+class WholeModelMetaTransform:
+    """Hold the live source model beside a fully meta, restructured copy."""
+
+    def __init__(
+        self, source_model: Module, transforms: Sequence[ModuleTransform]
+    ) -> None:
+        self.source_model = source_model
+        self.transforms = transforms
+        self.model = prepare_whole_model_meta(source_model, transforms)
 
 
 def offload_lazy_module_sources(
@@ -139,15 +172,22 @@ def onload_and_convert_meta_modules(
     target_modules: Mapping[str, Module],
     offload_kwargs: dict[str, dict],
     device: torch.device,
+    source_model: Module | None = None,
 ) -> None:
-    """Materialize and onload transformed targets owned by a subgraph.
+    """Materialize and onload the meta targets owned by a subgraph.
 
     Ordinary modules should already have been onloaded, with their cache settings
-    recorded in ``offload_kwargs``. Original modules retained by transforms are
+    recorded in ``offload_kwargs``. When ``source_model`` is supplied, matching
+    ordinary modules are also materialized from it. Retained transform sources are
     onloaded here, used to populate their meta targets, and offloaded again. The
     resulting target modules are then onloaded through the regular offload helper.
     """
-    source_modules = source_modules_for_subgraph(transforms, target_modules)
+    if source_model is None:
+        source_modules = source_modules_for_subgraph(transforms, target_modules)
+    else:
+        source_modules = _source_modules_for_meta_subgraph(
+            source_model, transforms, target_modules
+        )
     if not source_modules:
         return
 
@@ -159,12 +199,54 @@ def onload_and_convert_meta_modules(
         source_offload_kwargs,
         device,
     )
+    if source_model is not None:
+        target_offload_kwargs.update(
+            _materialize_matching_meta_modules(
+                target_modules,
+                source_modules,
+                transformed_fqns_for(transforms, target_modules),
+                source_offload_kwargs,
+                device,
+            )
+        )
     offload_kwargs.update(target_offload_kwargs)
     subgraph_offload_modules(source_modules, source_offload_kwargs)
 
     # Materialization creates normal offload caches on the targets. Reuse the
     # standard path to onload them for calibration and capture their cache settings.
     offload_kwargs.update(subgraph_onload_modules(target_modules))
+
+
+def materialize_whole_model_meta_eagerly(
+    model: Module,
+    source_model: Module,
+    transforms: Sequence[ModuleTransform],
+    onload_device: torch.device,
+) -> None:
+    """Populate a complete meta copy before a pipeline without subgraph support."""
+    offload_lazy_module_sources(source_model, transforms, onload_device)
+    target_modules = dict(model.named_modules())
+    source_modules = _source_modules_for_meta_subgraph(
+        source_model, transforms, target_modules
+    )
+    source_offload_kwargs = subgraph_onload_modules(source_modules)
+    target_offload_kwargs = materialize_lazy_module_transforms(
+        transforms,
+        target_modules,
+        source_modules,
+        source_offload_kwargs,
+        onload_device,
+    )
+    target_offload_kwargs.update(
+        _materialize_matching_meta_modules(
+            target_modules,
+            source_modules,
+            transformed_fqns_for(transforms, target_modules),
+            source_offload_kwargs,
+            onload_device,
+        )
+    )
+    subgraph_offload_modules(source_modules, source_offload_kwargs)
 
 
 def materialize_lazy_module_transforms_eagerly(
@@ -337,9 +419,11 @@ def _copy_module_state(
     source: Module,
     device: torch.device,
     offload_kwargs: dict,
+    *,
+    recurse: bool = True,
 ) -> dict[str, dict]:
-    source_state = _named_state(source)
-    target_meta_state = _named_state(target)
+    source_state = _named_state(source, recurse=recurse)
+    target_meta_state = _named_state(target, recurse=recurse)
     missing_source_names = set(source_state) - set(target_meta_state)
     if missing_source_names:
         raise ValueError(
@@ -353,7 +437,7 @@ def _copy_module_state(
     }
 
     def initialize(module: Module) -> None:
-        target_state = _named_state(module)
+        target_state = _named_state(module, recurse=recurse)
         for name, target_tensor in target_state.items():
             source_tensor = source_state.get(name)
             if source_tensor is None:
@@ -372,19 +456,80 @@ def _copy_module_state(
                 source_tensor.to(device=target_tensor.device, dtype=target_tensor.dtype)
             )
 
-    materialize_meta_module(target, device=device, initializer=initialize)
-    for module in target.modules():
+    materialize_meta_module(
+        target, device=device, initializer=initialize, recurse=recurse
+    )
+    modules = target.modules() if recurse else (target,)
+    for module in modules:
         offload_module(module, **offload_kwargs)
-    return {
-        relative_name: offload_kwargs
-        for relative_name, _ in target.named_modules()
-    }
+    if not recurse:
+        return {"": offload_kwargs}
+    return {relative_name: offload_kwargs for relative_name, _ in target.named_modules()}
 
 
-def _named_state(module: Module) -> dict[str, torch.Tensor]:
-    state = dict(module.named_parameters(remove_duplicate=False))
-    state.update(dict(module.named_buffers(remove_duplicate=False)))
+def _named_state(module: Module, recurse: bool = True) -> dict[str, torch.Tensor]:
+    state = dict(module.named_parameters(remove_duplicate=False, recurse=recurse))
+    state.update(
+        dict(module.named_buffers(remove_duplicate=False, recurse=recurse))
+    )
     return state
+
+
+def _source_modules_for_meta_subgraph(
+    source_model: Module,
+    transforms: Sequence[ModuleTransform],
+    target_modules: Mapping[str, Module],
+) -> dict[str, Module]:
+    """Map unchanged modules by FQN and add original modules for transformed roots."""
+    transformed_roots = transformed_fqns_for(transforms, target_modules)
+    modules = {
+        fqn: _get_submodule(source_model, fqn)
+        for fqn in target_modules
+        if not _fqn_is_transformed(fqn, transformed_roots)
+    }
+    modules.update(source_modules_for_subgraph(transforms, target_modules))
+    return modules
+
+
+def _materialize_matching_meta_modules(
+    target_modules: Mapping[str, Module],
+    source_modules: Mapping[str, Module],
+    transformed_roots: set[str],
+    source_offload_kwargs: Mapping[str, dict],
+    device: torch.device,
+) -> dict[str, dict]:
+    """Copy unchanged modules into the whole-model meta snapshot by matching FQN."""
+    offload_kwargs: dict[str, dict] = {}
+    for fqn, target in target_modules.items():
+        if _fqn_is_transformed(fqn, transformed_roots):
+            continue
+        source = source_modules.get(fqn)
+        if source is None or not any(
+            tensor is not None and tensor.device.type == "meta"
+            for tensor in (*target._parameters.values(), *target._buffers.values())
+        ):
+            continue
+
+        cache_kwargs = source_offload_kwargs.get(fqn)
+        if cache_kwargs is None:
+            cache_kwargs = get_cache_init_kwargs(source)
+        relative_kwargs = _copy_module_state(
+            target,
+            source,
+            device,
+            cache_kwargs,
+            recurse=False,
+        )
+        offload_kwargs.update(
+            {_qualify_fqn(fqn, name): kwargs for name, kwargs in relative_kwargs.items()}
+        )
+    return offload_kwargs
+
+
+def _fqn_is_transformed(fqn: str, roots: set[str]) -> bool:
+    return any(
+        fqn == root or not root or fqn.startswith(f"{root}.") for root in roots
+    )
 
 
 def _get_submodule(module: Module, fqn: str) -> Module:
