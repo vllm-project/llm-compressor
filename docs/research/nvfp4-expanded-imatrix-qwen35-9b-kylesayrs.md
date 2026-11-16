@@ -8,7 +8,7 @@ tags:
   - Qwen3.5-9B
 ---
 
-<div class="entry-byline" markdown>
+<div class="entry-byline" markdown="1">
 [![kylesayrs](https://github.com/kylesayrs.png?size=64){ .entry-avatar }](https://github.com/kylesayrs)
 **[@kylesayrs](https://github.com/kylesayrs)** posted on **2026-11-06**
 </div>
@@ -51,7 +51,7 @@ this motivates making `nvfp4_expanded_imatrix` the default weight observer.
 ## Results
 
 | Task | NVFP4 + GPTQ + `nvfp4_expanded_imatrix` | NVFP4 + GPTQ + `imatrix_mse` | BF16 reference | Recovery (`nvfp4_expanded_imatrix`) |
-|------|-----------------------------------------|------------------------------|----------------|-------------------------------------|
+|:---|---:|---:|---:|---:|
 | GSM8K | 0.957 | 0.948 | 0.959 | 99.8% |
 | GPQA-Diamond | 0.793 | 0.768 | 0.823 | 96.3% |
 | MathVista testmini | 0.844 | 0.838 | 0.856 | 98.6% |
