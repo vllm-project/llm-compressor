@@ -252,12 +252,11 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
-        for _, module in state.model.named_modules():
-            if self._is_decoding_layer(module):
-                handle = self.register_hook(
-                    module, self.input_capture_hook, "forward_pre", with_kwargs=True
-                )
-                self._capture_hooks[module._tmp_name] = handle
+        for module in self._outer_decoding_layers(state.model.modules()):
+            handle = self.register_hook(
+                module, self.input_capture_hook, "forward_pre", with_kwargs=True
+            )
+            self._capture_hooks[module._tmp_name] = handle
 
     def on_sequential_epoch_end(
         self,
@@ -287,7 +286,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         """
         modules = modules or []
 
-        decoding_layers = [m for m in modules if self._is_decoding_layer(m)]
+        decoding_layers = self._outer_decoding_layers(modules)
         if len(decoding_layers) == 0:
             return
         if len(decoding_layers) != 1:
@@ -422,15 +421,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                 if len(_refs) == len(cur_inputs):
                     _fp_ref = _refs
 
+            # An MTP layer's first input is a token embedding, not the previous
+            # block's output, so quantized outputs are not chained into it
+            chains_hidden_states = not layer_name.startswith("mtp.")
             q_input, _ = ar.quantize_block(
                 block=decoding_layer,
                 inputs=ar_inputs,
-                q_input=self._q_input,
+                q_input=self._q_input if chains_hidden_states else None,
                 device=str(device),
                 auto_offload=auto_offload,
                 reference_output=_fp_ref,
             )
-            self._q_input = q_input
+            self._q_input = q_input if chains_hidden_states else None
 
             decoding_layer = self._unwrapper_quantized_layer(decoding_layer)
 
@@ -527,6 +529,19 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
 
     def _is_decoding_layer(self, module: torch.nn.Module) -> bool:
         return module.__class__.__name__ in self._sequential_targets
+
+    def _outer_decoding_layers(self, modules) -> list[torch.nn.Module]:
+        """
+        Decoding layers which are not nested in another decoding layer, such as the
+        decoder block inside an MTP layer
+        """
+        layers = [module for module in modules if self._is_decoding_layer(module)]
+        names = [layer._tmp_name for layer in layers]
+        return [
+            layer
+            for layer in layers
+            if not any(layer._tmp_name.startswith(f"{name}.") for name in names)
+        ]
 
     def _preprocess_qparams(self, model):
         """
