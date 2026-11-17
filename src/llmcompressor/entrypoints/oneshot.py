@@ -22,6 +22,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -37,8 +38,10 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
-from llmcompressor.modeling.offset_norm import norm_calibration_context
+from llmcompressor.modeling.restructure import (
+    ModelRestructures,
+    requires_rotation_restructures,
+)
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.recipe import Recipe
@@ -46,6 +49,7 @@ from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
 )
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
@@ -289,18 +293,23 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        if len(get_non_linearized_moes(self.model)) > 0:
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(self.model)
+        recipe = (
+            Recipe.create_instance(self.recipe, target_stage=recipe_stage)
+            if self.recipe
+            else Recipe()
+        )
+        session.state.rotation_restructures = requires_rotation_restructures(
+            recipe.modifiers
+        )
+        restructures = ModelRestructures(session.state.rotation_restructures)
+        session.state.restructures = restructures
+        if session.state.rotation_restructures:
+            set_onload_device(self.model, get_main_device())
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            stack.enter_context(norm_calibration_context(self.model))
+            stack.enter_context(restructures.context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -316,7 +325,7 @@ class Oneshot:
             session.initialize(
                 model=self.model,
                 start=-1,
-                recipe=self.recipe,
+                recipe=recipe,
                 recipe_stage=recipe_stage,
                 recipe_args=self.recipe_args.recipe_args,
                 calib_data=calibration_dataloader,

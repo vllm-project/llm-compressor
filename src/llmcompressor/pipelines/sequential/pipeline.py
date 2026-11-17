@@ -17,6 +17,7 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.modeling.restructure import pipeline_restructures
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
@@ -26,7 +27,6 @@ from llmcompressor.pipelines.sequential.error_logging import (
 )
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
-    decompress_subgraph_modules,
     find_modules_outside_graph,
     handle_sequential_oom,
     partition_subgraphs,
@@ -144,6 +144,7 @@ class SequentialPipeline(CalibrationPipeline):
             )
             subgraph_onload_modules(persistent_modules)
 
+        restructures = pipeline_restructures(model, session)
         LifecycleCallbacks.calibration_start()
 
         # partitioned once modifiers have started, so that "auto" can estimate the
@@ -271,7 +272,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                 # Decompress and initialize only this subgraph after onloading it.
                 if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
+                    restructures.decompress_modules(modules)
                     for modifier in modifiers:
                         if hasattr(modifier, "start_layerwise_calibration"):
                             modifier.start_layerwise_calibration(

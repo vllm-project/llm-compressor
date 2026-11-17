@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Literal
 
 import torch
-from compressed_tensors import match_modules_set, match_named_modules
+from compressed_tensors import match_named_modules
 from compressed_tensors.transform import (
     TransformArgs,
     TransformConfig,
@@ -12,17 +12,13 @@ from compressed_tensors.transform import (
 )
 from compressed_tensors.utils import TorchDtype, get_head_dim
 from pydantic import Field, ValidationInfo, field_validator
-from torch.utils._pytree import tree_leaves
-from transformers import PreTrainedModel
 
 from llmcompressor.core import Event, State
-from llmcompressor.modeling import center_embeddings, fuse_norm_linears
 from llmcompressor.modifiers import Modifier
 from llmcompressor.typing import NamedModules
-from llmcompressor.utils import get_high_precision, untie_word_embeddings
+from llmcompressor.utils import get_high_precision
 
 from .mappings import SpinQuantMapping, infer_mapping_from_model
-from .norm_mappings import NormMapping, infer_norm_mapping_from_model
 
 
 class SpinquantRotation(str, Enum):
@@ -50,14 +46,10 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     Lifecycle:
 
     - on_initialize
-        - infer SpinQuantMappings & NormMappings
+        - infer SpinQuantMappings
         - as needed, create transform schemes for R1, R2, R3, & R4
     - on_calibration_start
-        - normalize embeddings
-        - fuse norm layers into subsequent Linear layers
-        - apply TransformConfig
-            - fuse transforms into weights for mergeable transforms
-            - add hooks for online transforms
+        - apply rotations to weights and install hooks for online rotations
 
     :param rotations: A list containing the names of rotations to apply to the model.
         Possible rotations include R1, R2, R3, and R4
@@ -79,8 +71,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         and model's head_dim will be used for R2
     :param mappings: Specifies layers within a model to target for transforms.
         A mapping will be inferred if None is provided
-    :param norm_mappings: Specifies layers within a model to target for norm fusing.
-        A mapping will be inferred if None is provided
     :param transform_config: Optional transform config for overriding provided arguments
     """
 
@@ -93,19 +83,11 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
     precision: TorchDtype = Field(default=get_high_precision())
     transform_block_size: int | None = Field(default=None)
 
-    # norm mappings separate from spinquant mappings to allow users to
-    # override spinquant mappings with transform_config without overriding norms
     mappings: SpinQuantMapping | None = Field(
         default=None,
         repr=False,
         exclude=True,
     )
-    norm_mappings: list[NormMapping] | None = Field(
-        default=None,
-        repr=False,
-        exclude=True,
-    )
-
     # optional override for more fine-grained control
     # also included in recipe serialization
     transform_config: TransformConfig | None = Field(default=None, repr=False)
@@ -127,9 +109,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         # caller-supplied transform_config still has mappings for calibration.
         if self.mappings is None:
             self.mappings = infer_mapping_from_model(state.model)
-        if self.norm_mappings is None:
-            self.norm_mappings = infer_norm_mapping_from_model(state.model)
-
         if self.transform_config is not None:
             return True
 
@@ -154,16 +133,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
 
     @torch.no_grad()
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        model = state.model
-
-        # untie embeddings to avoid unintended effects of `_center_embeddings`
-        untie_word_embeddings(model)
-
-        # needs to happen after the model has been hooked to execute on the GPU
-        # otherwise we're applying weight transforms on CPU
-        self._center_embeddings(model)
-        self._fuse_norms(model)
-        apply_transform_config(model, self.transform_config)
+        apply_transform_config(state.model, self.transform_config)
 
     def _get_targets(self, model: torch.nn.Module) -> NamedModules:
         return [
@@ -172,21 +142,6 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
             for arg in scheme.apply
             for name, module in match_named_modules(model, arg.targets, arg.ignore)
         ]
-
-    def _center_embeddings(self, model: PreTrainedModel):
-        for _, embedding in match_named_modules(
-            model, [self.mappings.embedding], warn_on_fail=True
-        ):
-            center_embeddings(embedding)
-
-    def _fuse_norms(self, model: PreTrainedModel):
-        for mapping in self.norm_mappings:
-            for norm, *linears in match_modules_set(
-                model, (mapping.norm, *mapping.linears)
-            ):
-                # match_modules_set returns a list of lists
-                assert len(norm) == 1
-                fuse_norm_linears(norm[0], tree_leaves(linears))
 
     def _create_r1_scheme(self) -> TransformScheme:
         return TransformScheme(

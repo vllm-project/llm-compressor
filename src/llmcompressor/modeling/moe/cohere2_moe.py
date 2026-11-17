@@ -98,7 +98,7 @@ def prepare_cohere2_moe_for_spinquant(model: PreTrainedModel):
        ones. Cohere2MoE's single ``input_layernorm`` feeds attention, the MLP, and the
        router; these span different parents (and the router is absent in the dense first
        layer), so the generic ``match_modules_set`` pass can't group them. The final
-       ``model.norm`` -> ``lm_head`` fusion is left to the modifier (must run after
+       ``model.norm`` -> ``lm_head`` fusion is left to restructuring (must run after
        embeddings are untied).
 
     Call before ``SpinQuantModifier`` (e.g. before ``oneshot``).

@@ -21,11 +21,11 @@ from abc import ABC, abstractmethod
 
 import torch
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
-from loguru import logger
 from transformers import PreTrainedModel
 
 __all__ = [
     "NormCalibrationModule",
+    "get_norm_calibration_targets",
     "norm_calibration_context",
 ]
 
@@ -124,37 +124,26 @@ def norm_calibration_context(model: PreTrainedModel):
         # Norms restored to offset convention with smoothed weights
     """
 
-    replaced = {}
+    from llmcompressor.modeling.restructure import OffsetNormRestructure
 
-    # Step 1: Collect all offset-norm modules that need replacement
-    logger.debug("Entering norm calibration context")
-    modules_to_replace = []
-    for name, module in model.named_modules():
-        class_name = module.__class__.__name__
-        if _is_registered(class_name, NormCalibrationModule):
-            modules_to_replace.append((name, module, class_name))
-
-    # Step 2: Replace modules
-    if modules_to_replace:
-        logger.info(f"Found {len(modules_to_replace)} offset-norm modules to convert")
-        for name, module, class_name in modules_to_replace:
-            replacement = NormCalibrationModule.load_from_registry(
-                class_name,
-                original=module,
-                config=model.config,
-            )
-            model.set_submodule(name, replacement)
-            replaced[name] = (module, replacement)
+    restructure = OffsetNormRestructure()
+    restructure.apply(model)
 
     try:
         yield
     finally:
-        # Step 3: Restore original modules with updated weights
-        if replaced:
-            logger.info(f"Restoring {len(replaced)} norm modules to offset convention")
-        for name, (original, replacement) in replaced.items():
-            restored = replacement.restore(original)
-            model.set_submodule(name, restored)
+        restructure.restore(model)
+
+
+def get_norm_calibration_targets(
+    model: torch.nn.Module,
+) -> list[tuple[str, torch.nn.Module, str]]:
+    """Return modules converted by :func:`norm_calibration_context`."""
+    return [
+        (name, module, module.__class__.__name__)
+        for name, module in model.named_modules()
+        if _is_registered(module.__class__.__name__, NormCalibrationModule)
+    ]
 
 
 def _is_registered(name: str, subclass: RegistryMixin):

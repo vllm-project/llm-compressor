@@ -3,6 +3,7 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import State
+from llmcompressor.modeling.restructure import ModelRestructures
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
 from tests.testing_utils import get_accelerator_type, requires_gpu
@@ -151,6 +152,7 @@ def test_spinquant_with_tied_embeddings(rotations):
         baseline_output = model(**input_data)
 
     spinquant_modifier.on_initialize(state)
+    ModelRestructures().apply_rotation_preparation(model)
     spinquant_modifier.on_calibration_start(state, None)
 
     # Verify embeddings were untied by SpinQuant

@@ -8,7 +8,6 @@ from llmcompressor.modifiers.transform import SpinQuantModifier
 from llmcompressor.modifiers.transform.spinquant.mappings import (
     infer_mapping_from_model,
 )
-from llmcompressor.modifiers.transform.spinquant.norm_mappings import NormMapping
 
 
 def _tiny_llama():
@@ -34,7 +33,6 @@ def test_transform_config_still_infers_mappings():
     modifier.on_initialize(State(model=_tiny_llama()))
     assert modifier.mappings is not None
     assert modifier.mappings.embedding is not None
-    assert modifier.norm_mappings is not None
     # Must not rebuild / overwrite the provided transform_config.
     assert modifier.transform_config is config
 
@@ -44,14 +42,6 @@ def test_user_mappings_are_preserved():
     mappings = infer_mapping_from_model(model).model_copy(
         update={"mlp_in": ["re:.*up_proj$"]}
     )
-    norm_mappings = [
-        NormMapping(norm="re:.*custom_norm$", linears=["re:.*custom_linear$"])
-    ]
-    modifier = SpinQuantModifier(
-        rotations=["R1"], mappings=mappings, norm_mappings=norm_mappings
-    )
+    modifier = SpinQuantModifier(rotations=["R1"], mappings=mappings)
     modifier.on_initialize(State(model=model))
     assert modifier.mappings.mlp_in == ["re:.*up_proj$"]
-    assert len(modifier.norm_mappings) == 1
-    assert modifier.norm_mappings[0].norm == "re:.*custom_norm$"
-    assert modifier.norm_mappings[0].linears == ["re:.*custom_linear$"]
