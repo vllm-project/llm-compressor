@@ -92,6 +92,7 @@ class State:
     :type data: Data
     :param hardware: Hardware instance holding info about the target hardware being used
     :type hardware: Hardware
+    :param rotation_restructures: Whether rotations require embedding and norm setup
     """
 
     model: Any = None
@@ -106,6 +107,7 @@ class State:
     current_batch_idx: int = -1
     sequential_activations: Any = None
     sequential_propagate_error: bool = True
+    rotation_restructures: bool = False
 
     @property
     def compression_ready(self) -> bool:

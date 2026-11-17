@@ -30,7 +30,7 @@ __all__ = [
     "UntieEmbeddingsRestructure",
     "CenterEmbeddingsRestructure",
     "FuseNormsRestructure",
-    "apply_restructures",
+    "apply_rotation_restructures",
 ]
 
 
@@ -83,13 +83,14 @@ class OffsetNormRestructure(Restructure):
         self.replaced.clear()
 
 
+@dataclass
 class DecompressionRestructure(Restructure):
     """Decompress quantized modules."""
 
-    def apply(self, model: Module) -> None:
-        self.apply_modules(model.modules())
+    modules: Iterable[Module] | None = None
 
-    def apply_modules(self, modules: Iterable[Module]) -> None:
+    def apply(self, model: Module) -> None:
+        modules = self.modules if self.modules is not None else model.modules()
         compressed = [module for module in modules if is_module_quantized(module)]
         for module in tqdm(compressed, desc="Decompressing modules"):
             decompress_module(module, leave_decompressed=False)
@@ -131,13 +132,8 @@ class FuseNormsRestructure(Restructure):
                 fuse_norm_linears(norms[0], tree_leaves(linears))
 
 
-def apply_restructures(model: Module, modifiers: Iterable) -> None:
-    """Apply the permanent restructures required by the active recipe."""
-    from llmcompressor.modifiers.transform.spinquant import SpinQuantModifier
-
-    if not any(isinstance(modifier, SpinQuantModifier) for modifier in modifiers):
-        return
-
+def apply_rotation_restructures(model: Module) -> None:
+    """Apply the embedding and norm restructures needed for rotations."""
     embedding, _ = get_embeddings(model)
     targets = (
         [name for name, module in model.named_modules() if module is embedding]

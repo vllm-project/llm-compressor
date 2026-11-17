@@ -109,6 +109,7 @@ class SpinQuantModifier(Modifier, use_enum_values=True):
         # caller-supplied transform_config still has mappings for calibration.
         if self.mappings is None:
             self.mappings = infer_mapping_from_model(state.model)
+        state.rotation_restructures = True
         if self.transform_config is not None:
             return True
 

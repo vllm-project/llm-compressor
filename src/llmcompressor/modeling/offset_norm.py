@@ -13,20 +13,16 @@ original convention after modifiers have run.
 
 Key components:
 - NormCalibrationModule: Abstract base class for norm calibration modules
-- norm_calibration_context: Context manager that applies norm conversion
 """
 
-import contextlib
 from abc import ABC, abstractmethod
 
 import torch
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
-from transformers import PreTrainedModel
 
 __all__ = [
     "NormCalibrationModule",
     "get_norm_calibration_targets",
-    "norm_calibration_context",
 ]
 
 
@@ -101,44 +97,10 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         return original
 
 
-@contextlib.contextmanager
-def norm_calibration_context(model: PreTrainedModel):
-    """
-    Context manager that converts offset-norm modules to standard-norm.
-
-    This scans all modules in the model and replaces any offset-norm modules
-    (``output * (1 + weight)``) with standard-norm equivalents
-    (``output * weight``).  After the context exits, modules are restored
-    to their original convention with updated weights.
-
-    The model is modified in-place, so the same model object should be used
-    within the context.
-
-    Args:
-        model: The model to apply norm conversion to (modified in-place)
-
-    Example:
-        with norm_calibration_context(model):
-            # Modifiers see standard norm weights
-            run_calibration(model)
-        # Norms restored to offset convention with smoothed weights
-    """
-
-    from llmcompressor.modeling.restructure import OffsetNormRestructure
-
-    restructure = OffsetNormRestructure()
-    restructure.apply(model)
-
-    try:
-        yield
-    finally:
-        restructure.restore(model)
-
-
 def get_norm_calibration_targets(
     model: torch.nn.Module,
 ) -> list[tuple[str, torch.nn.Module, str]]:
-    """Return modules converted by :func:`norm_calibration_context`."""
+    """Return offset-norm modules with registered calibration equivalents."""
     return [
         (name, module, module.__class__.__name__)
         for name, module in model.named_modules()

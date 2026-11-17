@@ -3,7 +3,7 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from llmcompressor.core import State
-from llmcompressor.modeling.restructure import apply_restructures
+from llmcompressor.modeling.restructure import apply_rotation_restructures
 from llmcompressor.modifiers.transform import QuIPModifier, SpinQuantModifier
 from tests.testing_utils import requires_gpu
 
@@ -40,7 +40,8 @@ def test_apply_correctness(
         true_output = model(**input)
 
     modifier.on_initialize(state)
-    apply_restructures(model, [modifier])
+    if state.rotation_restructures:
+        apply_rotation_restructures(model)
     modifier.on_calibration_start(state, None)
 
     with torch.no_grad():

@@ -6,6 +6,7 @@ from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core import active_session
+from llmcompressor.modifiers.transform.spinquant import SpinQuantModifier
 from llmcompressor.pipelines.registry import CalibrationPipeline
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ class IndependentPipeline(CalibrationPipeline):
 
         session = active_session()
         modifiers = session.lifecycle.recipe.modifiers
+        rotation_restructures = session.state.rotation_restructures
         with patch_attr(session.lifecycle.recipe, "modifiers", None):
             for modifier in modifiers:
                 mod_type = type(modifier).__name__
@@ -42,6 +44,11 @@ class IndependentPipeline(CalibrationPipeline):
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                pipeline(model, dataloader, dataset_args)
+                with patch_attr(
+                    session.state,
+                    "rotation_restructures",
+                    rotation_restructures and isinstance(modifier, SpinQuantModifier),
+                ):
+                    pipeline(model, dataloader, dataset_args)
 
                 # restore modifiers on exit so model can be compressed based on recipe
