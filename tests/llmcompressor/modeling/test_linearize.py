@@ -45,6 +45,12 @@ CONFIG_OVERRIDES = {
         "moe_intermediate_size": 64,
         "n_routed_experts": 16,
     },
+    "kimi_k3": {
+        "hidden_size": 256,
+        "moe_intermediate_size": 128,
+        "num_experts": 8,
+        "num_experts_per_token": 2,
+    },
 }
 
 

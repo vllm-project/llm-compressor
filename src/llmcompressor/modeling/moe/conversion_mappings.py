@@ -101,7 +101,7 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.jamba.modeling_jamba.JambaExperts",
     ),
     "kimi_k3": (
-        "llmcompressor.modeling.kimi_k3.configuration_kimi_k3.KimiK3Config",
+        "llmcompressor.modeling.kimi_k3.configuration_kimi_k3.KimiLinearConfig",
         "llmcompressor.modeling.kimi_k3.modeling_kimi_linear.KimiLinearExperts",
     ),
     "laguna": (
