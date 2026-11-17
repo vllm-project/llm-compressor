@@ -41,6 +41,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     get_node_modules,
     topological_partition,
 )
+from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.utils.dev import get_main_device
 from tests.testing_utils import requires_gpu
@@ -557,7 +558,8 @@ def test_reduce_across_ranks_falls_back_together(monkeypatch):
 
 @pytest.fixture()
 def fake_pipeline_inputs():
-    model = torch.nn.Linear(4, 4)
+    whole_model_transform = WholeModelMetaTransform(torch.nn.Linear(4, 4))
+    model = whole_model_transform.model
     session = active_session()
     session.reset()
     session.initialize(model=model, start=-1)
@@ -565,7 +567,7 @@ def fake_pipeline_inputs():
     samples = [{"h": torch.ones(1, 4)} for _ in range(2)]
     dataloader = DataLoader(samples, batch_size=1, collate_fn=lambda b: b[0])
 
-    yield model, dataloader
+    yield whole_model_transform, dataloader
 
     session.finalize()
 
@@ -596,10 +598,11 @@ def test_pipeline_traces_then_partitions(
     graph, targets = MagicMock(), {MagicMock()}
     mock_trace.return_value = (graph, targets)
     mock_partition.return_value = [_FakeSubgraph()]
-    model, dataloader = fake_pipeline_inputs
+    whole_model_transform, dataloader = fake_pipeline_inputs
+    model = whole_model_transform.model
 
     dataset_args = DatasetArguments(sequential_targets_per_subgraph="auto")
-    SequentialPipeline()(model, dataloader, dataset_args)
+    SequentialPipeline()(whole_model_transform, dataloader, dataset_args)
 
     # the graph is traced once and partitioned once, with what "auto" needs
     mock_trace.assert_called_once()

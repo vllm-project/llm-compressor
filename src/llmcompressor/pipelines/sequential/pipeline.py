@@ -82,11 +82,9 @@ class SequentialPipeline(CalibrationPipeline):
     @staticmethod
     @handle_sequential_oom
     def __call__(
-        model: torch.nn.Module,
+        whole_model_transform: WholeModelMetaTransform,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        *,
-        whole_model_transform: WholeModelMetaTransform,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -107,11 +105,11 @@ class SequentialPipeline(CalibrationPipeline):
         model can be made traceable by wrapping the untraceable functions (see
         llmcompressor.transformers.tracing)
 
-        :param model: model being calibrated
+        :param whole_model_transform: owns the initialized meta model and source model
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
-        :param whole_model_transform: tracks the pre-initialization meta conversion
         """
+        model = whole_model_transform.model
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()

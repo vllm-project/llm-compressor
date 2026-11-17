@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-import torch
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
@@ -19,11 +18,9 @@ class CalibrationPipeline(ABC, RegistryMixin):
     @staticmethod
     @abstractmethod
     def __call__(
-        model: torch.nn.Module,
+        whole_model_transform: "WholeModelMetaTransform",
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        *,
-        whole_model_transform: "WholeModelMetaTransform",
     ):
         raise NotImplementedError()
 

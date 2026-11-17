@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Optional
 
-import torch
 from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 
@@ -19,20 +18,18 @@ __all__ = ["DataFreePipeline"]
 class DataFreePipeline(CalibrationPipeline):
     @staticmethod
     def __call__(
-        model: torch.nn.Module,
+        whole_model_transform: "WholeModelMetaTransform",
         dataloader: Optional[DataLoader],
         dataset_args: "DatasetArguments",
-        *,
-        whole_model_transform: "WholeModelMetaTransform",
     ):
         """
         A pipeline for data-free calibration
 
-        :param model: model being calibrated
+        :param whole_model_transform: owns the initialized meta model and source model
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
-        :param whole_model_transform: tracks the pre-initialization meta conversion
         """
+        model = whole_model_transform.model
         # some ops are still performed on the model by modifiers
         # we want those ops to occur on the GPU
         onload_device = get_main_device()

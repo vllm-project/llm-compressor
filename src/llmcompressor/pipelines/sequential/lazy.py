@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Mapping
 
 import torch
 from compressed_tensors.compressors import decompress_module
@@ -36,44 +34,76 @@ from llmcompressor.utils.pytorch.meta import (
     materialize_meta_module,
 )
 
-__all__ = ["MetaOperation", "WholeModelMetaTransform", "build_meta_operations"]
-
-
-MetaApply = Callable[[Module, set[str], dict[str, Any]], set[str]]
-SourceApply = Callable[[Module, set[str], dict[str, Any]], None]
-RestoreApply = Callable[[Module, Module, set[str], dict[str, Any]], None]
-
-
-@dataclass
-class MetaOperation:
-    """Callbacks that apply one restructuring to meta and loaded source modules."""
-
-    name: str
-    restructure_meta: MetaApply
-    restructure_source: SourceApply
-    restore: RestoreApply | None = None
-    roots: set[str] = field(default_factory=set)
-    state: dict[str, Any] = field(default_factory=dict)
+__all__ = ["WholeModelMetaTransform"]
 
 
 class WholeModelMetaTransform:
-    """Coordinate a full meta copy and a list of FQN-scoped restructuring callbacks."""
+    """Own a meta model and materialize its transformed modules as needed."""
 
-    def __init__(self, source_model: Module, operations: Sequence[MetaOperation]):
+    def __init__(
+        self, source_model: Module, *, layerwise_decompression: bool = False
+    ):
         self.source_model = source_model
         self.model = copy_module_to_meta(source_model)
-        self.operations = list(operations)
+        self.layerwise_decompression = layerwise_decompression
         self.transformed_fqns: set[str] = set()
         self.materialized_fqns: set[str] = set()
         self.restored_fqns: set[str] = set()
         self.sources_offloaded = False
         self.defer_subgraph_restore = False
+        self.offset_norm_classes: dict[str, str] = {}
+        self.offset_norm_originals: dict[str, Module] = {}
+        self.offset_norm_source_offload_kwargs: dict[str, dict] = {}
+        self.moe_fqns = self._restructure_meta_moes()
+        self.transformed_fqns.update(self.moe_fqns)
+        self.offset_norm_fqns = self._restructure_meta_offset_norms()
+        self.transformed_fqns.update(self.offset_norm_fqns)
+        self.decompression_fqns = self._restructure_meta_decompression()
+        self.transformed_fqns.update(self.decompression_fqns)
 
-        for operation in self.operations:
-            operation.roots = operation.restructure_meta(
-                self.model, self.transformed_fqns, operation.state
+    def _restructure_meta_moes(self) -> set[str]:
+        moes = get_non_linearized_moes(self.model)
+        if moes and not isinstance(self.model, PreTrainedModel):
+            raise TypeError("MoE linearization requires a PreTrainedModel root")
+
+        roots = set()
+        for fqn, source in moes:
+            if _fqn_overlaps(fqn, self.transformed_fqns):
+                continue
+            meta_source = copy_module_to_meta(source)
+            if self.layerwise_decompression and _contains_quantized_module(source):
+                _decompress_tree(meta_source)
+            target = linearize_moe_module(meta_source, self.model, meta=True)
+            self.model.set_submodule(fqn, target)
+            roots.add(fqn)
+        return roots
+
+    def _restructure_meta_offset_norms(self) -> set[str]:
+        roots = set()
+        for fqn, source, class_name in get_norm_calibration_targets(self.model):
+            if _fqn_overlaps(fqn, self.transformed_fqns):
+                continue
+            target = NormCalibrationModule.load_from_registry(
+                class_name, original=source, config=self.model.config
             )
-            self.transformed_fqns.update(operation.roots)
+            self.model.set_submodule(fqn, target)
+            self.offset_norm_classes[fqn] = class_name
+            roots.add(fqn)
+        return roots
+
+    def _restructure_meta_decompression(self) -> set[str]:
+        if not self.layerwise_decompression:
+            return set()
+
+        roots = set()
+        for fqn, module in list(self.model.named_modules()):
+            if not is_module_quantized(module) or _fqn_overlaps(
+                fqn, self.transformed_fqns
+            ):
+                continue
+            decompress_module(module, leave_decompressed=False)
+            roots.add(fqn)
+        return roots
 
     def offload_sources(self, onload_device: torch.device) -> None:
         """Offload the unchanged live source model before sequential calibration."""
@@ -102,12 +132,7 @@ class WholeModelMetaTransform:
             return
 
         source_offload_kwargs = subgraph_onload_modules(source_modules)
-        for operation in self.operations:
-            operation_roots = operation.roots & roots
-            if operation_roots:
-                operation.restructure_source(
-                    self.source_model, operation_roots, operation.state
-                )
+        self._restructure_source(roots)
 
         populated_kwargs = {}
         for root in roots:
@@ -178,20 +203,50 @@ class WholeModelMetaTransform:
         roots = roots - self.restored_fqns
         for root in roots - self.materialized_fqns:
             self.model.set_submodule(root, _get_submodule(self.source_model, root))
-        for operation in self.operations:
-            operation_roots = operation.roots & roots & self.materialized_fqns
-            if operation.restore is not None and operation_roots:
-                operation.restore(
-                    self.model,
-                    self.source_model,
-                    operation_roots,
-                    operation.state,
-                )
+        self._restore_offset_norms(roots)
         self.restored_fqns.update(roots)
 
     def restore_all(self) -> None:
         self.defer_subgraph_restore = False
         self._restore_subgraph(self.transformed_fqns - self.restored_fqns)
+
+    def _restructure_source(self, roots: set[str]) -> None:
+        for fqn in self.moe_fqns & roots:
+            source = _get_submodule(self.source_model, fqn)
+            if self.layerwise_decompression and _contains_quantized_module(source):
+                _decompress_tree(source)
+            target = linearize_moe_module(source, self.source_model)
+            for module in target.modules():
+                remove_module_offload(module, onload_tensors=True)
+            self.source_model.set_submodule(fqn, target)
+
+        for fqn in self.offset_norm_fqns & roots:
+            original = _get_submodule(self.source_model, fqn)
+            target = NormCalibrationModule.load_from_registry(
+                self.offset_norm_classes[fqn],
+                original=original,
+                config=self.source_model.config,
+            )
+            self.offset_norm_originals[fqn] = original
+            self.source_model.set_submodule(fqn, target)
+
+        for fqn in self.decompression_fqns & roots:
+            module = _get_submodule(self.source_model, fqn)
+            if is_module_quantized(module):
+                decompress_module(module, leave_decompressed=False)
+
+    def _restore_offset_norms(self, roots: set[str]) -> None:
+        for fqn in self.offset_norm_fqns & roots & self.materialized_fqns:
+            target = _get_submodule(self.model, fqn)
+            original = self.offset_norm_originals.pop(fqn)
+            remove_module_offload(target, onload_tensors=True)
+            remove_module_offload(original, onload_tensors=True)
+            if not isinstance(target, NormCalibrationModule):
+                raise TypeError("Offset norm target must implement NormCalibrationModule")
+            target.restore(original)
+            offload_module(original, **self.offset_norm_source_offload_kwargs.pop(fqn))
+            self.model.set_submodule(fqn, original)
+            self.source_model.set_submodule(fqn, original)
 
     def _source_modules_for_subgraph(
         self, target_modules: Mapping[str, Module], roots: set[str]
@@ -235,146 +290,16 @@ class WholeModelMetaTransform:
         roots: set[str],
         source_offload_kwargs: Mapping[str, dict],
     ) -> None:
-        for operation in self.operations:
-            if operation.restore is None:
+        for root in self.offset_norm_fqns & roots:
+            original = self.offset_norm_originals.get(root)
+            if original is None:
                 continue
-            originals = operation.state.get("originals", {})
-            saved_kwargs = operation.state.setdefault("source_offload_kwargs", {})
-            for root in operation.roots & roots:
-                original = originals.get(root)
-                if original is None:
-                    continue
-                cache_kwargs = source_offload_kwargs.get(root)
-                if cache_kwargs is None:
-                    cache_kwargs = get_cache_init_kwargs(original)
-                saved_kwargs[root] = cache_kwargs
-                if not isinstance(original._parameters, OffloadCache):
-                    offload_module(original, **cache_kwargs)
-
-
-def build_meta_operations(
-    *, layerwise_decompression: bool = False
-) -> list[MetaOperation]:
-    """Build restructuring callbacks applied to the meta model and loaded sources."""
-    return [
-        _moe_operation(layerwise_decompression),
-        _offset_norm_operation(),
-        _decompression_operation(layerwise_decompression),
-    ]
-
-
-def _moe_operation(decompress: bool) -> MetaOperation:
-    def restructure_meta(
-        model: Module, excluded_fqns: set[str], _state: dict[str, Any]
-    ) -> set[str]:
-        moes = get_non_linearized_moes(model)
-        if moes and not isinstance(model, PreTrainedModel):
-            raise TypeError("MoE linearization requires a PreTrainedModel root")
-        roots = set()
-        for fqn, source in moes:
-            if _fqn_overlaps(fqn, excluded_fqns):
-                continue
-            meta_source = copy_module_to_meta(source)
-            if decompress and _contains_quantized_module(source):
-                _decompress_tree(meta_source)
-            target = linearize_moe_module(meta_source, model, meta=True)
-            model.set_submodule(fqn, target)
-            roots.add(fqn)
-        return roots
-
-    def restructure_source(
-        model: Module, roots: set[str], _state: dict[str, Any]
-    ) -> None:
-        for fqn in roots:
-            source = _get_submodule(model, fqn)
-            if decompress and _contains_quantized_module(source):
-                _decompress_tree(source)
-            target = linearize_moe_module(source, model)
-            for module in target.modules():
-                remove_module_offload(module, onload_tensors=True)
-            model.set_submodule(fqn, target)
-
-    return MetaOperation("linearize_moe", restructure_meta, restructure_source)
-
-
-def _offset_norm_operation() -> MetaOperation:
-    def restructure_meta(
-        model: Module, excluded_fqns: set[str], state: dict[str, Any]
-    ) -> set[str]:
-        class_names = state.setdefault("class_names", {})
-        roots = set()
-        for fqn, source, class_name in get_norm_calibration_targets(model):
-            if _fqn_overlaps(fqn, excluded_fqns):
-                continue
-            target = NormCalibrationModule.load_from_registry(
-                class_name, original=source, config=model.config
-            )
-            model.set_submodule(fqn, target)
-            class_names[fqn] = class_name
-            roots.add(fqn)
-        return roots
-
-    def restructure_source(
-        model: Module, roots: set[str], state: dict[str, Any]
-    ) -> None:
-        originals = state.setdefault("originals", {})
-        class_names = state["class_names"]
-        for fqn in roots:
-            original = _get_submodule(model, fqn)
-            target = NormCalibrationModule.load_from_registry(
-                class_names[fqn], original=original, config=model.config
-            )
-            originals[fqn] = original
-            model.set_submodule(fqn, target)
-
-    def restore(
-        model: Module,
-        source_model: Module,
-        roots: set[str],
-        state: dict[str, Any],
-    ) -> None:
-        originals = state["originals"]
-        saved_kwargs = state["source_offload_kwargs"]
-        for fqn in roots:
-            target = _get_submodule(model, fqn)
-            original = originals.pop(fqn)
-            remove_module_offload(target, onload_tensors=True)
-            remove_module_offload(original, onload_tensors=True)
-            if not isinstance(target, NormCalibrationModule):
-                raise TypeError("Offset norm target must implement NormCalibrationModule")
-            target.restore(original)
-            offload_module(original, **saved_kwargs.pop(fqn))
-            model.set_submodule(fqn, original)
-            source_model.set_submodule(fqn, original)
-
-    return MetaOperation(
-        "offset_norm", restructure_meta, restructure_source, restore=restore
-    )
-
-
-def _decompression_operation(enabled: bool) -> MetaOperation:
-    def restructure_meta(
-        model: Module, excluded_fqns: set[str], _state: dict[str, Any]
-    ) -> set[str]:
-        if not enabled:
-            return set()
-        roots = set()
-        for fqn, module in list(model.named_modules()):
-            if not is_module_quantized(module) or _fqn_overlaps(fqn, excluded_fqns):
-                continue
-            decompress_module(module, leave_decompressed=False)
-            roots.add(fqn)
-        return roots
-
-    def restructure_source(
-        model: Module, roots: set[str], _state: dict[str, Any]
-    ) -> None:
-        for fqn in roots:
-            module = _get_submodule(model, fqn)
-            if is_module_quantized(module):
-                decompress_module(module, leave_decompressed=False)
-
-    return MetaOperation("decompress", restructure_meta, restructure_source)
+            cache_kwargs = source_offload_kwargs.get(root)
+            if cache_kwargs is None:
+                cache_kwargs = get_cache_init_kwargs(original)
+            self.offset_norm_source_offload_kwargs[root] = cache_kwargs
+            if not isinstance(original._parameters, OffloadCache):
+                offload_module(original, **cache_kwargs)
 
 
 def _copy_module_state(

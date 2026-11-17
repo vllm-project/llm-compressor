@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import active_session
+from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 
 # known signal and noise for predictable SQNR
@@ -83,7 +84,8 @@ def fake_dataloader():
 @pytest.fixture()
 def fake_pipeline():
     """Set up model, session, and log capture for pipeline tests."""
-    model = torch.nn.Linear(4, 4)
+    whole_model_transform = WholeModelMetaTransform(torch.nn.Linear(4, 4))
+    model = whole_model_transform.model
 
     session = active_session()
     session.reset()
@@ -97,7 +99,7 @@ def fake_pipeline():
         patch(f"{_PIPELINE}.trace_graph", return_value=(None, set())),
         patch(f"{_PIPELINE}.find_modules_outside_graph", return_value={}),
     ):
-        yield model, messages
+        yield whole_model_transform, messages
 
     logger.remove(sink)
     session.finalize()
@@ -116,10 +118,10 @@ def test_enabled_propagate_true(
     noise_power  = 0.1^2 + 0.1^2 + 0.05^2 + 0.05^2 = 0.025
     """
     mock_partition.return_value = fake_subgraphs
-    model, messages = fake_pipeline
+    whole_model_transform, messages = fake_pipeline
 
     SequentialPipeline()(
-        model,
+        whole_model_transform,
         fake_dataloader,
         DatasetArguments(log_sequential_error=True, propagate_error=True),
     )
@@ -137,10 +139,10 @@ def test_enabled_propagate_false(
     """Same SQNR as test_enabled_propagate_true, via the decoupled
     code path (zero-copy transfer + SQNR)."""
     mock_partition.return_value = fake_subgraphs
-    model, messages = fake_pipeline
+    whole_model_transform, messages = fake_pipeline
 
     SequentialPipeline()(
-        model,
+        whole_model_transform,
         fake_dataloader,
         DatasetArguments(log_sequential_error=True, propagate_error=False),
     )
@@ -157,10 +159,10 @@ def test_disabled_propagate_true(
 ):
     """No SQNR when disabled, propagate_error=True."""
     mock_partition.return_value = fake_subgraphs
-    model, messages = fake_pipeline
+    whole_model_transform, messages = fake_pipeline
 
     SequentialPipeline()(
-        model,
+        whole_model_transform,
         fake_dataloader,
         DatasetArguments(log_sequential_error=False, propagate_error=True),
     )
@@ -175,10 +177,10 @@ def test_disabled_propagate_false(
 ):
     """No SQNR when disabled, propagate_error=False."""
     mock_partition.return_value = fake_subgraphs
-    model, messages = fake_pipeline
+    whole_model_transform, messages = fake_pipeline
 
     SequentialPipeline()(
-        model,
+        whole_model_transform,
         fake_dataloader,
         DatasetArguments(log_sequential_error=False, propagate_error=False),
     )

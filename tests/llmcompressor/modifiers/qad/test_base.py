@@ -19,6 +19,7 @@ from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
+from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
@@ -209,6 +210,8 @@ def test_real_llama_sequential_pipeline(kind, scheme):
         pytest.skip("AWQ calibration requires an accelerator for pinned memory")
     torch.manual_seed(21)
     model = _tiny_llama().to(get_main_device())
+    whole_model_transform = WholeModelMetaTransform(model)
+    model = whole_model_transform.model
     data = [
         {
             "input_ids": torch.randint(0, 64, (1, 8)),
@@ -237,7 +240,8 @@ def test_real_llama_sequential_pipeline(kind, scheme):
         recipe.extend([_quantizer(kind, scheme), qad])
         session.initialize(model=model, recipe=recipe, start=-1)
         with _capture_logs() as logs:
-            SequentialPipeline()(model, data, args)
+            SequentialPipeline()(whole_model_transform, data, args)
+        whole_model_transform.restore_all()
         assert _logged_updates(logs) == {"model.layers.0": 3, "model.layers.1": 3}
         assert not qad._input_caches and not qad._output_caches and not qad._hooks
         session.finalize()
@@ -512,6 +516,8 @@ def test_quantized_weights_outside_targets_keep_quantizer_result(tmp_path):
 def test_subgraph_targets_train_jointly(per_subgraph, expected):
     torch.manual_seed(23)
     model = _tiny_llama(layers=4).to(get_main_device())
+    whole_model_transform = WholeModelMetaTransform(model)
+    model = whole_model_transform.model
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(4)]
     qad = QADModifier(num_epochs=1, lr=0.001)
     args = DatasetArguments(
@@ -520,7 +526,8 @@ def test_subgraph_targets_train_jointly(per_subgraph, expected):
     with create_session() as session:
         session.initialize(model=model, recipe=[_quantizer("rtn"), qad], start=-1)
         with _capture_logs() as logs:
-            SequentialPipeline()(model, data, args)
+            SequentialPipeline()(whole_model_transform, data, args)
+        whole_model_transform.restore_all()
         assert _logged_updates(logs) == expected
         assert (
             not qad._input_caches

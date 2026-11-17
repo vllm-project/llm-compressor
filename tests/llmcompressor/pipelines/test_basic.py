@@ -10,6 +10,7 @@ from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import LifecycleCallbacks, create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.pipelines.basic import BasicPipeline, run_calibration
+from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -30,7 +31,8 @@ class BranchedModel(torch.nn.Module):
 
 
 def test_basic_pipeline_preserves_untraced_calibration():
-    model = BranchedModel()
+    whole_model_transform = WholeModelMetaTransform(BranchedModel())
+    model = whole_model_transform.model
     mask = torch.zeros(1, 2)
     samples = [
         {"x": -torch.ones(1, 2), "loss_mask": torch.ones(1, 2), "scale": 1},
@@ -60,7 +62,7 @@ def test_basic_pipeline_preserves_untraced_calibration():
         create_session() as session,
     ):
         session.initialize(model=model, start=-1)
-        BasicPipeline()(model, dataloader, args)
+        BasicPipeline()(whole_model_transform, dataloader, args)
         assert len(pre_calls) == len(outputs) == len(samples)
         for received, index in zip(pre_calls, order):
             torch.testing.assert_close(received, samples[index]["x"])
@@ -76,7 +78,8 @@ def test_basic_pipeline_preserves_untraced_calibration():
 
 @pytest.mark.parametrize("num_batches", [1, 3])
 def test_run_calibration_without_dataset_arguments(num_batches):
-    model = BranchedModel()
+    whole_model_transform = WholeModelMetaTransform(BranchedModel())
+    model = whole_model_transform.model
     samples = [{"x": -torch.ones(1, 2)} for _ in range(num_batches)]
     dataloader = DataLoader(samples, batch_size=None)
     outputs = []
@@ -88,7 +91,7 @@ def test_run_calibration_without_dataset_arguments(num_batches):
         create_session() as session,
     ):
         session.initialize(model=model, start=-1)
-        run_calibration(model, dataloader)
+        run_calibration(whole_model_transform, dataloader)
         assert len(outputs) == num_batches
         session.finalize()
 
@@ -127,8 +130,13 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
             num_bits=8, strategy="tensor", dynamic=False
         ),
     )
-    for candidate in (reference, model):
+    whole_model_transform = None
+    for source_candidate in (reference, model):
         with create_session() as session:
+            candidate = source_candidate
+            if source_candidate is model:
+                whole_model_transform = WholeModelMetaTransform(source_candidate)
+                candidate = whole_model_transform.model
             session.initialize(
                 model=candidate,
                 recipe=QuantizationModifier(config_groups={"group": deepcopy(scheme)}),
@@ -146,15 +154,21 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                 LifecycleCallbacks.sequential_epoch_end(list(candidate.modules()))
                 LifecycleCallbacks.calibration_end()
             else:
-                BasicPipeline()(candidate, dataloader, DatasetArguments())
+                BasicPipeline()(
+                    whole_model_transform, dataloader, DatasetArguments()
+                )
+                whole_model_transform.restore_all()
             session.finalize()
 
     expected = reference.state_dict()
-    actual = model.state_dict()
+    actual_model = whole_model_transform.model
+    actual = actual_model.state_dict()
     assert expected.keys() == actual.keys()
     assert any(name.endswith("input_scale") for name in expected)
     for name, value in expected.items():
         torch.testing.assert_close(actual[name].cpu(), value.cpu(), rtol=0, atol=0)
     inputs = tensors_to_device(samples[0], device)
     with torch.no_grad():
-        torch.testing.assert_close(model(**inputs).logits, reference(**inputs).logits)
+        torch.testing.assert_close(
+            actual_model(**inputs).logits, reference(**inputs).logits
+        )

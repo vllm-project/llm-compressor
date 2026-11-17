@@ -40,10 +40,7 @@ from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
-from llmcompressor.pipelines.sequential.lazy import (
-    WholeModelMetaTransform,
-    build_meta_operations,
-)
+from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
@@ -294,10 +291,10 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        operations = build_meta_operations(
+        whole_model_transform = WholeModelMetaTransform(
+            self.model,
             layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
-        whole_model_transform = WholeModelMetaTransform(self.model, operations)
         self.model = whole_model_transform.model
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
@@ -337,10 +334,9 @@ class Oneshot:
             if not isinstance(pipeline, SequentialPipeline):
                 whole_model_transform.materialize_all(get_main_device())
             pipeline(
-                self.model,
+                whole_model_transform,
                 calibration_dataloader,
                 self.dataset_args,
-                whole_model_transform=whole_model_transform,
             )
             whole_model_transform.restore_all()
 

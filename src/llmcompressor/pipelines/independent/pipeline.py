@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 
-import torch
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
@@ -19,20 +18,17 @@ __all__ = ["IndependentPipeline"]
 class IndependentPipeline(CalibrationPipeline):
     @staticmethod
     def __call__(
-        model: torch.nn.Module,
+        whole_model_transform: "WholeModelMetaTransform",
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        *,
-        whole_model_transform: "WholeModelMetaTransform",
     ):
         """
         Data pipeline where each modifier is assigned its own calibration epoch and data
         pipeline
 
-        :param model: model being calibrated
+        :param whole_model_transform: owns the initialized meta model and source model
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
-        :param whole_model_transform: tracks the pre-initialization meta conversion
         """
         _logger = logger.patch(lambda r: r.update(function="IndependentPipeline"))
 
@@ -47,10 +43,9 @@ class IndependentPipeline(CalibrationPipeline):
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
                 pipeline(
-                    model,
+                    whole_model_transform,
                     dataloader,
                     dataset_args,
-                    whole_model_transform=whole_model_transform,
                 )
 
                 # restore modifiers on exit so model can be compressed based on recipe

@@ -120,8 +120,8 @@ def norm_calibration_context(model: PreTrainedModel):
 
     Example:
         with norm_calibration_context(model):
-            # Modifiers see standard norm weights
-            run_calibration(model)
+            # Modifiers see standard norm weights during calibration.
+            ...
         # Norms restored to offset convention with smoothed weights
     """
 

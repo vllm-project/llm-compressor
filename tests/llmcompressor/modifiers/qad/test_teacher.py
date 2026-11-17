@@ -10,6 +10,7 @@ from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.pipelines.sequential.lazy import WholeModelMetaTransform
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
@@ -22,6 +23,8 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
     torch.manual_seed(67)
     model = _tiny_llama(layers=2 * per_subgraph).to(get_main_device()).eval()
     reference = deepcopy(model)
+    whole_model_transform = WholeModelMetaTransform(model)
+    model = whole_model_transform.model
     data = [{"input_ids": torch.randint(0, 64, (1, 8))} for _ in range(3)]
     qad = QADModifier(lr=0.001)
     original_optimize = QADModifier._apply_distillation
@@ -83,7 +86,8 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
                     model=model, recipe=[_quantizer(kind), qad], start=-1
                 )
                 args = DatasetArguments(sequential_targets_per_subgraph=per_subgraph)
-                SequentialPipeline()(model, data, args)
+                SequentialPipeline()(whole_model_transform, data, args)
+                whole_model_transform.restore_all()
                 session.finalize()
     finally:
         handle.remove()
