@@ -32,7 +32,44 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.observers import FusionHandler
 
-__all__ = ["ModelFreePtqConverter"]
+__all__ = ["ModelFreePtqConverter", "DEFAULT_IGNORE"]
+
+# Router layers of MoE models are ignored by default, in addition to any
+# user-provided ignore list. Routers are small (num_experts x hidden_size) and
+# sensitive: quantizing the routing logits degrades expert selection and
+# downstream accuracy, so they are kept in their original precision even when
+# they would otherwise be targeted (e.g. by the default "Linear" target).
+#
+# Patterns are matched against module names (see match_quantizable_tensors)
+# and only match a bare `gate`/`router` submodule, so similarly named gate
+# projections (`gate_proj`, `gate_up_proj`, `shared_expert_gate`,
+# `forget_gate`) remain quantizable
+DEFAULT_IGNORE = (
+    r"re:.*mlp\.gate$",  # Qwen, DeepSeek, GLM, Kimi, Cohere, OLMoE, ...
+    r"re:.*block_sparse_moe\.gate$",  # Mixtral, Kimi K3, dbrx, Phi, ...
+    r"re:.*moe\.gate$",  # Step3.5, Grok
+    r"re:.*mixer\.gate$",  # Nemotron
+    r"re:.*router$",  # Llama 4 (feed_forward.router), gpt-oss, Trinity
+)
+
+
+def _merge_default_ignore(config: QuantizationConfig) -> QuantizationConfig:
+    """
+    Return a copy of `config` with any missing DEFAULT_IGNORE patterns appended
+    to its ignore list, so that MoE routers are excluded from quantization. The
+    input config is left untouched, and patterns already present are not
+    duplicated
+    """
+    ignore = list(config.ignore) if config.ignore else []
+    additions = [pattern for pattern in DEFAULT_IGNORE if pattern not in ignore]
+    if not additions:
+        return config
+
+    logger.info(
+        f"Ignoring MoE router layers by default: {additions}. Router layers "
+        "are sensitive to quantization and are kept in their original precision"
+    )
+    return config.model_copy(update={"ignore": ignore + additions})
 
 
 def _match_tensors_to_schemes(
@@ -61,6 +98,11 @@ class ModelFreePtqConverter(Converter):
     it can be chained with other converters (e.g. a dequantizer) and used
     with convert_checkpoint. For microscale schemes, it needs the checkpoint's
     `weight_names` to resolve fused weights; `model_free_ptq` passes them.
+
+    MoE router layers are ignored by default (see DEFAULT_IGNORE), in addition
+    to the config's ignore list, because quantizing routing logits degrades
+    expert selection. The default patterns are merged into the config so they
+    are respected during matching and recorded in the saved quantization config
     """
 
     def __init__(
@@ -69,14 +111,16 @@ class ModelFreePtqConverter(Converter):
         weight_names: Iterable[str] | None = None,
     ):
         """
-        :param config: quantization config to apply
+        :param config: quantization config to apply. The DEFAULT_IGNORE
+            patterns, which exclude MoE router layers, are merged into the
+            config's ignore list
         :param weight_names: names of all tensors in the checkpoint. Required
             to resolve fused weights for microscale schemes, because a layer's
             fused group depends on its sibling layers. For example, Kimi
             `g_proj` is fused with delta attention q/k/v/b/f_a projections on
             some layers and with MLA q_a/kv_a projections on others
         """
-        self.config = config
+        self.config = _merge_default_ignore(config)
 
         # primary weight name -> names of the fused partners it loads
         self._fused_partners: dict[str, set[str]] | None = None

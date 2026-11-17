@@ -101,7 +101,7 @@ Multiple files are processed in parallel. By default (`max_workers="auto"`), the
 | `save_directory` | `str \| PathLike` | — | Directory to save the quantized checkpoint |
 | `scheme` | `QuantizationScheme \| str \| None` | `None` | One quantization scheme to apply. Mutually exclusive with `config` |
 | `config` | `QuantizationConfig \| None` | `None` | One or more data-free config groups, optionally including `kv_cache_scheme`; mutually exclusive with `scheme` |
-| `ignore` | `Iterable[str]` | `()` | Module names or regex patterns to skip. Modules ending in `"norm"` are always ignored automatically |
+| `ignore` | `Iterable[str]` | `()` | Module names or regex patterns to skip, in addition to the default ignores. Modules ending in `"norm"` and MoE router layers are always ignored automatically |
 | `max_workers` | `int \| "auto"` | `"auto"` | Upper bound on concurrent worker threads for processing safetensors shards. `"auto"` chooses it from the number of shards, their estimated memory, free device memory, and available CPUs. Effective concurrency may be lower when GPU memory is tight |
 | `device` | `str \| torch.device \| list[str \| torch.device] \| None` | `None` | Device or devices to use. A list enables multi-GPU shard scheduling; `None` automatically selects all visible CUDA devices, or CPU when no accelerator is available |
 | `converter` | `Converter \| None` | `None` | Optional `compressed-tensors` converter to apply before quantization, e.g. to convert modelopt-format checkpoints to compressed-tensors format |
@@ -172,6 +172,20 @@ ignore=[
     "model.embed_tokens", # exact name match
 ]
 ```
+
+### Default Ignores
+
+MoE router layers are ignored by default, even when targeted by a scheme (including the default `"Linear"` target). Routers are small (`num_experts x hidden_size`) and sensitive: quantizing the routing logits degrades expert selection and downstream accuracy. The default patterns cover the router naming conventions of common MoE architectures:
+
+| Pattern | Architectures |
+|---------|---------------|
+| `re:.*mlp\.gate$` | Qwen, DeepSeek, GLM, Kimi, Cohere, OLMoE, ... |
+| `re:.*block_sparse_moe\.gate$` | Mixtral, Kimi K3, dbrx, Phi, ... |
+| `re:.*moe\.gate$` | Step3.5, Grok |
+| `re:.*mixer\.gate$` | Nemotron |
+| `re:.*router$` | Llama 4, gpt-oss, Trinity |
+
+These patterns only match a bare `gate`/`router` submodule, so gate projections (`gate_proj`, `gate_up_proj`), shared expert gates (`shared_expert_gate`), and attention gates (`forget_gate`) remain quantizable. The patterns are merged into the config's ignore list (entries you pass yourself are kept and not duplicated), so they are also recorded in the saved `quantization_config` and respected when the checkpoint is loaded. They are defined in `DEFAULT_IGNORE` (`llmcompressor.entrypoints.model_free.converter`).
 
 ## Supported Schemes
 
