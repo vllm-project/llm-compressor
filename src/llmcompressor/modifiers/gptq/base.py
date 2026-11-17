@@ -476,6 +476,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         if len(self._num_samples) > 0:
             raise ValueError(f"Failed to compress {len(self._num_samples)} modules")
 
+        # Release module references after lazy transforms may have repacked their
+        # targets into a different module tree.
+        self._module_names.clear()
         self._hessians = dict()
         self._num_samples = dict()
         self._num_compressed_modules = 0
