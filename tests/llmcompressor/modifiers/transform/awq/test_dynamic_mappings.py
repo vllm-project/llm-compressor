@@ -370,17 +370,26 @@ GEMMA4_NUM_SLIDING_LAYERS = 5  # layers 0-4; layer 5 is the only full_attention 
 GEMMA4_NUM_EXPERTS = 2
 
 
-def _make_tiny_gemma4(moe=False, device="meta"):
+def _make_tiny_gemma4(
+    moe=False,
+    device="meta",
+    num_kv_shared_layers=0,
+    layer_types=None,
+    with_vision=False,
+    attention_k_eq_v=True,
+):
     """Build a tiny Gemma4 -- no hub download, no weights.
 
-    With 6 layers, only layer 5 is a full_attention layer. attention_k_eq_v=True
-    makes full_attention layers reuse the key projection as the value projection
-    (v_proj is None), which is the layout the Gemma4 mappings target.
+    With 6 layers, only layer 5 is a full_attention layer unless `layer_types`
+    is passed. `attention_k_eq_v=True` makes non-KV-shared full_attention layers
+    reuse the key projection as the value projection (v_proj is None), while
+    KV-shared layers omit both k_proj and v_proj.
     """
     from transformers import (
         Gemma4Config,
         Gemma4ForConditionalGeneration,
         Gemma4TextConfig,
+        Gemma4VisionConfig,
     )
 
     moe_kwargs = (
@@ -400,12 +409,27 @@ def _make_tiny_gemma4(moe=False, device="meta"):
         num_attention_heads=4,
         num_key_value_heads=2,
         head_dim=16,
+        global_head_dim=16,
         max_position_embeddings=64,
-        attention_k_eq_v=True,
+        attention_k_eq_v=attention_k_eq_v,
+        num_kv_shared_layers=num_kv_shared_layers,
+        layer_types=layer_types,
         enable_moe_block=moe,
         **moe_kwargs,
     )
-    config = Gemma4Config(text_config=text_config)
+    vision_config = (
+        Gemma4VisionConfig(
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=GEMMA4_NUM_LAYERS,
+            num_attention_heads=2,
+            num_key_value_heads=2,
+            head_dim=16,
+        )
+        if with_vision
+        else None
+    )
+    config = Gemma4Config(text_config=text_config, vision_config=vision_config)
     if device == "meta":
         with torch.device("meta"):
             return Gemma4ForConditionalGeneration(config)
@@ -520,6 +544,149 @@ class TestGemma4Mappings:
         assert mappings is not None
         # only layer 0 is mapped as a sliding attention layer
         assert mappings[0].smooth_layer.endswith("layers\\.(0)\\.input_layernorm$")
+
+    def test_kv_shared_layers_map_only_q_proj_and_resolve(self):
+        layer_types = [
+            "sliding_attention",
+            "sliding_attention",
+            "full_attention",
+            "sliding_attention",
+            "sliding_attention",
+            "full_attention",
+        ]
+        model = _make_tiny_gemma4(
+            num_kv_shared_layers=2,
+            layer_types=layer_types,
+            with_vision=True,
+        )
+        mappings = build_gemma4_mappings(model)
+        assert mappings is not None
+        assert len(mappings) == 5
+
+        # Non-shared sliding: 0, 1, 3 -> q/k/v_proj
+        assert mappings[0].smooth_layer.endswith(
+            "language_model\\.layers\\.(0|1|3)\\.input_layernorm$"
+        )
+        assert len(mappings[0].balance_layers) == 3
+
+        # Non-shared full (k=v): 2 -> q/k_proj
+        assert mappings[1].smooth_layer.endswith(
+            "language_model\\.layers\\.(2)\\.input_layernorm$"
+        )
+        assert len(mappings[1].balance_layers) == 2
+
+        # KV-shared layers: 4, 5 -> q_proj only (no k_proj or v_proj)
+        assert mappings[2].smooth_layer.endswith(
+            "language_model\\.layers\\.(4|5)\\.input_layernorm$"
+        )
+        assert len(mappings[2].balance_layers) == 1
+        assert mappings[2].balance_layers[0].endswith("q_proj$")
+
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM",
+                ignore=["lm_head", "re:.*vision.*", "re:.*audio.*"],
+            ).resolve_quantization_config(),
+        )
+        awq = AWQModifier(mappings=mappings)
+        awq._set_resolved_mappings(model)
+
+        # 6 input_layernorm + 6 pre_feedforward_layernorm + 6 mlp.up_proj
+        assert len(awq._resolved_mappings) == 3 * GEMMA4_NUM_LAYERS
+        assert all(
+            "vision_tower" not in m.smooth_name
+            and all("vision_tower" not in b for b in m.balance_names)
+            for m in awq._resolved_mappings
+        )
+
+    def test_multimodal_mappings_exclude_vision_tower(self):
+        model = _make_tiny_gemma4(
+            num_kv_shared_layers=2,
+            layer_types=[
+                "sliding_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "sliding_attention",
+                "full_attention",
+            ],
+            with_vision=True,
+        )
+        mappings = build_gemma4_mappings(model)
+        assert mappings is not None
+
+        module_to_name = {module: name for name, module in model.named_modules()}
+        for mapping in mappings:
+            groups = list(
+                match_modules_set(
+                    model, (mapping.smooth_layer, *mapping.balance_layers)
+                )
+            )
+            assert groups
+            for group in groups:
+                assert len(group[0]) == 1
+                for sub in group:
+                    for module in sub:
+                        assert "vision_tower" not in module_to_name[module]
+
+    def test_gemma4_causal_lm_uses_dynamic_mappings_without_lm_prefix(self):
+        from transformers import Gemma4ForCausalLM, Gemma4TextConfig
+
+        text_config = Gemma4TextConfig(
+            vocab_size=128,
+            hidden_size=64,
+            intermediate_size=128,
+            num_hidden_layers=6,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+            head_dim=16,
+            global_head_dim=16,
+            max_position_embeddings=64,
+            attention_k_eq_v=True,
+            num_kv_shared_layers=2,
+            layer_types=[
+                "sliding_attention",
+                "sliding_attention",
+                "full_attention",
+                "sliding_attention",
+                "sliding_attention",
+                "full_attention",
+            ],
+        )
+        with torch.device("meta"):
+            model = Gemma4ForCausalLM(text_config)
+
+        assert "Gemma4ForCausalLM" in AWQ_DYNAMIC_MAPPING_REGISTRY
+        mappings = get_layer_mappings_from_model(model)
+        assert all("language_model" not in m.smooth_layer for m in mappings)
+
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM"
+            ).resolve_quantization_config(),
+        )
+        awq = AWQModifier(mappings=mappings)
+        awq._set_resolved_mappings(model)
+        assert len(awq._resolved_mappings) == 3 * GEMMA4_NUM_LAYERS
+
+    def test_attention_k_eq_v_false_maps_v_proj_on_full_attention(self):
+        model = _make_tiny_gemma4(attention_k_eq_v=False)
+        mappings = build_gemma4_mappings(model)
+        assert mappings is not None
+        # All 6 non-shared layers have q/k/v_proj: attn, mlp, up->down
+        assert len(mappings) == 3
+        assert len(mappings[0].balance_layers) == 3
+        apply_quantization_config(
+            model,
+            config=QuantizationModifier(
+                scheme="W4A16_ASYM"
+            ).resolve_quantization_config(),
+        )
+        awq = AWQModifier(mappings=mappings)
+        awq._set_resolved_mappings(model)
+        assert len(awq._resolved_mappings) == 3 * GEMMA4_NUM_LAYERS
 
 
 @pytest.mark.unit

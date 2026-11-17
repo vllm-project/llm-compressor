@@ -8,6 +8,7 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
+import torch.utils._pytree as pytree
 from compressed_tensors.compressors import compress_module, decompress_module
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import disable_onloading
@@ -20,6 +21,7 @@ from torch.fx import Graph, GraphModule, Node
 from torch.fx.graph import PythonCode
 from torch.fx.proxy import Argument
 from torch.nn import Module
+from torch.overrides import TorchFunctionMode
 from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
@@ -463,6 +465,37 @@ def get_node_modules(model: Module, node: Node) -> list[str]:
     return names
 
 
+class _MetaTensorPromotionMode(TorchFunctionMode):
+    """Promote non-meta tensor operands to meta when mixed with meta tensors.
+
+    During tracing, wrapped forward helpers receive meta-device activation
+    tensors while model parameters and buffers remain on CPU/CUDA. Promoting
+    mixed operands to meta lets metadata propagation and `INVOKED_SUBMODULES`
+    recording succeed without mutating model weights.
+    """
+
+    def __torch_function__(self, func, types, args=(), kwargs=None):
+        kwargs = kwargs or {}
+        has_meta = False
+
+        def check_meta(value):
+            nonlocal has_meta
+            if isinstance(value, torch.Tensor) and value.device.type == "meta":
+                has_meta = True
+
+        pytree.tree_map(check_meta, (args, kwargs))
+        if has_meta:
+
+            def to_meta(value):
+                if isinstance(value, torch.Tensor) and value.device.type != "meta":
+                    return value.to("meta")
+                return value
+
+            args = pytree.tree_map(to_meta, args)
+            kwargs = pytree.tree_map(to_meta, kwargs)
+        return func(*args, **kwargs)
+
+
 class SequentialTracer(HFTracer):
     """
     Get a tracer specialized for the given model. The resulting tracer will not trace
@@ -494,9 +527,10 @@ class SequentialTracer(HFTracer):
         """
         outer, self._invoked = self._invoked, []
         try:
-            proxy = super().create_proxy(
-                kind, target, args, kwargs, *extra_args, **extra_kwargs
-            )
+            with _MetaTensorPromotionMode():
+                proxy = super().create_proxy(
+                    kind, target, args, kwargs, *extra_args, **extra_kwargs
+                )
             if self._invoked and kind != "call_module":
                 proxy.node.meta[INVOKED_SUBMODULES_META_KEY] = list(
                     dict.fromkeys(self._invoked)
