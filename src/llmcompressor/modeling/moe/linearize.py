@@ -4,6 +4,8 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.compressors import decompress_module
+from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -17,6 +19,9 @@ from transformers.conversion_mapping import (
 )
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
+from llmcompressor.modeling.module_restructure import (
+    ModuleRestructure,
+)
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
@@ -155,6 +160,35 @@ def linearize_moe(model: PreTrainedModel):
         model.set_submodule(name, linear_moe)
 
     return model
+
+
+class MoELinearizationRestructure(ModuleRestructure):
+    """Model-wide MoE linearization with subgraph-scoped materialization."""
+
+    def __init__(self, decompress: bool = False):
+        super().__init__()
+        self.decompress = decompress
+
+    def restructure(self, source, context):
+        config, decompress = context
+        if decompress:
+            for submodule in list(source.modules()):
+                if is_module_quantized(submodule):
+                    decompress_module(submodule, leave_decompressed=False)
+        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(source.__class__)
+        return linear_experts_cls.from_experts_module(source, config)
+
+    def targets(self, model: torch.nn.Module):
+        moe_modules = get_non_linearized_moes(model)
+        if moe_modules and not isinstance(model, PreTrainedModel):
+            raise TypeError("MoE linearization requires a PreTrainedModel root")
+
+        for fqn, source in moe_modules:
+            config = _experts_config(source, model)
+            should_decompress = self.decompress and any(
+                is_module_quantized(child) for child in source.modules()
+            )
+            yield fqn, source, (config, should_decompress)
 
 
 def _experts_config(

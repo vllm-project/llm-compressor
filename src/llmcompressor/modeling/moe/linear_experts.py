@@ -320,10 +320,11 @@ class LinearExperts2D(torch.nn.ModuleList):
         # fused experts class and config (see issue #2699).
         self._record_source_metadata(experts, config)
 
-        # copy offloading from original
+        # Meta tensors have no backing storage to offload.
         offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
+        if str(offload_kwargs["offload_device"]) != "meta":
+            for module in self.modules():
+                offload_module(module, **offload_kwargs)
 
         return self
 
