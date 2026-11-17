@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import torch
@@ -31,9 +30,7 @@ __all__ = [
     "UntieEmbeddingsRestructure",
     "CenterEmbeddingsRestructure",
     "FuseNormsRestructure",
-    "ModelRestructures",
-    "pipeline_restructures",
-    "requires_rotation_restructures",
+    "apply_restructures",
 ]
 
 
@@ -52,18 +49,9 @@ class LinearizeMoERestructure(Restructure):
     """Replace fused MoE experts with per-expert linear modules."""
 
     def apply(self, model: Module) -> None:
-        from llmcompressor.modeling.moe.linearize import (
-            get_non_linearized_moes,
-            linearize_moe,
-        )
+        from llmcompressor.modeling.moe.linearize import linearize_moe
 
-        if get_non_linearized_moes(model):
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(model)
+        linearize_moe(model)
 
 
 @dataclass
@@ -143,15 +131,12 @@ class FuseNormsRestructure(Restructure):
                 fuse_norm_linears(norms[0], tree_leaves(linears))
 
 
-def requires_rotation_restructures(modifiers: Iterable) -> bool:
-    """Whether the recipe requires the restructures used by rotations."""
+def apply_restructures(model: Module, modifiers: Iterable) -> None:
+    """Apply the permanent restructures required by the active recipe."""
     from llmcompressor.modifiers.transform.spinquant import SpinQuantModifier
 
-    return any(isinstance(modifier, SpinQuantModifier) for modifier in modifiers)
-
-
-def _rotation_restructures(model: Module) -> list[Restructure]:
-    """Build the embedding and norm operations needed before rotations."""
+    if not any(isinstance(modifier, SpinQuantModifier) for modifier in modifiers):
+        return
 
     embedding, _ = get_embeddings(model)
     targets = (
@@ -160,71 +145,10 @@ def _rotation_restructures(model: Module) -> list[Restructure]:
         else ["re:.*embed_tokens$"]
     )
     mappings = infer_norm_mapping_from_model(model)
-    return [
+    restructures: list[Restructure] = [
         UntieEmbeddingsRestructure(),
         CenterEmbeddingsRestructure(targets),
         FuseNormsRestructure([(mapping.norm, mapping.linears) for mapping in mappings]),
     ]
-
-
-@dataclass
-class ModelRestructures:
-    """Coordinate restructures and restore temporary ones after calibration.
-
-    Decompression is applied separately to each onloaded subgraph so it does not
-    materialize the whole model at once.
-    """
-
-    rotation_restructures: bool = False
-    decompression: DecompressionRestructure = field(
-        default_factory=DecompressionRestructure, init=False
-    )
-    applied: list[Restructure] = field(default_factory=list, init=False)
-
-    def apply(self, model: Module) -> None:
-        restructures: list[Restructure] = [
-            LinearizeMoERestructure(),
-            OffsetNormRestructure(),
-        ]
-        for restructure in restructures:
-            self.applied.append(restructure)
-            restructure.apply(model)
-
-        if self.rotation_restructures:
-            self.apply_rotation_preparation(model)
-
-    def apply_rotation_preparation(self, model: Module) -> None:
-        """Apply the embedding and norm restructures needed by rotations."""
-        for restructure in _rotation_restructures(model):
-            self.applied.append(restructure)
-            restructure.apply(model)
-
-    def decompress_modules(self, modules: Iterable[Module]) -> None:
-        self.decompression.apply_modules(modules)
-
-    def restore(self, model: Module) -> None:
-        for restructure in reversed(self.applied):
-            restructure.restore(model)
-        self.applied.clear()
-
-    @contextmanager
-    def context(self, model: Module):
-        try:
-            self.apply(model)
-            yield
-        finally:
-            self.restore(model)
-
-
-def pipeline_restructures(model: Module, session) -> ModelRestructures:
-    """Use the oneshot coordinator, or prepare rotations for a standalone pipeline."""
-    if session.state.restructures is not None:
-        return session.state.restructures
-
-    session.state.rotation_restructures = requires_rotation_restructures(
-        session.lifecycle.recipe.modifiers
-    )
-    restructures = ModelRestructures(session.state.rotation_restructures)
-    if restructures.rotation_restructures:
-        restructures.apply_rotation_preparation(model)
-    return restructures
+    for restructure in restructures:
+        restructure.apply(model)

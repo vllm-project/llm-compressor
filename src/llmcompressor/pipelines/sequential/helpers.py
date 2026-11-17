@@ -24,6 +24,7 @@ from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
+from llmcompressor.modeling.restructure import DecompressionRestructure
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.grouping import (
     log_partitions,
@@ -159,6 +160,11 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
     output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
     graph.output(output)
     return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
+
+
+def decompress_subgraph_modules(modules: list[Module]) -> None:
+    """Decompress quantized modules owned by one subgraph."""
+    DecompressionRestructure().apply_modules(modules)
 
 
 def compress_subgraph_modules(modules: list[Module]) -> None:
