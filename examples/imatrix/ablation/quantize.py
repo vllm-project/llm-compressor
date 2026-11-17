@@ -73,9 +73,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    if not torch.cuda.is_available():
+    if not torch.accelerator.is_available():
         raise RuntimeError("Quantization must run on a CUDA GPU")
-    torch.cuda.set_device(0)
+    torch.accelerator.set_device_index(0)
 
     manifest = json.loads(args.manifest.read_text())
     model_cfg = next(m for m in manifest["models"] if m["id"] == args.model_id)
@@ -116,7 +116,7 @@ def main() -> int:
                 "power": args.power,
                 "objective": objective,
                 "observer_kwargs": scheme.weights.observer_kwargs,
-                "cuda_device": torch.cuda.get_device_name(0),
+                "cuda_device": torch.get_device_module().get_device_name(0),
             }
         ),
         flush=True,
@@ -130,7 +130,7 @@ def main() -> int:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    torch.get_device_module().manual_seed_all(seed)
     oneshot(
         model=model,
         tokenizer=tokenizer,
