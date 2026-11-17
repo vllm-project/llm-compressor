@@ -95,11 +95,11 @@ def _run_single_gpu(
         shuffle_calibration_samples=False,
     )
 
-    # Extract quantized weights (exclude common ignored parameters)
+    # Extract quantized weight tensors, excluding qparams and ignored parameters.
     weights = {
         name: param.clone().cpu()
         for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
+        if name.endswith(".weight") and "lm_head" not in name
     }
 
     if return_model:
@@ -254,11 +254,11 @@ def _test_ddp_modifier(
         shuffle_calibration_samples=False,
     )
 
-    # Extract DDP weights (exclude common ignored parameters)
+    # Extract quantized weight tensors, excluding qparams and ignored parameters.
     ddp_weights = {
         name: param.clone().cpu()
         for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
+        if name.endswith(".weight") and "lm_head" not in name
     }
 
     torch.distributed.barrier()
@@ -467,7 +467,7 @@ def test_ddp_smoke_gptq():
             block_size=128,
         ),
         "independent",
-        None,
+        "cpu",
         weight_atol=1e-1,
         min_top1_match=0.95,
         max_kl_div=0.001,
