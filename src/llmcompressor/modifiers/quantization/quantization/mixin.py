@@ -3,7 +3,11 @@ from copy import deepcopy
 from typing import Any
 
 import torch
-from compressed_tensors.compressors import NVFP4PackedCompressor
+from compressed_tensors.compressors import (
+    NVFP4E5M3GSPackedCompressor,
+    NVFP4E5M3PackedCompressor,
+    NVFP4PackedCompressor,
+)
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -14,6 +18,7 @@ from compressed_tensors.offload.dist_utils import (
 )
 from compressed_tensors.quantization import (
     DynamicType,
+    GlobalScaleType,
     QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
@@ -56,6 +61,14 @@ from llmcompressor.utils import (
 )
 
 __all__ = ["QuantizationMixin"]
+
+
+def _requires_input_observer(args: QuantizationArgs | None) -> bool:
+    if args is None:
+        return False
+    return args.dynamic is False or (
+        args.dynamic == DynamicType.LOCAL and args.global_scale != GlobalScaleType.NONE
+    )
 
 
 class QuantizationMixin(HooksMixin):
@@ -364,7 +377,7 @@ class QuantizationMixin(HooksMixin):
                     self.requires_calibration_data = True
                     return self
             if scheme.input_activations is not None:
-                if scheme.input_activations.dynamic in (False, DynamicType.LOCAL):
+                if _requires_input_observer(scheme.input_activations):
                     self.requires_calibration_data = True
                     return self
             if scheme.output_activations is not None:
@@ -544,7 +557,14 @@ class QuantizationMixin(HooksMixin):
 
             # Use the compressor's scheme predicate to keep NVFP4 detection in
             # sync with the packed format. Linear is a supported module type.
-            if NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme):
+            if any(
+                compressor.can_compress(torch.nn.Linear, scheme)
+                for compressor in (
+                    NVFP4PackedCompressor,
+                    NVFP4E5M3PackedCompressor,
+                    NVFP4E5M3GSPackedCompressor,
+                )
+            ):
                 return "nvfp4_expanded_imatrix"
 
         # The imatrix observer weights quantization error by per-channel
@@ -557,10 +577,7 @@ class QuantizationMixin(HooksMixin):
             return
 
         scheme: QuantizationScheme = module.quantization_scheme
-        input = scheme.input_activations and scheme.input_activations.dynamic in (
-            False,
-            DynamicType.LOCAL,
-        )
+        input = _requires_input_observer(scheme.input_activations)
         weight = scheme.weights is not None
         output = scheme.output_activations and not scheme.output_activations.dynamic
         is_attention = is_cached_attention_module(module)
@@ -590,10 +607,7 @@ class QuantizationMixin(HooksMixin):
             return hooks
 
         scheme: QuantizationScheme = module.quantization_scheme
-        input = scheme.input_activations and scheme.input_activations.dynamic in (
-            False,
-            DynamicType.LOCAL,
-        )
+        input = _requires_input_observer(scheme.input_activations)
         output = scheme.output_activations and not scheme.output_activations.dynamic
         is_attention = is_cached_attention_module(module)
 
