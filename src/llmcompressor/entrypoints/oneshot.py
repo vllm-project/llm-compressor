@@ -37,18 +37,25 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
-from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.pipelines.sequential.lazy import (
+    build_lazy_module_transforms,
+    materialize_lazy_module_transforms_eagerly,
+    prepare_lazy_module_transforms,
+    restore_lazy_module_transforms,
+)
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
 )
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
+
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
@@ -289,18 +296,14 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        if len(get_non_linearized_moes(self.model)) > 0:
-            logger.warning(
-                "Detected an MoE model which has not been linearized. First load "
-                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
-                " before passing to `oneshot`. Falling back to post-load linearization."
-            )
-            linearize_moe(self.model)
+        transforms = build_lazy_module_transforms(
+            layerwise_decompression=self.dataset_args.layerwise_decompression,
+        )
+        prepare_lazy_module_transforms(self.model, transforms)
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
@@ -329,11 +332,28 @@ class Oneshot:
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
 
-            pipeline(
-                self.model,
-                calibration_dataloader,
-                self.dataset_args,
-            )
+            # Modifiers always initialize against the transformed module structure.
+            # Sequential calibration can fill targets by subgraph; other pipelines
+            # need all targets ready before their first pass.
+            if isinstance(pipeline, SequentialPipeline):
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                    lazy_transforms=transforms,
+                )
+            else:
+                materialize_lazy_module_transforms_eagerly(
+                    self.model,
+                    transforms,
+                    get_main_device(),
+                )
+                pipeline(
+                    self.model,
+                    calibration_dataloader,
+                    self.dataset_args,
+                )
+            restore_lazy_module_transforms(self.model, transforms)
 
         session.finalize()
 
