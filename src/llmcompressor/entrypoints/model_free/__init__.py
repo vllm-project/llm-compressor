@@ -50,8 +50,8 @@ def model_free_ptq(
         Mutually exclusive with config.
     :param config: quantization config containing one or more schemes and
         optional kv cache quantization. Mutually exclusive with scheme.
-    :param ignore: modules to ignore, in addition to MoE router layers, which
-        are ignored by default (see
+    :param ignore: modules to ignore, in addition to MoE routers, lm_head
+        and embedding layers, which are ignored by default (see
         `llmcompressor.entrypoints.model_free.converter.DEFAULT_IGNORE`).
         Modules ending with "norm" are also automatically ignored
     :param max_workers: maximum number of concurrent worker threads.

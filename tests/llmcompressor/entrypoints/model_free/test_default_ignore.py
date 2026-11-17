@@ -1,6 +1,6 @@
 """
 Tests for the default ignore list applied by ModelFreePtqConverter, which
-excludes MoE router layers from quantization.
+excludes MoE router, lm_head and embedding layers from quantization.
 """
 
 from unittest.mock import patch
@@ -30,6 +30,15 @@ ROUTER_WEIGHTS = {
     "model.layers.4.mlp.router.weight": "gpt-oss, Trinity",
     "model.layers.5.feed_forward.router.weight": "Llama 4",
     "model.language_model.layers.6.mlp.gate.weight": "multimodal language model",
+}
+
+# lm_head and embedding weight tensors, at several nesting depths
+LM_HEAD_AND_EMBEDDING_WEIGHTS = {
+    "lm_head.weight": "lm_head (Llama, Qwen, Mistral, GLM, gpt-oss, ...)",
+    "model.embed_tokens.weight": "embeddings (Llama, Qwen, GLM, gpt-oss, ...)",
+    "backbone.embed_tokens.weight": "Nemotron embeddings",
+    "model.language_model.embed_tokens.weight": "Llama 4 multimodal embeddings",
+    "model.layers.61.embed_tokens.weight": "MTP layer embeddings (DeepSeek, Kimi)",
 }
 
 # Linear layers whose names resemble router names but must stay quantizable
@@ -66,24 +75,37 @@ def test_default_ignore_matches_routers(module_name):
     assert any(match_name(module_name, pattern) for pattern in DEFAULT_IGNORE)
 
 
+@pytest.mark.parametrize("module_name", sorted(LM_HEAD_AND_EMBEDDING_WEIGHTS))
+def test_default_ignore_matches_lm_head_and_embeddings(module_name):
+    module_name = module_name.removesuffix(".weight")
+    assert any(match_name(module_name, pattern) for pattern in DEFAULT_IGNORE)
+
+
 @pytest.mark.parametrize("module_name", sorted(LINEAR_WEIGHTS))
 def test_default_ignore_keeps_other_layers_quantizable(module_name):
     module_name = module_name.removesuffix(".weight")
     assert not any(match_name(module_name, pattern) for pattern in DEFAULT_IGNORE)
 
 
-def test_routers_pass_through_unquantized():
-    """Router weights are skipped by matching, everything else is quantized"""
+def test_ignored_layers_pass_through_unquantized():
+    """Routers, lm_head and embeddings are skipped, everything else is
+    quantized"""
     converter = ModelFreePtqConverter(config=_get_w4a16_config())
 
     tensors = {
         name: torch.empty((32, 32), dtype=torch.bfloat16, device="meta")
-        for name in list(ROUTER_WEIGHTS) + list(LINEAR_WEIGHTS)
+        for name in (
+            list(ROUTER_WEIGHTS)
+            + list(LM_HEAD_AND_EMBEDDING_WEIGHTS)
+            + list(LINEAR_WEIGHTS)
+        )
     }
     output = converter.validate(tensors)
 
     for name in ROUTER_WEIGHTS:
         assert name in output, f"router {name} should not be quantized"
+    for name in LM_HEAD_AND_EMBEDDING_WEIGHTS:
+        assert name in output, f"{name} should not be quantized"
     for name in LINEAR_WEIGHTS:
         module_name = name.removesuffix(".weight")
         assert name not in output, f"{name} should be quantized"
