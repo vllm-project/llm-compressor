@@ -235,10 +235,10 @@ def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
     - KV-shared layers: reuse an earlier layer's KV states and only define
       q_proj (no k_proj or v_proj)
 
-    For sliding_attention layers with GQA, the v_proj -> o_proj mapping is
-    skipped since it would hit a GQA dimension mismatch. For full_attention
-    layers, k and v are shared, so the k_proj -> o_proj mapping is also
-    skipped since altering k_proj would change the attention behavior.
+    v_proj -> o_proj is not mapped. Sliding layers use GQA, so the smooth and
+    balance widths differ, and full-attention layers with ``attention_k_eq_v``
+    reuse ``k_proj`` as ``v`` (changing ``k_proj`` would change attention).
+    KV-shared layers map ``input_layernorm`` to ``q_proj`` only.
     """
     config = model.config
     text_config = config.get_text_config()
@@ -289,7 +289,7 @@ def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
                 ],
             )
         )
-        # No v_proj -> o_proj mapping due to GQA dimension mismatch is unsupported
+        # Skip v_proj -> o_proj: GQA makes the smooth and balance widths differ.
 
     # Non-KV-shared full-attention layers with k=v (no separate v_proj)
     if qk_indices:
