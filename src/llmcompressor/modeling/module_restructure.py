@@ -27,14 +27,6 @@ class ModuleRestructure(ABC):
 RESTRUCTURE_METADATA_ATTR = "_llmcompressor_restructure"
 
 
-def fqn_overlaps(fqn: str, roots: set[str]) -> bool:
-    """Whether a path is equal to, inside, or contains a restructured root."""
-    return any(
-        fqn == root or fqn.startswith(f"{root}.") or root.startswith(f"{fqn}.")
-        for root in roots
-    )
-
-
 def copy_module_state(
     target: Module,
     source: Module,

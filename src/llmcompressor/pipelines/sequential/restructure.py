@@ -23,7 +23,6 @@ from torch.nn import Module
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
     copy_module_state,
-    fqn_overlaps,
     RESTRUCTURE_METADATA_ATTR,
 )
 from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
@@ -55,7 +54,12 @@ def swap_in_meta_modules(
     )
     for restructure in restructures:
         for fqn, source, context in restructure.targets(model):
-            if fqn_overlaps(fqn, restructured_roots):
+            if any(
+                fqn == root
+                or fqn.startswith(f"{root}.")
+                or root.startswith(f"{fqn}.")
+                for root in restructured_roots
+            ):
                 continue
             target = restructure.restructure(copy_module_to_meta(source), context)
             # Keep the source in a plain dict, outside PyTorch's child registry.
