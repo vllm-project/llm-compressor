@@ -10,8 +10,9 @@ with various pipeline configurations for efficient model optimization.
 from __future__ import annotations
 
 import os
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -126,6 +127,25 @@ class Oneshot:
 
     """
 
+    @staticmethod
+    def handle_error(func: Callable) -> Callable:
+        """
+        Decorator which removes the file log handler added for this run if `func`
+        raises, so that later runs in the same process do not write to this run's
+        log file
+        """
+
+        @wraps(func)
+        def wrapper(self: Oneshot, *args, **kwargs):
+            try:
+                return func(self, *args, **kwargs)
+            except BaseException:
+                self._remove_log_handler()
+                raise
+
+        return wrapper
+
+    @handle_error
     def __init__(
         self,
         log_dir: str | None = None,
@@ -148,6 +168,9 @@ class Oneshot:
         :param log_dir: Path to save logs during oneshot run.
             Nothing is logged to file if None.
         """
+        # File log handler added for this run, removed when the run ends
+        self._log_handler_id = None
+
         # Warn if oneshot is called with `torchrun` but did not call `init_dist`
         if "TORCHELASTIC_RUN_ID" in os.environ and not is_distributed():
             logger.warning(
@@ -176,14 +199,14 @@ class Oneshot:
         if log_file:
             p = Path(log_file).expanduser()
             p.parent.mkdir(parents=True, exist_ok=True)
-            logger.add(
+            self._log_handler_id = logger.add(
                 str(p),
                 level="DEBUG",
             )
         elif log_dir:
             os.makedirs(log_dir, exist_ok=True)
             date_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            logger.add(
+            self._log_handler_id = logger.add(
                 f"{log_dir}/oneshot_{date_str}.log",
                 level="DEBUG",
             )
@@ -209,6 +232,7 @@ class Oneshot:
         if not getattr(self.dataset_args, "layerwise_decompression", False):
             self.validate_model(self.model)
 
+    @handle_error
     def __call__(self):
         """
         Performs one-shot calibration.
@@ -232,6 +256,17 @@ class Oneshot:
             recipe_args=self.recipe_args,
             output_dir=self.output_dir,
         )
+        self._remove_log_handler()
+
+    def _remove_log_handler(self):
+        """
+        Remove the file log handler added for this run, if any
+        """
+        if self._log_handler_id is not None:
+            # the handler may have already been removed, e.g. by `logger.remove()`
+            with suppress(ValueError):
+                logger.remove(self._log_handler_id)
+            self._log_handler_id = None
 
     def apply_recipe_modifiers(
         self,

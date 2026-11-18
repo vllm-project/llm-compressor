@@ -95,11 +95,11 @@ def _run_single_gpu(
         shuffle_calibration_samples=False,
     )
 
-    # Extract quantized weights (exclude common ignored parameters)
+    # Extract quantized weight tensors, excluding qparams and ignored parameters.
     weights = {
         name: param.clone().cpu()
         for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
+        if name.endswith(".weight") and "lm_head" not in name
     }
 
     if return_model:
@@ -123,9 +123,12 @@ def _compare_weights(ref_weights: dict, ddp_weights: dict, atol: float = 1e-4):
     mismatches = []
     for name in ref_weights:
         try:
-            torch.testing.assert_close(
-                ref_weights[name], ddp_weights[name], atol=atol, rtol=1e-4
-            )
+            ref = ref_weights[name]
+            ddp = ddp_weights[name]
+            if ref.is_floating_point() or ddp.is_floating_point():
+                ref = ref.float()
+                ddp = ddp.float()
+            torch.testing.assert_close(ref, ddp, atol=atol, rtol=1e-4)
         except AssertionError as e:
             mismatches.append(f"  {name}: {e}")
 
@@ -251,11 +254,11 @@ def _test_ddp_modifier(
         shuffle_calibration_samples=False,
     )
 
-    # Extract DDP weights (exclude common ignored parameters)
+    # Extract quantized weight tensors, excluding qparams and ignored parameters.
     ddp_weights = {
         name: param.clone().cpu()
         for name, param in model.named_parameters()
-        if "weight" in name and "lm_head" not in name
+        if name.endswith(".weight") and "lm_head" not in name
     }
 
     torch.distributed.barrier()
@@ -457,14 +460,14 @@ def test_ddp_smoke_awq():
 @torchrun(world_size=2)
 def test_ddp_smoke_gptq():
     _test_ddp_modifier(
-        "gptq",
+        "gptq_nvfp4a16",
         lambda: GPTQModifier(
-            scheme={"W4A16": ["Linear"]},
+            scheme={"NVFP4A16": ["Linear"]},
             ignore=["lm_head"],
             block_size=128,
         ),
         "independent",
-        None,
+        "cpu",
         weight_atol=1e-1,
         min_top1_match=0.95,
         max_kl_div=0.001,

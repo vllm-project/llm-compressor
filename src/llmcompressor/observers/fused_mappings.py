@@ -47,6 +47,8 @@ FUSED_MODULE_MAPPINGS: tuple[FusedMapping, ...] = (
     # MLP / expert gate and up projections
     FusedMapping("gate_up_proj", ("gate_proj", "up_proj")),
     FusedMapping("gate_up_proj", ("w1", "w3")),
+    # EXAONE 3 and 3.5 MLP (remote code model definition)
+    FusedMapping("gate_up_proj", ("c_fc_0", "c_fc_1")),
     # Attention q/k/v. Gemma 4 `attention_k_eq_v` layers have no v_proj, and
     # vLLM loads k_proj into both the k and v shards of qkv_proj
     FusedMapping("qkv_proj", ("q_proj", "k_proj"), optional_names=("v_proj",)),
