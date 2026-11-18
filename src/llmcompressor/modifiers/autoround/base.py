@@ -1,4 +1,5 @@
 import os
+import warnings
 from contextlib import contextmanager
 from typing import Any
 
@@ -136,6 +137,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         - apply config to model
     - on_calibration_start
         - add input capture hooks to decoding layers
+        - force propagate_error=False in the dataset arguments held by state
     - on_sequential_epoch_end
         - apply_autoround
         - post_autoround_cleanup
@@ -211,11 +213,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             state.model, sequential_targets=kwargs.get("sequential_targets")
         )
 
-        logger.info(
-            "AutoRound: set propagate_error=False in dataset_args to reuse "
-            "SequentialPipeline cached activations as FP16 reference output, "
-            "skipping collect_reference and its CPU RAM allocation."
-        )
         return True
 
     def start_calibration(self, model: torch.nn.Module):
@@ -252,6 +249,26 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         # register quantization calibration hooks
         # assume quantization has been initialized by this modifier or one before it
         self.start_calibration(state.model)
+
+        # AutoRound optimizes each layer independently using its own forward
+        # passes, so quantization error must not be propagated between layers
+        # during the calibration stage. Permanently disable it in the dataset
+        # arguments held by state (a copy of the user's arguments, which the
+        # pipelines also run with), so that the sequential pipeline skips its
+        # quantized-output pass and its cached unquantized activations can be
+        # reused as the FP16 reference outputs for each block
+        dataset_args = state.dataset_args
+        if dataset_args is not None and dataset_args.propagate_error:
+            warnings.warn(
+                "AutoRoundModifier optimizes each layer independently using its "
+                "own forward passes, so quantization error should not be "
+                "propagated between sequential layers. Overriding "
+                "propagate_error=True with propagate_error=False for this "
+                "calibration run.",
+                UserWarning,
+            )
+            dataset_args.propagate_error = False
+
         for _, module in state.model.named_modules():
             if self._is_decoding_layer(module):
                 handle = self.register_hook(
@@ -391,13 +408,18 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             ar_inputs = [((args, kwargs),) for args, kwargs in cur_inputs]
 
             # Read FP16 reference outputs from IntermediatesCache if the sequential
-            # pipeline exposed them via state and propagate_error=False. When
-            # propagate_error=True the cache holds the current subgraph's *inputs*
-            # (not outputs) at this point, so we must skip and let AutoRound run
-            # collect_reference itself.
+            # pipeline exposed them via state and no error-propagation pass ran.
+            # This modifier forces propagate_error=False at calibration start,
+            # but when log_sequential_error=True the activations cache does NOT
+            # hold the current subgraph's outputs at sequential_epoch_end time
+            # (pass 1 defers the update to pass 2), so AutoRound must fall back
+            # to collect_reference in that case as well.
             _state = active_session().state
             _seq_activations = getattr(_state, "sequential_activations", None)
-            _propagate_error = getattr(_state, "sequential_propagate_error", True)
+            _dataset_args = getattr(_state, "dataset_args", None)
+            _propagate_error = _dataset_args is None or (
+                _dataset_args.propagate_error or _dataset_args.log_sequential_error
+            )
             _fp_ref = None
             if _seq_activations is not None and not _propagate_error:
                 _HIDDEN_STATE_KEYS = {"hidden_states", "inputs_embeds"}

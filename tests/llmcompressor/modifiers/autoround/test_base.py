@@ -10,7 +10,8 @@ from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from torch import nn
 from transformers import AutoModelForCausalLM
 
-from llmcompressor.core import Event, EventType, State
+from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.core import Event, EventType, State, create_session
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.autoround.base import _wrap_decoding_layer
 from llmcompressor.utils.dev import skip_weights_download
@@ -78,6 +79,63 @@ def test_on_sequential_epoch_end_passes_all_modules():
     ):
         modifier.on_sequential_epoch_end(state, event, modules=modules)
         mock_apply.assert_called_once_with(state, modules)
+
+
+def _modifier_for_calibration_start():
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    # no decoding layers: skip input capture hooks, which require initialize()
+    modifier._sequential_targets = []
+    return modifier
+
+
+def test_on_calibration_start_forces_propagate_error_false():
+    """AutoRoundModifier must permanently disable propagate_error in the dataset
+    arguments held by state, since it optimizes each layer independently using its
+    own forward passes. This also lets SequentialPipeline reuse its cached
+    unquantized activations as the FP16 reference outputs."""
+    modifier = _modifier_for_calibration_start()
+    state = State()
+    state.model = nn.Module()
+    state.dataset_args = DatasetArguments(propagate_error=True)
+    event = Event(type_=EventType.CALIBRATION_START)
+
+    with (
+        patch.object(AutoRoundModifier, "start_calibration"),
+        pytest.warns(UserWarning, match="propagate_error=False"),
+    ):
+        modifier.on_calibration_start(state, event)
+
+    assert state.dataset_args.propagate_error is False
+
+
+def test_on_calibration_start_leaves_propagate_error_false_untouched(recwarn):
+    """No warning is emitted and nothing is modified when propagate_error was
+    already False."""
+    modifier = _modifier_for_calibration_start()
+    state = State()
+    state.model = nn.Module()
+    state.dataset_args = DatasetArguments(propagate_error=False)
+    event = Event(type_=EventType.CALIBRATION_START)
+
+    with patch.object(AutoRoundModifier, "start_calibration"):
+        modifier.on_calibration_start(state, event)
+
+    assert state.dataset_args.propagate_error is False
+    assert len(recwarn) == 0
+
+
+def test_on_calibration_start_without_dataset_args(recwarn):
+    """A state without dataset arguments (e.g. a pipeline invoked directly instead
+    of through oneshot) must not crash or warn."""
+    modifier = _modifier_for_calibration_start()
+    state = State()
+    state.model = nn.Module()
+    event = Event(type_=EventType.CALIBRATION_START)
+
+    with patch.object(AutoRoundModifier, "start_calibration"):
+        modifier.on_calibration_start(state, event)
+
+    assert len(recwarn) == 0
 
 
 @pytest.mark.parametrize(
@@ -416,3 +474,107 @@ def test_apply_autoround_passes_moved_inputs_to_quantize_block():
 
     quantize_inputs = autoround.quantize_block.call_args.kwargs["inputs"]
     assert quantize_inputs[0][0][0][0].device.type == "cpu"
+
+
+class _FakeCacheEntry:
+    """Stand-in for an IntermediatesCache entry exposing a `.value` tensor."""
+
+    def __init__(self, value):
+        self.value = value
+
+
+class _FakeIntermediatesCache:
+    """Stand-in for SequentialPipeline's IntermediatesCache."""
+
+    def __init__(self, batch_intermediates):
+        self.batch_intermediates = batch_intermediates
+
+
+@pytest.mark.parametrize(
+    ("propagate_error", "log_sequential_error", "expect_reference"),
+    [
+        # error propagation ran: the cache holds the subgraph's inputs, not its
+        # outputs, at sequential_epoch_end time
+        (True, False, False),
+        # this modifier forces propagate_error=False: the cache holds the
+        # subgraph's unquantized outputs and can be used as FP16 reference
+        (False, False, True),
+        # error logging defers the cache update to pass 2: the cache still
+        # holds the subgraph's inputs at sequential_epoch_end time
+        (False, True, False),
+        (True, True, False),
+    ],
+)
+def test_apply_autoround_reference_output_follows_state_dataset_args(
+    propagate_error, log_sequential_error, expect_reference
+):
+    """apply_autoround decides whether the sequential pipeline's cached activations
+    can be reused as FP16 reference outputs by reading propagate_error and
+    log_sequential_error from state.dataset_args, replacing the removed
+    State.sequential_propagate_error field."""
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    layer = _FakeDecoderLayer()
+    layer._tmp_name = "decoder"
+    modifier._sequential_targets = [layer.__class__.__name__]
+    hidden = torch.ones(1, 4, 64)
+    modifier._all_module_input[layer._tmp_name] = [((hidden,), {})]
+
+    state = MagicMock(spec=State)
+    state.model.name_or_path = "stub-model"
+    state.model.config = MagicMock()
+
+    autoround = MagicMock()
+    autoround.quantize_block.return_value = (None, None)
+
+    with create_session() as session:
+        session.state.dataset_args = DatasetArguments(
+            propagate_error=propagate_error, log_sequential_error=log_sequential_error
+        )
+        session.state.sequential_activations = _FakeIntermediatesCache(
+            [{"hidden_states": _FakeCacheEntry(hidden)}]
+        )
+
+        with (
+            patch.object(
+                AutoRoundModifier, "_mapping_config_to_autoround", return_value="W4A16"
+            ),
+            patch.object(
+                AutoRoundModifier, "_build_layer_config_for_autoround", return_value={}
+            ),
+            patch.object(
+                AutoRoundModifier, "get_unquantized_layer_names", return_value=[]
+            ),
+            patch.object(AutoRoundModifier, "_preprocess_qparams", return_value={}),
+            patch.object(AutoRoundModifier, "_postprocess_qparams"),
+            patch.object(
+                AutoRoundModifier, "_unwrapper_quantized_layer", side_effect=lambda m: m
+            ),
+            patch.object(AutoRoundModifier, "_update_device_map_for_dp"),
+            patch(
+                "llmcompressor.modifiers.autoround.base.align_module_device",
+                return_value=nullcontext(),
+            ),
+            patch(
+                "llmcompressor.modifiers.autoround.base.suspend_offloading",
+                return_value=nullcontext(),
+            ),
+            patch(
+                "llmcompressor.modifiers.autoround.base.get_local_gpu_group_size",
+                return_value=2,
+            ),
+            patch(
+                "llmcompressor.modifiers.autoround.base.get_main_device",
+                return_value=torch.device("meta"),
+            ),
+            patch(
+                "llmcompressor.modifiers.autoround.base.AutoRound",
+                return_value=autoround,
+            ),
+        ):
+            modifier.apply_autoround(state, [layer])
+
+    reference_output = autoround.quantize_block.call_args.kwargs["reference_output"]
+    if expect_reference:
+        assert reference_output == [hidden]
+    else:
+        assert reference_output is None

@@ -7,10 +7,13 @@ related to data, hardware, and model compression.
 
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from loguru import logger
+
+if TYPE_CHECKING:
+    from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["State", "Data", "Hardware", "ModifiedState"]
 
@@ -92,6 +95,11 @@ class State:
     :type data: Data
     :param hardware: Hardware instance holding info about the target hardware being used
     :type hardware: Hardware
+    :param dataset_args: Copy of the dataset arguments for this session. Modifiers
+        may adjust it in place during calibration (e.g. AutoRoundModifier forces
+        propagate_error=False); the calibration pipelines are run with this same
+        copy, while the arguments passed by the user are left untouched
+    :type dataset_args: Optional[DatasetArguments]
     """
 
     model: Any = None
@@ -105,7 +113,7 @@ class State:
     loss_masks: list[torch.Tensor] | None = None
     current_batch_idx: int = -1
     sequential_activations: Any = None
-    sequential_propagate_error: bool = True
+    dataset_args: "DatasetArguments | None" = None
 
     @property
     def compression_ready(self) -> bool:
