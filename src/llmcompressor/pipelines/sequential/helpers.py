@@ -527,7 +527,14 @@ class SequentialTracer(HFTracer):
         """
         outer, self._invoked = self._invoked, []
         try:
-            with _MetaTensorPromotionMode():
+            # only promote for wrapped functions: running a `call_module` node on
+            # meta tensors would also fire that module's forward hooks
+            promote = (
+                _MetaTensorPromotionMode()
+                if kind != "call_module"
+                else contextlib.nullcontext()
+            )
+            with promote:
                 proxy = super().create_proxy(
                     kind, target, args, kwargs, *extra_args, **extra_kwargs
                 )
