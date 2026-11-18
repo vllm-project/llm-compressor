@@ -1,22 +1,48 @@
-"""Tests for the ceil_x observer."""
+"""Tests for the MXFP4 ceil_x observer."""
 
 import pytest
 import torch
-from compressed_tensors.quantization import fake_quantize
+from compressed_tensors.quantization import (
+    fake_quantize,
+    preset_name_to_scheme,
+)
 from compressed_tensors.quantization.quant_args import QuantizationArgs
+from compressed_tensors.quantization.utils import calculate_qparams
+from compressed_tensors.registry import standardize_lookup_name
 
 from llmcompressor.observers import Observer
 from llmcompressor.observers.ceil_x import (
-    CeilXObserver,
     MXFP4CeilXObserver,
-    _ceil_x_adjust,
+    _mxfp4_ceil_x_adjust,
 )
+from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.observers.mse import MemorylessMSEObserver
+
+
+def _mxfp4_args(observer: str | None = None, **overrides) -> QuantizationArgs:
+    """Default MXFP4 weight quantization args for observer tests.
+
+    Mirrors the weights args of the ``MXFP4A16`` preset: GROUP strategy
+    with 32-value blocks and uint8 (E8M0) shared scales.
+    """
+    kwargs = dict(
+        num_bits=4,
+        type="float",
+        symmetric=True,
+        strategy="group",
+        group_size=32,
+        scale_dtype=torch.uint8,
+    )
+    if observer is not None:
+        kwargs["observer"] = observer
+    kwargs.update(overrides)
+    return QuantizationArgs(**kwargs)
 
 
 class TestCeilXAdjust:
-    """Tests for the core _ceil_x_adjust function."""
+    """Tests for the core _mxfp4_ceil_x_adjust function."""
 
-    def test_symmetric_basic(self):
+    def test_default_divisor_basic(self):
         """Adjusted absmax = 2^(ceil(log2(max/c + eps)) + EMAX), with hardcoded values.
 
         Hand-computed (c=7.25, EMAX=2):
@@ -35,11 +61,22 @@ class TestCeilXAdjust:
         for absmax_in, expected_absmax in cases:
             min_vals = torch.tensor([-absmax_in])
             max_vals = torch.tensor([absmax_in])
-            adj_min, adj_max = _ceil_x_adjust(min_vals, max_vals, 7.25)
+            adj_min, adj_max = _mxfp4_ceil_x_adjust(min_vals, max_vals)
             assert torch.allclose(
                 adj_max, torch.tensor([expected_absmax]), rtol=1e-5
             ), f"absmax={absmax_in}: got {adj_max.item()}, expected {expected_absmax}"
             assert torch.allclose(adj_min, torch.tensor([-expected_absmax]), rtol=1e-5)
+
+    def test_default_divisor_is_7_25(self):
+        """The default divisor must be the tuned constant 7.25."""
+        min_vals = torch.tensor([-10.0])
+        max_vals = torch.tensor([10.0])
+        adj_default_min, adj_default_max = _mxfp4_ceil_x_adjust(min_vals, max_vals)
+        adj_explicit_min, adj_explicit_max = _mxfp4_ceil_x_adjust(
+            min_vals, max_vals, 7.25
+        )
+        assert torch.equal(adj_default_min, adj_explicit_min)
+        assert torch.equal(adj_default_max, adj_explicit_max)
 
     def test_different_c_values(self):
         """Larger c crosses the ceil discontinuity to a smaller exponent.
@@ -54,287 +91,188 @@ class TestCeilXAdjust:
         # c in [6, 7.25, 9] -> ceil=1 -> 8.0 ; c=12 -> ceil=0 -> 4.0
         expected = {6.0: 8.0, 7.25: 8.0, 9.0: 8.0, 12.0: 4.0}
         for c, exp_adj in expected.items():
-            _, adj_max = _ceil_x_adjust(min_vals, max_vals, c)
-            assert torch.allclose(
-                adj_max, torch.tensor([exp_adj]), rtol=1e-5
-            ), f"c={c}: got {adj_max.item()}, expected {exp_adj}"
+            _, adj_max = _mxfp4_ceil_x_adjust(min_vals, max_vals, c)
+            assert torch.allclose(adj_max, torch.tensor([exp_adj]), rtol=1e-5), (
+                f"c={c}: got {adj_max.item()}, expected {exp_adj}"
+            )
 
     def test_extreme_inputs_finite(self):
         """Zero and very large inputs should not produce NaN or inf."""
         for absmax in [0.0, 1e30]:
             min_vals = torch.tensor([-absmax])
             max_vals = torch.tensor([absmax])
-            adj_min, adj_max = _ceil_x_adjust(min_vals, max_vals, 7.25)
+            adj_min, adj_max = _mxfp4_ceil_x_adjust(min_vals, max_vals)
             assert torch.isfinite(adj_min).all()
             assert torch.isfinite(adj_max).all()
 
 
-class TestCeilXObserverRegistration:
-    """Tests for observer registration, construction, and validation."""
+class TestMXFP4CeilXObserver:
+    """Registration, validation, and qparams for the mxfp4_ceil_x observer."""
 
-    def test_registered_as_ceil_x(self):
-        """The observer should be loadable from the registry as 'ceil_x'."""
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
-            observer="ceil_x",
-        )
-        obs = Observer.load_from_registry("ceil_x", base_name="weight", args=args)
-        assert isinstance(obs, CeilXObserver)
+    def test_registered_as_mxfp4_ceil_x(self):
+        """The observer loads as a MemorylessMSEObserver subclass.
 
-    def test_mxfp4_ceil_x_alias_produces_identical_qparams(self):
-        """``mxfp4_ceil_x`` is a pure ``pass`` subclass with identical defaults,
-        so it must produce bit-identical qparams. Guards against future
-        divergence between the alias and the base class.
+        Only the mxfp4-specific name exists: the generic ``ceil_x`` name and
+        the separate ``mxfp4_ceil_x_mse`` variant are intentionally absent.
         """
-        torch.manual_seed(2024)
-        weight = torch.randn(8, 32)
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
-        )
-        args_base = args.model_copy(update={"observer": "ceil_x"})
-        args_alias = args.model_copy(update={"observer": "mxfp4_ceil_x"})
+        args = _mxfp4_args(observer="mxfp4_ceil_x")
+        obs = Observer.load_from_registry("mxfp4_ceil_x", base_name="weight", args=args)
+        assert isinstance(obs, MXFP4CeilXObserver)
+        assert isinstance(obs, MemorylessMSEObserver)
 
-        obs_base = Observer.load_from_registry(
-            "ceil_x", base_name="weight", args=args_base
-        )
-        obs_alias = Observer.load_from_registry(
-            "mxfp4_ceil_x", base_name="weight", args=args_alias
-        )
-        qp_base = obs_base(weight).get_qparams()
-        qp_alias = obs_alias(weight).get_qparams()
-
-        assert isinstance(obs_alias, MXFP4CeilXObserver)
-        assert torch.equal(qp_base["scale"], qp_alias["scale"])
-        assert torch.equal(qp_base["zero_point"], qp_alias["zero_point"])
-        assert torch.equal(qp_base["global_scale"], qp_alias["global_scale"])
+        # The registry standardizes names for lookup: underscores and spaces
+        # become hyphens (e.g. ``memoryless_minmax`` -> ``memoryless-minmax``),
+        # so compare against the standardized spellings.
+        names = Observer.registered_names()
+        assert standardize_lookup_name("mxfp4_ceil_x") in names
+        assert standardize_lookup_name("ceil_x") not in names
+        assert standardize_lookup_name("mxfp4_ceil_x_mse") not in names
 
     @pytest.mark.parametrize(
-        ("kwargs", "match"),
+        ("overrides", "match"),
         [
-            ({"ceil_x_value": 5.0}, "ceil_x_value must be in"),
-            ({"ceil_x_value": 13.0}, "ceil_x_value must be in"),
-            (
-                {"enable_search": True, "search_min": 8.0, "search_max": 8.0},
-                "search_max.*must be greater than",
-            ),
-            (
-                {"enable_search": True, "search_min": 3.0, "search_max": 9.0},
-                "search_min and search_max must be in",
-            ),
-            (
-                {"enable_search": True, "search_min": 7.0, "search_max": 15.0},
-                "search_min and search_max must be in",
-            ),
+            ({"type": "int", "num_bits": 8}, "only supports FLOAT type"),
+            ({"num_bits": 8}, "only supports 4-bit"),
+            ({"num_bits": 6}, "only supports 4-bit"),
+            ({"symmetric": False}, "only supports symmetric"),
+            ({"strategy": "tensor_group"}, "only supports the GROUP strategy"),
+            ({"group_size": 64}, "requires MXFP4 scale generation"),
+            ({"scale_dtype": None}, "requires MXFP4 scale generation"),
         ],
     )
-    def test_rejects_invalid_kwargs(self, kwargs, match):
-        """Invalid ceil_x_value or search range should raise ValueError."""
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
-            observer="ceil_x",
-        )
+    def test_rejects_non_mxfp4_args(self, overrides, match):
+        """Args that do not describe MXFP4 (GROUP, 32-value, uint8) must raise."""
+        args = _mxfp4_args(observer="mxfp4_ceil_x", **overrides)
         with pytest.raises(ValueError, match=match):
-            Observer.load_from_registry(
-                "ceil_x", base_name="weight", args=args, **kwargs
-            )
+            Observer.load_from_registry("mxfp4_ceil_x", base_name="weight", args=args)
 
-    def test_rejects_int_type_and_asymmetric(self):
-        """INT type and asymmetric quantization should raise ValueError."""
-        with pytest.raises(ValueError, match="ceil_x only supports FLOAT type"):
-            args = QuantizationArgs(
-                num_bits=8,
-                type="int",
-                symmetric=True,
-                strategy="tensor_group",
-                group_size=32,
-                observer="ceil_x",
-            )
-            Observer.load_from_registry("ceil_x", base_name="weight", args=args)
-        with pytest.raises(ValueError, match="ceil_x only supports symmetric"):
-            args = QuantizationArgs(
-                num_bits=4,
-                type="float",
-                symmetric=False,
-                strategy="tensor_group",
-                group_size=32,
-                observer="ceil_x",
-            )
-            Observer.load_from_registry("ceil_x", base_name="weight", args=args)
+    def test_mxfp4a16_preset_produces_valid_qparams(self):
+        """The documented recipe path must construct and quantize cleanly.
 
-    def test_rejects_non_tensor_group_strategy(self):
-        """Non-TENSOR_GROUP strategy should raise ValueError."""
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="channel",
-            group_size=32,
-            observer="ceil_x",
-        )
-        with pytest.raises(ValueError, match="ceil_x only supports TENSOR_GROUP"):
-            Observer.load_from_registry("ceil_x", base_name="weight", args=args)
+        Real MXFP4 presets (``MXFP4A16``) use GROUP strategy with 32-value
+        blocks and uint8 E8M0 scales; the observer must accept them. This is
+        a regression test for a validation that used to require TENSOR_GROUP
+        and rejected every real MXFP4 recipe.
+        """
+        args = preset_name_to_scheme("MXFP4A16", ["Linear"]).weights
+        assert args.strategy == "group"
+        assert args.group_size == 32
+        assert args.scale_dtype == torch.uint8
+        args = args.model_copy(update={"observer": "mxfp4_ceil_x"})
 
-
-class TestCeilXObserverFP4:
-    """Tests with FLOAT type (MXFP4) quantization."""
-
-    def test_mxfp4_produces_valid_qparams(self):
-        """The observer should produce valid qparams for MXFP4."""
         module = torch.nn.Linear(64, 32)
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
-            observer="ceil_x",
-        )
-        obs = Observer.load_from_registry("ceil_x", base_name="weight", args=args)
+        obs = Observer.load_from_registry("mxfp4_ceil_x", base_name="weight", args=args)
         qparams = obs(module.weight).get_qparams()
-        scale, zero_point, global_scale = (
-            qparams["scale"],
-            qparams["zero_point"],
-            qparams["global_scale"],
-        )
+        scale, zero_point = qparams["scale"], qparams["zero_point"]
 
+        # MX scales are positive powers of two produced from E8M0 exponents
         assert torch.isfinite(scale).all()
         assert (scale > 0).all()
-        assert torch.isfinite(zero_point).all()
-        assert global_scale is not None
-        assert torch.isfinite(global_scale).all()
+        log2_scales = torch.log2(scale)
+        assert torch.allclose(log2_scales, torch.round(log2_scales), atol=1e-6)
 
-    def test_mxfp4_global_scale_at_least_minmax(self):
-        """ceil_x shared exponent >= minmax shared exponent.
+        # Symmetric MX quantization has no zero points and no global scale
+        assert torch.equal(zero_point, torch.zeros_like(zero_point))
+        assert qparams["global_scale"] is None
 
-        This is the core algorithmic claim: ceil(log2(m/c)) rounds the
-        per-block exponent *up*, while floor(log2(m)) (minmax) rounds it
-        *down*. A larger-or-equal shared exponent means ceil_x never
-        truncates large values more aggressively than minmax, so the
-        global_scale (which encodes the tensor-wide max shared exponent)
-        must be >= the minmax-derived global_scale.
+    def test_maxshrink_zero_reproduces_fixed_ceil_x(self):
+        """An empty search grid returns the ceil_x adjusted range unchanged.
+
+        ``maxshrink=0`` disables the grid search, so the observer must be
+        equivalent to applying ``_mxfp4_ceil_x_adjust`` and deriving qparams
+        from the adjusted range directly.
         """
-        torch.manual_seed(123)
-        module = torch.nn.Linear(128, 64)
-        module.weight.data = torch.randn_like(module.weight) * 0.1
-
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
+        torch.manual_seed(3)
+        module = torch.nn.Linear(64, 32)
+        args = _mxfp4_args(observer="mxfp4_ceil_x")
+        obs = Observer.load_from_registry(
+            "mxfp4_ceil_x", base_name="weight", args=args, maxshrink=0.0
         )
+        qparams = obs(module.weight).get_qparams()
+
+        observed = flatten_for_calibration(module.weight, "weight", args)
+        raw_min = torch.amin(observed, dim=(0, -1))
+        raw_max = torch.amax(observed, dim=(0, -1))
+        adj_min, adj_max = _mxfp4_ceil_x_adjust(raw_min, raw_max)
+        expected_scale, expected_zero_point = calculate_qparams(
+            adj_min, adj_max, args, global_scale=None
+        )
+
+        assert torch.equal(qparams["scale"], expected_scale)
+        assert torch.equal(qparams["zero_point"], expected_zero_point)
+
+    def test_search_no_worse_than_fixed_ceil_x(self):
+        """The grid includes the ceil_x range itself (multiplier 1), so the
+        per-group search result must be no worse than fixed ceil_x.
+
+        The search selects per-group candidate ranges minimizing the
+        powered QDQ error with norm=2 (squared error), so the summed
+        end-to-end MSE must be <= the fixed ceil_x MSE — no tolerance
+        buffer needed beyond floating-point summation order.
+        """
+        torch.manual_seed(99)
+        tensor = torch.randn(16, 128) * 10.0
+        args = _mxfp4_args(observer="mxfp4_ceil_x")
+
+        # Fixed ceil_x (search disabled)
+        obs_fixed = Observer.load_from_registry(
+            "mxfp4_ceil_x", base_name="weight", args=args, maxshrink=0.0
+        )
+        qp_fixed = obs_fixed(tensor).get_qparams()
+        qdq_fixed = fake_quantize(
+            tensor, qp_fixed["scale"], qp_fixed["zero_point"], args
+        )
+        mse_fixed = ((qdq_fixed - tensor) ** 2).mean().item()
+
+        # MSE search from the ceil_x range
+        obs_search = Observer.load_from_registry(
+            "mxfp4_ceil_x", base_name="weight", args=args, norm=2.0
+        )
+        qp_search = obs_search(tensor).get_qparams()
+        qdq_search = fake_quantize(
+            tensor, qp_search["scale"], qp_search["zero_point"], args
+        )
+        mse_search = ((qdq_search - tensor) ** 2).mean().item()
+
+        # The ceil_x range is the first grid candidate, so the per-group
+        # selection must be no worse than it under the same error norm.
+        assert mse_search <= mse_fixed * (1 + 1e-5), (
+            f"MSE-search MSE ({mse_search:.8f}) > fixed ceil_x MSE "
+            f"({mse_fixed:.8f}); the search grid includes the ceil_x range "
+            "so this is a regression"
+        )
+
+    def test_search_refines_outlier_block(self):
+        """A block dominated by values below the outlier chooses a finer exponent.
+
+        Hand-computed for the block ``[3.9, 0.76 * 31]``:
+        - minmax rounds 3.9 up (round_to_power_2 at mantissa >= 1.75) to an
+          E8M0 of 127, i.e. a scale of 1.0 and a representable max of 6.0.
+        - the ceil_x base range is [-4, 4]; shrinking it by 1/2 yields an
+          E8M0 of 126 (scale 0.5), which clamps only 3.9 (to 3.0) while
+          halving the step for the remaining values, so the search selects
+          it. In squared error (norm=2, used only for this hand-count; the
+          observer's default norm=2.4 ranks the candidates identically):
+          0.81 + 31 * 0.0001 versus 0.01 + 31 * 0.0576.
+        """
+        block = torch.tensor([[3.9] + [0.76] * 31] * 2)
+        args = _mxfp4_args()
+
+        obs = Observer.load_from_registry("mxfp4_ceil_x", base_name="weight", args=args)
+        scale = obs(block).get_qparams()["scale"]
+        assert torch.allclose(scale, torch.full_like(scale, 0.5))
 
         obs_minmax = Observer.load_from_registry(
             "memoryless_minmax", base_name="weight", args=args
         )
-        gs_minmax = obs_minmax(module.weight).get_qparams()["global_scale"]
-
-        args_ceilx = args.model_copy(update={"observer": "ceil_x"})
-        obs_ceilx = Observer.load_from_registry(
-            "ceil_x", base_name="weight", args=args_ceilx
-        )
-        gs_ceilx = obs_ceilx(module.weight).get_qparams()["global_scale"]
-
-        assert gs_ceilx >= gs_minmax, (
-            f"ceil_x global_scale ({gs_ceilx.item()}) < minmax ({gs_minmax.item()}); "
-            "ceil_x must round the shared exponent up, never below minmax"
-        )
-
-
-class TestCeilXSearch:
-    """Tests for the MSE search functionality."""
-
-    def test_search_no_worse_than_default(self):
-        """Search over a grid that includes the default must be no worse.
-
-        With search_step=0.25 and search_min=6.0, the candidate grid is
-        {6.0, 6.25, ..., 12.0}, which includes the default 7.25. Since the
-        search evaluates MSE at every candidate and picks the minimum, the
-        result must be <= the default's MSE — no tolerance buffer needed.
-        A regression that makes search pick a non-optimal candidate would
-        fail this exactly.
-        """
-        torch.manual_seed(99)
-        tensor = torch.randn(16, 128) * 10.0
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
-        )
-
-        # Default (no search)
-        args_default = args.model_copy(update={"observer": "ceil_x"})
-        obs_default = Observer.load_from_registry(
-            "ceil_x", base_name="weight", args=args_default, ceil_x_value=7.25
-        )
-        qp_default = obs_default(tensor).get_qparams()
-        qdq_default = fake_quantize(
-            tensor,
-            qp_default["scale"],
-            qp_default["zero_point"],
-            args_default,
-            global_scale=qp_default["global_scale"],
-        )
-        mse_default = ((qdq_default - tensor) ** 2).mean().item()
-
-        # With search (grid includes 7.25)
-        obs_search = Observer.load_from_registry(
-            "ceil_x",
-            base_name="weight",
-            args=args_default,
-            enable_search=True,
-            search_min=6.0,
-            search_max=12.0,
-            search_step=0.25,
-        )
-        qp_search = obs_search(tensor).get_qparams()
-        qdq_search = fake_quantize(
-            tensor,
-            qp_search["scale"],
-            qp_search["zero_point"],
-            args_default,
-            global_scale=qp_search["global_scale"],
-        )
-        mse_search = ((qdq_search - tensor) ** 2).mean().item()
-
-        # Search includes the default as a candidate, so it must be <= it.
-        # Use a tiny rtol to absorb floating-point summation order differences.
-        assert mse_search <= mse_default * (1 + 1e-6), (
-            f"Search MSE ({mse_search:.8f}) > default ({mse_default:.8f}); "
-            "search grid includes the default so this is a regression"
-        )
-
-
-class TestCeilXWeightObserver:
-    """Tests for weight-specific observer behavior."""
+        scale_minmax = obs_minmax(block).get_qparams()["scale"]
+        assert torch.allclose(scale_minmax, torch.full_like(scale_minmax, 1.0))
 
     def test_weight_observed_once(self):
-        """Weight observer should not update statistics on second observation."""
+        """Weight observers should not update statistics on re-observation."""
         tensor = torch.randn(16, 64)
-        args = QuantizationArgs(
-            num_bits=4,
-            type="float",
-            symmetric=True,
-            strategy="tensor_group",
-            group_size=32,
-            observer="ceil_x",
-        )
-        obs = Observer.load_from_registry("ceil_x", base_name="weight", args=args)
+        args = _mxfp4_args(observer="mxfp4_ceil_x")
+        obs = Observer.load_from_registry("mxfp4_ceil_x", base_name="weight", args=args)
         obs(tensor)
         first_max = obs.max_vals.clone()
         obs(tensor * 100)  # Very different values

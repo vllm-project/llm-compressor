@@ -1,45 +1,41 @@
 """
 Ceil_x observer for MXFP4 per-block weight-only quantization.
 
-Implements the ceil_x algorithm: uses ``ceil(log2(max(|x|)/c))``
-instead of the traditional ``floor(log2(max(|x|)))`` to compute the shared
-exponent, with a configurable divisor *c* that controls the range/resolution
-trade-off. An optional MSE search selects the best *c* from a candidate grid.
+Implements the ceil_x algorithm: uses ``ceil(log2(max(|x|)/c + eps))``
+instead of the min-max exponent derived by ``generate_mx_scales`` to
+compute the MXFP4 shared exponent. The divisor *c* is fixed at ``7.25``:
+it does not eliminate large-value truncation (that requires ``c <= 6.0``)
+but achieves the best truncation-vs-resolution trade-off, sacrificing
+1-2 outlier values per 32-value block to truncation while halving the
+quantization step size for the remaining values.
 
 The observer produces ``min_vals`` / ``max_vals`` that, when fed into
-``calculate_qparams`` for a FLOAT type with TENSOR_GROUP strategy, yield
-the ceil_x shared exponent. The trick: set
+``calculate_qparams`` for a FLOAT type with GROUP strategy (the MXFP4
+scheme), yield the ceil_x shared exponent. The trick: set
 ``adjusted_absmax = 2^(ceil(log2(absmax/c + eps)) + e_max)`` so that
 ``floor(log2(adjusted_absmax)) == ceil(log2(absmax/c + eps)) + e_max``,
 which cancels the ``- e_max`` inside ``generate_mx_scales`` to yield
 ``E8M0 = 127 + ceil(log2(absmax/c + eps))``.
 
+A single observer is provided, specific to MXFP4 (E2M1 elements with
+32-value blocks and E8M0 shared exponents):
+
+- ``mxfp4_ceil_x``: :class:`MemorylessMSEObserver` subclass that runs the
+  shared MSE grid search from the ceil_x adjusted range, selecting
+  per-group ranges that minimize reconstruction error.
+
 Usage::
 
     QuantizationModifier(
         targets="Linear",
-        scheme="MXFP4",
-        weight_observer="ceil_x",
-        ignore=["lm_head"],
-    )
-
-Or with MSE search::
-
-    QuantizationModifier(
-        targets="Linear",
         scheme="MXFP4A16",
-        weight_observer="ceil_x",
-        observer_kwargs={
-            "enable_search": True,
-            "search_min": 6.0,
-            "search_max": 12.0,
-            "search_step": 0.25,
-        },
+        weight_observer="mxfp4_ceil_x",
         ignore=["lm_head"],
     )
-"""
 
-from typing import Optional
+Task-level results for Qwen3-14B are recorded in the Open Research Hub:
+``docs/research/mxfp4-ceilx-qwen3-14b-yzmkbk.md``.
+"""
 
 import torch
 from compressed_tensors.quantization import (
@@ -47,12 +43,15 @@ from compressed_tensors.quantization import (
     QuantizationStrategy,
     QuantizationType,
 )
-from compressed_tensors.quantization.lifecycle import fake_quantize
-from compressed_tensors.quantization.utils import calculate_qparams
+from compressed_tensors.quantization.utils.mxfp_utils import (
+    should_generate_mx_scales,
+)
 
 from llmcompressor.observers.base import MinMaxTuple, Observer
+from llmcompressor.observers.grid_search import _grid_search_observer
+from llmcompressor.observers.mse import MemorylessMSEObserver
 
-__all__ = ["CeilXObserver", "MXFP4CeilXObserver"]
+__all__ = ["MXFP4CeilXObserver"]
 
 
 # MXFP4 format constants (E2M1, block_size=32)
@@ -62,11 +61,50 @@ _MXFP4_SCALE_BITS = 8  # E8M0 shared exponent
 _MXFP4_SCALE_EMAX = 2 ** (_MXFP4_SCALE_BITS - 1) - 1  # = 127
 _EPS = 9.6e-7
 
+# Fixed ceil_x divisor. c=7.25 is empirically optimal for MXFP4 weight
+# quantization; the supported range [6.0, 12.0] was explored offline. The
+# divisor is intentionally not a user-facing option: it is specific to the
+# E2M1 element format and easy to misconfigure.
+_MXFP4_CEIL_X_VALUE = 7.25
 
-def _ceil_x_adjust(
+
+def _validate_mxfp4_args(args: QuantizationArgs) -> None:
+    """Validate that the quantization args describe MXFP4 weights.
+
+    ceil_x only applies to the MXFP4 format: the divisor constant is tuned
+    for E2M1 elements, and the min/max adjustment trick assumes 32-value
+    blocks with E8M0 shared exponents.
+
+    :param args: quantization args to validate
+    :raises ValueError: if any format constraint is violated
+    """
+    if args.type != QuantizationType.FLOAT:
+        raise ValueError(
+            f"mxfp4_ceil_x only supports FLOAT type (MXFP4), got {args.type}"
+        )
+    if args.num_bits != 4:
+        raise ValueError(
+            f"mxfp4_ceil_x only supports 4-bit (E2M1), got {args.num_bits} bits"
+        )
+    if not args.symmetric:
+        raise ValueError("mxfp4_ceil_x only supports symmetric quantization")
+    if args.strategy != QuantizationStrategy.GROUP:
+        raise ValueError(
+            f"mxfp4_ceil_x only supports the GROUP strategy used by the MXFP4 "
+            f"scheme, got {args.strategy}"
+        )
+    if not should_generate_mx_scales(args):
+        raise ValueError(
+            "mxfp4_ceil_x requires MXFP4 scale generation (group_size=32 with "
+            f"scale_dtype=uint8), got group_size={args.group_size}, "
+            f"scale_dtype={args.scale_dtype}"
+        )
+
+
+def _mxfp4_ceil_x_adjust(
     min_vals: torch.Tensor,
     max_vals: torch.Tensor,
-    ceil_x_value: float,
+    ceil_x_value: float = _MXFP4_CEIL_X_VALUE,
 ) -> MinMaxTuple:
     """Adjust min/max so that ``calculate_qparams`` produces the ceil_x exponent.
 
@@ -77,8 +115,8 @@ def _ceil_x_adjust(
     which cancels the ``- e_max`` in ``generate_mx_scales`` to yield
     ``E8M0 = 127 + ceil(log2(max/c + eps))``.
 
-    This function is only valid for symmetric quantization. The caller is
-    responsible for ensuring the quantization args specify symmetric=True.
+    This function is only valid for symmetric MXFP4 quantization. The caller
+    is responsible for ensuring the quantization args describe that format.
 
     :param min_vals: per-group minimum values
     :param max_vals: per-group maximum values
@@ -131,185 +169,32 @@ def _ceil_x_adjust(
     return new_min_vals, new_max_vals
 
 
-def _ceil_x_search_best(
-    observed: torch.Tensor,
-    min_vals: torch.Tensor,
-    max_vals: torch.Tensor,
-    args: QuantizationArgs,
-    search_min: float = 6.0,
-    search_max: float = 12.0,
-    search_step: float = 0.25,
-) -> float:
-    """Search for the best ``ceil_x_value`` that minimizes MSE.
-
-    For each candidate *c*, compute adjusted min/max, derive qparams,
-    fake-quantize the observed values, and measure reconstruction MSE.
-    Return the candidate with the lowest error.
-
-    :param observed: flattened observations of shape
-                     ``(num_observations, *qparam_shape, group_size)``
-    :param min_vals: per-group minimum values
-    :param max_vals: per-group maximum values
-    :param args: quantization arguments
-    :param search_min: lower bound of search range
-    :param search_max: upper bound of search range
-    :param search_step: step size between candidates
-    :return: best ceil_x_value found
-    """
-    num_steps = int(round((search_max - search_min) / search_step)) + 1
-    candidates = [search_min + i * search_step for i in range(num_steps)]
-
-    best_mse = float("inf")
-    best_value = search_min
-
-    # For TENSOR_GROUP with scale_dtype, temporarily clear scale_dtype so
-    # calculate_qparams works in FP32 (the global_scale cancels out in MSE)
-    effective_args = args
-    if (
-        args.strategy == QuantizationStrategy.TENSOR_GROUP
-        and args.scale_dtype is not None
-    ):
-        effective_args = args.model_copy(update={"scale_dtype": None})
-
-    for value in candidates:
-        adj_min, adj_max = _ceil_x_adjust(min_vals, max_vals, value)
-        scale, zero_point = calculate_qparams(
-            min_vals=adj_min,
-            max_vals=adj_max,
-            quantization_args=effective_args,
-            global_scale=None,
-        )
-        # fake_quantize expects scale/zero_point broadcastable to observed
-        # observed shape: (num_obs, *qparam_shape, group_size)
-        # scale shape: (*qparam_shape,) → need unsqueeze(0) and unsqueeze(-1)
-        q_scale = scale.unsqueeze(0).unsqueeze(-1)
-        q_zp = zero_point.unsqueeze(0).unsqueeze(-1)
-        quantized = fake_quantize(observed, q_scale, q_zp, effective_args)
-        mse = ((quantized - observed) ** 2).mean().item()
-
-        if mse < best_mse:
-            best_mse = mse
-            best_value = value
-
-    return best_value
-
-
-@Observer.register("ceil_x")
-class CeilXObserver(Observer):
-    """
-    Ceil_x observer for MXFP4 per-block weight-only quantization.
-
-    Uses ``ceil(log2(max(|x|)/c))`` to compute the shared exponent, where *c*
-    is a configurable divisor (default 7.25, range [6.0, 12.0]). This reduces
-    the large-value truncation that occurs with traditional floor-based
-    scaling in MXFP4, trading truncation of 1-2 outlier values per block for
-    a halved quantization step size on the remaining values.
-
-    The observer adjusts ``min_vals`` / ``max_vals`` so that the downstream
-    ``calculate_qparams`` produces the ceil_x exponent. For TENSOR_GROUP
-    strategy (MXFP4), the base class handles ``global_scale`` computation
-    and fusion across fused layer groups (Q/K/V, gate/up).
-
-    Optional MSE search: when ``enable_search=True``, the observer enumerates
-    ``ceil_x_value`` candidates in ``[search_min, search_max]`` with step
-    ``search_step`` and selects the value that minimizes weight reconstruction
-    MSE.
-
-    Observer kwargs:
-        ceil_x_value: divisor *c* (default 7.25, range [6.0, 12.0])
-        enable_search: whether to search for the best *c* (default False)
-        search_min: search range lower bound (default 6.0)
-        search_max: search range upper bound (default 12.0)
-        search_step: search step size (default 0.25)
-    """
-
-    _act_sync_dict = {}
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        kw = self.args.observer_kwargs
-        self.ceil_x_value = kw.get("ceil_x_value", 7.25)
-        self.enable_search = kw.get("enable_search", False)
-        self.search_min = kw.get("search_min", 6.0)
-        self.search_max = kw.get("search_max", 12.0)
-        self.search_step = kw.get("search_step", 0.25)
-
-        # Validate format constraints: ceil_x only supports MXFP4 symmetric
-        if self.args.type != QuantizationType.FLOAT:
-            raise ValueError(
-                f"ceil_x only supports FLOAT type (MXFP4), got {self.args.type}"
-            )
-        if not self.args.symmetric:
-            raise ValueError("ceil_x only supports symmetric quantization")
-        if self.args.strategy != QuantizationStrategy.TENSOR_GROUP:
-            raise ValueError(
-                f"ceil_x only supports TENSOR_GROUP strategy, "
-                f"got {self.args.strategy}"
-            )
-
-        # Validate ceil_x_value range
-        if not (6.0 <= self.ceil_x_value <= 12.0):
-            raise ValueError(
-                f"ceil_x_value must be in [6.0, 12.0], got {self.ceil_x_value}"
-            )
-        if self.enable_search:
-            if not (6.0 <= self.search_min <= 12.0) or not (
-                6.0 <= self.search_max <= 12.0
-            ):
-                raise ValueError(
-                    f"search_min and search_max must be in [6.0, 12.0], "
-                    f"got [{self.search_min}, {self.search_max}]"
-                )
-            if self.search_max <= self.search_min:
-                raise ValueError(
-                    f"search_max ({self.search_max}) must be greater than "
-                    f"search_min ({self.search_min})"
-                )
-            if self.search_step <= 0:
-                raise ValueError(
-                    f"search_step must be positive, got {self.search_step}"
-                )
-
-        # Store the effective value (may be updated by search)
-        self._effective_ceil_x: Optional[float] = None
-
-    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
-        # Step 1: compute raw per-group min/max
-        # observed shape: (num_observations, *qparam_shape, group_size)
-        # Reduce over dim 0 (observations) and dim -1 (group_size)
-        raw_min = torch.amin(observed, dim=(0, -1))
-        raw_max = torch.amax(observed, dim=(0, -1))
-
-        # Step 2: optionally search for the best ceil_x_value
-        if self.enable_search:
-            self._effective_ceil_x = _ceil_x_search_best(
-                observed,
-                raw_min,
-                raw_max,
-                self.args,
-                search_min=self.search_min,
-                search_max=self.search_max,
-                search_step=self.search_step,
-            )
-        else:
-            self._effective_ceil_x = self.ceil_x_value
-
-        # Step 3: adjust min/max for ceil_x shared exponent
-        self.min_vals, self.max_vals = _ceil_x_adjust(
-            raw_min, raw_max, self._effective_ceil_x
-        )
-
-
 @Observer.register("mxfp4_ceil_x")
-class MXFP4CeilXObserver(CeilXObserver):
+class MXFP4CeilXObserver(MemorylessMSEObserver):
     """
-    Alias for :class:`CeilXObserver` for use with MXFP4 schemes.
+    MXFP4 ceil_x observer with per-group MSE grid-search refinement.
 
-    This class has the same defaults as :class:`CeilXObserver` (no tuning
-    beyond the base class). It is provided as a descriptive name so that
-    recipes can make the MXFP4 intent explicit. The default
-    ``ceil_x_value=7.25`` is empirically optimal for MXFP4 symmetric
-    weight-only quantization.
+    Uses ``ceil(log2(max(|x|)/c + eps))`` with the fixed divisor
+    ``c = 7.25`` to compute the MXFP4 shared exponent, then refines it per
+    group: the shared MSE grid search
+    (see :mod:`llmcompressor.observers.grid_search`) starts from the
+    ceil_x adjusted range and selects the per-group candidate that
+    minimizes reconstruction error. The first grid candidate reproduces
+    the fixed ceil_x exponent itself, so the result is never worse than
+    the fixed heuristic under the configured error norm. Setting
+    ``maxshrink=0`` (or any ``maxshrink`` that yields an empty grid)
+    reproduces the fixed ceil_x observer exactly.
+
+    On MX formats the automatic (exponential) grid halves the range at
+    each candidate, which decrements the shared exponent by one: with the
+    default ``maxshrink`` the search visits the ceil_x shared exponent
+    plus three finer exponents (1/2, 1/4, 1/8) per group, letting each
+    block choose its own truncation-vs-resolution trade-off. The grid also
+    appends a linear-grid endpoint candidate, but against the power-of-two
+    base range it is degenerate, mapping to the 1/8 exponent.
+
+    Inherits the standard MSE observer kwargs (``norm``, ``maxshrink``,
+    ``patience``, ``grid``, ...); see :class:`MemorylessMSEObserver`.
 
     Usage::
 
@@ -321,4 +206,33 @@ class MXFP4CeilXObserver(CeilXObserver):
         )
     """
 
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _validate_mxfp4_args(self.args)
+        # Search down to 1/8 of the ceil_x adjusted range. With the
+        # exponential grid used for MX scales this visits the ceil_x
+        # shared exponent plus three finer exponents (1/2, 1/4, 1/8) per
+        # group; the grid's appended linear endpoint is degenerate against
+        # the power-of-two base range.
+        self.maxshrink = self.args.observer_kwargs.get("maxshrink", 1.0 - 1.0 / 8.0)
+
+    def update_statistics_from_observed(self, observed: torch.Tensor) -> None:
+        # observed shape: (num_observations, *qparam_shape, group_size)
+        raw_min = torch.amin(observed, dim=(0, -1))
+        raw_max = torch.amax(observed, dim=(0, -1))
+
+        # Search from the ceil_x adjusted range instead of the raw
+        # observed min/max
+        base_min, base_max = _mxfp4_ceil_x_adjust(raw_min, raw_max)
+        self.min_vals, self.max_vals = _grid_search_observer(
+            observed,
+            self.args,
+            self.maxshrink,
+            self.patience,
+            self.grid,
+            self.norm,
+            expand=self.expand,
+            magnitude_normalization=self.magnitude_normalization,
+            grid_type=self.grid_type,
+            base_range=(base_min, base_max),
+        )
