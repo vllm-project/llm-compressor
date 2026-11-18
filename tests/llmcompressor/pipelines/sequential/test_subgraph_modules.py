@@ -37,7 +37,8 @@ def test_module_discovery_retains_order_and_shared_aliases(recurse):
     expected = {"block": model.block}
     if recurse:
         expected.update({"block.0": model.block[0], "block.1": model.block[1]})
-    assert subgraph.submodule_dict(model, recurse=recurse) == expected
+    modules, _ = subgraph.submodule_dict(model, recurse=recurse)
+    assert modules == expected
     assert model.lookups == ["block", "alias"]
     model.lookups.clear()
     assert subgraph.submodules(model, recurse=recurse) == list(expected.values())
@@ -49,17 +50,19 @@ def test_module_discovery_retains_order_and_shared_aliases(recurse):
 def test_module_discovery_observes_replacement_and_graph_changes():
     model = CountingModel()
     subgraph = make_subgraph()
-    first = subgraph.submodule_dict(model)
+    first, _ = subgraph.submodule_dict(model)
     replacement = torch.nn.Identity()
     model.block[0] = replacement
-    assert subgraph.submodule_dict(model)["block.0"] is replacement
+    modules, _ = subgraph.submodule_dict(model)
+    assert modules["block.0"] is replacement
     assert first["block.0"] is not replacement
     other_model = CountingModel()
     assert subgraph.submodules(other_model)[0] is other_model.block
     node = next(node for node in subgraph.graph.nodes if node.op == "call_module")
     node.target = "block.0"
     node.meta[INVOKED_SUBMODULES_META_KEY] = []
-    assert subgraph.submodule_dict(model) == {"block.0": replacement}
+    modules, _ = subgraph.submodule_dict(model)
+    assert modules == {"block.0": replacement}
     node.target = "missing"
     with pytest.raises(AttributeError):
         subgraph.submodule_dict(model)

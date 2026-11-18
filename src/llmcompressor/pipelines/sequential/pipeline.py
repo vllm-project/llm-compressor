@@ -31,7 +31,6 @@ from llmcompressor.pipelines.sequential.helpers import (
     handle_sequential_oom,
     partition_subgraphs,
     restructure_targets_for_modules,
-    Subgraph,
     trace_graph,
 )
 from llmcompressor.pipelines.sequential.restructure import (
@@ -65,16 +64,6 @@ def _submit_subgraph_staging(
         pin_memory=pin_memory,
     )
     return modules, future
-
-
-def _subgraph_modules_and_restructure_targets(
-    subgraph: Subgraph, model: torch.nn.Module
-) -> tuple[dict[str, torch.nn.Module], list[torch.nn.Module]]:
-    """Use one graph walk when the subgraph exposes restructure targets."""
-    discover = getattr(subgraph, "submodule_dict_and_restructure_targets", None)
-    if discover is None:
-        return subgraph.submodule_dict(model), []
-    return discover(model)
 
 
 def _get_batches(
@@ -244,7 +233,7 @@ class SequentialPipeline(CalibrationPipeline):
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
             # Prefetch first subgraph modules
-            next_subgraph_modules = subgraphs[0].submodule_dict(model)
+            next_subgraph_modules, _ = subgraphs[0].submodule_dict(model)
             prefetched_staging = _submit_subgraph_staging(
                 stage_executor,
                 next_subgraph_modules,
@@ -256,7 +245,7 @@ class SequentialPipeline(CalibrationPipeline):
                 (
                     target_subgraph_modules,
                     target_restructure_targets,
-                ) = _subgraph_modules_and_restructure_targets(subgraph, model)
+                ) = subgraph.submodule_dict(model)
                 current_staging_modules = target_subgraph_modules
                 if prefetched_staging is None:
                     subgraph_stage_modules(
@@ -288,7 +277,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # Submit the next subgraph's staging before onloading the
                 # current subgraph so staging can overlap with onload work.
                 if subgraph_index + 1 < num_subgraphs:
-                    next_subgraph_modules = subgraphs[
+                    next_subgraph_modules, _ = subgraphs[
                         subgraph_index + 1
                     ].submodule_dict(model)
                     prefetched_staging = _submit_subgraph_staging(

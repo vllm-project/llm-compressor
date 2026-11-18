@@ -31,7 +31,7 @@ class _FakeSubgraph:
         return [self.module]
 
     def submodule_dict(self, model):
-        return {"0": self.module}
+        return {"0": self.module}, []
 
     def forward(self, model, **inputs):
         self.events.append("forward")

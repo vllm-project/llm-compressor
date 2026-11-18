@@ -148,15 +148,10 @@ class Subgraph:
         modules, _ = self._subgraph_module_dict(model, recurse=recurse)
         return list(modules.values())
 
-    def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
-        """Return subgraph modules keyed by their fully qualified model names."""
-        modules, _ = self._subgraph_module_dict(model, recurse=recurse)
-        return modules
-
-    def submodule_dict_and_restructure_targets(
+    def submodule_dict(
         self, model: Module, recurse: bool = True
     ) -> tuple[dict[str, Module], list[Module]]:
-        """Return owned modules and their restructure targets in one traversal."""
+        """Return owned modules and restructure targets from one traversal."""
         return self._subgraph_module_dict(model, recurse=recurse)
 
 
@@ -166,7 +161,8 @@ def collect_subgraph_modules(
     """Return the union of all modules owned by the traced subgraphs."""
     modules: dict[str, Module] = {}
     for subgraph in subgraphs:
-        modules.update(subgraph.submodule_dict(model, recurse=recurse))
+        subgraph_modules, _ = subgraph.submodule_dict(model, recurse=recurse)
+        modules.update(subgraph_modules)
     return modules
 
 

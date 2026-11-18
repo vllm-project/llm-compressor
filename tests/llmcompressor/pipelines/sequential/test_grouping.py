@@ -583,7 +583,7 @@ class _FakeSubgraph:
         return []
 
     def submodule_dict(self, model, recurse=True):
-        return {}
+        return {}, []
 
 
 @patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
