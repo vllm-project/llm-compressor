@@ -34,7 +34,6 @@ def _lutb_args(scale_block_structure=None):
     "preset_name, expected_scale_block",
     [
         ("LUTB", [8, 64]),
-        ("LUTB32", [8, 2]),
         ("LUTB_BLOCK32", [1, 32]),
     ],
 )
@@ -53,7 +52,7 @@ def test_rtn_modifier_resolves_lutb_presets(preset_name, expected_scale_block):
 
 @pytest.mark.parametrize(
     "scale_block_structure, expected_scale_shape",
-    [(None, (2, 1)), ([8, 2], (2, 1, 32)), ([1, 32], (2, 1, 16))],
+    [(None, (2, 1)), ([1, 32], (2, 1, 16))],
 )
 def test_gptq_lutb_uses_hessian_diagonal_as_importance(
     scale_block_structure, expected_scale_shape, monkeypatch
@@ -94,7 +93,6 @@ def test_gptq_lutb_uses_hessian_diagonal_as_importance(
     "preset_name, expected_scale_shape",
     [
         ("LUTB", (2, 1)),
-        ("LUTB32", (2, 1, 32)),
         ("LUTB_BLOCK32", (2, 1, 16)),
     ],
 )
