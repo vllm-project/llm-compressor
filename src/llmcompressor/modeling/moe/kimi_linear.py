@@ -11,8 +11,9 @@ at the latent MoE width and supports the ``situ`` activation, which is not in
 
 ``KimiLinearExperts`` (in
 ``llmcompressor.modeling.kimi_k3.modeling_kimi_linear``) is the
-standard-format dummy class registered against this replacement. In practice it
-is never instantiated; LLM Compressor owns the definition directly.
+standard-format class registered against this replacement. It is also the
+fused class which ``LinearExperts2D.to_experts_module`` rebuilds when packing
+a (possibly pruned) checkpoint back into the native format.
 """
 
 import torch

@@ -867,16 +867,23 @@ class KimiMoEGate(nn.Module):
 @use_experts_implementation
 class KimiLinearExperts(nn.Module):
     """
-    Standard-format experts module for Kimi-K3, used only to register the
-    linearized replacement (``KimiLinearLinearExperts``). In practice this
-    class is never instantiated; LLM Compressor owns the definition directly
-    and ``KimiSparseMoeBlock`` instantiates the linearized experts itself.
+    Standard-format experts module for Kimi-K3, used to register the linearized
+    replacement (``KimiLinearLinearExperts``) and to pack linearized experts
+    back into the fused format (``LinearExperts2D.to_experts_module``).
+    ``KimiSparseMoeBlock`` instantiates the linearized experts directly rather
+    than this class.
     """
 
     def __init__(self, config: KimiLinearConfig):
         super().__init__()
         self.num_experts = config.num_experts
-        self.hidden_dim = config.hidden_size
+        # latent MoE: experts run at routed_expert_hidden_size, which is both
+        # their input and output width, rather than at the model hidden size
+        self.hidden_dim = (
+            config.routed_expert_hidden_size
+            if getattr(config, "routed_expert_hidden_size", None) is not None
+            else config.hidden_size
+        )
         self.intermediate_dim = config.moe_intermediate_size
         self.gate_up_proj = nn.Parameter(
             torch.empty(self.num_experts, 2 * self.intermediate_dim, self.hidden_dim)
@@ -884,7 +891,12 @@ class KimiLinearExperts(nn.Module):
         self.down_proj = nn.Parameter(
             torch.empty(self.num_experts, self.hidden_dim, self.intermediate_dim)
         )
-        self.act_fn = ACT2FN[config.hidden_act]
+        # situ is registered in ACT2FN as a class rather than an instance
+        if config.hidden_act == "situ":
+            beta, linear_beta = _get_situ_activation_params(config)
+            self.act_fn = SituAndMul(beta=beta, linear_beta=linear_beta)
+        else:
+            self.act_fn = ACT2FN[config.hidden_act]
 
     def forward(
         self,
@@ -906,10 +918,13 @@ class KimiLinearExperts(nn.Module):
                 continue
             top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
             current_state = hidden_states[token_idx]
-            gate, up = nn.functional.linear(
-                current_state, self.gate_up_proj[expert_idx]
-            ).chunk(2, dim=-1)
-            current_hidden_states = self.act_fn(gate) * up
+            gate_up = nn.functional.linear(current_state, self.gate_up_proj[expert_idx])
+            if isinstance(self.act_fn, SituAndMul):
+                # situ consumes the concatenated (gate, up) projection
+                current_hidden_states = self.act_fn(gate_up)
+            else:
+                gate, up = gate_up.chunk(2, dim=-1)
+                current_hidden_states = self.act_fn(gate) * up
             current_hidden_states = nn.functional.linear(
                 current_hidden_states, self.down_proj[expert_idx]
             )

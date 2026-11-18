@@ -47,9 +47,16 @@ CONFIG_OVERRIDES = {
     },
     "kimi_k3": {
         "hidden_size": 256,
+        # latent MoE: experts run at a narrower width than the model hidden
+        # size, like the real checkpoint (7168 -> 3584)
+        "routed_expert_hidden_size": 192,
         "moe_intermediate_size": 128,
         "num_experts": 8,
         "num_experts_per_token": 2,
+        # real Kimi-K3 activation, which is registered in ACT2FN as a class
+        "hidden_act": "situ",
+        "activation_situ_beta": 4.0,
+        "activation_situ_linear_beta": 25.0,
     },
 }
 
