@@ -53,6 +53,19 @@ echo "--- Installed packages"
 uv pip list
 
 TEST_EXIT_CODE=0
+
+# Select tests by cadence, matching the CADENCE variable in the Makefile and
+# the requires_cadence decorator in tests/testing_utils.py
+if [ "${CADENCE}" = "release" ]; then
+  CADENCE_MARKS=()
+elif [ "${CADENCE}" = "nightly" ]; then
+  CADENCE_MARKS=( -m "not weekly" )
+elif [ "${CADENCE}" = "weekly" ]; then
+  CADENCE_MARKS=( -m "not nightly" )
+else
+  CADENCE_MARKS=( -m "not nightly and not weekly" )
+fi
+
 if [ "${TEST_TYPE}" = "base" ]; then
   echo "+++ Running base tests"
   make test || TEST_EXIT_CODE=$?
@@ -61,7 +74,7 @@ elif [ "${TEST_TYPE}" = "transformers" ]; then
   COV_APPEND=""
   for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
     echo "=== Running: ${test_file} ==="
-    pytest -vra ${COV_APPEND} "${test_file}" || TEST_EXIT_CODE=$?
+    pytest -vra ${COV_APPEND} "${CADENCE_MARKS[@]}" "${test_file}" || TEST_EXIT_CODE=$?
     if [ "${CODE_COVERAGE}" = "true" ]; then
       COV_APPEND="--cov-append"
     fi

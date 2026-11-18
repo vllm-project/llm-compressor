@@ -23,5 +23,7 @@ markers = [
     "unit: tests to ensure code correctness and regression test functionality",
     "example: tests for content in the 'examples' folder",
     "multi_gpu: tests that require multiple GPUs",
+    "nightly: long-running tests run on the nightly cadence instead of every commit",
+    "weekly: very long-running tests run on the weekly cadence instead of every commit",
 ]
 tmp_path_retention_policy = "failed"
