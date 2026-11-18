@@ -39,6 +39,7 @@ Some popular datasets include:
 | `open-platypus` | General instruction models | Diverse instruction-following examples |
 | `wikitext-2-raw-v1` | General language models | Clean Wikipedia text for broad language understanding |
 | `c4` | General pre-training | Large-scale web text for general-purpose models |
+| `razorcal` | MoE models & mixed-domain workloads | Multi-domain chat corpus (coding, math, STEM, Chinese-STEM, instruction following, tool calling, world knowledge) from the RAZOR expert-pruning project |
 
 ### Dataset size
 Most calibration algorithms work well with relatively small datasets:

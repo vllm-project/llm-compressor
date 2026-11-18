@@ -46,7 +46,12 @@ from llmcompressor.utils.metric_logging import CompressionLogger
 
 __all__ = ["GPTQModifier"]
 
-_GPTQ_Q_PARAMS = ["weight", "weight_scale", "weight_zero_point"]
+_GPTQ_Q_PARAMS = [
+    "weight",
+    "weight_scale",
+    "weight_zero_point",
+    "weight_global_scale",
+]
 
 
 class GPTQModifier(Modifier, QuantizationMixin):
@@ -150,8 +155,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
             raise ValueError("batched_quantization must be a positive integer")
         return value
 
-    def resolve_quantization_config(self) -> QuantizationConfig:
-        config = super().resolve_quantization_config()
+    def resolve_quantization_config(
+        self, has_calibration_data: bool = False
+    ) -> QuantizationConfig:
+        config = super().resolve_quantization_config(
+            has_calibration_data=has_calibration_data
+        )
 
         def resolve_actorder(weights):
             existing = weights.actorder
@@ -197,7 +206,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         """
         # apply config to model and prepare calibration hooks
         if QuantizationMixin.has_config(self):
-            QuantizationMixin.initialize_quantization(self, state.model)
+            QuantizationMixin.initialize_quantization(self, state)
 
         # prepare module names
         self._module_names = {
@@ -233,9 +242,9 @@ class GPTQModifier(Modifier, QuantizationMixin):
         self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
     ):
         modules = [module for module in modules if is_module_quantized(module)]
-        observe(modules, base_name="weight")
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+        observe(modules, base_name="weight")
         self.compress_modules()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):

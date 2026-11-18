@@ -1,6 +1,11 @@
 import pytest
 import torch
 from compressed_tensors.offload import dispatch_model, set_onload_device
+from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+    subgraph_stage_modules,
+)
 from transformers import (
     AutoModelForCausalLM,
     MllamaForConditionalGeneration,
@@ -125,6 +130,29 @@ def test_disable_lm_head_does_not_onload_weight(monkeypatch):
         pass
 
     assert onloaded == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stage", [True, False])
+def test_disable_lm_head_survives_subgraph_onload(stage):
+    # the sequential pipeline onloads and offloads each subgraph's modules within
+    # calibration_forward_context
+    with skip_weights_download():
+        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokeqwen3")
+    set_onload_device(model, "cpu")
+    modules = {"lm_head": model.lm_head}
+    hidden_states = torch.zeros(1, 4, model.config.hidden_size)
+
+    with disable_lm_head(model):
+        if stage:
+            subgraph_stage_modules(modules)
+        offload_kwargs = subgraph_onload_modules(modules)
+        assert model.lm_head(hidden_states).device == torch.device("meta")
+
+        subgraph_offload_modules(modules, offload_kwargs)
+        assert model.lm_head(hidden_states).device == torch.device("meta")
+
+    assert model.lm_head(hidden_states).device == torch.device("cpu")
 
 
 @requires_gpu

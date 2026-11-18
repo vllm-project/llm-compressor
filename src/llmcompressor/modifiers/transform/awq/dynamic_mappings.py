@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 from loguru import logger
 from torch.nn import Module
+from transformers import PreTrainedModel
 
 from llmcompressor.modifiers.transform.awq.mappings import (
     AWQ_MAPPING_REGISTRY,
@@ -221,7 +222,116 @@ def build_step3p5_mappings(model: Module) -> list[AWQMapping] | None:
     return mappings
 
 
-AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[[Module], list[AWQMapping] | None]] = {
+def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
+    """
+    Build AWQ mappings for Gemma4ForConditionalGeneration and
+    Gemma4UnifiedForConditionalGeneration.
+
+    Gemma4 has hybrid attention with two types of layers:
+    - sliding_attention layers: have separate k_proj and v_proj (GQA)
+    - full_attention layers: share k=v projection (no separate v_proj)
+
+    For sliding_attention layers with GQA, the v_proj -> o_proj mapping is
+    skipped since it would hit a GQA dimension mismatch. For full_attention
+    layers, k and v are shared, so the k_proj -> o_proj mapping is also
+    skipped since altering k_proj would change the attention behavior.
+    """
+    config = model.config
+    text_config = config.get_text_config()
+    layer_types = getattr(text_config, "layer_types", None)
+    num_layers = getattr(text_config, "num_hidden_layers", None)
+
+    if layer_types is None or num_layers is None:
+        return None
+
+    # Find sliding and full attention layer indices
+    sliding_indices = [
+        i for i, t in enumerate(layer_types[:num_layers]) if t == "sliding_attention"
+    ]
+    full_indices = [
+        i for i, t in enumerate(layer_types[:num_layers]) if t == "full_attention"
+    ]
+
+    if not sliding_indices and not full_indices:
+        return None
+
+    mappings = []
+
+    # Sliding attention layers: input_layernorm -> q/k/v_proj
+    # Balance layers must also be scoped to sliding layers only to avoid
+    # matching full attention layers which don't have v_proj
+    if sliding_indices:
+        sliding_re = "|".join(str(i) for i in sliding_indices)
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({sliding_re})\\.input_layernorm$",
+                [
+                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.q_proj$",
+                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.k_proj$",
+                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.v_proj$",
+                ],
+            )
+        )
+        # No v_proj -> o_proj mapping due to GQA dimension mismatch is unsupported
+
+    # Full attention layers: input_layernorm -> q/k_proj (k=v, no separate v_proj)
+    # Balance layers scoped to full attention layers only
+    # Note: can't do k_proj -> o_proj mapping since that would alter the attention
+    if full_indices:
+        full_re = "|".join(str(i) for i in full_indices)
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({full_re})\\.input_layernorm$",
+                [
+                    f"re:.*layers\\.({full_re})\\.self_attn\\.q_proj$",
+                    f"re:.*layers\\.({full_re})\\.self_attn\\.k_proj$",
+                ],
+            )
+        )
+        # No k_proj -> o_proj mapping, altering k_proj would change attention behavior
+
+    all_re = "|".join(str(i) for i in range(num_layers))
+    is_moe = bool(getattr(text_config, "enable_moe_block", False))
+
+    # Dense MLP: pre_feedforward_layernorm -> mlp gate/up_proj
+    mappings.append(
+        AWQMapping(
+            f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm$",
+            [
+                f"re:.*layers\\.({all_re})\\.mlp\\.gate_proj$",
+                f"re:.*layers\\.({all_re})\\.mlp\\.up_proj$",
+            ],
+        )
+    )
+
+    # MoE experts: pre_feedforward_layernorm_2 -> experts gate/up_proj
+    if is_moe:
+        mappings.append(
+            AWQMapping(
+                f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm_2$",
+                [
+                    f"re:.*layers\\.({all_re})\\.experts\\..*\\.gate_proj$",
+                    f"re:.*layers\\.({all_re})\\.experts\\..*\\.up_proj$",
+                ],
+            )
+        )
+
+    mappings.append(AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]))
+
+    logger.info(
+        f"Built dynamic Gemma4 AWQ mappings: "
+        f"{len(sliding_indices)} sliding-attention layers, "
+        f"{len(full_indices)} full-attention layers (k=v), MoE: {is_moe}"
+    )
+
+    return mappings
+
+
+# Builders may require a `PreTrainedModel` even though the public entrypoint
+# accepts any `Module`, so the value type is relaxed to `Callable[...]`
+AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[..., list[AWQMapping] | None]] = {
+    "Gemma4ForConditionalGeneration": build_gemma4_mappings,
+    "Gemma4UnifiedForConditionalGeneration": build_gemma4_mappings,
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForCausalLM": build_hybrid_attention_mappings,
     "Qwen3_5ForConditionalGeneration": build_hybrid_attention_mappings,
