@@ -29,6 +29,7 @@ Weight and activation quantization is best for maximum throughput on modern hard
 | Algorithm | Best for | Description |
 |-----------|----------|-------------|
 | REAP | Reducing the memory footprint of MoE models | Uses calibration data to score experts by router-weighted activation saliency, then structurally removes the least-salient experts from each MoE layer |
+| HOPE | Expert pruning at aggressive sparsities | Second-order extension of REAP which also accounts for pairwise expert co-selection when choosing which experts to remove per MoE layer |
 
 REAP (`REAPPruningModifier`) is intended for Mixture-of-Experts models. Its
 `sparsity` value is the fraction of experts to remove per MoE layer; it does
@@ -55,6 +56,31 @@ oneshot(
 REAP can be combined with quantization in the same `oneshot` recipe. See the
 [REAP examples](../../examples/reap_expert_pruning/README.md), including the
 combined REAP + FP8/NVFP4 example.
+
+HOPE (`HOPEPruningModifier`) prunes the same fraction of experts per layer,
+but scores experts jointly rather than independently: during calibration it
+accumulates each layer's pairwise expert interaction matrix and selects the
+prune-set which minimizes the interaction mass it removes, solved as a small
+quadratic program per layer. This preserves cooperative expert structure
+that first-order methods like REAP ignore, with the largest gains at high
+pruning rates (40-50%) and on complex agentic workloads. It requires the
+`scipy` package, collects the same routed-activation statistics as REAP
+(same calibration data and `moe_calibrate_all_experts=False` setting), and
+composes with quantization the same way.
+
+```python
+from llmcompressor import oneshot
+from llmcompressor.modifiers.pruning import HOPEPruningModifier
+
+oneshot(
+    model=model,
+    dataset="perfectblend",
+    recipe=HOPEPruningModifier(sparsity=0.5, report_path="hope.json"),
+    num_calibration_samples=512,
+    max_seq_length=2048,
+    moe_calibrate_all_experts=False,
+)
+```
 
 ## KV cache and attention quantization
 
@@ -84,6 +110,7 @@ Use the table below to select the algorithm that best matches your deployment re
 | GPTQ or AWQ | Better accuracy at 4-bit (Int4 or FP4)|
 | SmoothQuant | Smooths outliers in activations by folding them into weights and vice versa, ensuring better accuracy for weight+activation quantization |
 | REAP | Lower VRAM requirements for MoE models by pruning low-saliency experts |
+| HOPE | Lower VRAM requirements for MoE models at aggressive pruning rates by accounting for expert interactions |
 | SpinQuant or QuIP + GPTQ | Best low-bit accuracy |
 | FP8 KV Cache | Target KV Cache or attention activations |
 
