@@ -79,17 +79,13 @@ class Subgraph:
         including their descendants. Names which do not exist in `model` raise.
         """
         modules: dict[str, Module] = {}
-        restructure_targets: list[Module] = []
+        restructure_targets: dict[Module, None] = {}
+        # Transformed ancestors may not be members of the subgraph's module dict.
         seen_modules: set[Module] = set()
-        seen_restructure_targets: set[int] = set()
 
         def add_restructure_target(module: Module) -> None:
-            if not hasattr(module, RESTRUCTURE_METADATA_ATTR):
-                return
-            module_id = id(module)
-            if module_id not in seen_restructure_targets:
-                restructure_targets.append(module)
-                seen_restructure_targets.add(module_id)
+            if hasattr(module, RESTRUCTURE_METADATA_ATTR):
+                restructure_targets.setdefault(module, None)
 
         targets = [root for node in self.graph.nodes for root in get_node_roots(node)]
         for target in targets:
@@ -121,7 +117,7 @@ class Subgraph:
                 seen_modules.add(submodule)
                 add_restructure_target(submodule)
 
-        return modules, restructure_targets
+        return modules, list(restructure_targets)
 
     def forward(self, *args, **kwargs) -> dict[str, Any]:
         """

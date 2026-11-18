@@ -100,11 +100,10 @@ def onload_and_restructure_modules(
     """Onload originals, restructure them, and populate initialized targets."""
     pending: list[tuple[Module, dict[str, Any]]] = []
     for target in restructure_targets:
-        if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
-            continue
         metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
         if not metadata["materialized"]:
             pending.append((target, metadata))
+
     source_modules = {
         (
             f"{metadata['fqn']}.{name}" if name else metadata["fqn"]
