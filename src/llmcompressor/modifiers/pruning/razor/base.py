@@ -5,6 +5,7 @@ MoE models.
 See: https://arxiv.org/abs/2609.30465
 """
 
+from functools import partial
 from typing import Literal
 
 import torch
@@ -20,7 +21,7 @@ from pydantic import PrivateAttr
 from torch import distributed as dist
 from transformers.modeling_utils import local_torch_dtype
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
@@ -155,14 +156,18 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     or recovery training.
 
     The router scores are recomputed each batch from the router's linear
-    projection of the experts-block input (the activations the router itself
-    consumed), transformed by the router's native score function, which is
-    read from the model config (defaulting to ``softmax``). Router linear
-    biases are not modeled; an ``e_score_correction_bias``, when present on
-    the router or the MoE block, steers which unselected expert is promoted
-    -- matching the router's selection rule -- but is not added to the
-    mixture weights. Under group-limited routing (``n_group > 1``) the
-    promoted expert is approximated by the globally highest-ranked
+    projection of the activations it scored (captured by a pre-hook on the
+    router), transformed by the router's native score function, which is
+    read from the model config (defaulting to ``softmax``). This supports
+    latent-MoE architectures (e.g. nemotron_h with a ``moe_latent_size``),
+    whose experts consume a projection of the block input while the router
+    keeps scoring the block input itself; the consensus, the residuals, and
+    the damage are evaluated in the experts' own (latent) space. Router
+    linear biases are not modeled; an ``e_score_correction_bias``, when
+    present on the router or the MoE block, steers which unselected expert
+    is promoted -- matching the router's selection rule -- but is not added
+    to the mixture weights. Under group-limited routing (``n_group > 1``)
+    the promoted expert is approximated by the globally highest-ranked
     unselected expert.
 
     :param sparsity: fraction of experts to remove per layer, in ``[0, 1)``.
@@ -196,6 +201,14 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     _expert_outputs: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
+
+    # per-batch router input, keyed by layer name, populated by the router
+    # pre-hook and consumed by the experts block hook at the end of each
+    # batch. Latent-MoE architectures (e.g. nemotron_h with a
+    # ``moe_latent_size``) project the block input down before their experts,
+    # so the experts' own input cannot stand in for the activations the
+    # router scored
+    _router_inputs: dict[str, torch.Tensor] = PrivateAttr(default_factory=dict)
 
     # -- statistics and saliency ---------------------------------------------
 
@@ -270,6 +283,43 @@ class RazorPruningModifier(ExpertPruningModifierBase):
 
     # -- calibration hooks ----------------------------------------------------
 
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
+        """
+        Register the calibration hooks, plus a pre-hook on each layer's
+        router which records the activations it scores.
+
+        The router's input is the routing context the damage formula is
+        evaluated in: latent-MoE architectures (e.g. nemotron_h with a
+        ``moe_latent_size``) project the block input down before their
+        experts, so the router's input must be captured to recompute its
+        scores (see :meth:`experts_block_hook`).
+
+        :param state: The current session state
+        :param event: The event that triggered this callback
+        """
+        super().on_calibration_start(state, event, **kwargs)
+
+        model: torch.nn.Module = state.model
+        for moe_name, moe in model.named_modules():
+            experts, router = get_experts_router(moe_name, moe)
+            if experts is None:
+                continue
+            self.register_hook(
+                router, partial(self._router_hook, moe_name), "forward_pre"
+            )
+
+    @torch.no_grad()
+    def _router_hook(self, moe_name: str, module: torch.nn.Module, args: tuple):
+        """
+        Record the router's input for the current batch.
+
+        :param moe_name: Name of the MoE layer the router belongs to
+        :param module: The router module the hook is attached to
+        :param args: The router's forward arguments, where ``args[0]`` is the
+            input it scores
+        """
+        self._router_inputs[moe_name] = args[0]
+
     @torch.no_grad()
     def expert_hook(
         self,
@@ -316,21 +366,23 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         Accumulate the deletion damage of every routed (token, expert) pair.
 
         Recomputes the router scores for the batch from the router's linear
-        projection of the block input, so that the scores of unselected
-        experts are available; renormalizes the selected scores into mixture
-        weights and, under the refill criterion, determines the expert each
-        token would promote on a deletion (evaluating its output, which the
-        block's forward did not compute, since it is unselected). Then forms
-        the consensus output of each token from the recorded expert outputs,
-        and accumulates each pair's squared damage and count into the layer's
-        statistics. Resets the per-batch output buffers afterwards.
+        projection of the activations it scored (recorded by the router
+        pre-hook), so that the scores of unselected experts are available;
+        renormalizes the selected scores into mixture weights and, under the
+        refill criterion, determines the expert each token would promote on a
+        deletion (evaluating its output, which the block's forward did not
+        compute, since it is unselected). Then forms the consensus output of
+        each token from the recorded expert outputs, and accumulates each
+        pair's squared damage and count into the layer's statistics. Resets
+        the per-batch output buffers afterwards.
 
         :param moe_name: Name of the MoE layer the block belongs to
         :param moe: The MoE layer the hooked experts block belongs to
         :param module: The experts block the hook is attached to
         :param args: The block's forward arguments, where ``args[0]`` is the
-            block input, and ``args[1]`` and ``args[2]`` are the router's
-            top-k indices and weights
+            experts' input (a down-projection of the block input for
+            latent-MoE architectures), and ``args[1]`` and ``args[2]`` are
+            the router's top-k indices and weights
         :param output: The block's output for the current batch
         """
         if moe_name not in self._moe_stats:
@@ -349,11 +401,22 @@ class RazorPruningModifier(ExpertPruningModifierBase):
 
         # -- routing context --------------------------------------------------
         # recompute the full score vector (unselected experts included) from
-        # the router's linear projection of the block input, which is what
-        # the router itself consumed
+        # the router's linear projection of the activations it scored, which
+        # the router pre-hook recorded: latent-MoE architectures (e.g.
+        # nemotron_h with a moe_latent_size) project the block input down
+        # before their experts, so the experts' input (``args[0]``) can be
+        # narrower than what the router scored
+        router_states = self._router_inputs.pop(moe_name, None)
+        if router_states is None:
+            # the router was never recorded for this batch, so fall back to
+            # the experts' input, which is what the router scored in every
+            # non-latent architecture
+            router_states = hidden_states
+        router_states = router_states.reshape(-1, router_states.shape[-1])
+
         experts, router = get_experts_router(moe_name, moe)
         logits = F.linear(
-            hidden_states.to(self.precision),
+            router_states.to(self.precision),
             router.weight.to(device=hidden_states.device, dtype=self.precision),
         )
         scores = _apply_score_function(logits, self._moe_config.score_function)
@@ -475,4 +538,5 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     def on_finalize(self, state: State, **kwargs) -> bool:
         ret = super().on_finalize(state, **kwargs)
         self._expert_outputs.clear()
+        self._router_inputs.clear()
         return ret

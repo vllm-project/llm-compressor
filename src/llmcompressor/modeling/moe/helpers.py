@@ -50,6 +50,13 @@ MOE_CONFIG_KEYS = {
         "hidden_size",
         "hidden_dim",
     ],
+    # the router scores the full block input even when the experts consume a
+    # narrower latent projection of it (e.g. nemotron_h's moe_latent_size), so
+    # the router's width skips the latent-size key
+    "router_hidden_dim": [
+        "hidden_size",
+        "hidden_dim",
+    ],
     "intermediate_size": [
         "moe_intermediate_size",
         "intermediate_dim",
@@ -195,8 +202,10 @@ class MoEConfig:
     group_size: int | None = None
 
     # hidden sizes
-    hidden_dim: int | None = None
+    hidden_dim: int | None = None  # input/output width of each expert
     hidden_dim_key: str | None = None
+    router_hidden_dim: int | None = None  # width of what the router scores
+    router_hidden_dim_key: str | None = None
     intermediate_size: int | None = None
     intermediate_size_key: str | None = None
 
@@ -237,19 +246,21 @@ class MoEConfig:
         Every field is optional: values which the dict does not declare are
         left ``None`` (or ``False``), since a config dict may omit fields an
         in-memory model config carries. Each field is searched under its
-        candidate keys (``MOE_CONFIG_KEYS``) at the top level of the dict
-        and then under its nested ``text_config``, supporting composite (e.g.
-        vision-language) checkpoints.
+        candidate keys (``MOE_CONFIG_KEYS``) at the top level of the dict and
+        then under its nested language-model config, supporting composite (e.g.
+        vision-language) checkpoints which nest it under ``text_config`` or
+        ``llm_config`` (e.g. nemotron_h_omni).
 
         The key each value was read from is recorded in the field's
         ``<field>_key`` sibling attribute (e.g. ``num_experts_key``), so
         tooling can write updated values back to the same key.
         """
-        # composite checkpoints keep their text-model fields under
-        # text_config; the top level takes precedence for a given key
-        text_config = config_data.get("text_config")
+        # composite checkpoints keep their text-model fields under a nested
+        # config; the top level takes precedence for a given key, then
+        # text_config, then llm_config
+        nested = (config_data.get("text_config"), config_data.get("llm_config"))
         config = ChainMap(
-            config_data, text_config if isinstance(text_config, dict) else {}
+            config_data, *(cfg for cfg in nested if isinstance(cfg, dict))
         )
 
         # find the key each value is stored under, then read the value
@@ -286,8 +297,15 @@ class MoEConfig:
             case "lfm2_moe":
                 self.hidden_act = "silu"
             case "nemotron_h":
-                # moe_latent_size may be declared but unset; the expert
-                # hidden dim is then the model hidden size
+                # the router hardcodes a sigmoid score function; the config
+                # carries no scoring field. Checkpoints with a moe_latent_size
+                # project the block input down before the experts (the router
+                # keeps scoring the full hidden_size), which the hidden-size
+                # fallbacks already resolve into hidden_dim (the experts'
+                # width) and router_hidden_dim
+                self.score_function = "sigmoid"
+                # moe_latent_size may be declared but unset; the expert hidden
+                # dim is then the model hidden size
                 if self.hidden_dim is None:
                     self.hidden_dim_key = "hidden_size"
                     self.hidden_dim = config.get("hidden_size")
@@ -297,6 +315,15 @@ class MoEConfig:
     def _resolve_group_size(self):
         """Compute ``group_size`` from ``num_experts`` and ``n_group`` when both
         are known, raising if the experts do not split evenly into groups."""
+        if self.n_group == 1:
+            # a single routing group is no group limitation at all: normalize
+            # it away so the group-limited code paths (equal drops per group,
+            # per-group saliency ranking) are not taken spuriously (e.g.
+            # nemotron_h, whose config declares n_group=1)
+            self.n_group = None
+            self.n_group_key = None
+            self.top_k_group = None
+            self.top_k_group_key = None
         if self.n_group is None or self.num_experts is None:
             return
         if self.num_experts % self.n_group != 0:

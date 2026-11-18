@@ -516,18 +516,32 @@ class ExpertPruner(Converter):
 # ---------------------------------------------------------------------------
 
 
+def _get_text_config(config_data: dict) -> dict:
+    """The nested language-model config of a composed (e.g. vision-language)
+    checkpoint, if any: most compositions nest it under ``text_config``, some
+    (e.g. nemotron_h_omni) under ``llm_config``."""
+    for key in ("text_config", "llm_config"):
+        nested = config_data.get(key)
+        if isinstance(nested, dict):
+            return nested
+    return {}
+
+
 def _set_nested_key(config_data: dict, key: str, value: int):
     if key in config_data:
         old = config_data[key]
         config_data[key] = value
         logger.info(f"config.json: {key}: {old} -> {value}")
-    elif "text_config" in config_data and key in config_data["text_config"]:
-        old = config_data["text_config"][key]
-        config_data["text_config"][key] = value
-        logger.info(f"config.json text_config.{key}: {old} -> {value}")
-    else:
-        config_data[key] = value
-        logger.info(f"config.json: added {key} = {value}")
+        return
+    for nested_key in ("text_config", "llm_config"):
+        nested = config_data.get(nested_key)
+        if isinstance(nested, dict) and key in nested:
+            old = nested[key]
+            nested[key] = value
+            logger.info(f"config.json {nested_key}.{key}: {old} -> {value}")
+            return
+    config_data[key] = value
+    logger.info(f"config.json: added {key} = {value}")
 
 
 _LAYER_INDEX_RE = re.compile(r"layers\.(\d+)\.")
@@ -549,10 +563,12 @@ def _extract_layer_index(router_name: str) -> int:
 
 def _get_num_decoder_layers(config_data: dict, minimum: int) -> int:
     """Read the total decoder layer count from the model config, preferring
-    ``num_hidden_layers`` (top-level or under ``text_config``) and falling back
-    to ``minimum`` (one past the highest router layer index) when absent."""
+    ``num_hidden_layers`` (top-level or in the nested language-model config)
+    and falling back to ``minimum`` (one past the highest router layer index)
+    when absent."""
     num_layers = config_data.get(
-        "num_hidden_layers", config_data.get("text_config", {}).get("num_hidden_layers")
+        "num_hidden_layers",
+        _get_text_config(config_data).get("num_hidden_layers"),
     )
     if num_layers is None:
         return minimum
