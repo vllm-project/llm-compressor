@@ -7,6 +7,11 @@ from compressed_tensors.quantization import QuantizationType
 from compressed_tensors.quantization.utils.fp4_utils import _round_to_fp4
 from compressed_tensors.utils.triton import tl, tldevice, triton, triton_req
 
+try:
+    from triton.runtime.jit import constexpr_function
+except ImportError:
+    constexpr_function = None
+
 
 class TritonDType(IntEnum):
     """Shared Triton dtype codes; FP8 and E8M0 are used for scales only."""
@@ -26,9 +31,25 @@ _TRITON_FP8_E4M3 = tl.constexpr(TritonDType.FP8_E4M3.value)
 _TRITON_E8M0 = tl.constexpr(TritonDType.E8M0.value)
 
 
+if constexpr_function is not None:
+
+    @constexpr_function
+    def is_xpu_target():
+        """Return whether Triton is compiling for the Intel XPU backend."""
+        target = tl.target_info.current_target()
+        return target is not None and target.backend == "xpu"
+
+else:
+
+    @triton.jit
+    def is_xpu_target():
+        """Report a non-XPU target when Triton has no constexpr functions."""
+        return False
+
+
 def observer_triton_req(observed, args, *unused_args, **unused_kwargs) -> bool:
     """Check whether observer inputs use a format supported by the shared kernels."""
-    if not triton_req(observed) or not observed.is_cuda:
+    if not triton_req(observed):
         return False
     if observed.dtype not in (torch.float32, torch.float16, torch.bfloat16):
         return False
@@ -56,12 +77,37 @@ def scale_round_config(dtype: torch.dtype | None) -> tuple[int, float]:
 
 @triton.jit
 def round_fp32_as_dtype(value, COMPUTE_DTYPE: tl.constexpr):
-    """Round an FP32 value to the compute dtype and return it as FP32."""
+    """Round an FP32 value to the requested dtype and return it as FP32."""
     tl.static_assert(value.dtype == tl.float32, "value must be FP32")
-    if COMPUTE_DTYPE == _TRITON_FP16:
+
+    if COMPUTE_DTYPE == _TRITON_FP8_E4M3:
+        return value.to(tl.float8e4nv).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_FP16 and not is_xpu_target():
         return value.to(tl.float16).to(tl.float32)
-    if COMPUTE_DTYPE == _TRITON_BF16:
+
+    if COMPUTE_DTYPE == _TRITON_BF16 and not is_xpu_target():
         return value.to(tl.bfloat16).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_FP16 and is_xpu_target():
+        half = value.to(tl.float16)
+        # The identity FMA forces the Intel backend to materialize the
+        # FP16 value; a plain cast is optimized away in arithmetic chains.
+        return tldevice.fma(
+            half,
+            tl.full((), 1.0, tl.float16),
+            tl.full((), 0.0, tl.float16),
+        ).to(tl.float32)
+
+    if COMPUTE_DTYPE == _TRITON_BF16 and is_xpu_target():
+        # Intel Triton promotes BF16 arithmetic to FP32, even across an
+        # explicit BF16 cast, so round through the FP32 bit representation.
+        bits = value.to(tl.int32, bitcast=True)
+        least_significant_bit = (bits >> 16) & 1
+        bits = bits + 0x7FFF + least_significant_bit
+        bits = bits & -65536
+        return bits.to(tl.float32, bitcast=True)
+
     return value
 
 
@@ -71,11 +117,11 @@ def round_candidate_scale(
 ):
     """Round a floating candidate scale as compressed-tensors qparams do."""
     if SCALE_ROUND_TYPE == _TRITON_FP16:
-        return tl.minimum(scale, 65504.0).to(tl.float16).to(tl.float32)
+        return round_fp32_as_dtype(tl.minimum(scale, 65504.0), _TRITON_FP16)
     if SCALE_ROUND_TYPE == _TRITON_BF16:
-        return scale.to(tl.bfloat16).to(tl.float32)
+        return round_fp32_as_dtype(scale, _TRITON_BF16)
     if SCALE_ROUND_TYPE == _TRITON_FP8_E4M3:
-        return tl.minimum(scale, 448.0).to(tl.float8e4nv).to(tl.float32)
+        return round_fp32_as_dtype(tl.minimum(scale, 448.0), _TRITON_FP8_E4M3)
     if SCALE_ROUND_TYPE == _TRITON_E8M0:
         # E8M0 stores the power-of-two scale after accounting for the element
         # format's largest exponent (FP4: 2, FP8: 8).
@@ -155,7 +201,7 @@ def quantize_dequantize(
                 tl.float32
             ) * 256.0
         else:
-            rounded = normalized.to(tl.float8e4nv).to(tl.float32)
+            rounded = round_fp32_as_dtype(normalized, _TRITON_FP8_E4M3)
     if HAS_ZP:
         rounded -= zero_point
     return tldevice.mul_rn(rounded, scale)
@@ -169,6 +215,9 @@ def calculate_qdq_error(
     COMPUTE_DTYPE: tl.constexpr,
 ):
     """Compute QDQ powers in FP32 after rounding the difference to input dtype."""
+    # Eager fake_quantize rounds its QDQ result and the observed values in their
+    # storage dtype before subtraction, then rounds the difference again. Keep
+    # that order here so the selected grid point matches eager.
     quantized = round_fp32_as_dtype(quantized, COMPUTE_DTYPE)
     values = round_fp32_as_dtype(values, COMPUTE_DTYPE)
     diff = round_fp32_as_dtype(tl.abs(quantized - values), COMPUTE_DTYPE)

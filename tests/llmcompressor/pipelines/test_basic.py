@@ -143,7 +143,7 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                     for batch_index, batch in enumerate(dataloader):
                         session.state.current_batch_idx = batch_index
                         candidate(**tensors_to_device(batch, device))
-                LifecycleCallbacks.sequential_epoch_end(list(candidate.modules()))
+                LifecycleCallbacks.sequential_epoch_end(dict(candidate.named_modules()))
                 LifecycleCallbacks.calibration_end()
             else:
                 BasicPipeline()(candidate, dataloader, DatasetArguments())
