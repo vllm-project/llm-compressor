@@ -294,7 +294,7 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        fqn_to_restucture_mods = swap_in_meta_modules(
+        swap_in_meta_modules(
             self.model,
             layerwise_decompression=self.dataset_args.layerwise_decompression,
         )
@@ -338,23 +338,15 @@ class Oneshot:
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
-                    fqn_to_restucture_mods=fqn_to_restucture_mods,
                 )
             else:
-                restructure_and_swap_in(
-                    self.model,
-                    fqn_to_restucture_mods,
-                    self.dataset_args.layerwise_decompression,
-                )
+                restructure_and_swap_in(self.model)
                 pipeline(
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
                 )
-                restore_restructured_modules(
-                    self.model,
-                    fqn_to_restucture_mods,
-                )
+                restore_restructured_modules(self.model)
 
         session.finalize()
 

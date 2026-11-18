@@ -30,13 +30,14 @@ from llmcompressor.pipelines.sequential.helpers import (
     find_modules_outside_graph,
     handle_sequential_oom,
     partition_subgraphs,
+    restructure_targets_for_modules,
+    Subgraph,
     trace_graph,
 )
 from llmcompressor.pipelines.sequential.restructure import (
     offload_original_modules,
     onload_and_restructure_modules,
     restore_restructured_modules,
-    restructured_fqns_for,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -66,6 +67,16 @@ def _submit_subgraph_staging(
     return modules, future
 
 
+def _subgraph_modules_and_restructure_targets(
+    subgraph: Subgraph, model: torch.nn.Module
+) -> tuple[dict[str, torch.nn.Module], list[torch.nn.Module]]:
+    """Use one graph walk when the subgraph exposes restructure targets."""
+    discover = getattr(subgraph, "submodule_dict_and_restructure_targets", None)
+    if discover is None:
+        return subgraph.submodule_dict(model), []
+    return discover(model)
+
+
 def _get_batches(
     activations: IntermediatesCache,
     num_batches: int,
@@ -91,8 +102,6 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        *,
-        fqn_to_restucture_mods: dict[str, torch.nn.Module] = {},
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -120,20 +129,12 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
-        materialized: set[str] = set()
-
-        def modules_to_restructure(target_modules):
-            fqns = restructured_fqns_for(fqn_to_restucture_mods, target_modules)
-            return {
-                fqn: fqn_to_restucture_mods[fqn]
-                for fqn in fqns - materialized
-            }
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
-        offload_original_modules(fqn_to_restucture_mods, onload_device)
+        offload_original_modules(model, onload_device)
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -160,16 +161,15 @@ class SequentialPipeline(CalibrationPipeline):
                 stacklevel=2,
             )
             subgraph_onload_modules(persistent_modules)
-            pending_modules = modules_to_restructure(persistent_modules)
+            pending_targets = restructure_targets_for_modules(
+                model, persistent_modules
+            )
             onload_and_restructure_modules(
                 model,
-                pending_modules,
+                pending_targets,
                 persistent_modules,
                 onload_device,
-                dataset_args.layerwise_decompression,
             )
-            materialized.update(pending_modules)
-            pending_modules.clear()
             # Persistent modules stay onloaded for the full calibration run.
 
         LifecycleCallbacks.calibration_start()
@@ -188,11 +188,6 @@ class SequentialPipeline(CalibrationPipeline):
             dataset_args,
         )
         num_subgraphs = len(subgraphs)
-        last_restructure_use: dict[str, int] = {}
-        for index, subgraph in enumerate(subgraphs):
-            target_modules = subgraph.submodule_dict(model)
-            for fqn in restructured_fqns_for(fqn_to_restucture_mods, target_modules):
-                last_restructure_use[fqn] = index
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -258,7 +253,10 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                target_subgraph_modules = subgraph.submodule_dict(model)
+                (
+                    target_subgraph_modules,
+                    target_restructure_targets,
+                ) = _subgraph_modules_and_restructure_targets(subgraph, model)
                 current_staging_modules = target_subgraph_modules
                 if prefetched_staging is None:
                     subgraph_stage_modules(
@@ -304,18 +302,15 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(target_subgraph_modules)
-                pending_modules = modules_to_restructure(target_subgraph_modules)
                 onload_and_restructure_modules(
                     model,
-                    pending_modules,
+                    target_restructure_targets,
                     target_subgraph_modules,
                     onload_device,
-                    dataset_args.layerwise_decompression,
                     offload_kwargs=offload_kwargs,
                 )
-                materialized.update(pending_modules)
-                pending_modules.clear()
-                modules = subgraph.submodules(model)
+                # Materialization fills the pre-installed target modules in place.
+                modules = list(target_subgraph_modules.values())
 
                 # Decompress and initialize only this subgraph after onloading it.
                 if dataset_args.layerwise_decompression:
@@ -394,24 +389,13 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(modules)
 
                 subgraph_offload_modules(target_subgraph_modules, offload_kwargs)
-                # Restore or release mapped modules only
-                # after this subgraph's callbacks, propagation, and offload finish.
-                completed_restructures = {
-                    fqn
-                    for fqn, last_index in last_restructure_use.items()
-                    if last_index == subgraph_index
-                }
-                restore_restructured_modules(
-                    model,
-                    fqn_to_restucture_mods,
-                    materialized,
-                    completed_restructures,
-                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
+            # Temporary offset-norm conversions remain active across subgraphs and
+            # are restored once calibration has finished using them.
+            restore_restructured_modules(model)
+
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
-
-        restore_restructured_modules(model, fqn_to_restucture_mods, materialized)

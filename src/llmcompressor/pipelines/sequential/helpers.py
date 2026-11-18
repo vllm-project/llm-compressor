@@ -2,6 +2,7 @@ import contextlib
 import enum
 import inspect
 from collections import UserDict, deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
@@ -24,6 +25,9 @@ from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
+from llmcompressor.modeling.module_restructure import (
+    RESTRUCTURE_METADATA_ATTR,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.grouping import (
     log_partitions,
@@ -67,19 +71,41 @@ class Subgraph:
 
     def _subgraph_module_dict(
         self, model: Module, recurse: bool = True
-    ) -> dict[str, Module]:
+    ) -> tuple[dict[str, Module], list[Module]]:
         """
-        Modules keyed by their qualified names, in graph order. Owned
-        modules are `call_module` targets plus modules recorded by the tracer as having
-        run inside a node (see `INVOKED_SUBMODULES_META_KEY`), optionally including
-        their descendants. Names which do not exist in `model` raise
+        Return owned modules keyed by qualified name and their restructure targets.
+        Owned modules are `call_module` targets plus modules recorded by the tracer as
+        having run inside a node (see `INVOKED_SUBMODULES_META_KEY`), optionally
+        including their descendants. Names which do not exist in `model` raise.
         """
         modules: dict[str, Module] = {}
+        restructure_targets: list[Module] = []
         seen_modules: set[Module] = set()
+        seen_restructure_targets: set[int] = set()
+
+        def add_restructure_target(module: Module) -> None:
+            if not hasattr(module, RESTRUCTURE_METADATA_ATTR):
+                return
+            module_id = id(module)
+            if module_id not in seen_restructure_targets:
+                restructure_targets.append(module)
+                seen_restructure_targets.add(module_id)
 
         targets = [root for node in self.graph.nodes for root in get_node_roots(node)]
         for target in targets:
-            module = model.get_submodule(target)
+            module = model.get_submodule(target) if target else model
+
+            # Record transformed parents too. A graph node can call a child
+            # directly, leaving the parent out of its recursive module list.
+            ancestor = target
+            while True:
+                add_restructure_target(
+                    model.get_submodule(ancestor) if ancestor else model
+                )
+                if not ancestor:
+                    break
+                ancestor = ancestor.rpartition(".")[0]
+
             named_modules = module.named_modules() if recurse else [("", module)]
 
             for relative_name, submodule in named_modules:
@@ -93,8 +119,9 @@ class Subgraph:
                     )
                 modules[qualified_name] = submodule
                 seen_modules.add(submodule)
+                add_restructure_target(submodule)
 
-        return modules
+        return modules, restructure_targets
 
     def forward(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -114,13 +141,22 @@ class Subgraph:
             return forward_fn(*args, **kwargs)
 
     def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
-        return list(self._subgraph_module_dict(model, recurse=recurse))
+        modules, _ = self._subgraph_module_dict(model, recurse=recurse)
+        return list(modules)
 
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
-        return list(self._subgraph_module_dict(model, recurse=recurse).values())
+        modules, _ = self._subgraph_module_dict(model, recurse=recurse)
+        return list(modules.values())
 
     def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
         """Return subgraph modules keyed by their fully qualified model names."""
+        modules, _ = self._subgraph_module_dict(model, recurse=recurse)
+        return modules
+
+    def submodule_dict_and_restructure_targets(
+        self, model: Module, recurse: bool = True
+    ) -> tuple[dict[str, Module], list[Module]]:
+        """Return owned modules and their restructure targets in one traversal."""
         return self._subgraph_module_dict(model, recurse=recurse)
 
 
@@ -132,6 +168,20 @@ def collect_subgraph_modules(
     for subgraph in subgraphs:
         modules.update(subgraph.submodule_dict(model, recurse=recurse))
     return modules
+
+
+def restructure_targets_for_modules(
+    model: Module, modules: Mapping[str, Module]
+) -> list[Module]:
+    """Find restructure targets whose module trees intersect the supplied modules."""
+    module_ids = {id(module) for module in modules.values()}
+    targets = []
+    for target in model.modules():
+        if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
+            continue
+        if any(id(module) in module_ids for module in target.modules()):
+            targets.append(target)
+    return targets
 
 
 def find_modules_outside_subgraphs(
@@ -759,13 +809,12 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
-        subgraphs.append(
-            Subgraph(
-                graph=graph,
-                input_names=input_names,
-                consumed_names=set(),  # populated later
-            )
+        subgraph = Subgraph(
+            graph=graph,
+            input_names=input_names,
+            consumed_names=set(),  # populated later
         )
+        subgraphs.append(subgraph)
 
         assert graph_is_well_formed(graph)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from typing import Any
 
 import torch
@@ -24,16 +24,7 @@ class ModuleRestructure(ABC):
         """Restructure a module using the same operation for meta and real tensors."""
 
 
-def _qualify_fqn(root: str, relative_name: str) -> str:
-    if not relative_name:
-        return root
-    return f"{root}.{relative_name}" if root else relative_name
-
-
-def subgraph_owns_fqn(target_modules: Mapping[str, Module], fqn: str) -> bool:
-    return fqn in target_modules or any(
-        name.startswith(f"{fqn}.") for name in target_modules
-    )
+RESTRUCTURE_METADATA_ATTR = "_llmcompressor_restructure"
 
 
 def fqn_overlaps(fqn: str, roots: set[str]) -> bool:

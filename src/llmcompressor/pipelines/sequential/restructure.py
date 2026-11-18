@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import torch
 from compressed_tensors.compressors import decompress_module
@@ -23,13 +24,9 @@ from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
     copy_module_state,
     fqn_overlaps,
-    subgraph_owns_fqn,
+    RESTRUCTURE_METADATA_ATTR,
 )
-from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
-from llmcompressor.modeling.moe.linearize import (
-    MoELinearizationRestructure,
-    _experts_config,
-)
+from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modeling.offset_norm import (
     NormCalibrationModule,
     get_norm_calibration_targets,
@@ -43,15 +40,14 @@ __all__ = [
     "offload_original_modules",
     "onload_and_restructure_modules",
     "restore_restructured_modules",
-    "restructured_fqns_for",
 ]
 
 
 def swap_in_meta_modules(
     model: Module, *, layerwise_decompression: bool = False
-) -> dict[str, Module]:
-    """Install restructured meta copies and return original modules by FQN."""
-    fqn_to_restucture_mods: dict[str, Module] = {}
+) -> None:
+    """Install restructured meta copies, recording each original on its target."""
+    restructured_roots: set[str] = set()
     restructures = (
         MoELinearizationRestructure(decompress=layerwise_decompression),
         OffsetNormRestructure(),
@@ -59,89 +55,84 @@ def swap_in_meta_modules(
     )
     for restructure in restructures:
         for fqn, source, context in restructure.targets(model):
-            if fqn_overlaps(fqn, set(fqn_to_restucture_mods)):
+            if fqn_overlaps(fqn, restructured_roots):
                 continue
             target = restructure.restructure(copy_module_to_meta(source), context)
-            fqn_to_restucture_mods[fqn] = source
+            # Keep the source in a plain dict, outside PyTorch's child registry.
+            setattr(
+                target,
+                RESTRUCTURE_METADATA_ATTR,
+                {
+                    "original": source,
+                    "transform": restructure,
+                    "context": context,
+                    "fqn": fqn,
+                    "materialized": False,
+                },
+            )
+            restructured_roots.add(fqn)
             model.set_submodule(fqn, target)
-    return fqn_to_restucture_mods
 
 
 def offload_original_modules(
-    fqn_to_restucture_mods: Mapping[str, Module],
-    onload_device: torch.device,
+    model: Module, onload_device: torch.device
 ) -> None:
     """Configure offloading for the retained original modules."""
-    for module in fqn_to_restucture_mods.values():
-        set_onload_device(module, onload_device)
-
-
-def restructured_fqns_for(
-    fqn_to_restucture_mods: Mapping[str, Module], target_modules: Mapping[str, Module]
-) -> set[str]:
-    """Return original roots owned by the given target modules."""
-    return {
-        fqn for fqn in fqn_to_restucture_mods if subgraph_owns_fqn(target_modules, fqn)
-    }
-
-
-def _restructure_source(
-    model: Module, source: Module, target: Module, layerwise_decompression: bool
-) -> Module:
-    """Apply the same operation used to create the installed target."""
-    if isinstance(target, LinearExperts2D):
-        decompress = layerwise_decompression and any(
-            is_module_quantized(child) for child in source.modules()
-        )
-        return MoELinearizationRestructure().restructure(
-            source, (_experts_config(source, model), decompress)
-        )
-    if isinstance(target, NormCalibrationModule):
-        return OffsetNormRestructure().restructure(
-            source, (source.__class__.__name__, model.config)
-        )
-    return DecompressionRestructure(enabled=True).restructure(source, None)
+    for module in model.modules():
+        if hasattr(module, RESTRUCTURE_METADATA_ATTR):
+            original = getattr(module, RESTRUCTURE_METADATA_ATTR)["original"]
+            set_onload_device(original, onload_device)
 
 
 def onload_and_restructure_modules(
     model: Module,
-    fqn_to_restucture_mods: Mapping[str, Module],
+    restructure_targets: Sequence[Module],
     onloaded_modules: Mapping[str, Module],
     device: torch.device,
-    layerwise_decompression: bool,
     *,
     offload_kwargs: dict[str, dict] | None = None,
     retain_targets: bool = True,
 ) -> None:
     """Onload originals, restructure them, and populate initialized targets."""
+    pending: list[tuple[Module, dict[str, Any]]] = []
+    for target in restructure_targets:
+        if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
+            continue
+        metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
+        if not metadata["materialized"]:
+            pending.append((target, metadata))
     source_modules = {
-        (f"{root}.{name}" if name else root): module
-        for root in fqn_to_restucture_mods
-        for name, module in fqn_to_restucture_mods[root].named_modules()
+        (
+            f"{metadata['fqn']}.{name}" if name else metadata["fqn"]
+        ): module
+        for _, metadata in pending
+        for name, module in metadata["original"].named_modules()
     }
     root_kwargs = {
-        root: get_cache_init_kwargs(source)
-        for root, source in fqn_to_restucture_mods.items()
+        metadata["fqn"]: get_cache_init_kwargs(metadata["original"])
+        for _, metadata in pending
     }
     source_offload_kwargs = subgraph_onload_modules(source_modules)
     target_offload_kwargs: dict[str, dict] = {}
     try:
-        for root, source in fqn_to_restucture_mods.items():
-            target = _get_submodule(model, root)
+        for target, metadata in pending:
+            source = metadata["original"]
+            fqn = metadata["fqn"]
             for module in target.modules():
                 remove_module_offload(module, onload_tensors=True)
-            converted = _restructure_source(
-                model, source, target, layerwise_decompression
-            )
+            converted = metadata["transform"].restructure(source, metadata["context"])
             relative_kwargs = copy_module_state(
-                target, converted, device, root_kwargs[root]
+                target, converted, device, root_kwargs[fqn]
             )
             target_offload_kwargs.update(
                 {
-                    (f"{root}.{name}" if name else root): kwargs
+                    (f"{fqn}.{name}" if name else fqn): kwargs
                     for name, kwargs in relative_kwargs.items()
                 }
             )
+            metadata["materialized"] = True
+            if not isinstance(target, NormCalibrationModule):
+                delattr(target, RESTRUCTURE_METADATA_ATTR)
     finally:
         subgraph_offload_modules(source_modules, source_offload_kwargs)
 
@@ -154,50 +145,52 @@ def onload_and_restructure_modules(
             offload_module(module, **kwargs)
 
 
-def restructure_and_swap_in(
-    model: Module,
-    fqn_to_restucture_mods: Mapping[str, Module],
-    layerwise_decompression: bool,
-) -> None:
+def restructure_and_swap_in(model: Module) -> None:
     """Populate and offload targets for pipelines without subgraph support."""
     onload_device = get_main_device()
     set_onload_device(model, onload_device)
-    offload_original_modules(fqn_to_restucture_mods, onload_device)
-    for fqn, source in fqn_to_restucture_mods.items():
-        onload_and_restructure_modules(
-            model,
-            {fqn: source},
-            {fqn: _get_submodule(model, fqn)},
-            onload_device,
-            layerwise_decompression,
-            retain_targets=False,
-        )
+    offload_original_modules(model, onload_device)
+    restructure_targets = [
+        module
+        for module in model.modules()
+        if hasattr(module, RESTRUCTURE_METADATA_ATTR)
+    ]
+    onload_and_restructure_modules(
+        model,
+        restructure_targets,
+        dict(model.named_modules()),
+        onload_device,
+        retain_targets=False,
+    )
 
 
 def restore_restructured_modules(
     model: Module,
-    fqn_to_restucture_mods: dict[str, Module],
-    materialized: set[str] | None = None,
-    fqns: set[str] | None = None,
+    targets: Sequence[Module] | None = None,
 ) -> None:
-    """Restore conversions and release originals; default to all materialized."""
-    for fqn in list(fqn_to_restucture_mods):
-        if fqns is not None and fqn not in fqns:
+    """Restore temporary conversions and release retained originals."""
+    if targets is None:
+        targets = [
+            module
+            for module in model.modules()
+            if hasattr(module, RESTRUCTURE_METADATA_ATTR)
+        ]
+
+    for target in targets:
+        if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
             continue
-        source = fqn_to_restucture_mods[fqn]
-        target = _get_submodule(model, fqn)
-        if materialized is not None and fqn not in materialized:
-            model.set_submodule(fqn, source)
+        metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
+        source = metadata["original"]
+        if not metadata["materialized"]:
+            model.set_submodule(metadata["fqn"], source)
         elif isinstance(target, NormCalibrationModule):
             source_kwargs = get_cache_init_kwargs(source)
             remove_module_offload(target, onload_tensors=True)
             remove_module_offload(source, onload_tensors=True)
             target.restore(source)
             offload_module(source, **source_kwargs)
-            model.set_submodule(fqn, source)
-        fqn_to_restucture_mods.pop(fqn)
-        if materialized is not None:
-            materialized.discard(fqn)
+            model.set_submodule(metadata["fqn"], source)
+        delattr(target, RESTRUCTURE_METADATA_ATTR)
 
 
 class OffsetNormRestructure(ModuleRestructure):
