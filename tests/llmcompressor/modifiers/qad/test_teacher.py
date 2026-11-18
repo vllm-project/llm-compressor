@@ -122,4 +122,6 @@ def test_missing_weight_qparams_rejected_before_optimization():
         # Simulate a preceding method that has not prepared its qparams.
         model.seq_target.left.weight_scale = None
         with pytest.raises(ValueError, match="initialized weight_scale"):
-            qad.on_sequential_epoch_end(state, None, list(model.seq_target.modules()))
+            qad.on_sequential_epoch_end(
+                state, None, dict(model.seq_target.named_modules())
+            )
