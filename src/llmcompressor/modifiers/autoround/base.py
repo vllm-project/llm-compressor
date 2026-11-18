@@ -263,7 +263,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module],
+        modules: dict[str, torch.nn.Module],
         **kwargs,
     ):
         self.apply_autoround(state, modules)
@@ -285,14 +285,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
         """
-        modules = modules or []
+        modules = modules or {}
 
-        decoding_layers = [m for m in modules if self._is_decoding_layer(m)]
+        decoding_layers = [m for m in modules.values() if self._is_decoding_layer(m)]
         if len(decoding_layers) == 0:
             return
         if len(decoding_layers) != 1:
             raise ValueError(
-                "Only one decoding layer is expected in the modules list, "
+                "Only one decoding layer is expected in the subgraph modules, "
                 f"found {len(decoding_layers)}."
             )
         decoding_layer = decoding_layers[0]

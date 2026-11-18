@@ -224,12 +224,12 @@ class QADModifier(Modifier):
         self._cur_seq_target_output = _get_first(output)
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: dict[str, torch.nn.Module], **kwargs
     ):
         self._cur_seq_target = None
         self._cur_seq_target_output = None
         # The cache holds this subgraph's targets in execution order
-        subgraph = set(modules)
+        subgraph = set(modules.values())
         seq_targets = [
             seq_target for seq_target in self._input_caches if seq_target in subgraph
         ]
