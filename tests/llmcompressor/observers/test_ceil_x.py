@@ -92,9 +92,9 @@ class TestCeilXAdjust:
         expected = {6.0: 8.0, 7.25: 8.0, 9.0: 8.0, 12.0: 4.0}
         for c, exp_adj in expected.items():
             _, adj_max = _mxfp4_ceil_x_adjust(min_vals, max_vals, c)
-            assert torch.allclose(adj_max, torch.tensor([exp_adj]), rtol=1e-5), (
-                f"c={c}: got {adj_max.item()}, expected {exp_adj}"
-            )
+            assert torch.allclose(
+                adj_max, torch.tensor([exp_adj]), rtol=1e-5
+            ), f"c={c}: got {adj_max.item()}, expected {exp_adj}"
 
     def test_extreme_inputs_finite(self):
         """Zero and very large inputs should not produce NaN or inf."""
