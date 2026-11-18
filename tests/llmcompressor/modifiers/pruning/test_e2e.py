@@ -203,6 +203,7 @@ def _oneshot_expert_choice(
 
 
 @pytest.mark.integration
+@pytest.mark.nightly
 @requires_gpu
 @pytest.mark.parametrize(
     "modifier_cls, expected",

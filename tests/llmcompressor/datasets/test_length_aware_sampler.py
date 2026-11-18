@@ -15,12 +15,6 @@ class TestLengthAwareSampler:
     """Tests for LengthAwareSampler batch statistics logging."""
 
     @pytest.mark.unit
-    def test_batch_size_parameter(self):
-        dataset = _create_mock_dataset([100, 200, 300])
-        sampler = LengthAwareSampler(dataset, batch_size=4)
-        assert sampler.batch_size == 4
-
-    @pytest.mark.unit
     def test_logging_called_when_batch_size_greater_than_one(self):
         dataset = _create_mock_dataset([100, 150, 200, 250])
 

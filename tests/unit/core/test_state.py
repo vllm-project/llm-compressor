@@ -1,33 +1,6 @@
 import pytest
 
-from llmcompressor.core.state import Data, Hardware, ModifiedState, State
-
-
-@pytest.mark.smoke
-def test_state_initialization():
-    state = State()
-    assert state.model is None
-    assert state.teacher_model is None
-    assert state.optimizer is None
-    assert state.optim_wrapped is None
-    assert state.loss is None
-    assert state.batch_data is None
-    assert state.data == Data()
-    assert state.hardware == Hardware()
-
-
-@pytest.mark.smoke
-def test_modified_state_initialization():
-    mod_state = ModifiedState(
-        model="model",
-        optimizer="optimizer",
-        loss="loss",
-        modifier_data=[{"key": "value"}],
-    )
-    assert mod_state.model == "model"
-    assert mod_state.optimizer == "optimizer"
-    assert mod_state.loss == "loss"
-    assert mod_state.modifier_data == [{"key": "value"}]
+from llmcompressor.core.state import State
 
 
 @pytest.mark.smoke

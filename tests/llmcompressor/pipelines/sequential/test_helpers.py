@@ -255,14 +255,7 @@ def test_topological_partition_default():
     with skip_weights_initialize():
         model = DummyModelMultipleSequentialLayers()
 
-    targets = {
-        model.layer1,
-        model.layer2,
-        model.layer3,
-        model.layer4,
-        model.layer5,
-        model.layer6,
-    }
+    targets = _multiple_layer_targets(model)
     gm = torch.fx.symbolic_trace(model)
 
     assert len(topological_partition(gm, targets)) == 7
@@ -273,14 +266,7 @@ def test_topological_partition_multiple_targets():
         model = DummyModelMultipleSequentialLayers()
 
     gm = torch.fx.symbolic_trace(model)
-    targets = {
-        model.layer1,
-        model.layer2,
-        model.layer3,
-        model.layer4,
-        model.layer5,
-        model.layer6,
-    }
+    targets = _multiple_layer_targets(model)
 
     assert len(topological_partition(gm, targets, 2)) == 4
 
@@ -290,14 +276,7 @@ def test_topological_partition_invalid():
         model = DummyModelMultipleSequentialLayers()
 
     gm = torch.fx.symbolic_trace(model)
-    targets = {
-        model.layer1,
-        model.layer2,
-        model.layer3,
-        model.layer4,
-        model.layer5,
-        model.layer6,
-    }
+    targets = _multiple_layer_targets(model)
 
     with pytest.raises(ValueError):
         topological_partition(gm, targets, 0)

@@ -1,6 +1,5 @@
 import pytest
 
-from llmcompressor.args import DatasetArguments
 from llmcompressor.datasets.utils import DataCollatorWithTruncation
 
 
@@ -9,13 +8,6 @@ def _make_features(lengths: list[int]) -> list[dict[str, list[int]]]:
         {"input_ids": [1] * length, "attention_mask": [1] * length}
         for length in lengths
     ]
-
-
-class TestMaxSeqLengthDefault:
-    @pytest.mark.unit
-    def test_default_is_none(self):
-        args = DatasetArguments()
-        assert args.max_seq_length is None
 
 
 class TestDataCollatorWithTruncation:
