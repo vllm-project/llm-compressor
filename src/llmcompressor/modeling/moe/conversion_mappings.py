@@ -25,6 +25,10 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
         "transformers.models.afmoe.configuration_afmoe.AfmoeConfig",
         "transformers.models.afmoe.modeling_afmoe.AfmoeExperts",
     ),
+    "beam": (
+        "transformers.models.beam.configuration_beam.BeamConfig",
+        "transformers.models.beam.modeling_beam.BeamExperts",
+    ),
     "cohere2_moe": (
         "transformers.models.cohere2_moe.configuration_cohere2_moe.Cohere2MoeConfig",
         "transformers.models.cohere2_moe.modeling_cohere2_moe.Cohere2MoeExperts",
@@ -167,6 +171,9 @@ ARCH_TO_IMPORT_PATHS: dict[str, tuple[str | list[str], str | list[str]]] = {
 }
 
 ARCH_TO_2D_MAPPINGS = {
+    # Beam checkpoints already store per-expert 2D projections, so only the default
+    # fuse-to-3D converters need to be dropped.
+    "beam": (["mlp.experts.gate_up_proj", "mlp.experts.down_proj"], []),
     "deepseek_v4": (
         [".experts.gate_up_proj", ".experts.down_proj"],
         [
