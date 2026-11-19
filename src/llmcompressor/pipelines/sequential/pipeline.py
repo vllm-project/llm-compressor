@@ -149,14 +149,12 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            subgraph_onload_modules(persistent_modules)
             pending_targets = restructure_targets_for_modules(
                 model, persistent_modules
             )
+            subgraph_onload_modules(persistent_modules)
             onload_and_restructure_modules(
-                model,
                 pending_targets,
-                persistent_modules,
                 onload_device,
             )
             # Persistent modules stay onloaded for the full calibration run.
@@ -290,15 +288,25 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(target_subgraph_modules)
-                onload_and_restructure_modules(
-                    model,
+                # Onload regular modules first. Restructure placeholders are filled
+                # below and inherit their offload settings from the original sources.
+                restructure_modules = {
+                    module
+                    for target in target_restructure_targets
+                    for module in target.modules()
+                }
+                modules_to_onload = {
+                    name: module
+                    for name, module in target_subgraph_modules.items()
+                    if module not in restructure_modules
+                }
+                offload_kwargs = subgraph_onload_modules(modules_to_onload)
+                target_roots, target_offload_kwargs = onload_and_restructure_modules(
                     target_restructure_targets,
-                    target_subgraph_modules,
                     onload_device,
-                    offload_kwargs=offload_kwargs,
                 )
-                # Materialization fills the pre-installed target modules in place.
+                offload_kwargs.update(target_offload_kwargs)
+                offload_modules = target_subgraph_modules | target_roots
                 modules = list(target_subgraph_modules.values())
 
                 # Decompress and initialize only this subgraph after onloading it.
@@ -377,13 +385,19 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                subgraph_offload_modules(target_subgraph_modules, offload_kwargs)
+                restored_sources = restore_restructured_modules(
+                    model,
+                    target_restructure_targets,
+                    offload_sources=False,
+                )
+                offload_modules.update(restored_sources)
+                subgraph_offload_modules(offload_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################
 
-            # Temporary offset-norm conversions remain active across subgraphs and
-            # are restored once calibration has finished using them.
+            # Restore temporary conversions that weren't part of a traced subgraph,
+            # such as persistent modules.
             restore_restructured_modules(model)
 
             # redundant, finish any remaining compression

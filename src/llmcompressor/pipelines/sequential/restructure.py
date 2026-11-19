@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -10,6 +10,7 @@ from compressed_tensors.compressors import decompress_module
 from compressed_tensors.offload import (
     get_cache_init_kwargs,
     offload_module,
+    remove_dispatch,
     set_onload_device,
 )
 from compressed_tensors.offload.module import (
@@ -89,15 +90,10 @@ def offload_original_modules(
 
 
 def onload_and_restructure_modules(
-    model: Module,
     restructure_targets: Sequence[Module],
-    onloaded_modules: Mapping[str, Module],
     device: torch.device,
-    *,
-    offload_kwargs: dict[str, dict] | None = None,
-    retain_targets: bool = True,
-) -> None:
-    """Onload originals, restructure them, and populate initialized targets."""
+) -> tuple[dict[str, Module], dict[str, dict]]:
+    """Onload sources, materialize targets, and return their offload plan."""
     pending: list[tuple[Module, dict[str, Any]]] = []
     for target in restructure_targets:
         metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
@@ -105,47 +101,38 @@ def onload_and_restructure_modules(
             pending.append((target, metadata))
 
     source_modules = {
-        (
-            f"{metadata['fqn']}.{name}" if name else metadata["fqn"]
-        ): module
-        for _, metadata in pending
-        for name, module in metadata["original"].named_modules()
+        metadata["fqn"]: metadata["original"] for _, metadata in pending
     }
-    root_kwargs = {
-        metadata["fqn"]: get_cache_init_kwargs(metadata["original"])
-        for _, metadata in pending
-    }
-    source_offload_kwargs = subgraph_onload_modules(source_modules)
-    target_offload_kwargs: dict[str, dict] = {}
-    try:
-        for target, metadata in pending:
-            source = metadata["original"]
-            fqn = metadata["fqn"]
-            for module in target.modules():
-                remove_module_offload(module, onload_tensors=True)
-            converted = metadata["transform"].restructure(source, metadata["context"])
-            relative_kwargs = copy_module_state(
-                target, converted, device, root_kwargs[fqn]
-            )
-            target_offload_kwargs.update(
-                {
-                    (f"{fqn}.{name}" if name else fqn): kwargs
-                    for name, kwargs in relative_kwargs.items()
-                }
-            )
-            metadata["materialized"] = True
-            if not isinstance(target, NormCalibrationModule):
-                delattr(target, RESTRUCTURE_METADATA_ATTR)
-    finally:
-        subgraph_offload_modules(source_modules, source_offload_kwargs)
 
-    if offload_kwargs is not None:
-        offload_kwargs.update(target_offload_kwargs)
-    onloaded = set(onloaded_modules.values()) if retain_targets else set()
-    for name, kwargs in target_offload_kwargs.items():
-        module = _get_submodule(model, name)
-        if module not in onloaded:
-            offload_module(module, **kwargs)
+    # onload original modules
+    source_offload_kwargs = subgraph_onload_modules(source_modules, recurse=True)
+    target_roots = {
+        metadata["fqn"]: target for target, metadata in pending
+    }
+
+    # transfer the offload kwargs
+    target_offload_kwargs = {
+        fqn: source_offload_kwargs[fqn] for fqn in target_roots
+    }
+
+    # iterate through targets and perform conversions
+    for target, metadata in pending:
+        source = metadata["original"]
+        remove_dispatch(target, onload_tensors=True)
+        converted = metadata["transform"].restructure(source, metadata["context"])
+        copy_module_state(target, converted, device)
+        metadata["materialized"] = True
+
+        # Offset-norm conversions retain their originals until calibration is complete
+        # Delete all others
+        if not isinstance(target, NormCalibrationModule):
+            delattr(target, RESTRUCTURE_METADATA_ATTR)
+        else:
+            metadata["source_offload_kwargs"] = source_offload_kwargs[
+                metadata["fqn"]
+            ]
+
+    return target_roots, target_offload_kwargs
 
 
 def restructure_and_swap_in(model: Module) -> None:
@@ -158,20 +145,20 @@ def restructure_and_swap_in(model: Module) -> None:
         for module in model.modules()
         if hasattr(module, RESTRUCTURE_METADATA_ATTR)
     ]
-    onload_and_restructure_modules(
-        model,
+    target_roots, target_offload_kwargs = onload_and_restructure_modules(
         restructure_targets,
-        dict(model.named_modules()),
         onload_device,
-        retain_targets=False,
     )
+    subgraph_offload_modules(target_roots, target_offload_kwargs)
 
 
 def restore_restructured_modules(
     model: Module,
     targets: Sequence[Module] | None = None,
-) -> None:
-    """Restore temporary conversions and release retained originals."""
+    *,
+    offload_sources: bool = True,
+) -> dict[str, Module]:
+    """Restore temporary conversions and return original modules reinstated."""
     if targets is None:
         targets = [
             module
@@ -179,6 +166,7 @@ def restore_restructured_modules(
             if hasattr(module, RESTRUCTURE_METADATA_ATTR)
         ]
 
+    restored_sources = {}
     for target in targets:
         if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
             continue
@@ -187,13 +175,19 @@ def restore_restructured_modules(
         if not metadata["materialized"]:
             model.set_submodule(metadata["fqn"], source)
         elif isinstance(target, NormCalibrationModule):
-            source_kwargs = get_cache_init_kwargs(source)
+            source_kwargs = metadata.get("source_offload_kwargs")
+            if source_kwargs is None:
+                source_kwargs = get_cache_init_kwargs(source)
             remove_module_offload(target, onload_tensors=True)
             remove_module_offload(source, onload_tensors=True)
             target.restore(source)
-            offload_module(source, **source_kwargs)
+            if offload_sources:
+                offload_module(source, **source_kwargs)
             model.set_submodule(metadata["fqn"], source)
+            restored_sources[metadata["fqn"]] = source
         delattr(target, RESTRUCTURE_METADATA_ATTR)
+
+    return restored_sources
 
 
 class OffsetNormRestructure(ModuleRestructure):
@@ -238,7 +232,3 @@ class DecompressionRestructure(ModuleRestructure):
         for fqn, source in list(model.named_modules()):
             if is_module_quantized(source):
                 yield fqn, source, None
-
-
-def _get_submodule(module: Module, fqn: str) -> Module:
-    return module.get_submodule(fqn) if fqn else module

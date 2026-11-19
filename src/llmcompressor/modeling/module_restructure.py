@@ -31,8 +31,7 @@ def copy_module_state(
     target: Module,
     source: Module,
     device: torch.device,
-    offload_kwargs: dict,
-) -> dict[str, dict]:
+) -> None:
     source_state = _named_state(source)
     target_meta_state = _named_state(target)
     missing_source_names = set(source_state) - set(target_meta_state)
@@ -68,9 +67,6 @@ def copy_module_state(
             )
 
     materialize_meta_module(target, device=device, initializer=initialize)
-    return {
-        relative_name: offload_kwargs for relative_name, _ in target.named_modules()
-    }
 
 
 def _named_state(module: Module) -> dict[str, torch.Tensor]:
