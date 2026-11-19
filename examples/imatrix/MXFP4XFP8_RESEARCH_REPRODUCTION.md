@@ -201,7 +201,8 @@ MSE_RUNS="$PWD/runs/mxfp4a16_mse_model_free_ablation"
 The MSE `run` command performs smoke checks, quantizes each configuration,
 then completes evaluation seed by seed. Set `MXFP4_MSE_RUN_ROOT` to override
 the default path for the selected scheme. Generated summaries stay inside the
-selected run directory. To run the MSE MoE-scope matrix instead of the three
-dense models, set `MXFP4_MSE_SCOPE_ABLATION=1` and use a separate run root; the
-scope matrix selects Qwen3-30B-A3B experts-only and attention-only, plus
-Nemotron attention-only.
+selected run directory. Checkpoints are stored below `HF_HOME` and exposed in
+the run directory through its `checkpoints` symlink. To run the MSE MoE-scope
+matrix instead of the three dense models, set `MXFP4_MSE_SCOPE_ABLATION=1` and
+use a separate run root; the scope matrix selects Qwen3-30B-A3B experts-only
+and attention-only, plus Nemotron attention-only.

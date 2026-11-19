@@ -274,6 +274,19 @@ def prepare(root: Path) -> dict[str, Any]:
     """Create a run manifest from revisions pinned in the matching imatrix runner."""
     global MANIFEST_CACHE
     root.mkdir(parents=True, exist_ok=True)
+    checkpoint_store = HF_CACHE / "quantized-checkpoints" / root.name
+    checkpoint_store.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = root / "checkpoints"
+    if not checkpoint_path.exists() and not checkpoint_path.is_symlink():
+        checkpoint_path.symlink_to(checkpoint_store, target_is_directory=True)
+    elif (
+        checkpoint_path.is_symlink()
+        and checkpoint_path.resolve() != checkpoint_store.resolve()
+    ):
+        raise RuntimeError(
+            f"Checkpoint symlink points to {checkpoint_path.resolve()}, "
+            f"expected {checkpoint_store}"
+        )
     existing = read_json(root / "experiment_manifest.json")
     if existing:
         if existing.get("experiment_type") != f"{SCHEME_SLUG}_mse_model_free":
