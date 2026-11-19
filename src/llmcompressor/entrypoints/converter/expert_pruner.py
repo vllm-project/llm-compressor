@@ -19,8 +19,6 @@ from compressed_tensors.quantization import QuantizationConfig
 from compressed_tensors.utils.moe import (
     build_expert_to_router_map,
     extract_expert_index,
-    get_num_experts_config_key,
-    get_num_experts_per_tok,
     load_model_config,
     renumber_expert_name,
 )
@@ -31,16 +29,16 @@ from compressed_tensors.utils.safetensors_load import (
 from loguru import logger
 from safetensors import safe_open
 
+from llmcompressor.modeling.moe.helpers import (
+    NUM_EXPERTS_CONFIG_KEYS,
+    TOP_K_GROUP_CONFIG_KEYS,
+    MoEConfig,
+)
+
 __all__ = ["ExpertPruner"]
 
 # metrics which are read from a saliency report written by ``REAPPruningModifier``
 REPORT_METRICS = ("saliency", "layerwise_saliency", "count")
-
-# config.json keys declaring group-limited routing (e.g. DeepSeek-V3): experts
-# are partitioned into ``n_group`` contiguous groups and only experts of the
-# top ``topk_group`` groups are routable per token
-N_GROUP_CONFIG_KEYS = ("n_group", "num_expert_group", "n_expert_groups")
-TOP_K_GROUP_CONFIG_KEYS = ("topk_group", "top_k_group", "n_limited_groups")
 
 
 class ExpertPruner(Converter):
@@ -103,6 +101,9 @@ class ExpertPruner(Converter):
     :param sparsity: fraction of experts to prune, in [0, 1]
     :param uniform: whether the same number of experts is pruned from every layer
     :param num_experts_config_key: config.json attribute name for expert count
+    :param moe_config: MoE routing parameters (``num_experts_per_tok`` and
+        group-limited routing) read from config.json by
+        :meth:`from_pretrained` via ``MoEConfig.from_dict``
     :param retained_experts: pre-computed mapping of router_name -> retained
         expert indices (sorted). Built by :meth:`from_pretrained`.
     :param expert_to_router: mapping of expert tensor name -> associated router
@@ -195,18 +196,29 @@ class ExpertPruner(Converter):
         weight_map = get_weight_map(model_files)
         config_data = load_model_config(model_files)
 
+        # read the MoE routing parameters (per-token selection count and
+        # group-limited routing) from config.json via the shared MoEConfig
+        moe_config = MoEConfig.from_dict(config_data)
+
         # auto-detect num_experts_config_key from config.json
         if num_experts_config_key is None:
-            num_experts_config_key = get_num_experts_config_key(config_data)
+            num_experts_config_key = moe_config.num_experts_config_key
+            if num_experts_config_key is None:
+                raise ValueError(
+                    f"Could not find any of {NUM_EXPERTS_CONFIG_KEYS} in "
+                    "config.json. Please specify num_experts_config_key "
+                    "explicitly."
+                )
 
         # detect num_experts_per_tok for routing-floor validation
-        num_experts_per_tok = get_num_experts_per_tok(config_data)
+        num_experts_per_tok = moe_config.num_experts_per_tok
 
         # detect group-limited routing (e.g. DeepSeek-V3): experts are
         # partitioned into ``n_group`` contiguous groups of which only the top
         # ``topk_group`` are routable per token, so every group must retain the
         # same number of experts
-        n_group, topk_group = _get_group_routing(config_data)
+        n_group = moe_config.n_group
+        topk_group = moe_config.top_k_group
         grouped = n_group is not None and n_group > 1
         if grouped and not uniform:
             raise ValueError(
@@ -344,13 +356,13 @@ class ExpertPruner(Converter):
         instance.uniform = uniform
         instance.metric = metric
         instance.num_experts_config_key = num_experts_config_key
+        instance.moe_config = moe_config
         instance.retained_experts = retained_experts
         instance.expert_to_router = expert_to_router
         instance.aux_to_router = aux_to_router
         instance.hash_routers = hash_routers
         instance.expert_indices = expert_indices
         instance.is_3d = is_3d
-        instance.num_experts_per_tok = num_experts_per_tok
         instance.router_layer_indices = router_layer_indices
         instance.num_decoder_layers = num_decoder_layers
         return instance
@@ -552,25 +564,6 @@ def _get_num_decoder_layers(config_data: dict, minimum: int) -> int:
             "describe this checkpoint"
         )
     return num_layers
-
-
-def _get_group_routing(config_data: dict) -> tuple[int | None, int | None]:
-    """Read group-limited routing parameters from the model config (top-level
-    or under ``text_config``), returning ``(n_group, topk_group)``. Each is
-    ``None`` when no declaring key is found; grouping is inactive when
-    ``n_group`` is absent or ``1``."""
-    text = config_data.get("text_config", {})
-    n_group = None
-    for key in N_GROUP_CONFIG_KEYS:
-        if key in config_data or key in text:
-            n_group = int(config_data.get(key, text.get(key)))
-            break
-    topk_group = None
-    for key in TOP_K_GROUP_CONFIG_KEYS:
-        if key in config_data or key in text:
-            topk_group = int(config_data.get(key, text.get(key)))
-            break
-    return n_group, topk_group
 
 
 def _detect_moe_layout(

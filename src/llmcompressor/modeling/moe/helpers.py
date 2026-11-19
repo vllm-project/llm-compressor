@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ast
 import importlib
 import inspect
@@ -17,6 +19,26 @@ NUM_EXPERTS_CONFIG_KEYS = [
     "moe_num_experts",
     "num_experts",
     "n_routed_experts",
+]
+
+# config keys holding the per-token expert selection count
+NUM_EXPERTS_PER_TOK_CONFIG_KEYS = [
+    "top_k_experts",
+    "num_experts_per_tok",
+]
+
+# config keys declaring group-limited routing (e.g. DeepSeek-V3): experts are
+# partitioned into ``n_group`` contiguous groups of which only the top
+# ``top_k_group`` are routable per token
+N_GROUP_CONFIG_KEYS = [
+    "n_group",
+    "num_expert_group",
+    "n_expert_groups",
+]
+TOP_K_GROUP_CONFIG_KEYS = [
+    "topk_group",
+    "top_k_group",
+    "n_limited_groups",
 ]
 
 
@@ -113,8 +135,8 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
 @dataclass
 class MoEConfig:
     # experts routing
-    num_experts: int
-    num_experts_per_tok: int
+    num_experts: int | None
+    num_experts_per_tok: int | None
 
     # router scoring
     score_function: str
@@ -125,19 +147,24 @@ class MoEConfig:
     group_size: int | None
 
     # hidden sizes
-    hidden_dim: int
-    intermediate_size: int
+    hidden_dim: int | None
+    intermediate_size: int | None
 
     # biases and activations
     use_bias: bool
-    hidden_act: str
+    hidden_act: str | None
 
     # moe extras
-    limit: float
+    limit: float | None
     alpha: float | None
 
     # weight dtypes
-    dtype: torch.dtype
+    dtype: torch.dtype | None
+
+    # name of the config key the expert count was read from; only populated
+    # by ``from_dict``, so checkpoint tooling can write an updated expert count
+    # back to the same key
+    num_experts_config_key: str | None = None
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
@@ -148,7 +175,7 @@ class MoEConfig:
         self = cls(
             num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
             num_experts_per_tok=_getattr_fallbacks(
-                config, ["top_k_experts", "num_experts_per_tok"]
+                config, NUM_EXPERTS_PER_TOK_CONFIG_KEYS
             ),
             score_function=_getattr_fallbacks(
                 config,
@@ -156,8 +183,8 @@ class MoEConfig:
                 "softmax",
                 warn_on_default=True,
             ),
-            n_group=_getattr_fallbacks(config, ["n_group"], None),
-            top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
+            n_group=_getattr_fallbacks(config, N_GROUP_CONFIG_KEYS, None),
+            top_k_group=_getattr_fallbacks(config, TOP_K_GROUP_CONFIG_KEYS, None),
             group_size=None,
             hidden_dim=_getattr_fallbacks(
                 config, ["moe_latent_size", "hidden_size", "hidden_dim"]
@@ -176,13 +203,7 @@ class MoEConfig:
         )
 
         # compute group_size
-        if self.n_group is not None:
-            if self.num_experts % self.n_group != 0:
-                raise ValueError(
-                    f"Group limited router detected, but {self.num_experts} experts "
-                    f"not divisible by n_group={self.n_group}"
-                )
-            self.group_size = self.num_experts // self.n_group
+        self._resolve_group_size()
 
         # special case: some configs have parameters which are not marked in config
         match config.model_type:
@@ -198,6 +219,77 @@ class MoEConfig:
                     self.hidden_dim = config.hidden_size
 
         return self
+
+    @classmethod
+    def from_dict(cls, config_data: dict) -> MoEConfig:
+        """
+        Build a ``MoEConfig`` from a raw ``config.json`` dictionary, as loaded
+        from a checkpoint on disk.
+
+        Unlike :meth:`from_config`, which requires the fields an in-memory
+        model config always carries, every field is optional: values which the
+        dict does not declare are left ``None`` (or ``False``), since a
+        checkpoint's config.json may omit them. Each field is read from the
+        top level of the dict or from its nested ``text_config``, supporting
+        composite (e.g. vision-language) checkpoints.
+
+        The name of the key the expert count was read from is recorded in
+        ``num_experts_config_key`` (``None`` when the dict declares no expert
+        count), so checkpoint tooling can write an updated count back to the
+        same key. Model-type special cases are not applied, as they depend on
+        fields which a raw dict may not declare.
+        """
+        num_experts = _find_config_item(config_data, NUM_EXPERTS_CONFIG_KEYS)
+        dtype_name = _find_config_value(config_data, ["dtype", "torch_dtype"])
+
+        self = cls(
+            num_experts=None if num_experts is None else num_experts[1],
+            num_experts_config_key=None if num_experts is None else num_experts[0],
+            num_experts_per_tok=_find_config_value(
+                config_data, NUM_EXPERTS_PER_TOK_CONFIG_KEYS
+            ),
+            score_function=_find_config_value(
+                config_data,
+                ["scoring_func", "score_func", "moe_router_activation_func"],
+                "softmax",
+            ),
+            n_group=_find_config_value(config_data, N_GROUP_CONFIG_KEYS),
+            top_k_group=_find_config_value(config_data, TOP_K_GROUP_CONFIG_KEYS),
+            group_size=None,
+            hidden_dim=_find_config_value(
+                config_data, ["moe_latent_size", "hidden_size", "hidden_dim"]
+            ),
+            intermediate_size=_find_config_value(
+                config_data,
+                ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
+            ),
+            use_bias=bool(
+                _find_config_value(config_data, ["use_bias", "mlp_bias"], False)
+            ),
+            hidden_act=_find_config_value(
+                config_data, ["hidden_act", "hidden_activation", "mlp_hidden_act"]
+            ),
+            limit=_find_config_value(config_data, ["swiglu_limit"]),
+            alpha=None,
+            dtype=getattr(torch, dtype_name, None)
+            if isinstance(dtype_name, str)
+            else None,
+        )
+
+        self._resolve_group_size()
+        return self
+
+    def _resolve_group_size(self):
+        """Compute ``group_size`` from ``num_experts`` and ``n_group`` when both
+        are known, raising if the experts do not split evenly into groups."""
+        if self.n_group is None or self.num_experts is None:
+            return
+        if self.num_experts % self.n_group != 0:
+            raise ValueError(
+                f"Group limited router detected, but {self.num_experts} experts "
+                f"not divisible by n_group={self.n_group}"
+            )
+        self.group_size = self.num_experts // self.n_group
 
 
 def import_or_none(paths: str | list[str]) -> object | None:
@@ -235,3 +327,32 @@ def _getattr_fallbacks(
         return default
 
     raise AttributeError(f"{target} does not have any of {attrs} attributes")
+
+
+def _find_config_item(config_data: dict, keys: list[str]) -> tuple[str, Any] | None:
+    """
+    Find the first of ``keys`` declared by a raw config dict, returning its
+    ``(key, value)``. Each key is searched at the top level of the dict and
+    then under ``text_config`` (composite, e.g. vision-language, checkpoints
+    keep their text-model fields there). Returns ``None`` when no key is found.
+    """
+    text_config = config_data.get("text_config")
+    if not isinstance(text_config, dict):
+        text_config = {}
+
+    for key in keys:
+        if key in config_data:
+            return key, config_data[key]
+        if key in text_config:
+            return key, text_config[key]
+    return None
+
+
+def _find_config_value(config_data: dict, keys: list[str], default: Any = None) -> Any:
+    """
+    Read the value of the first of ``keys`` declared by a raw config dict,
+    searching the top level and then ``text_config`` (see
+    :func:`_find_config_item`). Returns ``default`` when no key is found.
+    """
+    found = _find_config_item(config_data, keys)
+    return default if found is None else found[1]
