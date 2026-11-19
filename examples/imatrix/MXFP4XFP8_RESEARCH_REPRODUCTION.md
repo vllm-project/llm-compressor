@@ -70,6 +70,8 @@ Use the vLLM environment and evaluation dependencies validated by the
     `a09a35458c702b33eeacc393d103063234e8bc28`
   - `Qwen/Qwen3.8-27B` — `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`
   - `Qwen/Qwen3-30B-A3B` — `ad44e777bcd18fa416d9da3bd8f70d33ebb85d39`
+  - `google/gemma-4-26B-A4B-it` —
+    `4d7ae4984b7db7de8f8457170b3f1a419ee76d52`
   - `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` —
     `a9904d24bcc1d289a1950fa9d2b978c47cf903b9`
 - Qwen2.5-7B-Instruct replaced the original Llama 3.1-8B arm after the Llama
@@ -96,8 +98,9 @@ does not establish that the xFP8 MoE path works. Attempts to use Marlin and
 Triton as xFP8 fallbacks also failed. The full-dense xFP8 imatrix and MSE
 matrices therefore use the three Qwen models. The GPTQ matrix and optional MSE
 scope matrix include Nemotron attention-only; its expert weights remain dense,
-so this does not exercise the failing xFP8 expert kernel. Nemotron expert-only
-is excluded.
+so this does not exercise the failing xFP8 expert kernel. The separate
+scope-targeted imatrix extension uses a Nemotron dense-only arm, which leaves
+the expert weights dense. Nemotron expert-only is excluded.
 
 ## Imatrix ablation
 
@@ -137,6 +140,43 @@ IMATRIX_RUNS="$PWD/runs/mxfp4xfp8_imatrix_ablation"
 The smoke phase omits MMLU because the registry's MMLU smoke workload is very
 large. It validates serving and calibrates concurrency before the full run.
 The full run is seed-major and retries an evaluation at most once.
+
+### Scope-targeted imatrix extension
+
+The same runner supports the follow-up scope study. Its default scope selection
+reproduces the two arms in the current extension matrix: Nemotron 3.5
+Lightning-30B-A3B dense-only and Gemma 4 26B-A4B-it expert-only. It uses the
+same six powers, two objectives, expanded observer, 512-sample calibration,
+and evaluation seeds as the main imatrix matrix. The observer grid uses the
+expanded MXFP4xFP8 settings above.
+
+```bash
+export MXFP4_IMATRIX_SCOPE_ABLATION=1
+SCOPE_RUNS="$PWD/runs/mxfp4xfp8_imatrix_scope_extension_ablation"
+"$RHVENV_PYTHON" examples/imatrix/run_mxfp4xfp8_imatrix_ablation.py prepare \
+  --root "$SCOPE_RUNS"
+"$RHVENV_PYTHON" examples/imatrix/run_mxfp4xfp8_imatrix_ablation.py smoke \
+  --root "$SCOPE_RUNS" --workers 6
+"$RHVENV_PYTHON" examples/imatrix/run_mxfp4xfp8_imatrix_ablation.py full \
+  --root "$SCOPE_RUNS" --workers 6 --seeds 1234,2345,3456
+```
+
+Set `MXFP4_ABLATION_INCLUDE_MODELS` before `prepare` to select alternate
+scope arms. Supported keys are `qwen3_30b_a3b_expert_only`,
+`qwen3_30b_a3b_dense_only`, `nemotron35_30b_a3b_dense_only`,
+`gemma4_26b_a4b_expert_only`, and `gemma4_26b_a4b_dense_only`. For example,
+Qwen3 expert-only can be run by setting
+`MXFP4_ABLATION_INCLUDE_MODELS=qwen3_30b_a3b_expert_only`. Smoke-test a new
+scope selection before starting the full seeds; Gemma dense-only was not part
+of the recorded default extension matrix.
+
+Nemotron expert-only is intentionally not a runnable evaluation arm. Its
+1856-wide expert projection is not divisible by Humming's dynamic FP8 group
+size of 128, so the W4A8 MoE kernel fails its input-alignment assertion. The
+Nemotron dense-only arm leaves routed and shared experts in BF16 and quantizes
+the supported dense Linear projections. Scope selection is recorded in each
+run manifest and appears as a separate `scope` column in the generated result
+tables.
 
 ## GPTQ plus imatrix ablation
 

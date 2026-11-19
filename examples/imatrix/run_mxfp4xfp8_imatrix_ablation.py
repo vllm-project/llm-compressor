@@ -25,6 +25,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SCHEME_NAME = "MXFP4XFP8"
 SCHEME_SLUG = SCHEME_NAME.lower()
+SCOPE_ABLATION = os.environ.get("MXFP4_IMATRIX_SCOPE_ABLATION", "0") == "1"
 DEFAULT_RUN_ROOT = Path(
     os.environ.get("MXFP4XFP8_RUN_ROOT", ROOT / "runs/mxfp4xfp8_imatrix_ablation")
 )
@@ -151,6 +152,10 @@ PINNED_MODEL_REVISIONS = {
     "Qwen/Qwen2.5-7B-Instruct": "a09a35458c702b33eeacc393d103063234e8bc28",
     "Qwen/Qwen3.8-27B": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
     "Qwen/Qwen3-30B-A3B": "ad44e777bcd18fa416d9da3bd8f70d33ebb85d39",
+    "google/gemma-4-26B-A4B-it": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16": (
+        "a9904d24bcc1d289a1950fa9d2b978c47cf903b9"
+    ),
 }
 PINNED_DATASET_REVISION = "af60f3c18201652a83a93f46fcfee1b646ba3df7"
 
@@ -170,8 +175,15 @@ def max_model_length(model_key: str, category: str) -> int:
     """Return the eval-agent default capped at the model's supported context."""
     return min(
         MAX_LENGTHS[category],
-        MODEL_MAX_LENGTHS.get(model_key, {}).get(category, MAX_LENGTHS[category]),
+        MODEL_MAX_LENGTHS.get(source_model_key(model_key), {}).get(
+            category, MAX_LENGTHS[category]
+        ),
     )
+
+
+def source_model_key(model_key: str) -> str:
+    """Return the base model key for a scope-specific arm."""
+    return MODELS.get(model_key, {}).get("source_model_key", model_key)
 
 
 def input_activation_config() -> dict[str, Any]:
@@ -237,6 +249,137 @@ MODELS: dict[str, dict[str, Any]] = {
         "server_args": [],
     },
 }
+
+if SCOPE_ABLATION:
+    scope_bases = {
+        **MODELS,
+        "nemotron35_30b_a3b": {
+            "id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+            "architecture": "causal",
+            "ignore": [
+                r"re:.*conv1d.*",
+                "backbone.embeddings",
+                r"re:.*_latent_proj.*",
+                r"re:.*mixer.gate\..*",
+                r"re:mtp.layers.*",
+                "backbone.norm_f",
+                "lm_head",
+            ],
+            "reasoning_parser": "nemotron_v3",
+            "server_args": [
+                "--mamba-backend",
+                "flashinfer",
+                "--mamba-cache-mode",
+                "align",
+                "--enable-prefix-caching",
+                "--max-num-batched-tokens",
+                "16384",
+                "--max-num-seqs",
+                "64",
+            ],
+        },
+        "gemma4_26b_a4b": {
+            "id": "google/gemma-4-26B-A4B-it",
+            "architecture": "causal",
+            "ignore": [
+                "lm_head",
+                r"re:.*embed_tokens$",
+                r"re:.*vision_tower.*",
+                r"re:.*audio_tower.*",
+                r"re:.*embed_vision.*",
+                r"re:.*embed_audio.*",
+            ],
+            "reasoning_parser": "gemma4",
+            "server_args": [],
+        },
+    }
+    scope_specs = {
+        "qwen3_30b_a3b_expert_only": {
+            "source": "qwen3_30b_a3b",
+            "scope": "expert_only",
+            "targets": [
+                r"re:.*mlp\.experts\.\d+\.(gate|up|down)_proj$",
+                "RoutedExperts",
+            ],
+        },
+        "qwen3_30b_a3b_dense_only": {
+            "source": "qwen3_30b_a3b",
+            "scope": "dense_only",
+            "targets": ["Linear"],
+            "ignore": [r"re:.*mlp\.experts.*"],
+        },
+        "nemotron35_30b_a3b_dense_only": {
+            "source": "nemotron35_30b_a3b",
+            "scope": "dense_only",
+            "targets": ["Linear"],
+            "ignore": [
+                r"re:.*mixer\.experts.*",
+                r"re:.*mixer\.shared_experts.*",
+            ],
+        },
+        "gemma4_26b_a4b_expert_only": {
+            "source": "gemma4_26b_a4b",
+            "scope": "expert_only",
+            "targets": [
+                r"re:.*\.experts\.\d+\.(gate|up|down)_proj$",
+                "RoutedExperts",
+            ],
+            "ignore": [r"re:.*self_attn.*"],
+        },
+        "gemma4_26b_a4b_dense_only": {
+            "source": "gemma4_26b_a4b",
+            "scope": "dense_only",
+            "targets": ["Linear"],
+            "ignore": [r"re:.*\.experts.*", r"re:.*router.*"],
+        },
+    }
+    MODELS = {}
+    for scope_key, scope_spec in scope_specs.items():
+        source_key = scope_spec["source"]
+        entry = {
+            **scope_bases[source_key],
+            "ignore": list(scope_bases[source_key]["ignore"]),
+            "server_args": list(scope_bases[source_key]["server_args"]),
+            "scope": scope_spec["scope"],
+            "targets": scope_spec["targets"],
+            "source_model_key": source_key,
+        }
+        entry["ignore"].extend(scope_spec.get("ignore", []))
+        MODELS[scope_key] = entry
+
+    included_models = {
+        key.strip()
+        for key in os.environ.get("MXFP4_ABLATION_INCLUDE_MODELS", "").split(",")
+        if key.strip()
+    }
+    if included_models:
+        unknown_models = included_models - MODELS.keys()
+        if unknown_models:
+            raise ValueError(f"Unknown included scope models: {sorted(unknown_models)}")
+        MODELS = {key: value for key, value in MODELS.items() if key in included_models}
+    else:
+        default_scope_models = {
+            "nemotron35_30b_a3b_dense_only",
+            "gemma4_26b_a4b_expert_only",
+        }
+        MODELS = {
+            key: value for key, value in MODELS.items() if key in default_scope_models
+        }
+
+    excluded_scope_models = {
+        key.strip()
+        for key in os.environ.get("MXFP4_ABLATION_EXCLUDE_MODELS", "").split(",")
+        if key.strip()
+    }
+    if excluded_scope_models:
+        unknown_models = excluded_scope_models - MODELS.keys()
+        if unknown_models:
+            raise ValueError(f"Unknown excluded scope models: {sorted(unknown_models)}")
+        MODELS = {
+            key: value
+            for key, value in MODELS.items()
+            if key not in excluded_scope_models
+        }
 
 _EXCLUDED_MODELS = {
     key.strip()
@@ -328,11 +471,19 @@ def _validate_vllm_fp8_kernel_log(log_path: Path, model_key: str) -> str | None:
         log = log_path.read_text(errors="replace")
     except OSError as exc:
         return f"cannot read vLLM server log {log_path}: {exc}"
-    if "Using HummingMxFp4LinearKernel" not in log:
+    scope = MODELS[model_key].get("scope")
+    if scope == "expert_only":
+        if not re.search(r"Using Humming\w*Experts", log):
+            return "vLLM did not select a Humming MoE kernel for expert-only scope"
+    elif "Using HummingMxFp4LinearKernel" not in log:
         return "vLLM did not select HummingMxFp4LinearKernel"
     if re.search(r"activation quantization.*ignored|weight-only \(A16\)", log, re.I):
         return "vLLM reported that activation quantization was ignored"
-    if model_key == "qwen3_30b_a3b" and not re.search(r"Using Humming\w*Experts", log):
+    if (
+        scope is None
+        and source_model_key(model_key) == "qwen3_30b_a3b"
+        and not re.search(r"Using Humming\w*Experts", log)
+    ):
         return "vLLM did not select a Humming MoE kernel"
     return None
 
@@ -351,6 +502,8 @@ def job_specs() -> list[dict[str, Any]]:
         {
             "key": job_key(model_key, power, objective, observer_variant),
             "model": model_key,
+            "scope": MODELS[model_key].get("scope", "full_model"),
+            "targets": MODELS[model_key].get("targets", ["Linear"]),
             "observer_variant": observer_variant,
             "power": power,
             "objective": objective,
@@ -366,6 +519,8 @@ def baseline_specs() -> list[dict[str, Any]]:
     return [
         {
             "model": model_key,
+            "scope": MODELS[model_key].get("scope", "full_model"),
+            "targets": MODELS[model_key].get("targets", ["Linear"]),
             "observer_variant": observer_variant,
             "power": 2.0,
             "objective": "importance_error",
@@ -442,10 +597,29 @@ def prepare(root: Path) -> dict[str, Any]:
     manifest_path = root / "experiment_manifest.json"
     manifest = read_json(manifest_path)
     if manifest is not None:
+        if set(manifest.get("models", {})) != set(MODELS):
+            raise RuntimeError(
+                "The existing run directory was prepared for a different model/scope "
+                "set. Choose a fresh --root or restore its model selection."
+            )
+        for model_key, spec in MODELS.items():
+            manifest["models"].setdefault(model_key, {}).update(
+                {
+                    "scope": spec.get("scope", "full_model"),
+                    "targets": spec.get("targets", ["Linear"]),
+                    "source_model_key": source_model_key(model_key),
+                    "ignore": spec["ignore"],
+                    "reasoning_parser": spec["reasoning_parser"],
+                }
+            )
         source_hash = implementation_source_hash()
         calibration = manifest.setdefault("calibration", {})
         weight = calibration.setdefault("weight", {})
-        manifest["experiment_type"] = "mxfp4xfp8_imatrix_ablation"
+        manifest["experiment_type"] = (
+            "mxfp4xfp8_imatrix_scope_ablation"
+            if SCOPE_ABLATION
+            else "mxfp4xfp8_imatrix_ablation"
+        )
         calibration["scheme"] = "MXFP4XFP8 compressed-tensors preset"
         calibration["input_activations"] = {
             "num_bits": 8,
@@ -482,12 +656,28 @@ def prepare(root: Path) -> dict[str, Any]:
             }
             for spec in job_specs()
         ]
+        if SCOPE_ABLATION:
+            manifest["scope_design"] = {
+                model_key: {
+                    "scope": spec.get("scope"),
+                    "targets": spec.get("targets", ["Linear"]),
+                    "ignore": spec["ignore"],
+                    "source_model_key": source_model_key(model_key),
+                }
+                for model_key, spec in MODELS.items()
+            }
         if manifest.get("implementation_source_sha256") != source_hash:
             manifest["implementation_source_sha256"] = source_hash
             manifest["implementation_files"] = list(IMPLEMENTATION_FILES)
         manifest["updated_at"] = utc_now()
         manifest["design_change"] = (
-            "MXFP4XFP8 imatrix ablation with exponential E8M0 search."
+            "MXFP4XFP8 imatrix ablation with exponential E8M0 search; "
+            + (
+                "scope-targeted arms use the declared expert-only or dense-only "
+                "targets."
+                if SCOPE_ABLATION
+                else "all selected projections use the full-model scheme."
+            )
         )
         evaluation = manifest.setdefault("evaluation", {})
         evaluation.update(evaluation_backend_metadata())
@@ -519,6 +709,9 @@ def prepare(root: Path) -> dict[str, Any]:
             "chat_template": str(template_path),
             "ignore": spec["ignore"],
             "reasoning_parser": spec["reasoning_parser"],
+            "scope": spec.get("scope", "full_model"),
+            "targets": spec.get("targets", ["Linear"]),
+            "source_model_key": source_model_key(model_key),
         }
 
     from datasets import load_dataset
@@ -545,7 +738,11 @@ def prepare(root: Path) -> dict[str, Any]:
     registry_path = eval_registry_path()
     registry_hash = hashlib.sha256(registry_path.read_bytes()).hexdigest()
     manifest = {
-        "experiment_type": "mxfp4xfp8_imatrix_ablation",
+        "experiment_type": (
+            "mxfp4xfp8_imatrix_scope_ablation"
+            if SCOPE_ABLATION
+            else "mxfp4xfp8_imatrix_ablation"
+        ),
         "created_at": utc_now(),
         "reference_pr": "https://github.com/vllm-project/compressed-tensors/pull/913",
         "repo": str(ROOT),
@@ -597,6 +794,21 @@ def prepare(root: Path) -> dict[str, Any]:
             "smoke_concurrency_initial": INITIAL_CONCURRENCY,
             **evaluation_backend_metadata(),
         },
+        **(
+            {
+                "scope_design": {
+                    model_key: {
+                        "scope": spec.get("scope"),
+                        "targets": spec.get("targets", ["Linear"]),
+                        "ignore": spec["ignore"],
+                        "source_model_key": source_model_key(model_key),
+                    }
+                    for model_key, spec in MODELS.items()
+                }
+            }
+            if SCOPE_ABLATION
+            else {}
+        ),
         "jobs": [
             {
                 **spec,
@@ -644,6 +856,42 @@ def _load_quant_model(model_key: str, revision: str):
     return model, {"tokenizer": tokenizer}
 
 
+def _retain_scope_runtime_ignores(checkpoint_dir: Path, model_key: str) -> None:
+    """Keep fused MoE projections on their original BF16 path when ignored."""
+    model_spec = MODELS[model_key]
+    scope = model_spec.get("scope")
+    if scope not in {"dense_only", "expert_only"}:
+        return
+    config_path = checkpoint_dir / "config.json"
+    config = read_json(config_path, {}) or {}
+    quantization_config = config.get("quantization_config", {})
+    ignored = quantization_config.setdefault("ignore", [])
+    source_key = source_model_key(model_key)
+    if scope == "dense_only":
+        expert_ignore = {
+            "qwen3_30b_a3b": r"re:.*mlp\.experts.*",
+            "nemotron35_30b_a3b": r"re:.*mixer\.experts.*",
+            "gemma4_26b_a4b": r"re:.*\.experts.*",
+        }.get(source_key)
+        if expert_ignore and expert_ignore not in ignored:
+            ignored.append(expert_ignore)
+        if source_key == "nemotron35_30b_a3b":
+            shared_ignore = r"re:.*mixer\.shared_experts.*"
+            if shared_ignore not in ignored:
+                ignored.append(shared_ignore)
+        if source_key == "gemma4_26b_a4b":
+            router_ignore = r"re:.*router.*"
+            if router_ignore not in ignored:
+                ignored.append(router_ignore)
+    if source_key == "gemma4_26b_a4b" and scope == "expert_only":
+        # vLLM fuses Gemma attention projections and requires all QKV shards to
+        # resolve to the same quantization path.
+        attention_ignore = r"re:.*self_attn.*"
+        if attention_ignore not in ignored:
+            ignored.append(attention_ignore)
+    atomic_json(config_path, config)
+
+
 def quantize_one(
     root: Path,
     model_key: str,
@@ -670,7 +918,8 @@ def quantize_one(
 
     model, processor_arg = _load_quant_model(model_key, revision)
     observer_settings = OBSERVER_SETTINGS[observer_variant]
-    scheme = preset_name_to_scheme(SCHEME_NAME, ["Linear"])
+    targets = spec.get("targets", ["Linear"])
+    scheme = preset_name_to_scheme(SCHEME_NAME, targets)
     weights = scheme.weights
     weights.observer = observer_settings["observer"]
     weights.observer_kwargs = {
@@ -699,6 +948,8 @@ def quantize_one(
             "observer_kwargs": weights.observer_kwargs,
             "scheme": scheme.model_dump(mode="json"),
             "ignore": spec["ignore"],
+            "scope": spec.get("scope", "full_model"),
+            "targets": targets,
             "calibration_dataset": DATASET_ID,
             "dataset_revision": manifest["calibration"]["dataset_revision"],
             "split": DATASET_SPLIT,
@@ -725,6 +976,7 @@ def quantize_one(
         output_dir=str(checkpoint_dir),
         moe_calibrate_all_experts=True,
     )
+    _retain_scope_runtime_ignores(checkpoint_dir, model_key)
     elapsed_s = time.monotonic() - started
     peak_memory_gb = torch.accelerator.max_memory_allocated() / (1024**3)
     model_files = list(checkpoint_dir.glob("*.safetensors"))
@@ -849,7 +1101,11 @@ def _server_command(
     if reasoning_parser is not None:
         server_args.extend(["--reasoning-parser", reasoning_parser])
     server_args.extend(MODELS[model_key]["server_args"])
-    server_args.extend(MODEL_CATEGORY_SERVER_ARGS.get(model_key, {}).get(category, []))
+    server_args.extend(
+        MODEL_CATEGORY_SERVER_ARGS.get(source_model_key(model_key), {}).get(
+            category, []
+        )
+    )
     if log_requests:
         server_args.append("--enable-log-requests")
     return shlex.join(
@@ -989,9 +1245,9 @@ def evaluate_category(
     full_run_dir = root / "evaluations" / key / category
     if seed is not None:
         full_run_dir = full_run_dir / f"seed_{seed}"
-        run_dir_suffix = run_tag or MODEL_RUN_DIR_SUFFIXES.get(model_key, {}).get(
-            category
-        )
+        run_dir_suffix = run_tag or MODEL_RUN_DIR_SUFFIXES.get(
+            source_model_key(model_key), {}
+        ).get(category)
         if run_dir_suffix:
             full_run_dir = full_run_dir.with_name(
                 f"{full_run_dir.name}_{run_dir_suffix}"
@@ -1385,7 +1641,9 @@ def run_full_job(
                 "full_evaluations": results,
             },
         )
-        remove_checkpoint = spec["model"] not in RETAIN_CHECKPOINT_MODELS_ACROSS_SEEDS
+        remove_checkpoint = (
+            source_model_key(spec["model"]) not in RETAIN_CHECKPOINT_MODELS_ACROSS_SEEDS
+        )
         if remove_checkpoint:
             shutil.rmtree(checkpoint_dir, ignore_errors=True)
             _release_checkpoint_space()
@@ -1779,6 +2037,7 @@ def write_summary(
             {
                 "model": MODELS[model_key]["id"],
                 "model_key": model_key,
+                "scope": MODELS[model_key].get("scope", "full_model"),
                 "observer_variant": observer_variant,
                 "power": power,
                 "objective": objective,
@@ -1793,6 +2052,7 @@ def write_summary(
     headers = [
         "model",
         "model_key",
+        "scope",
         "observer_variant",
         "power",
         "objective",
@@ -1819,13 +2079,14 @@ def write_summary(
             out.write("No completed benchmark scores yet.\n")
         else:
             out.write(
-                "| Model | Observer | Power | Objective | Task | Metric | "
+                "| Model | Scope | Observer | Power | Objective | Task | Metric | "
                 "Mean | Seeds |\n"
-                "|---|---|---:|---|---|---|---:|---:|\n"
+                "|---|---|---|---:|---|---|---|---:|---:|\n"
             )
             for row in rows:
                 out.write(
-                    f"| {row['model']} | {row['observer_variant']} | "
+                    f"| {row['model']} | {row['scope']} | "
+                    f"{row['observer_variant']} | "
                     f"{row['power']:g} | {row['objective']} | "
                     f"{row['task']} | {row['metric']} | {row['mean']:.6f} | "
                     f"{row['n_seeds']} |\n"

@@ -8,6 +8,7 @@ commands are documented in these guides:
 |---|---|---|---|
 | Imatrix | MXFP4A16 | [`run_mxfp4a16_imatrix_ablation.py`](run_mxfp4a16_imatrix_ablation.py) | [`MXFP4A16_IMATRIX_REPRODUCTION.md`](MXFP4A16_IMATRIX_REPRODUCTION.md) |
 | Imatrix | MXFP4xFP8 | [`run_mxfp4xfp8_imatrix_ablation.py`](run_mxfp4xfp8_imatrix_ablation.py) | [`MXFP4XFP8_RESEARCH_REPRODUCTION.md`](MXFP4XFP8_RESEARCH_REPRODUCTION.md) |
+| Scope-targeted imatrix | MXFP4xFP8 | [`run_mxfp4xfp8_imatrix_ablation.py`](run_mxfp4xfp8_imatrix_ablation.py) with `MXFP4_IMATRIX_SCOPE_ABLATION=1` | [`MXFP4XFP8_RESEARCH_REPRODUCTION.md`](MXFP4XFP8_RESEARCH_REPRODUCTION.md) |
 | GPTQ + imatrix | MXFP4xFP8 | [`run_mxfp4xfp8_gptq_imatrix_ablation.py`](run_mxfp4xfp8_gptq_imatrix_ablation.py) | [`MXFP4XFP8_RESEARCH_REPRODUCTION.md`](MXFP4XFP8_RESEARCH_REPRODUCTION.md) |
 | Model-free MSE | MXFP4A16 or MXFP4xFP8 | [`run_mxfp4_mse_model_free_ablation.py`](run_mxfp4_mse_model_free_ablation.py) | [`MXFP4XFP8_RESEARCH_REPRODUCTION.md`](MXFP4XFP8_RESEARCH_REPRODUCTION.md) |
 

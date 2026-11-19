@@ -35,6 +35,10 @@ source, and evaluation-registry revisions.
   in llm-compressor PR #3477.
 - **MXFP4xFP8 imatrix:**
   `examples/imatrix/run_mxfp4xfp8_imatrix_ablation.py`.
+- **Scope-targeted MXFP4xFP8 imatrix:** set
+  `MXFP4_IMATRIX_SCOPE_ABLATION=1` before using the same runner. Set
+  `MXFP4_ABLATION_INCLUDE_MODELS` to choose specific dense-only or expert-only
+  arms.
 - **MXFP4xFP8 GPTQ plus imatrix:**
   `examples/imatrix/run_mxfp4xfp8_gptq_imatrix_ablation.py`.
 - **Model-free MSE:**
