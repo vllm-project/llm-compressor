@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a model-free MXFP4xFP8 MSE power and magnitude-normalization ablation.
+"""Run a model-free MXFP4 MSE power and magnitude-normalization ablation.
 
 Model-free quantization is performed once per model/power/normalization tuple.
 Evaluation is seed-major: every configuration receives seed 1234 before any
@@ -23,21 +23,31 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEME_NAME = "MXFP4XFP8"
+SCHEME_NAME = os.environ.get("MXFP4_ABLATION_SCHEME", "MXFP4XFP8")
+if SCHEME_NAME not in {"MXFP4A16", "MXFP4XFP8"}:
+    raise ValueError("MXFP4_ABLATION_SCHEME must be MXFP4A16 or MXFP4XFP8")
 SCHEME_SLUG = SCHEME_NAME.lower()
+SCOPE_ABLATION = os.environ.get("MXFP4_MSE_SCOPE_ABLATION", "0") == "1"
+RUN_VARIANT = "_scope" if SCOPE_ABLATION else ""
 DEFAULT_RUN_ROOT = Path(
     os.environ.get(
-        "MXFP4XFP8_MSE_RUN_ROOT", ROOT / "runs/mxfp4xfp8_mse_model_free_ablation"
+        "MXFP4_MSE_RUN_ROOT",
+        ROOT / "runs" / f"{SCHEME_SLUG}_mse{RUN_VARIANT}_model_free_ablation",
     )
 )
 HF_CACHE = Path(os.environ.get("HF_HOME", ROOT / "hf_cache"))
 RHVENV_PYTHON = Path(os.environ.get("RHVENV_PYTHON", ROOT / ".venvs/rhdev/bin/python"))
-BASE_RUNNER = ROOT / "examples/imatrix/run_mxfp4xfp8_imatrix_ablation.py"
+BASE_RUNNER = ROOT / (
+    "examples/imatrix/run_mxfp4a16_imatrix_ablation.py"
+    if SCHEME_NAME == "MXFP4A16"
+    else "examples/imatrix/run_mxfp4xfp8_imatrix_ablation.py"
+)
 POWERS = (2.0, 2.2, 2.4, 2.6, 2.8, 3.0)
 OBJECTIVES = ("magnitude_off", "magnitude_on")
 SEEDS = (1234, 2345, 3456)
@@ -58,12 +68,33 @@ SMOKE_TASKS = {
     "reasoning": TASKS["reasoning"],
 }
 MAX_WORKERS = 6
+GPU_LIMIT = 6
 MAX_ATTEMPTS = 2
 EVALUATION_MODEL_ALIAS_VERSION = 2
 MONITOR_INTERVAL_SECONDS = 600
 STATE_LOCK = threading.Lock()
 SUMMARY_LOCK = threading.Lock()
 MANIFEST_CACHE: dict[str, Any] | None = None
+GPU_RESERVATION_CONDITION = threading.Condition()
+GPU_RESERVED = 0
+
+SCOPE_MODEL_SPECS = {
+    "qwen3_30b_a3b_expert_only": (
+        "qwen3_30b_a3b",
+        "expert_only",
+        [r"re:.*mlp\.experts\.\d+\.(gate|up|down)_proj$"],
+    ),
+    "qwen3_30b_a3b_attention_only": (
+        "qwen3_30b_a3b",
+        "attention_only",
+        [r"re:.*self_attn\.(q|k|v|o)_proj$"],
+    ),
+    "nemotron35_30b_a3b_attention_only": (
+        "nemotron35_30b_a3b",
+        "attention_only",
+        [r"re:.*mixer\.(q|k|v|o)_proj$"],
+    ),
+}
 
 for _cache_var in ("HF_HOME", "HF_HUB_CACHE", "TRANSFORMERS_CACHE"):
     os.environ.setdefault(_cache_var, str(HF_CACHE))
@@ -86,6 +117,34 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+@contextmanager
+def reserve_gpus(count: int, reason: str):
+    """Keep this experiment's simultaneous chg reservations within GPU_LIMIT."""
+    global GPU_RESERVED
+    if count < 1 or count > GPU_LIMIT:
+        raise ValueError(f"GPU reservation must be between 1 and {GPU_LIMIT}: {count}")
+    with GPU_RESERVATION_CONDITION:
+        while GPU_RESERVED + count > GPU_LIMIT:
+            GPU_RESERVATION_CONDITION.wait()
+        GPU_RESERVED += count
+        print(
+            f"GPU SLOT acquire={count} reserved={GPU_RESERVED}/{GPU_LIMIT} "
+            f"reason={reason}",
+            flush=True,
+        )
+    try:
+        yield
+    finally:
+        with GPU_RESERVATION_CONDITION:
+            GPU_RESERVED -= count
+            print(
+                f"GPU SLOT release={count} reserved={GPU_RESERVED}/{GPU_LIMIT} "
+                f"reason={reason}",
+                flush=True,
+            )
+            GPU_RESERVATION_CONDITION.notify_all()
+
+
 def atomic_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
@@ -104,6 +163,40 @@ def read_json(path: Path, default: Any = None) -> Any:
 
 
 def model_specs(base: Any) -> dict[str, dict[str, Any]]:
+    if SCOPE_ABLATION:
+        excluded = {
+            key.strip()
+            for key in os.environ.get("MXFP4_ABLATION_EXCLUDE_MODELS", "").split(",")
+            if key.strip()
+        }
+        models: dict[str, dict[str, Any]] = {}
+        for scope_key, (source_key, scope, targets) in SCOPE_MODEL_SPECS.items():
+            if scope_key in excluded or source_key in excluded:
+                continue
+            spec = dict(base.MODELS[source_key])
+            spec["scope"] = scope
+            spec["targets"] = targets
+            spec["source_model_key"] = source_key
+            if source_key == "qwen3_30b_a3b":
+                spec["ignore"] = [
+                    *spec.get("ignore", []),
+                    r"re:.*embed_tokens$",
+                ]
+            else:
+                # Match the previously evaluated Nemotron attention-only arm;
+                # its W4A8 MoE fallback is irrelevant when only attention is quantized.
+                spec["server_args"] = [
+                    "--mamba-backend",
+                    "flashinfer",
+                    "--mamba-cache-mode",
+                    "align",
+                    "--enable-prefix-caching",
+                    "--max-num-batched-tokens",
+                    "16384",
+                ]
+            models[scope_key] = spec
+        return models
+
     keys = ("qwen25_7b", "qwen38_27b", "qwen3_30b_a3b")
     excluded = {
         key.strip()
@@ -121,11 +214,16 @@ def model_specs(base: Any) -> dict[str, dict[str, Any]]:
     ]
     # Model-free matching treats every 2D ``*.weight`` tensor as a Linear
     # target. Keep modules that are not Linear layers dense, matching the
-    # model-loaded MXFP4XFP8 ablation's target-class behavior.
+    # model-loaded MXFP4A16 ablation's target-class behavior.
     for model_key in ("qwen25_7b", "qwen3_30b_a3b"):
         models[model_key]["ignore"] = [
             *models[model_key]["ignore"],
             r"re:.*embed_tokens$",
+        ]
+    if "nemotron35_30b_a3b" in models:
+        models["nemotron35_30b_a3b"]["ignore"] = [
+            *models["nemotron35_30b_a3b"]["ignore"],
+            r"re:.*mixer\.gate$",
         ]
     # The model-loaded Linear target excludes this Conv1d weight by class. The
     # model-free matcher only has tensor names, so make that exclusion explicit
@@ -142,7 +240,17 @@ def powerslug(value: float) -> str:
 
 
 def job_key(model_key: str, power: float, objective: str) -> str:
-    return f"{model_key}__model_free_mse_exp1to1_64__p{powerslug(power)}__{objective}"
+    revisions = {
+        "qwen25_7b": "__model_free_r2",
+        "qwen38_27b": "__model_free_r4",
+        "qwen3_30b_a3b": "__model_free_r2",
+        "nemotron35_30b_a3b": "__model_free_r2",
+        "qwen3_30b_a3b_expert_only": "__model_free_r2",
+        "qwen3_30b_a3b_attention_only": "__model_free_r2",
+        "nemotron35_30b_a3b_attention_only": "__model_free_r2",
+    }
+    revision = revisions[model_key]
+    return f"{model_key}{revision}__mse_exp1to1_64__p{powerslug(power)}__{objective}"
 
 
 def job_specs(models: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -151,6 +259,8 @@ def job_specs(models: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
             "model": model_key,
             "power": power,
             "objective": objective,
+            "scope": models[model_key].get("scope", "full_dense"),
+            "targets": models[model_key].get("targets", ["Linear"]),
             "observer_variant": OBSERVER_VARIANT,
             "key": job_key(model_key, power, objective),
         }
@@ -161,7 +271,7 @@ def job_specs(models: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def prepare(root: Path) -> dict[str, Any]:
-    """Create or validate the pinned MXFP4xFP8 MSE run manifest."""
+    """Create a run manifest from revisions pinned in the matching imatrix runner."""
     global MANIFEST_CACHE
     root.mkdir(parents=True, exist_ok=True)
     existing = read_json(root / "experiment_manifest.json")
@@ -208,6 +318,11 @@ def prepare(root: Path) -> dict[str, Any]:
         for model_key, spec in models.items():
             if model_key in existing.get("models", {}):
                 model_entry = existing["models"][model_key]
+                model_entry["scope"] = spec.get("scope", "full_dense")
+                model_entry["targets"] = spec.get("targets", ["Linear"])
+                model_entry["source_model_key"] = spec.get(
+                    "source_model_key", model_key
+                )
                 ignore_record = (
                     read_json(
                         root / "model_free_non_2d_ignores" / f"{model_key}.json", {}
@@ -245,33 +360,26 @@ def prepare(root: Path) -> dict[str, Any]:
     base = load_base_runner()
     models = model_specs(base)
     model_entries: dict[str, dict[str, Any]] = {}
-    from transformers import AutoConfig
-
-    model_revisions = {
-        spec["id"]: base.PINNED_MODEL_REVISIONS[spec["id"]] for spec in models.values()
-    }
+    model_revisions = base.PINNED_MODEL_REVISIONS
     templates_dir = root / "chat_templates"
     templates_dir.mkdir(parents=True, exist_ok=True)
 
     for model_key, spec in models.items():
-        model_id = spec["id"]
-        revision = model_revisions[model_id]
-        config = AutoConfig.from_pretrained(
-            model_id, revision=revision, trust_remote_code=True
-        )
+        source_model_key = spec.get("source_model_key", model_key)
+        revision = model_revisions[spec["id"]]
         template_path = templates_dir / f"{model_key}.jinja"
-        template_path.write_text(base._chat_template(model_key, revision))
-        model_entries[model_key] = {
-            "id": model_id,
+        template_path.write_text(base._chat_template(source_model_key, revision))
+        entry = {
+            **spec,
             "revision": revision,
-            "model_type": config.model_type,
-            "architectures": getattr(config, "architectures", None),
-            "max_position_embeddings": getattr(config, "max_position_embeddings", None),
-            "generation_params": base._generation_params(model_id, revision),
+            "generation_params": base._generation_params(spec["id"], revision),
             "chat_template": str(template_path),
-            "ignore": list(spec["ignore"]),
-            "reasoning_parser": spec["reasoning_parser"],
         }
+        entry["ignore"] = list(spec["ignore"])
+        entry["scope"] = spec.get("scope", "full_dense")
+        entry["targets"] = spec.get("targets", ["Linear"])
+        entry["source_model_key"] = source_model_key
+        model_entries[model_key] = entry
 
     registry_path = base.eval_registry_path()
     implementation_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -289,8 +397,16 @@ def prepare(root: Path) -> dict[str, Any]:
         "repo": str(ROOT),
         "repo_commit": repo_commit,
         "runner_sha256": implementation_hash,
-        "model_revisions": model_revisions,
         "models": model_entries,
+        "scope_design": (
+            {
+                "qwen3_30b_a3b": ["expert_only", "attention_only"],
+                "nemotron35_30b_a3b": ["attention_only"],
+                "target_selection": "model-free scheme target regexes",
+            }
+            if SCOPE_ABLATION
+            else {"dense": "full Linear layers"}
+        ),
         "calibration": {
             "scheme": SCHEME_NAME,
             "weight_only": True,
@@ -317,6 +433,11 @@ def prepare(root: Path) -> dict[str, Any]:
         "evaluation": {
             "tasks": {key: list(value) for key, value in TASKS.items()},
             "seeds": list(SEEDS),
+            "initial_tensor_parallel_size_by_scope": {
+                "full_dense": 1,
+                "expert_only": 1,
+                "attention_only": 2,
+            },
             "registry": str(registry_path),
             "registry_sha256": hashlib.sha256(registry_path.read_bytes()).hexdigest(),
             "vllm_environment": str(base.VLLM_ENV),
@@ -351,6 +472,76 @@ def write_state(root: Path, key: str, update: dict[str, Any]) -> dict[str, Any]:
 
 def magnitude_enabled(spec: dict[str, Any]) -> bool:
     return spec["objective"] == "magnitude_on"
+
+
+def validate_mxfp4_checkpoint(checkpoint_dir: Path, spec: dict[str, Any]) -> str | None:
+    """Ensure model-free PTQ retained the selected MXFP4 schema and scope."""
+    try:
+        config = json.loads((checkpoint_dir / "config.json").read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"cannot read compressed checkpoint config: {exc}"
+    groups = config.get("quantization_config", {}).get("config_groups", {})
+    expected_targets = spec.get("targets", ["Linear"])
+    for group in groups.values():
+        activation_config = group.get("input_activations")
+        activation = activation_config or {}
+        weights = group.get("weights") or {}
+        valid_weights = (
+            weights.get("num_bits") == 4
+            and weights.get("type") == "float"
+            and weights.get("group_size") == 32
+            and weights.get("scale_dtype") == "torch.uint8"
+            and group.get("targets") == expected_targets
+        )
+        if SCHEME_NAME == "MXFP4A16" and valid_weights and activation_config is None:
+            return None
+        if SCHEME_NAME == "MXFP4XFP8" and (
+            activation.get("num_bits") == 8
+            and activation.get("type") == "float"
+            and activation.get("strategy") == "group"
+            and activation.get("dynamic") is True
+            and activation.get("group_size") == 128
+            and valid_weights
+        ):
+            return None
+    return (
+        f"checkpoint does not match the {SCHEME_NAME} weight/activation schema "
+        f"or the expected targets {expected_targets}"
+    )
+
+
+def latest_vllm_server_log(run_dir: Path) -> Path:
+    candidates = list(run_dir.rglob("vllm_server.log"))
+    return (
+        max(candidates, key=lambda path: path.stat().st_mtime)
+        if candidates
+        else (run_dir / "logs" / "vllm_server.log")
+    )
+
+
+def validate_vllm_kernel_log(log_path: Path, spec: dict[str, Any]) -> str | None:
+    """Reject evaluations that do not use the expected MXFP4 kernel."""
+    try:
+        log = log_path.read_text(errors="replace")
+    except OSError as exc:
+        return f"cannot read vLLM server log: {exc}"
+    if SCHEME_NAME == "MXFP4XFP8" and re.search(
+        r"activation quantization.*ignored|weight-only \(A16\)", log, re.I
+    ):
+        return "vLLM reported that activation quantization was ignored"
+    backend = "Humming" if SCHEME_NAME == "MXFP4XFP8" else "Marlin"
+    if spec.get("scope") == "expert_only":
+        if not re.search(rf"Using {backend}\w*Experts", log):
+            return (
+                f"vLLM did not select a {backend} MoE kernel for expert-only "
+                "quantization"
+            )
+    elif f"Using {backend}MxFp4LinearKernel" not in log:
+        return (
+            f"vLLM did not select {backend}MxFp4LinearKernel for quantized "
+            "Linear layers"
+        )
+    return None
 
 
 def evaluate_with_budget(
@@ -450,9 +641,9 @@ def evaluate_with_budget(
         port += variant_index * base.PORT_VARIANT_STRIDE
         port += (0 if category == "instruct" else base.PORT_REASONING_OFFSET) + attempt
         safe_job_key = spec["key"].replace("to1", "to_1")
+        seed_name = seed if seed is not None else "smoke"
         served_name = (
-            f"{base.MODEL_NAME_PREFIX}-{safe_job_key}-{category}-"
-            f"seed{seed if seed is not None else 'smoke'}"
+            f"{base.MODEL_NAME_PREFIX}-{safe_job_key}-{category}-seed{seed_name}"
         )
         if "o1" in served_name:
             raise RuntimeError(
@@ -477,18 +668,26 @@ def evaluate_with_budget(
         log_key = f"{spec['key']}_{category}_{'smoke' if smoke else f'seed{seed}'}"
         log_path = root / "orchestration_logs" / f"{log_key}_attempt_{attempt:02d}.log"
         try:
-            code = base._run_logged(command, log_path)
+            with reserve_gpus(
+                tensor_parallel_size,
+                f"eval {spec['key']} {category} attempt {attempt}",
+            ):
+                code = base._run_logged(command, log_path)
         except Exception as exc:
             code = 1
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("a") as log:
                 log.write(f"\n[{utc_now()}] runner exception: {exc!r}\n")
-        server_log = run_dir / "logs" / "vllm_server.log"
+        server_log = latest_vllm_server_log(run_dir)
         kv_peak = base._kv_cache_peak(server_log)
         failure = base._retryable_failure(log_path) or base._retryable_failure(
             server_log
         )
         eval_failure = base._evaluation_log_failure(run_dir)
+        if eval_failure is None:
+            eval_failure = validate_vllm_kernel_log(
+                latest_vllm_server_log(run_dir), spec
+            )
         if (
             code == 0
             and eval_failure is None
@@ -580,6 +779,8 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
         "model_revision": model_entry["revision"],
         "method": "model_free_ptq",
         "scheme": SCHEME_NAME,
+        "scope": model_entry.get("scope", "full_dense"),
+        "targets": model_entry.get("targets", ["Linear"]),
         "observer": "nvfp4_expanded_mse",
         "observer_kwargs": {
             **OBSERVER_KWARGS,
@@ -591,7 +792,7 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
     }
     atomic_json(out_dir / "ablation_config.json", config_record)
 
-    scheme = preset_name_to_scheme(SCHEME_NAME, ["Linear"])
+    scheme = preset_name_to_scheme(SCHEME_NAME, model_entry.get("targets", ["Linear"]))
     scheme.weights.observer = "nvfp4_expanded_mse"
     scheme.weights.observer_kwargs = {
         **OBSERVER_KWARGS,
@@ -599,7 +800,7 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
         "magnitude_normalization": magnitude_enabled(spec),
     }
 
-    torch.accelerator.reset_peak_memory_stats()
+    torch.cuda.reset_peak_memory_stats()
     started = time.monotonic()
     model_free_ptq(
         model_stub=str(snapshot_path),
@@ -613,15 +814,16 @@ def quantize_worker(root: Path, spec: dict[str, Any], model_snapshot: Path) -> N
     safetensors = list(out_dir.glob("*.safetensors"))
     if not safetensors:
         raise RuntimeError(f"No quantized safetensors were written to {out_dir}")
+    checkpoint_failure = validate_mxfp4_checkpoint(out_dir, spec)
+    if checkpoint_failure is not None:
+        raise RuntimeError(checkpoint_failure)
     atomic_json(
         out_dir / "quantization_complete.json",
         {
             "job": spec["key"],
             "completed_at": utc_now(),
             "elapsed_seconds": elapsed,
-            "peak_cuda_memory_gib": (
-                torch.accelerator.max_memory_allocated() / (1024**3)
-            ),
+            "peak_cuda_memory_gib": torch.cuda.max_memory_allocated() / (1024**3),
             "checkpoint_bytes": sum(path.stat().st_size for path in safetensors),
             "model_snapshot": str(snapshot_path),
         },
@@ -687,7 +889,8 @@ def ensure_quantized(root: Path, spec: dict[str, Any]) -> bool:
         log_path = (
             root / "quantization_logs" / f"{spec['key']}_attempt_{attempts:02d}.log"
         )
-        code = _run_logged(command, log_path)
+        with reserve_gpus(1, f"quantize {spec['key']} attempt {attempts}"):
+            code = _run_logged(command, log_path)
         if code == 0 and (out_dir / "quantization_complete.json").is_file():
             write_state(
                 root,
@@ -711,6 +914,57 @@ def ensure_quantized(root: Path, spec: dict[str, Any]) -> bool:
             flush=True,
         )
     return False
+
+
+def quantize_pending(root: Path, workers: int) -> int:
+    """Pre-quantize pending checkpoints without starting their evaluations."""
+    if workers < 1 or workers > GPU_LIMIT:
+        raise ValueError(f"workers must be between 1 and {GPU_LIMIT}")
+    prepare(root)
+    base = load_base_runner()
+    models = model_specs(base)
+    pending = []
+    skipped = 0
+    for spec in job_specs(models):
+        if (checkpoint_dir(root, spec) / "quantization_complete.json").is_file():
+            skipped += 1
+            continue
+        state = read_json(state_path(root, spec["key"]), {}) or {}
+        if state.get("quantization_status") in {"running", "retrying"}:
+            skipped += 1
+            continue
+        if (
+            state.get("quantization_status") == "failed"
+            and int(state.get("quantization_attempts", 0)) >= MAX_ATTEMPTS
+        ):
+            skipped += 1
+            continue
+        pending.append(spec)
+    print(
+        f"PREQUANTIZE pending={len(pending)} skipped={skipped} workers={workers} "
+        f"GPU cap={GPU_LIMIT}",
+        flush=True,
+    )
+    failures = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(ensure_quantized, root, spec): spec["key"] for spec in pending
+        }
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                success = future.result()
+            except Exception as exc:
+                success = False
+                print(f"PREQUANTIZE ERROR job={key}: {exc!r}", flush=True)
+            print(
+                f"PREQUANTIZE RESULT job={key} "
+                f"status={'completed' if success else 'failed'}",
+                flush=True,
+            )
+            if not success:
+                failures.append(key)
+    return 1 if failures else 0
 
 
 def cache_model(root: Path, model_key: str) -> None:
@@ -841,15 +1095,26 @@ def configure_eval_helper(
         model_key, power, objective
     )
     base.prepare = lambda _root: manifest
+    source_run_suffixes = getattr(base, "MODEL_RUN_DIR_SUFFIXES", {})
+    source_max_lengths = getattr(base, "MODEL_MAX_LENGTHS", {})
+    source_category_args = getattr(base, "MODEL_CATEGORY_SERVER_ARGS", {})
     base.MODEL_RUN_DIR_SUFFIXES = {
-        key: value
-        for key, value in getattr(base, "MODEL_RUN_DIR_SUFFIXES", {}).items()
-        if key in models
+        key: source_run_suffixes.get(
+            spec.get("source_model_key", key), source_run_suffixes.get(key, {})
+        )
+        for key, spec in models.items()
     }
     base.MODEL_MAX_LENGTHS = {
-        key: value
-        for key, value in getattr(base, "MODEL_MAX_LENGTHS", {}).items()
-        if key in models
+        key: source_max_lengths.get(
+            spec.get("source_model_key", key), source_max_lengths.get(key, {})
+        )
+        for key, spec in models.items()
+    }
+    base.MODEL_CATEGORY_SERVER_ARGS = {
+        key: source_category_args.get(
+            spec.get("source_model_key", key), source_category_args.get(key, {})
+        )
+        for key, spec in models.items()
     }
 
 
@@ -870,6 +1135,11 @@ def smoke_phase(
     ]
     # Two additional quantizations occupy available GPU slots while model smoke
     # evaluations establish vLLM concurrency on each architecture.
+    extra_quant_model_keys = [
+        model_key for model_key in ("qwen25_7b", "qwen38_27b") if model_key in models
+    ]
+    if not extra_quant_model_keys:
+        extra_quant_model_keys = list(models)[:2]
     extra_quant_specs = [
         next(
             spec
@@ -878,7 +1148,7 @@ def smoke_phase(
             and spec["power"] == 2.0
             and spec["objective"] == "magnitude_on"
         )
-        for model_key in ("qwen25_7b", "qwen38_27b")
+        for model_key in extra_quant_model_keys
     ]
 
     def smoke_model(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -907,7 +1177,8 @@ def smoke_phase(
             concurrency = int(
                 old.get("num_concurrent", base.INITIAL_CONCURRENCY[category])
             )
-            tp = int(old.get("tensor_parallel_size", 1))
+            default_tp = 2 if spec.get("scope") == "attention_only" else 1
+            tp = int(old.get("tensor_parallel_size", default_tp))
             result = evaluate_with_budget(
                 root,
                 base,
@@ -1178,6 +1449,9 @@ def write_summary(root: Path) -> tuple[Path, Path]:
                 {
                     "model": manifest["models"][spec["model"]]["id"],
                     "model_key": spec["model"],
+                    "scope": manifest["models"][spec["model"]].get(
+                        "scope", "full_dense"
+                    ),
                     "power": spec["power"],
                     "magnitude_normalization": magnitude_enabled(spec),
                     "grid": "exponential 1–1/64 (7 points)",
@@ -1195,6 +1469,7 @@ def write_summary(root: Path) -> tuple[Path, Path]:
         headers = [
             "model",
             "model_key",
+            "scope",
             "power",
             "magnitude_normalization",
             "grid",
@@ -1208,8 +1483,8 @@ def write_summary(root: Path) -> tuple[Path, Path]:
             "math500_seed_count",
             "gpqa_seed_count",
         ]
-        csv_path = root / "ablation_summary.csv"
-        with csv_path.open("w", newline="") as out:
+        summary_csv = root / "ablation_summary.csv"
+        with summary_csv.open("w", newline="") as out:
             writer = csv.DictWriter(out, fieldnames=headers)
             writer.writeheader()
             writer.writerows(rows)
@@ -1221,9 +1496,9 @@ def write_summary(root: Path) -> tuple[Path, Path]:
             "Each metric uses its available completed seeds; `Seeds` counts seeds "
             "where all four evaluations completed. No overall ranking is applied.",
             "",
-            "| Model | Power | Magnitude normalization | Grid | Seeds | "
+            "| Model | Scope | Power | Magnitude normalization | Grid | Seeds | "
             "Avg GSM8K strict | Avg MMLU strict | Avg Math500 | Avg GPQA Diamond |",
-            "|---|---:|:---:|---|---:|---:|---:|---:|---:|",
+            "|---|---|---:|:---:|---|---:|---:|---:|---:|---:|",
         ]
         for row in rows:
 
@@ -1231,7 +1506,7 @@ def write_summary(root: Path) -> tuple[Path, Path]:
                 return "—" if row[key] is None else f"{row[key]:.2f}%"
 
             lines.append(
-                f"| {row['model']} | {row['power']:g} | "
+                f"| {row['model']} | {row['scope']} | {row['power']:g} | "
                 f"{str(row['magnitude_normalization']).lower()} | "
                 f"{row['grid']} | {row['seeds']} | {fmt('gsm8k_strict')} | "
                 f"{fmt('mmlu_strict')} | {fmt('math500')} | {fmt('gpqa_diamond')} |"
@@ -1245,8 +1520,7 @@ def write_summary(root: Path) -> tuple[Path, Path]:
             ]
         )
         content = "\n".join(lines)
-        md_path = root / "ablation_summary.md"
-        md_path.write_text(content)
+        (root / "ablation_summary.md").write_text(content)
     return root / "ablation_summary.csv", root / "ablation_summary.md"
 
 
@@ -1468,7 +1742,9 @@ def check_config() -> int:
             f"{SCHEME_NAME} preset does not have expected group/E8M0 settings"
         )
     activations = scheme.input_activations
-    if (
+    if SCHEME_NAME == "MXFP4A16" and activations is not None:
+        raise RuntimeError(f"{SCHEME_NAME} should not declare input activations")
+    if SCHEME_NAME == "MXFP4XFP8" and (
         activations is None
         or activations.num_bits != 8
         or activations.type != "float"
@@ -1486,15 +1762,17 @@ def check_config() -> int:
                 "observer": scheme.weights.observer,
                 "group_size": scheme.weights.group_size,
                 "scale_dtype": str(scheme.weights.scale_dtype),
-                "input_activations": {
+                "observer_kwargs": scheme.weights.observer_kwargs,
+                "candidate_multipliers": points,
+                "input_activations": None
+                if activations is None
+                else {
                     "num_bits": activations.num_bits,
                     "type": activations.type,
                     "strategy": activations.strategy,
                     "dynamic": activations.dynamic,
                     "group_size": activations.group_size,
                 },
-                "observer_kwargs": scheme.weights.observer_kwargs,
-                "candidate_multipliers": points,
                 "observer_class": NVFP4ExpandedMSEObserver.__name__,
             },
             indent=2,
@@ -1523,6 +1801,9 @@ def parse_args() -> argparse.Namespace:
     quant_one_parser = sub.add_parser("quantize-one")
     quant_one_parser.add_argument("--root", type=Path, default=DEFAULT_RUN_ROOT)
     quant_one_parser.add_argument("--job-key", required=True)
+    prequant_parser = sub.add_parser("quantize-pending")
+    prequant_parser.add_argument("--root", type=Path, default=DEFAULT_RUN_ROOT)
+    prequant_parser.add_argument("--workers", type=int, default=GPU_LIMIT)
     summary_parser = sub.add_parser("summary")
     summary_parser.add_argument("--root", type=Path, default=DEFAULT_RUN_ROOT)
     sub.add_parser("check-config")
@@ -1561,6 +1842,8 @@ def main() -> int:
         prepare(args.root)
         spec = next(item for item in job_specs(models) if item["key"] == args.job_key)
         return 0 if ensure_quantized(args.root, spec) else 1
+    if args.command == "quantize-pending":
+        return quantize_pending(args.root, args.workers)
     if args.command == "summary":
         csv_path, md_path = write_summary(args.root)
         print(csv_path)

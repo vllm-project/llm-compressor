@@ -1,9 +1,11 @@
 # Reproducing the MXFP4xFP8 ablations
 
-This guide and its two runners reproduce the completed imatrix and model-free
-MSE ablations for MXFP4 weights with dynamic FP8 activations. Results tables
-are intentionally not included; each run writes its manifests, logs, status,
-checkpoints, and generated summary under its run directory.
+This guide documents the imatrix-only, GPTQ+imatrix, and model-free MSE
+ablations for MXFP4 weights with dynamic FP8 activations. Results tables are
+intentionally not included; each run writes its manifests, logs, status,
+checkpoints, and generated summary under its run directory. The MSE runner also
+supports MXFP4A16. The separate [MXFP4A16 imatrix guide](MXFP4A16_IMATRIX_REPRODUCTION.md)
+documents the already-merged A16 imatrix runner.
 
 The quantization scheme follows the `MXFP4XFP8` preset from
 [compressed-tensors PR #913](https://github.com/vllm-project/compressed-tensors/pull/913).
@@ -34,10 +36,10 @@ The completed runs used llm-compressor commit
 `0.33.0rc1.dev277+g4440f0e26` with PyTorch `2.14.0+cu130`. The eval-agent
 registry used for the runs had SHA-256
 `b0d21efbde41ad245ce38a087573f6bf6cd527852b782b6e01a6718cf3006bac`.
-Each runner records model, dataset, source, and registry revisions in its
-experiment manifest.
+Run manifests record the pinned model and registry revisions and the applicable
+dataset and source revisions.
 
-The `chg` command must be available for GPU reservation. Both runners use it
+The `chg` command must be available for GPU reservation. The runners use it
 for GPU work. Keep the worker count at six or fewer if reproducing with the
 same GPU allocation.
 
@@ -68,6 +70,8 @@ Use the vLLM environment and evaluation dependencies validated by the
     `a09a35458c702b33eeacc393d103063234e8bc28`
   - `Qwen/Qwen3.8-27B` — `1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`
   - `Qwen/Qwen3-30B-A3B` — `ad44e777bcd18fa416d9da3bd8f70d33ebb85d39`
+  - `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` —
+    `a9904d24bcc1d289a1950fa9d2b978c47cf903b9`
 - Qwen2.5-7B-Instruct replaced the original Llama 3.1-8B arm after the Llama
   evaluation proved too slow for this matrix.
 - Each completed configuration is evaluated with three seeds: 1234, 2345,
@@ -89,8 +93,11 @@ group size 128. Nemotron's second expert projection receives width 1856, which
 leaves a 64-element tail and triggers Humming's divisibility assertion. The
 previous MXFP4A16 run used a different, weight-only kernel path and therefore
 does not establish that the xFP8 MoE path works. Attempts to use Marlin and
-Triton as xFP8 fallbacks also failed. The runners intentionally use the three
-models above rather than counting Nemotron as a successful evaluation.
+Triton as xFP8 fallbacks also failed. The full-dense xFP8 imatrix and MSE
+matrices therefore use the three Qwen models. The GPTQ matrix and optional MSE
+scope matrix include Nemotron attention-only; its expert weights remain dense,
+so this does not exercise the failing xFP8 expert kernel. Nemotron expert-only
+is excluded.
 
 ## Imatrix ablation
 
@@ -131,13 +138,39 @@ The smoke phase omits MMLU because the registry's MMLU smoke workload is very
 large. It validates serving and calibrates concurrency before the full run.
 The full run is seed-major and retries an evaluation at most once.
 
+## GPTQ plus imatrix ablation
+
+The GPTQ runner applies `GPTQModifier` with the same MXFP4xFP8 preset,
+calibration set, power values, objectives, and evaluation tasks. It reproduces
+72 model/scope/observer configurations: Qwen2.5-7B-Instruct and Qwen3.8-27B
+dense, Qwen3-30B-A3B experts-only and attention-only, and Nemotron 3.5
+Lightning-30B-A3B attention-only. Qwen3.8-27B uses both observer settings;
+the other arms use the expanded observer. Nemotron experts-only is omitted.
+Each configuration is evaluated with seeds 1234, 2345, and 3456.
+
+```bash
+GPTQ_IMATRIX=examples/imatrix/run_mxfp4xfp8_gptq_imatrix_ablation.py
+GPTQ_RUNS="$PWD/runs/mxfp4xfp8_gptq_imatrix_ablation"
+
+"$RHVENV_PYTHON" "$GPTQ_IMATRIX" prepare --root "$GPTQ_RUNS"
+"$RHVENV_PYTHON" "$GPTQ_IMATRIX" smoke --root "$GPTQ_RUNS" --workers 6
+"$RHVENV_PYTHON" "$GPTQ_IMATRIX" full --root "$GPTQ_RUNS" --workers 6
+```
+
+The default observer uses the exponential `1` through `1/16` candidates and
+retains the final linear-grid endpoint. The expanded observer searches the
+exponential `1` through `1/64` candidates and retains its final endpoint. Both
+use `patience=0`, `expand=1`, and E8M0 scales. A run manifest records the exact
+observer arguments and pinned revisions.
+
 ## Model-free MSE ablation
 
-The model-free MSE runner evaluates 36 configurations: six powers times
-`magnitude_normalization` off/on for each of the three models. It runs
-model-free PTQ over the weights using `nvfp4_expanded_mse`; the resulting
-checkpoint retains the same MXFP4xFP8 preset, and vLLM evaluation is subject to
-the W4A8 config and kernel checks described above.
+The model-free MSE runner evaluates 36 configurations per scheme: six powers
+times `magnitude_normalization` off/on for each of Qwen2.5-7B-Instruct,
+Qwen3.8-27B, and Qwen3-30B-A3B. It runs model-free PTQ over the weights using
+`nvfp4_expanded_mse`. With MXFP4xFP8, checkpoints retain dynamic FP8
+activations and evaluation uses the W4A8 checks above. With MXFP4A16,
+checkpoints are weight-only and evaluation verifies the Marlin MXFP4 path.
 
 For each weight, the MSE error is `abs(QDQ(w) - w)^power`. With magnitude
 normalization enabled, the observer multiplies that error by
@@ -149,14 +182,25 @@ The search checks exactly seven multipliers: `1, 1/2, 1/4, 1/8, 1/16, 1/32,
 1/64`. No separate grid-size ablation was run for MSE.
 
 ```bash
-MSE=examples/imatrix/run_mxfp4xfp8_mse_ablation.py
-MSE_RUNS="$PWD/runs/mxfp4xfp8_mse_model_free_ablation"
+MSE=examples/imatrix/run_mxfp4_mse_model_free_ablation.py
 
+export MXFP4_ABLATION_SCHEME=MXFP4XFP8
+MSE_RUNS="$PWD/runs/mxfp4xfp8_mse_model_free_ablation"
+"$RHVENV_PYTHON" "$MSE" check-config
+"$RHVENV_PYTHON" "$MSE" prepare --root "$MSE_RUNS"
+"$RHVENV_PYTHON" "$MSE" run --root "$MSE_RUNS" --workers 6
+
+export MXFP4_ABLATION_SCHEME=MXFP4A16
+MSE_RUNS="$PWD/runs/mxfp4a16_mse_model_free_ablation"
 "$RHVENV_PYTHON" "$MSE" check-config
 "$RHVENV_PYTHON" "$MSE" prepare --root "$MSE_RUNS"
 "$RHVENV_PYTHON" "$MSE" run --root "$MSE_RUNS" --workers 6
 ```
 
 The MSE `run` command performs smoke checks, quantizes each configuration,
-then completes evaluation seed by seed. It records generated summaries only
-inside the selected run directory.
+then completes evaluation seed by seed. Set `MXFP4_MSE_RUN_ROOT` to override
+the default path for the selected scheme. Generated summaries stay inside the
+selected run directory. To run the MSE MoE-scope matrix instead of the three
+dense models, set `MXFP4_MSE_SCOPE_ABLATION=1` and use a separate run root; the
+scope matrix selects Qwen3-30B-A3B experts-only and attention-only, plus
+Nemotron attention-only.
