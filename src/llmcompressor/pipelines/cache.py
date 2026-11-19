@@ -81,8 +81,10 @@ class IntermediatesCache:
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
 
-    # Deduplicate shared tensors by identity without dispatching Tensor.__eq__.
-    offload_values: dict[int, tuple[ref[torch.Tensor], torch.Tensor]] = {}
+    # Deduplicate by source identity and destination without dispatching Tensor.__eq__.
+    offload_values: dict[
+        tuple[int, torch.device | None], tuple[ref[torch.Tensor], torch.Tensor]
+    ] = {}
 
     def __init__(
         self,
@@ -436,7 +438,7 @@ class IntermediatesCache:
     def _offload_value(
         cls,
         value: Any,
-        offload_device: torch.device | None,
+        offload_device: torch.device | str | None,
         onload_device: torch.device | None = None,
     ) -> IntermediateValue:
         """
@@ -451,14 +453,27 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                key = id(value)
+                device = offload_device
+                if device is not None:
+                    if not isinstance(device, torch.device):
+                        device = torch.device(device)
+                    # An unindexed accelerator target follows the current device.
+                    if (
+                        device.index is None
+                        and device.type not in ("cpu", "meta")
+                        and device == torch.accelerator.current_accelerator()
+                    ):
+                        device = torch.device(
+                            device.type, torch.accelerator.current_device_index()
+                        )
+                key = (id(value), device)
                 offload_values = cls.offload_values
                 entry = offload_values.get(key)
                 # An id can be reused once its original tensor is gone.
                 if entry is not None and entry[0]() is value:
                     offloaded = entry[1]
                 else:
-                    offloaded = value.to(device=offload_device)
+                    offloaded = value.to(device=device)
                     if offloaded is not value:  # avoid retaining the source tensor
 
                         def remove(dead_ref: ref[torch.Tensor]) -> None:
