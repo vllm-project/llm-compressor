@@ -90,6 +90,12 @@ class ExpertPruningModifierBase(Modifier):
     # per-layer stats used to inform pruning decisions
     _moe_stats: dict[str, dict[str, torch.Tensor]] = PrivateAttr(default_factory=dict)
 
+    # per-batch router output (the full-width per-expert logits or scores the
+    # router produced), keyed by layer name and captured by :meth:`router_hook`.
+    # Subclasses which need the routing context of unselected experts (e.g.
+    # RAZOR) read it in their experts-block hook; the others leave it unused
+    _router_logits: dict[str, torch.Tensor] = PrivateAttr(default_factory=dict)
+
     # pruning outputs
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
     _report: dict[str, dict[str, list[int | float]]] = PrivateAttr(default_factory=dict)
@@ -254,6 +260,12 @@ class ExpertPruningModifierBase(Modifier):
             _experts_block_hook = partial(self.experts_block_hook, moe_name, moe)
             self.register_hook(experts, _experts_block_hook, "forward")
 
+            # capture the router's output each batch, so subclasses which need
+            # the full routing context (all experts' scores, not just the
+            # selected top-k) have it available in their experts-block hook
+            _router_hook = partial(self.router_hook, moe_name)
+            self.register_hook(router, _router_hook, "forward")
+
     def on_sequential_epoch_end(
         self,
         state: State,
@@ -318,6 +330,7 @@ class ExpertPruningModifierBase(Modifier):
 
             # free all stats
             del self._moe_stats[moe_name]
+            self._router_logits.pop(moe_name, None)
 
         if self._n_experts_to_drop > 0:
             logger.info(
@@ -397,10 +410,44 @@ class ExpertPruningModifierBase(Modifier):
         self._moe_stats.clear()
         self._retained_experts.clear()
         self._report.clear()
+        self._router_logits.clear()
 
         return True
 
     # -- calibration hooks ---------------------------------------------------
+
+    @torch.no_grad()
+    def router_hook(
+        self,
+        layer_name: str,
+        module: torch.nn.Module,
+        args: tuple,
+        output: Any,
+    ):
+        """
+        Forward hook fired on a layer's router, once per batch.
+
+        Captures the router's output -- the full-width per-expert tensor it
+        produces (raw logits, or already-scored probabilities, depending on the
+        architecture) -- into ``_router_logits`` so a subclass can recover the
+        routing context of *every* expert, including the unselected ones the
+        experts block never evaluated. Routers return this tensor either on its
+        own or as the first element of a ``(logits, weights, indices)`` tuple.
+
+        This is the base's general way of exposing the routing context; the
+        default captures the router output verbatim. Subclasses which need a
+        different projection of it may override this, mirroring
+        :meth:`expert_hook` and :meth:`experts_block_hook`. Subclasses which do
+        not need it (REAP, HOPE, MoNe, which read the selected top-k weights
+        from the experts block) simply leave ``_router_logits`` unread.
+
+        :param layer_name: Name of the MoE layer the router belongs to
+        :param module: The router module the hook is attached to
+        :param args: The router's forward arguments
+        :param output: The router's output for the current batch
+        """
+        logits = output[0] if isinstance(output, (tuple, list)) else output
+        self._router_logits[layer_name] = logits.detach()
 
     @abstractmethod
     def expert_hook(

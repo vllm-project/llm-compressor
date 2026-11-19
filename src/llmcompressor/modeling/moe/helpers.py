@@ -195,7 +195,7 @@ class MoEConfig:
     group_size: int | None = None
 
     # hidden sizes
-    hidden_dim: int | None = None
+    hidden_dim: int | None = None  # input/output width of each expert
     hidden_dim_key: str | None = None
     intermediate_size: int | None = None
     intermediate_size_key: str | None = None
@@ -237,19 +237,21 @@ class MoEConfig:
         Every field is optional: values which the dict does not declare are
         left ``None`` (or ``False``), since a config dict may omit fields an
         in-memory model config carries. Each field is searched under its
-        candidate keys (``MOE_CONFIG_KEYS``) at the top level of the dict
-        and then under its nested ``text_config``, supporting composite (e.g.
-        vision-language) checkpoints.
+        candidate keys (``MOE_CONFIG_KEYS``) at the top level of the dict and
+        then under its nested language-model config, supporting composite (e.g.
+        vision-language) checkpoints which nest it under ``text_config`` or
+        ``llm_config`` (e.g. nemotron_h_omni).
 
         The key each value was read from is recorded in the field's
         ``<field>_key`` sibling attribute (e.g. ``num_experts_key``), so
         tooling can write updated values back to the same key.
         """
-        # composite checkpoints keep their text-model fields under
-        # text_config; the top level takes precedence for a given key
-        text_config = config_data.get("text_config")
+        # composite checkpoints keep their text-model fields under a nested
+        # config; the top level takes precedence for a given key, then
+        # text_config, then llm_config
+        nested = (config_data.get("text_config"), config_data.get("llm_config"))
         config = ChainMap(
-            config_data, text_config if isinstance(text_config, dict) else {}
+            config_data, *(cfg for cfg in nested if isinstance(cfg, dict))
         )
 
         # find the key each value is stored under, then read the value
@@ -261,9 +263,12 @@ class MoEConfig:
             kwargs[field] = config[key] if key else None
         self = cls(**kwargs)
 
-        # resolve the router's native score transformation, falling back to
-        # softmax for architectures which do not declare one; the raw declared
-        # value is kept (the modifiers map it onto their score function)
+        # resolve the transform the modifiers apply to a router's captured
+        # output to recover its per-expert scores. For routers whose forward
+        # returns raw logits this is their native score function (``softmax``
+        # by default, read from the config here); routers which already return
+        # scored probabilities are handled as ``identity`` in the special cases
+        # below
         for key in SCORE_FUNCTION_CONFIG_KEYS:
             value = config.get(key)
             if isinstance(value, str):
@@ -286,17 +291,37 @@ class MoEConfig:
             case "lfm2_moe":
                 self.hidden_act = "silu"
             case "nemotron_h":
-                # moe_latent_size may be declared but unset; the expert
-                # hidden dim is then the model hidden size
+                # the router hardcodes a sigmoid score function (applied to the
+                # logits its forward returns); the config carries no scoring
+                # field. Checkpoints with a moe_latent_size project the block
+                # input down before the experts, which the hidden-size fallback
+                # already resolves into hidden_dim (the experts' width)
+                self.score_function = "sigmoid"
+                # moe_latent_size may be declared but unset; the expert hidden
+                # dim is then the model hidden size
                 if self.hidden_dim is None:
                     self.hidden_dim_key = "hidden_size"
                     self.hidden_dim = config.get("hidden_size")
+            case "gemma4" | "gemma4_text":
+                # the router's forward already returns softmaxed probabilities
+                # (not logits), so its captured output is the per-expert scores
+                # directly; no further score transform is applied
+                self.score_function = "identity"
 
         return self
 
     def _resolve_group_size(self):
         """Compute ``group_size`` from ``num_experts`` and ``n_group`` when both
         are known, raising if the experts do not split evenly into groups."""
+        if self.n_group == 1:
+            # a single routing group is no group limitation at all: normalize
+            # it away so the group-limited code paths (equal drops per group,
+            # per-group saliency ranking) are not taken spuriously (e.g.
+            # nemotron_h, whose config declares n_group=1)
+            self.n_group = None
+            self.n_group_key = None
+            self.top_k_group = None
+            self.top_k_group_key = None
         if self.n_group is None or self.num_experts is None:
             return
         if self.num_experts % self.n_group != 0:

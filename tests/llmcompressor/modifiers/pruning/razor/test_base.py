@@ -27,6 +27,8 @@ from llmcompressor.modifiers.pruning.razor.base import (
     _token_damage,
 )
 from tests.llmcompressor.modifiers.pruning.fake_moe import (
+    FakeLatentMoEConfig,
+    FakeLatentMoEModel,
     FakeMoEConfig,
     FakeMoEModel,
     make_state,
@@ -89,6 +91,84 @@ def _reference_saliency(
             pair_weights = weights[tok, slot]
             residuals = outputs[expert_idx, tok] - consensus[tok]
             if criterion == "refill" and num_experts > top_k:
+                pair_refill_weights = refill_weights[tok]
+                pair_refill_residuals = refill_outputs[tok] - consensus[tok]
+            else:
+                pair_refill_weights = None
+                pair_refill_residuals = None
+            damage = _token_damage(
+                criterion,
+                pair_weights,
+                residuals,
+                pair_refill_weights,
+                pair_refill_residuals,
+            )
+            sum_sq_damage[expert_idx] += damage.pow(2).sum()
+            count[expert_idx] += damage.shape[0]
+
+    return (sum_sq_damage / count.clamp(min=1.0)).sqrt()
+
+
+def _reference_saliency_latent(
+    layer: torch.nn.Module,
+    layer_inputs: list[torch.Tensor],
+    criterion: str,
+    config: FakeLatentMoEConfig,
+) -> torch.Tensor:
+    """Compute the RAZOR saliency of a nemotron_h-style latent MoE layer from
+    the inputs it saw.
+
+    An independent reimplementation of the metric for a layer whose experts
+    consume a projection of the block input while its router scores the block
+    input itself: the sigmoid router scores (with their correction bias
+    steering selection) are recomputed from the block input, the expert
+    outputs from its latent projection, and the per-pair damage is
+    accumulated per expert in the latent space.
+    """
+    num_experts = config.num_experts
+    top_k = config.num_experts_per_tok
+    sum_sq_damage = torch.zeros(num_experts)
+    count = torch.zeros(num_experts)
+
+    for hidden in layer_inputs:  # [num_tokens, hidden_size] block inputs
+        scores = F.linear(hidden, layer.gate.weight).sigmoid()
+        selection_scores = scores + layer.gate.e_score_correction_bias
+        _, topk_idx = selection_scores.topk(top_k, dim=-1)
+        selected_scores = scores.gather(1, topk_idx)
+        score_sum = selected_scores.sum(dim=-1)
+        weights = selected_scores / score_sum.unsqueeze(-1)
+
+        with torch.no_grad():
+            latent = layer.fc1_latent_proj(hidden)
+            # [num_experts, num_tokens, latent_dim]
+            outputs = torch.stack(
+                [layer.experts[e](latent) for e in range(num_experts)]
+            )
+        tokens = torch.arange(hidden.shape[0])
+        selected = outputs[topk_idx, tokens.unsqueeze(1)]  # [T, k, d]
+        consensus = (weights.unsqueeze(-1) * selected).sum(dim=1)  # [T, d]
+
+        refill_weights = None
+        refill_outputs = None
+        if criterion == "refill" and num_experts > top_k:
+            chosen = torch.zeros_like(scores, dtype=torch.bool)
+            chosen.scatter_(1, topk_idx, True)
+            promoted = selection_scores.masked_fill(chosen, -float("inf")).argmax(
+                dim=-1
+            )
+            refill_weights = (
+                scores.gather(1, promoted.unsqueeze(1)).squeeze(1) / score_sum
+            )
+            refill_outputs = outputs[promoted, tokens]  # [T, d]
+
+        for expert_idx in range(num_experts):
+            mask = topk_idx == expert_idx  # [T, k]
+            if not mask.any():
+                continue
+            tok, slot = mask.nonzero(as_tuple=True)
+            pair_weights = weights[tok, slot]
+            residuals = outputs[expert_idx, tok] - consensus[tok]
+            if refill_weights is not None:
                 pair_refill_weights = refill_weights[tok]
                 pair_refill_residuals = refill_outputs[tok] - consensus[tok]
             else:
@@ -456,6 +536,122 @@ def test_razor_full_lifecycle():
         assert layer.gate.out_features == 4
 
     # the pruned model still runs
+    with torch.no_grad():
+        out = model(torch.randn(2, 4, config.hidden_size))
+    assert out.shape == (2, 4, config.hidden_size)
+    assert not torch.isnan(out).any()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("criterion", ["rcs", "rcs_loo", "refill"])
+@pytest.mark.parametrize("calibrate_all", [False, True])
+def test_saliency_matches_reference_latent_moe(criterion, calibrate_all, monkeypatch):
+    """Accumulated statistics agree with an independent computation of the
+    metric on a nemotron_h-style latent MoE, whose experts consume a
+    projection of the block input while the router scores the block input
+    itself: the routing context must be resolved from the router's own
+    input, not from the experts'."""
+    monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+
+    torch.manual_seed(42)
+    config = FakeLatentMoEConfig(
+        num_experts=8,
+        hidden_size=16,
+        moe_latent_size=4,
+        intermediate_size=32,
+        num_hidden_layers=2,
+    )
+    model = FakeLatentMoEModel(config)
+    model.eval()
+
+    modifier = RazorPruningModifier(sparsity=0.5, criterion=criterion)
+    layer_inputs = _calibrate(model, modifier, num_batches=4, batch_shape=(2, 8, 16))
+
+    with RazorPruningModifier.disable_hooks():
+        expected = {
+            f"layers.{idx}": _reference_saliency_latent(
+                model.layers[idx], layer_inputs[idx], criterion, config
+            )
+            for idx in range(len(model.layers))
+        }
+    for layer_idx, (layer_name, expected_saliency) in enumerate(expected.items()):
+        torch.testing.assert_close(
+            modifier.saliency(layer_name),
+            expected_saliency,
+            rtol=1e-5,
+            atol=1e-6,
+            msg=lambda m, i=layer_idx: f"layer {i}: saliency differs\n{m}",
+        )
+
+
+@pytest.mark.unit
+def test_razor_full_lifecycle_latent_moe(tmp_path):
+    """A nemotron_h-style latent MoE is calibrated through real routing,
+    pruned to its retained experts (shrinking the router, its correction
+    bias, and the experts but leaving the latent projections untouched), and
+    still runs afterwards."""
+    torch.manual_seed(42)
+    config = FakeLatentMoEConfig(
+        num_experts=8,
+        hidden_size=16,
+        moe_latent_size=4,
+        intermediate_size=32,
+        num_hidden_layers=2,
+    )
+    model = FakeLatentMoEModel(config)
+    model.eval()
+
+    modifier = RazorPruningModifier(
+        sparsity=0.5, report_path=str(tmp_path / "report.json")
+    )
+    state = make_state(model)
+
+    modifier.initialize(state)
+    assert modifier._n_experts_to_drop == 4
+    # a single routing group is no group limitation: the config's n_group=1
+    # must not put the modifier on the group-limited path
+    assert modifier._moe_config.n_group is None
+    assert modifier._n_experts_to_drop_per_group is None
+    # the experts run at the latent width while the router scores the block
+    # input
+    assert modifier._moe_config.hidden_dim == config.moe_latent_size
+    assert modifier._moe_config.score_function == "sigmoid"
+
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+    assert len(modifier._moe_stats) == 2
+
+    with torch.no_grad():
+        for _ in range(5):
+            model(torch.randn(2, 8, config.hidden_size))
+
+    modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+    modifier.finalize(state)
+
+    assert model._moe_sparsity_config.method.value == "prune"
+    assert model._moe_sparsity_config.num_experts == [4, 4]
+
+    for layer in model.layers:
+        expert_count = sum(
+            1 for m in layer.experts.children() if isinstance(m, ExpertMLP)
+        )
+        assert expert_count == 4
+        assert layer.experts.num_experts == 4
+        # the router and its correction bias are pruned to the retained
+        # experts, at the block input's width
+        assert layer.gate.weight.shape == (4, config.hidden_size)
+        assert layer.gate.e_score_correction_bias.shape == (4,)
+        # the latent projections are shared by all experts and untouched
+        assert layer.fc1_latent_proj.weight.shape == (
+            config.moe_latent_size,
+            config.hidden_size,
+        )
+        assert layer.fc2_latent_proj.weight.shape == (
+            config.hidden_size,
+            config.moe_latent_size,
+        )
+
+    # the pruned model still runs, at the block's input width
     with torch.no_grad():
         out = model(torch.randn(2, 4, config.hidden_size))
     assert out.shape == (2, 4, config.hidden_size)

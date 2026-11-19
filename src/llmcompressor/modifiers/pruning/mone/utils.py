@@ -14,6 +14,7 @@ from compressed_tensors.offload import get_execution_device
 from compressed_tensors.offload.utils import to_tensor
 
 from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
+    _get_router_linear,
     get_experts_router,
     prune_moe_layer,
     reorder_router,
@@ -53,14 +54,17 @@ def mone_collapse_moe_layer(
     :return: the retained expert indices
     """
     experts, router = get_experts_router(moe_name, moe_module)
+    # the router's expert-dimension projection; not every architecture exposes
+    # it as ``router.weight`` directly (e.g. gemma4 wraps it in ``proj``)
+    num_router_rows = _get_router_linear(router).weight.shape[0]
 
     assert novices.shape[0] == len(dropped), (
         f"mone_collapse_moe_layer: got {novices.shape[0]} novices but "
         f"{len(dropped)} experts were collapsed"
     )
-    assert len(retained) + len(dropped) == router.weight.shape[0], (
+    assert len(retained) + len(dropped) == num_router_rows, (
         f"mone_collapse_moe_layer: {len(retained)} retained + {len(dropped)} dropped "
-        f"experts do not cover the router's {router.weight.shape[0]} rows"
+        f"experts do not cover the router's {num_router_rows} rows"
     )
 
     # Left-shift the retained experts without touching the router: it is

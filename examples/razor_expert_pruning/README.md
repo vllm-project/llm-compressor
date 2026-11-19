@@ -108,3 +108,34 @@ from the safetensors checkpoint with `ExpertPruner`, producing a
 `uniform=False` records the per-layer retained expert counts in
 `quantization_config.moe_sparsity_config` while `n_routed_experts` keeps its
 original value of 288, which still matches the untouched MTP layer.
+
+## Nemotron-3.5-Super-VL example
+
+`nemotron35_super_vl_example.py` calibrates
+[`nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16`](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16)
+in report-only mode. Nemotron-3.5's MoE layers are *latent* MoEs (`nemotron_h`
+with a `moe_latent_size`): each block projects its input down to 1024
+dimensions for its experts while the router keeps scoring the full 4096-wide
+block input. The modifier resolves the routing context from the activations
+the router itself consumed (recorded by a pre-hook on the router), reads the
+router's sigmoid score function from the architecture, and evaluates the
+consensus, the residuals, and the deletion damage in the experts' latent space.
+
+The saliency report is calibrated on the BF16 release because the
+NVFP4-compressed-tensors release cannot be loaded for calibration yet: it is a
+remote-code vision-language composition without a direct 2D expert load
+mapping, and its quantization config lists exact module paths in checkpoint
+naming (`language_model.backbone.*`) which do not match the module tree
+transformers builds (`language_model.model.*`). The routing statistics are
+shared between the releases (the router, the latent projections, and the
+shared experts are unquantized in the NVFP4 checkpoint), so the report
+transfers up to NVFP4 quantization noise on the expert outputs.
+
+`nemotron35_super_vl_prune_from_report.py` then prunes 20% of the experts
+directly from the
+[`inference-optimization/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-compressed-tensors`](https://huggingface.co/inference-optimization/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-compressed-tensors)
+safetensors with `ExpertPruner`, preserving the checkpoint's NVFP4 weights:
+only expert tensors are dropped/renumbered and router rows (and their
+`e_score_correction_bias`) sliced. The checkpoint's MTP layers live under a
+separate `language_model.mtp.*` prefix, which the backbone patterns do not
+match, so they are left untouched without extra pattern exclusions.

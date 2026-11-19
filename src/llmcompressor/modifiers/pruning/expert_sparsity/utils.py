@@ -119,42 +119,85 @@ def prune_moe_layer(
     return retained
 
 
+# per-expert vectors (indexed by expert along dim 0) which some routers carry
+# alongside their projection and which must be reordered with the router rows:
+# score-correction biases (DeepSeek-V3, nemotron_h) and per-expert output
+# scales (gemma4)
+ROUTER_EXPERT_VECTOR_ATTRS = ["e_score_correction_bias", "per_expert_scale"]
+
+
+def _get_router_linear(router: nn.Module) -> nn.Module:
+    """
+    The router's expert-dimension linear projection, whose rows are indexed by
+    expert.
+
+    Most routers expose it on the router module itself (``router.weight``,
+    e.g. qwen2_moe, nemotron_h); others wrap a dedicated ``nn.Linear``
+    submodule (e.g. gemma4's ``proj``). Returns the module carrying the
+    ``weight`` (and optional ``bias``/``out_features``) to reorder.
+    """
+    if isinstance(getattr(router, "weight", None), nn.Parameter):
+        return router
+    for child in router.children():
+        if isinstance(child, nn.Linear):
+            return child
+    raise ValueError(
+        "Unexpected MoE router: expected a `weight` attribute or a child "
+        f"`nn.Linear`, found neither on {type(router).__name__}"
+    )
+
+
+def _reorder_expert_vector(
+    module: nn.Module, attr: str, retained_t: torch.Tensor
+) -> None:
+    """Reorder a module's per-expert vector ``attr`` (a Parameter or buffer
+    indexed by expert along dim 0) by ``retained_t``, in place, preserving
+    whether it was a Parameter or a buffer."""
+    vector = getattr(module, attr, None)
+    if not isinstance(vector, torch.Tensor):
+        return
+    reordered = vector.detach()[retained_t].contiguous()
+    if isinstance(vector, nn.Parameter):
+        new_value = nn.Parameter(reordered, requires_grad=vector.requires_grad)
+    else:
+        # registered buffer (e.g. nemotron_h's e_score_correction_bias)
+        new_value = reordered
+    setattr(module, attr, new_value)
+
+
 def reorder_router(router: nn.Module, order: list[int]):
     """
-    Reorder a router's rows to ``order``: its weight (plus any bias or
-    score-correction bias) is indexed by ``order``, and ``out_features`` is set
-    to ``len(order)``.
+    Reorder a router's rows to ``order``: its projection weight (plus any bias,
+    score-correction bias, or per-expert scale) is indexed by ``order``, and
+    ``out_features`` is set to ``len(order)``.
+
+    The expert-dimension projection is resolved from the router module, which
+    either exposes it directly (``router.weight``, e.g. qwen2_moe, nemotron_h)
+    or wraps a dedicated ``nn.Linear`` (e.g. gemma4's ``proj``). Any per-expert
+    vectors the router carries (``e_score_correction_bias``, gemma4's
+    ``per_expert_scale``) are reordered alongside it.
 
     Passing a subset of the experts shrinks the router to those rows (plain
     expert pruning); passing a full permutation keeps its width while
     reordering the rows, so e.g. MoNe's novices can keep occupying the rows
     which follow the retained experts.
     """
-    router_weight: torch.nn.Parameter | None = getattr(router, "weight", None)
-    router_bias: torch.nn.Parameter | None = getattr(router, "bias", None)
-    router_escore: torch.nn.Parameter | None = getattr(
-        router, "e_score_correction_bias", None
-    )
-    router_out_features: int | None = getattr(router, "out_features", None)
-    if not isinstance(router_weight, nn.Parameter):
-        raise ValueError("Unexpected MoE router. Router must have `weight` attribute")
+    linear = _get_router_linear(router)
+    router_weight: torch.nn.Parameter = linear.weight
 
     retained_t = torch.tensor(order, dtype=torch.long, device=router_weight.device)
 
     new_weight = router_weight.detach()[retained_t].contiguous()
-    router.weight = torch.nn.Parameter(
+    linear.weight = torch.nn.Parameter(
         new_weight, requires_grad=router_weight.requires_grad
     )
-    if router_bias is not None:
-        new_bias = router_bias.detach()[retained_t].contiguous()
-        router.bias = torch.nn.Parameter(
-            new_bias, requires_grad=router_bias.requires_grad
-        )
+    _reorder_expert_vector(linear, "bias", retained_t)
 
-    if router_escore is not None:
-        new_escore = router_escore.detach()[retained_t].contiguous()
-        router.e_score_correction_bias = torch.nn.Parameter(
-            new_escore, requires_grad=router_escore.requires_grad
-        )
-    if router_out_features is not None:
-        router.out_features = len(order)
+    # per-expert vectors live on the router module itself
+    for attr in ROUTER_EXPERT_VECTOR_ATTRS:
+        _reorder_expert_vector(router, attr, retained_t)
+
+    # update any declared output width, on both the projection and the router
+    for module in {linear, router}:
+        if getattr(module, "out_features", None) is not None:
+            module.out_features = len(order)
