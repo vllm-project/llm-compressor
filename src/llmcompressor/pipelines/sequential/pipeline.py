@@ -239,13 +239,12 @@ class SequentialPipeline(CalibrationPipeline):
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 target_subgraph_modules = subgraph.submodule_dict(model)
-                target_restructure_targets = get_restructure_targets(
+                target_restructure_modules = get_restructure_targets(
                     model, target_subgraph_modules
                 )
-                current_staging_modules = target_subgraph_modules
                 if prefetched_staging is None:
                     subgraph_stage_modules(
-                        current_staging_modules,
+                        target_subgraph_modules,
                         pin_memory=stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
@@ -290,7 +289,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # below and inherit their offload settings from the original sources.
                 restructure_modules = {
                     module
-                    for target in target_restructure_targets
+                    for target in target_restructure_modules
                     for module in target.modules()
                 }
                 modules_to_onload = {
@@ -300,7 +299,7 @@ class SequentialPipeline(CalibrationPipeline):
                 }
                 offload_kwargs = subgraph_onload_modules(modules_to_onload)
                 target_roots, target_offload_kwargs = onload_and_restructure_modules(
-                    target_restructure_targets,
+                    target_restructure_modules,
                     onload_device,
                 )
                 offload_kwargs.update(target_offload_kwargs)
@@ -385,7 +384,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                 restored_sources = restore_restructured_modules(
                     model,
-                    target_restructure_targets,
+                    target_restructure_modules,
                     offload_sources=False,
                 )
                 offload_modules.update(restored_sources)
