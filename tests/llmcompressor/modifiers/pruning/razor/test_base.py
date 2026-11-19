@@ -615,7 +615,6 @@ def test_razor_full_lifecycle_latent_moe(tmp_path):
     # the experts run at the latent width while the router scores the block
     # input
     assert modifier._moe_config.hidden_dim == config.moe_latent_size
-    assert modifier._moe_config.router_hidden_dim == config.hidden_size
     assert modifier._moe_config.score_function == "sigmoid"
 
     modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))

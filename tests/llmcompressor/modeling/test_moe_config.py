@@ -25,8 +25,8 @@ def _nemotron_config(**overrides) -> NemotronHConfig:
 
 @pytest.mark.unit
 def test_moe_config_nemotron_h_latent():
-    """A nemotron_h config with a moe_latent_size resolves into the experts'
-    width (the latent size) and the router's width (the hidden size), with
+    """A nemotron_h config with a moe_latent_size resolves the experts' width
+    into the latent size (while the router keeps scoring the block input), with
     the sigmoid score function its router hardcodes."""
     config = _nemotron_config(moe_latent_size=8)
     moe_config = MoEConfig.from_config(config)
@@ -34,7 +34,6 @@ def test_moe_config_nemotron_h_latent():
     assert moe_config.num_experts == 8
     assert moe_config.num_experts_per_tok == 2
     assert moe_config.hidden_dim == 8
-    assert moe_config.router_hidden_dim == 32
     assert moe_config.intermediate_size == 16
     assert moe_config.score_function == "sigmoid"
     assert moe_config.hidden_act == "relu2"
@@ -49,7 +48,6 @@ def test_moe_config_nemotron_h_without_latent():
     moe_config = MoEConfig.from_config(config)
 
     assert moe_config.hidden_dim == 32
-    assert moe_config.router_hidden_dim == 32
     assert moe_config.score_function == "sigmoid"
 
 

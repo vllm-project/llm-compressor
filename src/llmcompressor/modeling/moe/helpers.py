@@ -50,13 +50,6 @@ MOE_CONFIG_KEYS = {
         "hidden_size",
         "hidden_dim",
     ],
-    # the router scores the full block input even when the experts consume a
-    # narrower latent projection of it (e.g. nemotron_h's moe_latent_size), so
-    # the router's width skips the latent-size key
-    "router_hidden_dim": [
-        "hidden_size",
-        "hidden_dim",
-    ],
     "intermediate_size": [
         "moe_intermediate_size",
         "intermediate_dim",
@@ -204,8 +197,6 @@ class MoEConfig:
     # hidden sizes
     hidden_dim: int | None = None  # input/output width of each expert
     hidden_dim_key: str | None = None
-    router_hidden_dim: int | None = None  # width of what the router scores
-    router_hidden_dim_key: str | None = None
     intermediate_size: int | None = None
     intermediate_size_key: str | None = None
 
@@ -272,9 +263,12 @@ class MoEConfig:
             kwargs[field] = config[key] if key else None
         self = cls(**kwargs)
 
-        # resolve the router's native score transformation, falling back to
-        # softmax for architectures which do not declare one; the raw declared
-        # value is kept (the modifiers map it onto their score function)
+        # resolve the transform the modifiers apply to a router's captured
+        # output to recover its per-expert scores. For routers whose forward
+        # returns raw logits this is their native score function (``softmax``
+        # by default, read from the config here); routers which already return
+        # scored probabilities are handled as ``identity`` in the special cases
+        # below
         for key in SCORE_FUNCTION_CONFIG_KEYS:
             value = config.get(key)
             if isinstance(value, str):
@@ -297,18 +291,22 @@ class MoEConfig:
             case "lfm2_moe":
                 self.hidden_act = "silu"
             case "nemotron_h":
-                # the router hardcodes a sigmoid score function; the config
-                # carries no scoring field. Checkpoints with a moe_latent_size
-                # project the block input down before the experts (the router
-                # keeps scoring the full hidden_size), which the hidden-size
-                # fallbacks already resolve into hidden_dim (the experts'
-                # width) and router_hidden_dim
+                # the router hardcodes a sigmoid score function (applied to the
+                # logits its forward returns); the config carries no scoring
+                # field. Checkpoints with a moe_latent_size project the block
+                # input down before the experts, which the hidden-size fallback
+                # already resolves into hidden_dim (the experts' width)
                 self.score_function = "sigmoid"
                 # moe_latent_size may be declared but unset; the expert hidden
                 # dim is then the model hidden size
                 if self.hidden_dim is None:
                     self.hidden_dim_key = "hidden_size"
                     self.hidden_dim = config.get("hidden_size")
+            case "gemma4" | "gemma4_text":
+                # the router's forward already returns softmaxed probabilities
+                # (not logits), so its captured output is the per-expert scores
+                # directly; no further score transform is applied
+                self.score_function = "identity"
 
         return self
 
