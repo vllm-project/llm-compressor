@@ -52,7 +52,7 @@ class FakeSubgraph:
         return []
 
     def submodule_dict(self, model, recurse=True):
-        return {}, []
+        return {}
 
 
 def _sqnr_values(messages):

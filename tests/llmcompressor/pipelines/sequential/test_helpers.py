@@ -379,12 +379,9 @@ def test_partition_subgraphs_auto_groups_whole_targets(monkeypatch):
     assert len(grouped) == num_layers // 7 + 1
     for index, subgraph in enumerate(grouped[1:]):
         expected = set().union(
-            *(
-                s.submodule_dict(model)[0]
-                for s in single[1 + 7 * index : 8 + 7 * index]
-            )
+            *(s.submodule_dict(model) for s in single[1 + 7 * index : 8 + 7 * index])
         )
-        assert set(subgraph.submodule_dict(model)[0]) == expected
+        assert set(subgraph.submodule_dict(model)) == expected
 
     # without a plan, "auto" falls back to one target per subgraph
     monkeypatch.setattr(
@@ -674,7 +671,7 @@ def test_whisper_encoder_covered():
         if name
     }
     assert encoder_names <= set(collect_subgraph_modules(model, subgraphs))
-    assert encoder_names <= set(subgraphs[0].submodule_dict(model)[0])
+    assert encoder_names <= set(subgraphs[0].submodule_dict(model))
 
 
 @pytest.mark.parametrize("targets_per_subgraph", [1, "auto"])
@@ -692,7 +689,7 @@ def test_whole_model_target_is_one_untraced_subgraph(targets_per_subgraph):
     subgraphs = partition_subgraphs(model, graph, targets, targets_per_subgraph)
     assert len(subgraphs) == 1
     assert subgraphs[0].input_names == {"input"}
-    assert {"0", "1", "2"} <= set(subgraphs[0].submodule_dict(model)[0])
+    assert {"0", "1", "2"} <= set(subgraphs[0].submodule_dict(model))
     assert torch.equal(
         subgraphs[0].forward(model, **sample_input), model(**sample_input)
     )

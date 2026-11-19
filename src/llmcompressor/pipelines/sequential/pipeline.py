@@ -30,7 +30,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     find_modules_outside_graph,
     handle_sequential_oom,
     partition_subgraphs,
-    restructure_targets_for_modules,
+    get_restructure_targets,
     trace_graph,
 )
 from llmcompressor.pipelines.sequential.restructure import (
@@ -149,7 +149,7 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            pending_targets = restructure_targets_for_modules(
+            pending_targets = get_restructure_targets(
                 model, persistent_modules
             )
             subgraph_onload_modules(persistent_modules)
@@ -231,7 +231,7 @@ class SequentialPipeline(CalibrationPipeline):
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
             # Prefetch first subgraph modules
-            next_subgraph_modules, _ = subgraphs[0].submodule_dict(model)
+            next_subgraph_modules = subgraphs[0].submodule_dict(model)
             prefetched_staging = _submit_subgraph_staging(
                 stage_executor,
                 next_subgraph_modules,
@@ -240,10 +240,10 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                (
-                    target_subgraph_modules,
-                    target_restructure_targets,
-                ) = subgraph.submodule_dict(model)
+                target_subgraph_modules = subgraph.submodule_dict(model)
+                target_restructure_targets = get_restructure_targets(
+                    model, target_subgraph_modules
+                )
                 current_staging_modules = target_subgraph_modules
                 if prefetched_staging is None:
                     subgraph_stage_modules(
@@ -275,7 +275,7 @@ class SequentialPipeline(CalibrationPipeline):
                 # Submit the next subgraph's staging before onloading the
                 # current subgraph so staging can overlap with onload work.
                 if subgraph_index + 1 < num_subgraphs:
-                    next_subgraph_modules, _ = subgraphs[
+                    next_subgraph_modules = subgraphs[
                         subgraph_index + 1
                     ].submodule_dict(model)
                     prefetched_staging = _submit_subgraph_staging(

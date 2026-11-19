@@ -71,37 +71,19 @@ class Subgraph:
 
     def _subgraph_module_dict(
         self, model: Module, recurse: bool = True
-    ) -> tuple[dict[str, Module], list[Module]]:
+    ) -> dict[str, Module]:
         """
-        Return owned modules keyed by qualified name and their restructure targets.
-        Owned modules are `call_module` targets plus modules recorded by the tracer as
-        having run inside a node (see `INVOKED_SUBMODULES_META_KEY`), optionally
-        including their descendants. Names which do not exist in `model` raise.
+        Modules keyed by their qualified names, in graph order. Owned modules are
+        `call_module` targets plus modules recorded by the tracer as having run inside
+        a node (see `INVOKED_SUBMODULES_META_KEY`), optionally including their
+        descendants. Names which do not exist in `model` raise.
         """
         modules: dict[str, Module] = {}
-        restructure_targets: dict[Module, None] = {}
-        # Transformed ancestors may not be members of the subgraph's module dict.
         seen_modules: set[Module] = set()
-
-        def add_restructure_target(module: Module) -> None:
-            if hasattr(module, RESTRUCTURE_METADATA_ATTR):
-                restructure_targets.setdefault(module, None)
 
         targets = [root for node in self.graph.nodes for root in get_node_roots(node)]
         for target in targets:
-            module = model.get_submodule(target) if target else model
-
-            # Record transformed parents too. A graph node can call a child
-            # directly, leaving the parent out of its recursive module list.
-            ancestor = target
-            while True:
-                add_restructure_target(
-                    model.get_submodule(ancestor) if ancestor else model
-                )
-                if not ancestor:
-                    break
-                ancestor = ancestor.rpartition(".")[0]
-
+            module = model.get_submodule(target)
             named_modules = module.named_modules() if recurse else [("", module)]
 
             for relative_name, submodule in named_modules:
@@ -115,9 +97,8 @@ class Subgraph:
                     )
                 modules[qualified_name] = submodule
                 seen_modules.add(submodule)
-                add_restructure_target(submodule)
 
-        return modules, list(restructure_targets)
+        return modules
 
     def forward(self, *args, **kwargs) -> dict[str, Any]:
         """
@@ -137,17 +118,13 @@ class Subgraph:
             return forward_fn(*args, **kwargs)
 
     def _subgraph_module_names(self, model: Module, recurse: bool = True) -> list[str]:
-        modules, _ = self._subgraph_module_dict(model, recurse=recurse)
-        return list(modules)
+        return list(self._subgraph_module_dict(model, recurse=recurse))
 
     def submodules(self, model: Module, recurse: bool = True) -> list[Module]:
-        modules, _ = self._subgraph_module_dict(model, recurse=recurse)
-        return list(modules.values())
+        return list(self._subgraph_module_dict(model, recurse=recurse).values())
 
-    def submodule_dict(
-        self, model: Module, recurse: bool = True
-    ) -> tuple[dict[str, Module], list[Module]]:
-        """Return owned modules and restructure targets from one traversal."""
+    def submodule_dict(self, model: Module, recurse: bool = True) -> dict[str, Module]:
+        """Return subgraph modules keyed by their fully qualified model names."""
         return self._subgraph_module_dict(model, recurse=recurse)
 
 
@@ -157,12 +134,11 @@ def collect_subgraph_modules(
     """Return the union of all modules owned by the traced subgraphs."""
     modules: dict[str, Module] = {}
     for subgraph in subgraphs:
-        subgraph_modules, _ = subgraph.submodule_dict(model, recurse=recurse)
-        modules.update(subgraph_modules)
+        modules.update(subgraph.submodule_dict(model, recurse=recurse))
     return modules
 
 
-def restructure_targets_for_modules(
+def get_restructure_targets(
     model: Module, modules: Mapping[str, Module]
 ) -> list[Module]:
     """Find restructure targets whose module trees intersect the supplied modules."""
