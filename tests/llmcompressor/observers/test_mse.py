@@ -13,7 +13,7 @@ from compressed_tensors.utils.triton import tl, triton
 
 from llmcompressor.observers import MovingAverageMSEObserver, Observer
 from llmcompressor.observers.helpers import flatten_for_calibration
-from llmcompressor.observers.mse import MemorylessMSEObserver, NVFP4ExpandedMSEObserver
+from llmcompressor.observers.mse import MemorylessMSEObserver
 from llmcompressor.utils.triton_utils import quantize_dequantize
 
 
@@ -122,7 +122,7 @@ def test_mse_triton_matches_eager_for_realistic_schemes(
         "weight",
         args,
     )
-    search_args = (observed, args, 0.5, 5, 100.0, norm, 1.0)
+    search_args = (observed, args, 0.5, 1000, 100.0, norm)
     search_kwargs = {"expand": 1.0}
     eager = ImplBackend.call("_grid_search_observer", *search_args, **search_kwargs)
     triton = ImplBackend.call(
@@ -270,25 +270,6 @@ def test_triton_bf16_qdq_matches_fake_quantize_for_signed_values(device):
         BLOCK=block,
     )
     assert torch.equal(result.to(torch.bfloat16).reshape(observed.shape), expected)
-
-
-def test_mse_triton_error_buffer_defaults():
-    args = QuantizationArgs(num_bits=8, symmetric=True, observer="mse")
-    observer = MovingAverageMSEObserver(base_name="weight", args=args)
-    assert observer.triton_error_buffer == 0.30
-
-    fp4_args = QuantizationArgs(num_bits=4, type="float", symmetric=True)
-    assert (
-        MemorylessMSEObserver(base_name="weight", args=fp4_args).triton_error_buffer
-        == 1.00
-    )
-    assert (
-        MovingAverageMSEObserver(base_name="weight", args=fp4_args).triton_error_buffer
-        == 1.00
-    )
-
-    nvfp4 = NVFP4ExpandedMSEObserver(base_name="weight", args=args)
-    assert nvfp4.triton_error_buffer == 1.00
 
 
 @pytest.mark.parametrize(

@@ -43,3 +43,19 @@ class TestDataCollatorWithTruncation:
         result = collator(_make_features([10, 10]))
         assert result["input_ids"].shape[1] == 5
         assert result["attention_mask"].shape[1] == 5
+
+    @pytest.mark.unit
+    def test_truncates_mm_token_type_ids(self):
+        collator = DataCollatorWithTruncation(max_seq_length=None)
+        features = [
+            {
+                "input_ids": [1] * length,
+                "attention_mask": [1] * length,
+                "mm_token_type_ids": [0] * length,
+            }
+            for length in (10, 20)
+        ]
+        result = collator(features)
+        assert result["input_ids"].shape[1] == 10
+        assert result["attention_mask"].shape[1] == 10
+        assert result["mm_token_type_ids"].shape[1] == 10

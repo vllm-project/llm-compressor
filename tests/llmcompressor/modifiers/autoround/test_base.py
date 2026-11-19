@@ -72,7 +72,7 @@ def test_on_sequential_epoch_end_passes_all_modules():
     )
     state = MagicMock(spec=State)
     event = Event(type_=EventType.SEQUENTIAL_EPOCH_END)
-    modules = [_FakeDecoderLayer(), nn.Linear(64, 64)]
+    modules = {"layer": _FakeDecoderLayer(), "linear": nn.Linear(64, 64)}
 
     with patch.object(AutoRoundModifier, "apply_autoround") as mock_apply, patch.object(
         AutoRoundModifier, "post_autoround_cleanup"
@@ -192,7 +192,7 @@ def test_build_layer_config_for_autoround_supports_mixed_weight_only_schemes():
         },
     )
     layer = _MixedFakeDecoderLayer()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
 
     wrapped = _wrap_decoding_layer(layer)
     layer_config = modifier._build_layer_config_for_autoround(wrapped)
@@ -211,7 +211,7 @@ def test_build_layer_config_for_autoround_supports_mxfp4_activation_groups():
         scheme="MXFP4",
     )
     layer = _FakeDecoderLayer()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
 
     wrapped = _wrap_decoding_layer(layer)
     layer_config = modifier._build_layer_config_for_autoround(wrapped)
@@ -234,7 +234,7 @@ def test_build_layer_config_for_autoround_skips_activation_only_schemes():
         scheme="W4A16",
     )
     layer = _DecoderLayerWithAttention()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
 
     # Simulate a prior modifier (e.g. QuantizationModifier) having already
     # attached an activation-only quantization_scheme to the attention module.
@@ -368,7 +368,7 @@ def test_build_layer_config_for_autoround_ignores_kv_cache_only_scheme():
         ignore=["lm_head"], iters=0, scheme="W4A16", bypass_divisibility_checks=True
     )
     layer = _FakeDecoderLayer()
-    modifier.initialize_quantization(layer)
+    modifier.initialize_quantization(State(model=layer))
     layer.k_proj.quantization_scheme = QuantizationScheme(
         targets=["k_proj"],
         output_activations=QuantizationArgs(
@@ -470,7 +470,7 @@ def test_apply_autoround_passes_moved_inputs_to_quantize_block():
             "llmcompressor.modifiers.autoround.base.AutoRound", return_value=autoround
         ),
     ):
-        modifier.apply_autoround(state, [layer])
+        modifier.apply_autoround(state, {"layer": layer})
 
     quantize_inputs = autoround.quantize_block.call_args.kwargs["inputs"]
     assert quantize_inputs[0][0][0][0].device.type == "cpu"

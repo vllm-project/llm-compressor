@@ -1,6 +1,6 @@
 """
-Unit tests for the ``ExpertPruningModifierBase`` template shared by the REAP
-and MoNe expert pruning modifiers.
+Unit tests for the ``ExpertPruningModifierBase`` template shared by the REAP,
+MoNe, and HOPE expert pruning modifiers.
 
 The base owns the pruning lifecycle: argument validation, MoE layer
 detection, hook attachment, per-layer finalization at
@@ -23,6 +23,7 @@ from llmcompressor.core import Event, EventType
 from llmcompressor.modifiers.factory import ModifierFactory
 from llmcompressor.modifiers.pruning import (
     ExpertPruningModifierBase,
+    HOPEPruningModifier,
     MoNePruningModifier,
     REAPPruningModifier,
 )
@@ -112,9 +113,12 @@ def _model(num_experts=8, num_hidden_layers=2, **config_kwargs) -> FakeMoEModel:
 
 @pytest.mark.unit
 @pytest.mark.usefixtures("setup_modifier_factory")
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
+@pytest.mark.parametrize(
+    "modifier_cls",
+    [REAPPruningModifier, MoNePruningModifier, HOPEPruningModifier],
+)
 def test_expert_pruning_modifiers_are_registered(modifier_cls):
-    """Both modifiers resolve from their recipe names."""
+    """The modifiers resolve from their recipe names."""
     modifier = ModifierFactory.create(
         type_=modifier_cls.__name__,
         allow_experimental=False,
@@ -125,7 +129,10 @@ def test_expert_pruning_modifiers_are_registered(modifier_cls):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
+@pytest.mark.parametrize(
+    "modifier_cls",
+    [REAPPruningModifier, MoNePruningModifier, HOPEPruningModifier],
+)
 def test_validates_arguments(modifier_cls):
     # sparsity must be in [0, 1)
     with pytest.raises(ValueError, match="sparsity"):
@@ -151,7 +158,10 @@ def test_validates_arguments(modifier_cls):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("modifier_cls", [REAPPruningModifier, MoNePruningModifier])
+@pytest.mark.parametrize(
+    "modifier_cls",
+    [REAPPruningModifier, MoNePruningModifier, HOPEPruningModifier],
+)
 def test_initialize_rejects_sparsity_that_prunes_no_experts(modifier_cls):
     """A sparsity which rounds to zero experts pruned is a no-op, so it fails
     fast rather than silently doing nothing."""

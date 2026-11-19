@@ -165,7 +165,7 @@ def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
         max_grad_norm=0.1,
         reobserve_weights=False,
     )
-    modules = list(model.seq_target.modules())
+    modules = dict(model.seq_target.named_modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         for index, batch in enumerate(batches):
@@ -535,7 +535,7 @@ def test_chain_caches_only_last_teacher_and_trains_every_target():
     model, reference, batches, state, quant, qad = _prepare(
         model_class=ChainModel, num_epochs=2, lr=0.003, reobserve_weights=False
     )
-    modules = list(model.modules())
+    modules = dict(model.named_modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         assert qad._predecessors == {model.first: None, model.second: model.first}
@@ -565,7 +565,7 @@ def test_unchained_subgraph_targets_rejected():
     model, _, batches, state, quant, qad = _prepare(
         model_class=lambda: ChainModel(parallel=True)
     )
-    modules = list(model.modules())
+    modules = dict(model.named_modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         quant.on_sequential_epoch_end(state, None, modules)
@@ -579,7 +579,7 @@ def test_training_failure_restores_grad_flags():
     flags = {name: p.requires_grad for name, p in model.named_parameters()}
     with DisableQuantization(model):
         _calibrate(model, batches, state)
-        modules = list(model.seq_target.modules())
+        modules = dict(model.seq_target.named_modules())
         quant.on_sequential_epoch_end(state, None, modules)
         with patch.object(
             qad, "_train_with_validation", side_effect=RuntimeError("failed")
@@ -607,7 +607,7 @@ def test_joint_training_reduces_reconstruction_error_with_fixed_scales(dtype):
         lr=0.003,
         reobserve_weights=False,
     )
-    modules = list(model.seq_target.modules())
+    modules = dict(model.seq_target.named_modules())
     with DisableQuantization(model):
         _calibrate(model, batches, state)
         quant.on_sequential_epoch_end(state, None, modules)

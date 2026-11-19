@@ -161,16 +161,20 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
     return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
 
 
-def decompress_subgraph_modules(modules: list[Module]) -> None:
+def decompress_subgraph_modules(modules: dict[str, Module]) -> None:
     """Decompress quantized modules owned by one subgraph."""
-    compressed_modules = [module for module in modules if is_module_quantized(module)]
+    compressed_modules = [
+        module for module in modules.values() if is_module_quantized(module)
+    ]
     for module in tqdm(compressed_modules, desc="Decompressing modules"):
         decompress_module(module, leave_decompressed=False)
 
 
-def compress_subgraph_modules(modules: list[Module]) -> None:
+def compress_subgraph_modules(modules: dict[str, Module]) -> None:
     """Compress quantized modules owned by one subgraph."""
-    quantized_modules = [module for module in modules if is_module_quantized(module)]
+    quantized_modules = [
+        module for module in modules.values() if is_module_quantized(module)
+    ]
     if is_distributed():
         replace_module_parallel(
             quantized_modules, compress_module, desc="Compressing modules"
@@ -479,6 +483,8 @@ class SequentialTracer(HFTracer):
     def __init__(self, ancestors: set[Module]):
         self.ancestors = ancestors
         self._invoked: list[str] | None = None
+        # nodes creating the `UserDict`s seen while tracing, keyed by id
+        self._user_dict_nodes: dict[int, Node] = {}
 
         # skip any mask creation functions not already caught by the autowrapper
         super().__init__(autowrap_functions=_get_autowrap_functions())
@@ -527,9 +533,17 @@ class SequentialTracer(HFTracer):
         elif isinstance(a, enum.Enum):
             return self.create_node("call_function", getattr, (a.__class__, a.name))
 
-        # special extension for supporting `UserDict`s (Gemma4 uses this)
+        # special extension for supporting `UserDict`s. Gemma4 creates one per forward
+        # and passes it to every decoder layer, which share kv states through it
+        # in place. Create it once with a node so that every layer gets the same
+        # dict, rather than each layer getting its own empty literal
         elif isinstance(a, UserDict):
-            return self.create_arg(dict(a))
+            if id(a) not in self._user_dict_nodes:
+                node = self.create_node(
+                    "call_function", a.__class__, (self.create_arg(dict(a)),), {}
+                )
+                self._user_dict_nodes[id(a)] = node
+            return self._user_dict_nodes[id(a)]
 
         else:
             return super().create_arg(a)

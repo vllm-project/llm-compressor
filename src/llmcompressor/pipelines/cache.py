@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 import warnings
-from collections import defaultdict
+from collections import UserDict, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
@@ -476,6 +476,10 @@ class IntermediatesCache:
                     value=tuple(cls._offload_value(v, **kwargs) for v in value),
                     device=None,
                 )
+            case UserDict():
+                # kept by reference: Gemma4 decoder layers share kv states by writing
+                # into this dict in place, so later subgraphs must get the same object
+                return IntermediateValue(value=value, device=None)
             case dict():
                 return IntermediateValue(
                     value={
