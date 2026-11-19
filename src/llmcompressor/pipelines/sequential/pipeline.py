@@ -306,22 +306,22 @@ class SequentialPipeline(CalibrationPipeline):
 
                 LifecycleCallbacks.sequential_epoch_end(subgraph_modules)
 
-                if dataset_args.propagate_error or dataset_args.log_sequential_error:
-                    # this pass does not trigger modifier hooks; it captures
-                    # outputs of compressed modules (for propagate_error) and/or
-                    # per-batch signal/noise power for SQNR (for
-                    # log_sequential_error)
+                if has_next_subgraph and (
+                    dataset_args.propagate_error or dataset_args.log_sequential_error
+                ):
+                    # Only intermediate subgraphs feed the activation cache or SQNR.
+                    # Run this pass without modifier hooks.
                     batch_powers: list[tuple[float, float]] = []
                     with HooksMixin.disable_hooks():
                         for batch_idx, inputs in _get_batches(
                             activations, num_batches, subgraph.input_names, prop_desc
                         ):
                             output = subgraph.forward(model, **inputs)
-                            if dataset_args.propagate_error and has_next_subgraph:
+                            if dataset_args.propagate_error:
                                 activations.update(batch_idx, output)
                                 activations.delete(batch_idx, subgraph.consumed_names)
 
-                            if seq_error_cache is not None and has_next_subgraph:
+                            if seq_error_cache is not None:
                                 batch_power = process_batch_error(
                                     seq_error_cache,
                                     activations,
