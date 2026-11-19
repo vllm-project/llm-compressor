@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
 from typing import Any, Generator
-from weakref import WeakKeyDictionary
+from weakref import ref
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -81,9 +81,8 @@ class IntermediatesCache:
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
 
-    # map of onload value -> offload value
-    # used to avoid excess memory usage when shared tensors are offloaded
-    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
+    # Deduplicate shared tensors by identity without dispatching Tensor.__eq__.
+    offload_values: dict[int, tuple[ref[torch.Tensor], torch.Tensor]] = {}
 
     def __init__(
         self,
@@ -452,15 +451,22 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                with OverrideEqMode():
-                    # check for cache hit between shared tensors
-                    if value in cls.offload_values:
-                        offloaded = cls.offload_values[value]
-                    else:
-                        # move to offload if no hit
-                        offloaded = value.to(device=offload_device)
-                        if offloaded is not value:  # avoid circular ref
-                            cls.offload_values[value] = offloaded
+                key = id(value)
+                offload_values = cls.offload_values
+                entry = offload_values.get(key)
+                # An id can be reused once its original tensor is gone.
+                if entry is not None and entry[0]() is value:
+                    offloaded = entry[1]
+                else:
+                    offloaded = value.to(device=offload_device)
+                    if offloaded is not value:  # avoid retaining the source tensor
+
+                        def remove(dead_ref: ref[torch.Tensor]) -> None:
+                            current = offload_values.get(key)
+                            if current is not None and current[0] is dead_ref:
+                                del offload_values[key]
+
+                        offload_values[key] = (ref(value, remove), offloaded)
 
                 return IntermediateValue(
                     value=offloaded,
