@@ -342,6 +342,40 @@ def test_from_pretrained_no_routers_or_experts_raises(tmp_path):
         _pruner(tmp_path, sparsity=0.25, metric="magnitude", expert_pattern="nope")
 
 
+def test_from_pretrained_builds_moe_config(tmp_path):
+    # routing parameters are read from config.json via the shared MoEConfig
+    _write_checkpoint(
+        tmp_path,
+        n_layers=2,
+        n_experts=8,
+        num_experts_per_tok=2,
+        n_group=2,
+        topk_group=1,
+        text_config=True,
+    )
+    report = tmp_path / "r.json"
+    _descending_report(report, 2, 8)
+    pruner = _pruner(
+        tmp_path, sparsity=0.25, metric="saliency", saliency_report_path=report
+    )
+    assert pruner.num_experts_config_key == "num_experts"
+    assert pruner.moe_config.num_experts == 8
+    assert pruner.moe_config.num_experts_key == "num_experts"
+    assert pruner.moe_config.num_experts_per_tok == 2
+    assert pruner.moe_config.n_group == 2
+    assert pruner.moe_config.top_k_group == 1
+    assert pruner.moe_config.group_size == 4
+
+
+def test_from_pretrained_missing_num_experts_key_raises(tmp_path):
+    # no expert-count key anywhere in config.json: auto-detection fails and
+    # the user must pass num_experts_config_key explicitly
+    _write_checkpoint(tmp_path, n_experts=8)
+    (tmp_path / "config.json").write_text(json.dumps({"num_experts_per_tok": 2}))
+    with pytest.raises(ValueError, match="num_experts_config_key"):
+        _pruner(tmp_path, sparsity=0.25, metric="magnitude")
+
+
 # ---------------------------------------------------------------------------
 # Selection + config, 2D and 3D layouts
 # ---------------------------------------------------------------------------

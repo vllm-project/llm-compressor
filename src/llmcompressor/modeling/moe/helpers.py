@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import ast
 import importlib
 import inspect
+from collections import ChainMap
 from dataclasses import dataclass
 from typing import Any, Callable, ClassVar
 
@@ -9,14 +12,76 @@ from compressed_tensors.offload import disable_onloading
 from loguru import logger
 from transformers import PreTrainedConfig
 
-from llmcompressor.sentinel import Sentinel
 from llmcompressor.typing import TorchModuleProtocol
+from llmcompressor.utils import hasattr_fallbacks
 
-NUM_EXPERTS_CONFIG_KEYS = [
-    "num_local_experts",
-    "moe_num_experts",
-    "num_experts",
-    "n_routed_experts",
+# MoEConfig fields which are read from a config dict, paired with the
+# candidate keys (in fallback order) each is searched under. The key a value
+# was read from is recorded in the field's ``<field>_key`` sibling attribute
+# (e.g. ``num_experts_key``), so tooling can write updated values back to the
+# same key
+MOE_CONFIG_KEYS = {
+    "num_experts": [
+        "num_local_experts",
+        "moe_num_experts",
+        "num_experts",
+        "n_routed_experts",
+    ],
+    "num_experts_per_tok": [
+        "top_k_experts",
+        "num_experts_per_tok",
+        "num_experts_per_token",
+    ],
+    # group-limited routing (e.g. DeepSeek-V3): experts are partitioned into
+    # ``n_group`` contiguous groups of which only the top ``top_k_group`` are
+    # routable per token
+    "n_group": [
+        "n_group",
+        "num_expert_group",
+        "n_expert_groups",
+    ],
+    "top_k_group": [
+        "topk_group",
+        "top_k_group",
+        "n_limited_groups",
+    ],
+    "hidden_dim": [
+        "moe_latent_size",
+        "hidden_size",
+        "hidden_dim",
+    ],
+    "intermediate_size": [
+        "moe_intermediate_size",
+        "intermediate_dim",
+        "intermediate_size",
+    ],
+    "use_bias": [
+        "use_bias",
+        "mlp_bias",
+    ],
+    "hidden_act": [
+        "hidden_act",
+        "hidden_activation",
+        "mlp_hidden_act",
+    ],
+    "limit": [
+        "swiglu_limit",
+    ],
+    "dtype": [
+        "dtype",
+        "torch_dtype",
+    ],
+}
+
+# config fields which declare a model's native router score transformation
+# (the transformation a router applies to its logits to produce the
+# nonnegative scores which select and weight the experts), checked in this
+# order when resolving ``score_function``; the declared value is kept as-is and
+# falls back to ``softmax`` when no field is present
+SCORE_FUNCTION_CONFIG_KEYS = [
+    "scoring_func",
+    "score_func",
+    "moe_router_activation_func",
 ]
 
 
@@ -113,79 +178,106 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
 @dataclass
 class MoEConfig:
     # experts routing
-    num_experts: int
-    num_experts_per_tok: int
+    num_experts: int | None = None
+    num_experts_key: str | None = None
+    num_experts_per_tok: int | None = None
+    num_experts_per_tok_key: str | None = None
 
     # router scoring
-    score_function: str
+    score_function: str = "softmax"
+    score_function_key: str | None = None
 
     # group-limited routing
-    n_group: int | None
-    top_k_group: int | None
-    group_size: int | None
+    n_group: int | None = None
+    n_group_key: str | None = None
+    top_k_group: int | None = None
+    top_k_group_key: str | None = None
+    group_size: int | None = None
 
     # hidden sizes
-    hidden_dim: int
-    intermediate_size: int
+    hidden_dim: int | None = None
+    hidden_dim_key: str | None = None
+    intermediate_size: int | None = None
+    intermediate_size_key: str | None = None
 
     # biases and activations
-    use_bias: bool
-    hidden_act: str
+    use_bias: bool = False
+    use_bias_key: str | None = None
+    hidden_act: str | None = None
+    hidden_act_key: str | None = None
 
     # moe extras
-    limit: float
-    alpha: float | None
+    limit: float | None = None
+    limit_key: str | None = None
+    alpha: float | None = None
 
     # weight dtypes
-    dtype: torch.dtype
+    dtype: torch.dtype | None = None
+    dtype_key: str | None = None
 
     @classmethod
-    def from_config(cls, config: PreTrainedConfig):
-        # special case: qwen3_5_moe does not specify scoring func in config
-        if config.model_type == "qwen3_5_moe_text":
-            config.scoring_func = "softmax"
+    def from_config(cls, config: PreTrainedConfig) -> MoEConfig:
+        """
+        Build a ``MoEConfig`` from a ``PreTrainedConfig`` by converting it to
+        a dict with ``to_dict`` and delegating to :meth:`from_dict`.
 
-        self = cls(
-            num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
-            num_experts_per_tok=_getattr_fallbacks(
-                config, ["top_k_experts", "num_experts_per_tok"]
-            ),
-            score_function=_getattr_fallbacks(
-                config,
-                ["scoring_func", "score_func", "moe_router_activation_func"],
-                "softmax",
-                warn_on_default=True,
-            ),
-            n_group=_getattr_fallbacks(config, ["n_group"], None),
-            top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
-            group_size=None,
-            hidden_dim=_getattr_fallbacks(
-                config, ["moe_latent_size", "hidden_size", "hidden_dim"]
-            ),
-            intermediate_size=_getattr_fallbacks(
-                config,
-                ["moe_intermediate_size", "intermediate_dim", "intermediate_size"],
-            ),
-            use_bias=_getattr_fallbacks(config, ["use_bias", "mlp_bias"], False),
-            hidden_act=_getattr_fallbacks(
-                config, ["hidden_act", "hidden_activation", "mlp_hidden_act"], None
-            ),
-            limit=_getattr_fallbacks(config, ["swiglu_limit"], None),
-            alpha=None,
-            dtype=_getattr_fallbacks(config, ["dtype"]),
+        Note that a config serializes under its canonical key names, which may
+        differ from its attribute names (e.g. a ``Qwen3MoeConfig`` built with
+        ``num_experts=4`` reports it under ``num_local_experts``). The
+        candidate key lists cover these canonical names.
+        """
+        return cls.from_dict(config.to_dict())
+
+    @classmethod
+    def from_dict(cls, config_data: dict) -> MoEConfig:
+        """
+        Build a ``MoEConfig`` from a raw config dict, as loaded from a
+        checkpoint's config.json.
+
+        Every field is optional: values which the dict does not declare are
+        left ``None`` (or ``False``), since a config dict may omit fields an
+        in-memory model config carries. Each field is searched under its
+        candidate keys (``MOE_CONFIG_KEYS``) at the top level of the dict
+        and then under its nested ``text_config``, supporting composite (e.g.
+        vision-language) checkpoints.
+
+        The key each value was read from is recorded in the field's
+        ``<field>_key`` sibling attribute (e.g. ``num_experts_key``), so
+        tooling can write updated values back to the same key.
+        """
+        # composite checkpoints keep their text-model fields under
+        # text_config; the top level takes precedence for a given key
+        text_config = config_data.get("text_config")
+        config = ChainMap(
+            config_data, text_config if isinstance(text_config, dict) else {}
         )
 
-        # compute group_size
-        if self.n_group is not None:
-            if self.num_experts % self.n_group != 0:
-                raise ValueError(
-                    f"Group limited router detected, but {self.num_experts} experts "
-                    f"not divisible by n_group={self.n_group}"
-                )
-            self.group_size = self.num_experts // self.n_group
+        # find the key each value is stored under, then read the value
+        # through that key
+        kwargs: dict[str, Any] = {}
+        for field, keys in MOE_CONFIG_KEYS.items():
+            key = hasattr_fallbacks(config, keys, return_attr=True)
+            kwargs[f"{field}_key"] = key or None
+            kwargs[field] = config[key] if key else None
+        self = cls(**kwargs)
 
-        # special case: some configs have parameters which are not marked in config
-        match config.model_type:
+        # resolve the router's native score transformation, falling back to
+        # softmax for architectures which do not declare one; the raw declared
+        # value is kept (the modifiers map it onto their score function)
+        for key in SCORE_FUNCTION_CONFIG_KEYS:
+            value = config.get(key)
+            if isinstance(value, str):
+                self.score_function = value
+                self.score_function_key = key
+                break
+
+        self.use_bias = bool(self.use_bias)
+        self.dtype = _to_torch_dtype(self.dtype)
+        self._resolve_group_size()
+
+        # special case: some configs have parameters which are not marked in
+        # config
+        match config_data.get("model_type"):
             case "gpt_oss" | "openai_privacy_filter":
                 self.use_bias = True
                 self.limit = 7.0
@@ -194,10 +286,25 @@ class MoEConfig:
             case "lfm2_moe":
                 self.hidden_act = "silu"
             case "nemotron_h":
-                if config.moe_latent_size is None:
-                    self.hidden_dim = config.hidden_size
+                # moe_latent_size may be declared but unset; the expert
+                # hidden dim is then the model hidden size
+                if self.hidden_dim is None:
+                    self.hidden_dim_key = "hidden_size"
+                    self.hidden_dim = config.get("hidden_size")
 
         return self
+
+    def _resolve_group_size(self):
+        """Compute ``group_size`` from ``num_experts`` and ``n_group`` when both
+        are known, raising if the experts do not split evenly into groups."""
+        if self.n_group is None or self.num_experts is None:
+            return
+        if self.num_experts % self.n_group != 0:
+            raise ValueError(
+                f"Group limited router detected, but {self.num_experts} experts "
+                f"not divisible by n_group={self.n_group}"
+            )
+        self.group_size = self.num_experts // self.n_group
 
 
 def import_or_none(paths: str | list[str]) -> object | None:
@@ -215,23 +322,14 @@ def import_or_none(paths: str | list[str]) -> object | None:
     return None
 
 
-def _getattr_fallbacks(
-    target: object,
-    attrs: list[str],
-    default: Any = Sentinel("None"),
-    warn_on_default: bool = False,
-) -> Any:
-    for attr in attrs:
-        if hasattr(target, attr):
-            return getattr(target, attr)
-
-    if default is not Sentinel("None"):
-        if warn_on_default:
-            logger.warning(
-                f"{target.__class__.__name__} does not have any of {attrs} attributes. "
-                f"Defaulting to {default}",
-                log_once=True,
-            )
-        return default
-
-    raise AttributeError(f"{target} does not have any of {attrs} attributes")
+def _to_torch_dtype(value: Any) -> torch.dtype | None:
+    """
+    Convert a config dtype value to a ``torch.dtype``. Config dicts carry
+    dtype names as strings (``"bfloat16"`` or ``"torch.bfloat16"``); values
+    which are already dtypes pass through, anything else maps to ``None``.
+    """
+    if isinstance(value, torch.dtype):
+        return value
+    if isinstance(value, str):
+        return getattr(torch, value.removeprefix("torch."), None)
+    return None

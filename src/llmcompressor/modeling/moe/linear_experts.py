@@ -16,7 +16,7 @@ from llmcompressor.utils.dev import skip_weights_initialize
 
 from .context import get_calibrate_all_experts_flag
 from .helpers import (
-    NUM_EXPERTS_CONFIG_KEYS,
+    MOE_CONFIG_KEYS,
     FusedExpertsProtocol,
     MoEConfig,
     get_use_experts_implementation_args,
@@ -618,7 +618,7 @@ def _narrowed_config(config: PreTrainedConfig, num_experts: int) -> PreTrainedCo
     a fused experts module can be rebuilt at a (possibly pruned) width without
     mutating the config it was recorded from."""
     narrowed = copy.copy(config)
-    for key in NUM_EXPERTS_CONFIG_KEYS:
+    for key in MOE_CONFIG_KEYS["num_experts"]:
         if hasattr(narrowed, key):
             setattr(narrowed, key, num_experts)
     return narrowed

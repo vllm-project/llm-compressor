@@ -16,6 +16,7 @@ from llmcompressor.utils import (
     calibration_forward_context,
     disable_cache,
     disable_lm_head,
+    hasattr_fallbacks,
     values_by_decoder_layer,
 )
 from llmcompressor.utils.dev import skip_weights_download
@@ -178,3 +179,30 @@ def test_disable_lm_head(offload):
         input = {key: value.to("cuda") for key, value in model.dummy_inputs.items()}
         output = model(**input)
         assert output.logits.device == torch.device("meta")
+
+
+@pytest.mark.unit
+def test_hasattr_fallbacks_mapping_target():
+    # mappings declare a name when they contain it as a key
+    target = {"num_experts": 8, "n_group": 2}
+    assert hasattr_fallbacks(target, ["num_local_experts", "num_experts"]) is True
+    assert (
+        hasattr_fallbacks(
+            target, ["num_local_experts", "num_experts"], return_attr=True
+        )
+        == "num_experts"
+    )
+    assert hasattr_fallbacks(target, ["topk_group"]) is False
+
+
+@pytest.mark.unit
+def test_hasattr_fallbacks_object_target():
+    class Stub:
+        n_group = 2
+
+    assert hasattr_fallbacks(Stub(), ["n_group", "num_experts"]) is True
+    assert (
+        hasattr_fallbacks(Stub(), ["n_group", "num_experts"], return_attr=True)
+        == "n_group"
+    )
+    assert hasattr_fallbacks(Stub(), ["num_experts"]) is False

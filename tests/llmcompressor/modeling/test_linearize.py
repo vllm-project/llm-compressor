@@ -17,10 +17,10 @@ from llmcompressor.modeling.moe.conversion_mappings import ARCH_TO_IMPORT_PATHS
 from llmcompressor.modeling.moe.helpers import (
     FusedExpertsProtocol,
     MoEConfig,
-    _getattr_fallbacks,
     import_or_none,
 )
 from llmcompressor.modeling.moe.linearize import linearize_moe, load_quantizable_moe
+from llmcompressor.utils import getattr_fallbacks
 from tests.testing_utils import requires_gpu
 
 NUM_TEST_TOKENS = 64
@@ -182,8 +182,8 @@ def test_linearize_moe(model_type):
         experts = experts_cls(config)
         assert isinstance(experts, FusedExpertsProtocol)
 
-        up_proj = _getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
-        up_proj_bias = _getattr_fallbacks(
+        up_proj = getattr_fallbacks(experts, ["gate_up_proj", "up_proj"])
+        up_proj_bias = getattr_fallbacks(
             experts, ["gate_up_proj_bias", "up_proj_bias"], None
         )
         down_proj = experts.down_proj

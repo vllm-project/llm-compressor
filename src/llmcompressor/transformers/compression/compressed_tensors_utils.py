@@ -19,7 +19,7 @@ from transformers import PretrainedConfig, PreTrainedModel
 from transformers.utils import http_user_agent
 
 from llmcompressor.core import active_session
-from llmcompressor.modeling.moe.helpers import NUM_EXPERTS_CONFIG_KEYS
+from llmcompressor.modeling.moe.helpers import MOE_CONFIG_KEYS
 from llmcompressor.pytorch.model_load.helpers import copy_python_files_from_model_cache
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.transformers.compression.mtp import (
@@ -300,8 +300,8 @@ def resave_config(config: PretrainedConfig, save_dir: str):
     compatible, this loads the original config file referenced by
     ``config._name_or_path``, overwrites only the fields that llmcompressor has
     changed (currently the expert-count fields in
-    :data:`NUM_EXPERTS_CONFIG_KEYS`, which change under REAP expert pruning),
-    and writes the result to ``save_dir/config.json``.
+    ``MOE_CONFIG_KEYS["num_experts"]``, which change under REAP expert
+    pruning), and writes the result to ``save_dir/config.json``.
 
     :param config: the (possibly modified) model config, used both to locate the
         original config file and to source the patched field values
@@ -365,7 +365,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
         [
             modify_text_config(["tie_word_embeddings"]),
             modify_text_config(["torch_dtype", "dtype"]),
-            modify_text_config(NUM_EXPERTS_CONFIG_KEYS),
+            modify_text_config(MOE_CONFIG_KEYS["num_experts"]),
         ]
     ):
         logger.warning(
