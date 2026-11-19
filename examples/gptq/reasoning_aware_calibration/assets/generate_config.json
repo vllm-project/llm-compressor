@@ -1,0 +1,9 @@
+{
+  "seed": 42,
+  "extra_body": {
+    "top_k": 20,
+    "chat_template_kwargs": {
+      "enable_thinking": true
+    }
+  }
+}
