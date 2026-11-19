@@ -360,6 +360,7 @@ def test_from_pretrained_builds_moe_config(tmp_path):
     )
     assert pruner.num_experts_config_key == "num_experts"
     assert pruner.moe_config.num_experts == 8
+    assert pruner.moe_config.num_experts_key == "num_experts"
     assert pruner.moe_config.num_experts_per_tok == 2
     assert pruner.moe_config.n_group == 2
     assert pruner.moe_config.top_k_group == 1

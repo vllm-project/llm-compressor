@@ -337,8 +337,20 @@ def values_by_decoder_layer(
 def hasattr_fallbacks(
     target: object, attrs: list[str], return_attr: bool = False
 ) -> bool | str:
+    """
+    Return the first of ``attrs`` which ``target`` declares.
+
+    A mapping declares a key when it contains it; any other object declares a
+    name when ``hasattr`` is true. When ``return_attr`` is set, the declared
+    name is returned instead of True. Returns False when ``target`` declares
+    none of ``attrs``.
+    """
     for attr in attrs:
-        if hasattr(target, attr):
+        if isinstance(target, Mapping):
+            declared = attr in target
+        else:
+            declared = hasattr(target, attr)
+        if declared:
             return attr if return_attr else True
 
     return False

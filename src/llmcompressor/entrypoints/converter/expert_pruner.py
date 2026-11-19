@@ -202,7 +202,7 @@ class ExpertPruner(Converter):
 
         # auto-detect num_experts_config_key from config.json
         if num_experts_config_key is None:
-            num_experts_config_key = moe_config.num_experts_config_key
+            num_experts_config_key = moe_config.num_experts_key
             if num_experts_config_key is None:
                 raise ValueError(
                     f"Could not find any of {NUM_EXPERTS_CONFIG_KEYS} in "
