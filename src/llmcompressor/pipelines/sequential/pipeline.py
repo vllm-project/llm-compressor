@@ -149,12 +149,12 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            pending_targets = get_restructure_targets(
+            persistent_restructure_targets = get_restructure_targets(
                 model, persistent_modules
             )
             subgraph_onload_modules(persistent_modules)
             onload_and_restructure_modules(
-                pending_targets,
+                persistent_restructure_targets,
                 onload_device,
             )
             # Persistent modules stay onloaded for the full calibration run.
@@ -238,13 +238,13 @@ class SequentialPipeline(CalibrationPipeline):
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
-                target_subgraph_modules = subgraph.submodule_dict(model)
-                target_restructure_modules = get_restructure_targets(
-                    model, target_subgraph_modules
+                subgraph_modules = subgraph.submodule_dict(model)
+                restructure_targets = get_restructure_targets(
+                    model, subgraph_modules
                 )
                 if prefetched_staging is None:
                     subgraph_stage_modules(
-                        target_subgraph_modules,
+                        subgraph_modules,
                         pin_memory=stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
@@ -256,6 +256,7 @@ class SequentialPipeline(CalibrationPipeline):
                     )
                 else:
                     _, stage_future = prefetched_staging
+                    # block until stage complete
                     stage_future.result()
                 prefetched_staging = None
 
@@ -278,33 +279,26 @@ class SequentialPipeline(CalibrationPipeline):
                     prefetched_staging = _submit_subgraph_staging(
                         stage_executor,
                         next_subgraph_modules,
-                        current_staging_modules,
+                        subgraph_modules,
                         stage_weights_in_pinned_memory,
                     )
 
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                # Onload regular modules first. Restructure placeholders are filled
-                # below and inherit their offload settings from the original sources.
-                restructure_modules = {
-                    module
-                    for target in target_restructure_modules
-                    for module in target.modules()
-                }
-                modules_to_onload = {
-                    name: module
-                    for name, module in target_subgraph_modules.items()
-                    if module not in restructure_modules
-                }
-                offload_kwargs = subgraph_onload_modules(modules_to_onload)
-                target_roots, target_offload_kwargs = onload_and_restructure_modules(
-                    target_restructure_modules,
+                # Meta placeholders have no offload caches, so the regular onload
+                # skips them. Their original modules are loaded during restructuring.
+                offload_kwargs = subgraph_onload_modules(subgraph_modules)
+                (
+                    restructured_roots,
+                    target_offload_kwargs,
+                ) = onload_and_restructure_modules(
+                    restructure_targets,
                     onload_device,
                 )
                 offload_kwargs.update(target_offload_kwargs)
-                offload_modules = target_subgraph_modules | target_roots
-                modules = list(target_subgraph_modules.values())
+                offload_modules = subgraph_modules | restructured_roots
+                modules = list(subgraph_modules.values())
 
                 # Decompress and initialize only this subgraph after onloading it.
                 if dataset_args.layerwise_decompression:
@@ -384,7 +378,7 @@ class SequentialPipeline(CalibrationPipeline):
 
                 restored_sources = restore_restructured_modules(
                     model,
-                    target_restructure_modules,
+                    restructure_targets,
                     offload_sources=False,
                 )
                 offload_modules.update(restored_sources)

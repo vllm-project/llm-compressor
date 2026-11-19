@@ -141,15 +141,27 @@ def collect_subgraph_modules(
 def get_restructure_targets(
     model: Module, modules: Mapping[str, Module]
 ) -> list[Module]:
-    """Find restructure targets whose module trees intersect the supplied modules."""
-    modules_in_subgraph = {m for m in modules.values()}
-    targets = []
-    for target in model.modules():
-        if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
-            continue
-        if any(module in modules_in_subgraph for module in target.modules()):
-            targets.append(target)
-    return targets
+    """Find restructure targets contained in, or ancestors of, supplied modules."""
+    targets: set[Module] = set()
+    ancestor_names: set[str] = set()
+
+    for name, module in modules.items():
+        if hasattr(module, RESTRUCTURE_METADATA_ATTR):
+            targets.add(module)
+
+        # The supplied mapping includes descendants of graph roots. Their paths let
+        # us find restructure roots above them without scanning the full model.
+        parent_name = name
+        while parent_name:
+            parent_name = parent_name.rpartition(".")[0]
+            ancestor_names.add(parent_name)
+
+    for name in sorted(ancestor_names, key=lambda item: (item.count("."), item)):
+        ancestor = model.get_submodule(name) if name else model
+        if hasattr(ancestor, RESTRUCTURE_METADATA_ATTR):
+            targets.add(ancestor)
+
+    return list(targets)
 
 
 def find_modules_outside_subgraphs(

@@ -106,13 +106,13 @@ def onload_and_restructure_modules(
 
     # onload original modules
     source_offload_kwargs = subgraph_onload_modules(source_modules, recurse=True)
-    target_modules = {
+    restructured_roots = {
         metadata["fqn"]: target for target, metadata in pending
     }
 
     # transfer the offload kwargs
     target_offload_kwargs = {
-        fqn: source_offload_kwargs[fqn] for fqn in target_modules
+        fqn: source_offload_kwargs[fqn] for fqn in restructured_roots
     }
 
     # iterate through targets and perform conversions
@@ -132,7 +132,7 @@ def onload_and_restructure_modules(
                 metadata["fqn"]
             ]
 
-    return target_roots, target_offload_kwargs
+    return restructured_roots, target_offload_kwargs
 
 
 def restructure_and_swap_in(model: Module) -> None:
@@ -145,11 +145,11 @@ def restructure_and_swap_in(model: Module) -> None:
         for module in model.modules()
         if hasattr(module, RESTRUCTURE_METADATA_ATTR)
     ]
-    target_roots, target_offload_kwargs = onload_and_restructure_modules(
+    restructured_roots, target_offload_kwargs = onload_and_restructure_modules(
         restructure_targets,
         onload_device,
     )
-    subgraph_offload_modules(target_roots, target_offload_kwargs)
+    subgraph_offload_modules(restructured_roots, target_offload_kwargs)
 
 
 def restore_restructured_modules(
