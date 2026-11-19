@@ -163,13 +163,11 @@ class SequentialPipeline(CalibrationPipeline):
 
         # partitioned once modifiers have started, so that "auto" can estimate the
         # memory they need
-        targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
-
         subgraphs = partition_subgraphs(
             model,
             graph,
             targets,
-            targets_per_subgraph,
+            dataset_args.sequential_targets_per_subgraph,
             dataloader,
             modifiers,
             dataset_args,

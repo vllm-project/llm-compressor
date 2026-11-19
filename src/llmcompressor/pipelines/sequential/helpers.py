@@ -142,12 +142,12 @@ def get_restructure_targets(
     model: Module, modules: Mapping[str, Module]
 ) -> list[Module]:
     """Find restructure targets whose module trees intersect the supplied modules."""
-    module_ids = {id(module) for module in modules.values()}
+    modules_in_subgraph = {m for m in modules.values()}
     targets = []
     for target in model.modules():
         if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
             continue
-        if any(id(module) in module_ids for module in target.modules()):
+        if any(module in modules_in_subgraph for module in target.modules()):
             targets.append(target)
     return targets
 

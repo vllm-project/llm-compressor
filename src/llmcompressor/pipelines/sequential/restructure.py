@@ -106,13 +106,13 @@ def onload_and_restructure_modules(
 
     # onload original modules
     source_offload_kwargs = subgraph_onload_modules(source_modules, recurse=True)
-    target_roots = {
+    target_modules = {
         metadata["fqn"]: target for target, metadata in pending
     }
 
     # transfer the offload kwargs
     target_offload_kwargs = {
-        fqn: source_offload_kwargs[fqn] for fqn in target_roots
+        fqn: source_offload_kwargs[fqn] for fqn in target_modules
     }
 
     # iterate through targets and perform conversions
