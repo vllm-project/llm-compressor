@@ -138,6 +138,9 @@ def _quantized_weights(num_masked, use_loss_mask):
             },
             ignore=["lm_head"],
             block_size=16,
+            # imatrix_mse (the default with calibration data) searches scales, so
+            # float noise from the masked Hessian path can flip a few elements
+            weight_observer="memoryless_minmax",
         ),
         num_calibration_samples=4,
         max_seq_length=32,
