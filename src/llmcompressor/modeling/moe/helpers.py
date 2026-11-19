@@ -15,83 +15,69 @@ from transformers import PreTrainedConfig
 from llmcompressor.typing import TorchModuleProtocol
 from llmcompressor.utils import hasattr_fallbacks
 
-NUM_EXPERTS_CONFIG_KEYS = [
-    "num_local_experts",
-    "moe_num_experts",
-    "num_experts",
-    "n_routed_experts",
-]
-
-# config keys holding the per-token expert selection count
-NUM_EXPERTS_PER_TOK_CONFIG_KEYS = [
-    "top_k_experts",
-    "num_experts_per_tok",
-    "num_experts_per_token",
-]
-
-# config keys declaring group-limited routing (e.g. DeepSeek-V3): experts are
-# partitioned into ``n_group`` contiguous groups of which only the top
-# ``top_k_group`` are routable per token
-N_GROUP_CONFIG_KEYS = [
-    "n_group",
-    "num_expert_group",
-    "n_expert_groups",
-]
-TOP_K_GROUP_CONFIG_KEYS = [
-    "topk_group",
-    "top_k_group",
-    "n_limited_groups",
-]
-
-HIDDEN_DIM_CONFIG_KEYS = [
-    "moe_latent_size",
-    "hidden_size",
-    "hidden_dim",
-]
-INTERMEDIATE_SIZE_CONFIG_KEYS = [
-    "moe_intermediate_size",
-    "intermediate_dim",
-    "intermediate_size",
-]
-USE_BIAS_CONFIG_KEYS = [
-    "use_bias",
-    "mlp_bias",
-]
-HIDDEN_ACT_CONFIG_KEYS = [
-    "hidden_act",
-    "hidden_activation",
-    "mlp_hidden_act",
-]
-LIMIT_CONFIG_KEYS = [
-    "swiglu_limit",
-]
-DTYPE_CONFIG_KEYS = [
-    "dtype",
-    "torch_dtype",
-]
-
 # MoEConfig fields which are read from a config dict, paired with the
 # candidate keys (in fallback order) each is searched under. The key a value
 # was read from is recorded in the field's ``<field>_key`` sibling attribute
 # (e.g. ``num_experts_key``), so tooling can write updated values back to the
 # same key
-_FIELD_CONFIG_KEYS = {
-    "num_experts": NUM_EXPERTS_CONFIG_KEYS,
-    "num_experts_per_tok": NUM_EXPERTS_PER_TOK_CONFIG_KEYS,
-    "n_group": N_GROUP_CONFIG_KEYS,
-    "top_k_group": TOP_K_GROUP_CONFIG_KEYS,
-    "hidden_dim": HIDDEN_DIM_CONFIG_KEYS,
-    "intermediate_size": INTERMEDIATE_SIZE_CONFIG_KEYS,
-    "use_bias": USE_BIAS_CONFIG_KEYS,
-    "hidden_act": HIDDEN_ACT_CONFIG_KEYS,
-    "limit": LIMIT_CONFIG_KEYS,
-    "dtype": DTYPE_CONFIG_KEYS,
+MOE_CONFIG_KEYS = {
+    "num_experts": [
+        "num_local_experts",
+        "moe_num_experts",
+        "num_experts",
+        "n_routed_experts",
+    ],
+    "num_experts_per_tok": [
+        "top_k_experts",
+        "num_experts_per_tok",
+        "num_experts_per_token",
+    ],
+    # group-limited routing (e.g. DeepSeek-V3): experts are partitioned into
+    # ``n_group`` contiguous groups of which only the top ``top_k_group`` are
+    # routable per token
+    "n_group": [
+        "n_group",
+        "num_expert_group",
+        "n_expert_groups",
+    ],
+    "top_k_group": [
+        "topk_group",
+        "top_k_group",
+        "n_limited_groups",
+    ],
+    "hidden_dim": [
+        "moe_latent_size",
+        "hidden_size",
+        "hidden_dim",
+    ],
+    "intermediate_size": [
+        "moe_intermediate_size",
+        "intermediate_dim",
+        "intermediate_size",
+    ],
+    "use_bias": [
+        "use_bias",
+        "mlp_bias",
+    ],
+    "hidden_act": [
+        "hidden_act",
+        "hidden_activation",
+        "mlp_hidden_act",
+    ],
+    "limit": [
+        "swiglu_limit",
+    ],
+    "dtype": [
+        "dtype",
+        "torch_dtype",
+    ],
 }
 
-# config fields which declare a model's native router score transformation,
-# checked in this order when resolving ``score_function`` (kept separate from
-# ``_FIELD_CONFIG_KEYS`` since the declared value is read, then falls back to
-# ``softmax``)
+# config fields which declare a model's native router score transformation
+# (the transformation a router applies to its logits to produce the
+# nonnegative scores which select and weight the experts), checked in this
+# order when resolving ``score_function``; the declared value is kept as-is and
+# falls back to ``softmax`` when no field is present
 SCORE_FUNCTION_CONFIG_KEYS = [
     "scoring_func",
     "score_func",
@@ -251,7 +237,7 @@ class MoEConfig:
         Every field is optional: values which the dict does not declare are
         left ``None`` (or ``False``), since a config dict may omit fields an
         in-memory model config carries. Each field is searched under its
-        candidate keys (``_FIELD_CONFIG_KEYS``) at the top level of the dict
+        candidate keys (``MOE_CONFIG_KEYS``) at the top level of the dict
         and then under its nested ``text_config``, supporting composite (e.g.
         vision-language) checkpoints.
 
@@ -269,14 +255,15 @@ class MoEConfig:
         # find the key each value is stored under, then read the value
         # through that key
         kwargs: dict[str, Any] = {}
-        for field, keys in _FIELD_CONFIG_KEYS.items():
+        for field, keys in MOE_CONFIG_KEYS.items():
             key = hasattr_fallbacks(config, keys, return_attr=True)
             kwargs[f"{field}_key"] = key or None
             kwargs[field] = config[key] if key else None
         self = cls(**kwargs)
 
         # resolve the router's native score transformation, falling back to
-        # softmax for architectures which do not declare one
+        # softmax for architectures which do not declare one; the raw declared
+        # value is kept (the modifiers map it onto their score function)
         for key in SCORE_FUNCTION_CONFIG_KEYS:
             value = config.get(key)
             if isinstance(value, str):

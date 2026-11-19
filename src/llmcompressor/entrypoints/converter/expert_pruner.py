@@ -30,8 +30,7 @@ from loguru import logger
 from safetensors import safe_open
 
 from llmcompressor.modeling.moe.helpers import (
-    NUM_EXPERTS_CONFIG_KEYS,
-    TOP_K_GROUP_CONFIG_KEYS,
+    MOE_CONFIG_KEYS,
     MoEConfig,
 )
 
@@ -205,7 +204,7 @@ class ExpertPruner(Converter):
             num_experts_config_key = moe_config.num_experts_key
             if num_experts_config_key is None:
                 raise ValueError(
-                    f"Could not find any of {NUM_EXPERTS_CONFIG_KEYS} in "
+                    f"Could not find any of {MOE_CONFIG_KEYS['num_experts']} in "
                     "config.json. Please specify num_experts_config_key "
                     "explicitly."
                 )
@@ -231,8 +230,8 @@ class ExpertPruner(Converter):
         if grouped and topk_group is None:
             raise ValueError(
                 f"config.json declares n_group={n_group} but none of "
-                f"{TOP_K_GROUP_CONFIG_KEYS}; cannot determine how many groups "
-                "the router makes routable per token"
+                f"{MOE_CONFIG_KEYS['top_k_group']}; cannot determine how many "
+                "groups the router makes routable per token"
             )
 
         # collect router and expert tensor names. Routers are ordered by natural
