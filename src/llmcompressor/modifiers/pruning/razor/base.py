@@ -5,6 +5,7 @@ MoE models.
 See: https://arxiv.org/abs/2609.30465
 """
 
+from functools import partial
 from typing import Literal
 
 import torch
@@ -20,14 +21,13 @@ from pydantic import PrivateAttr
 from torch import distributed as dist
 from transformers.modeling_utils import local_torch_dtype
 
-from llmcompressor.core import State
+from llmcompressor.core import Event, State
 from llmcompressor.modeling.moe.context import get_calibrate_all_experts_flag
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
 )
 from llmcompressor.modifiers.pruning.expert_sparsity.utils import get_experts_router
-from llmcompressor.modifiers.utils.hooks import HooksMixin
 
 __all__ = ["RazorPruningModifier"]
 
@@ -165,6 +165,16 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     promoted expert is approximated by the globally highest-ranked
     unselected expert.
 
+    Under the refill criterion, the promoted expert is evaluated through the
+    experts block's own forward: a forward pre-hook rewrites the block's
+    routing to top-(k+1), appending the promoted expert as one extra slot
+    with zero mixture weight. The block therefore evaluates exactly ``k+1``
+    experts per token, while its output is unchanged up to float rounding
+    (the zero-weight slot contributes nothing; only the experts' GEMM batch
+    sizes change). With ``moe_calibrate_all_experts=True`` every expert
+    already runs on every token, and the promoted expert's output is instead
+    read from the recorded ones.
+
     :param sparsity: fraction of experts to remove per layer, in ``[0, 1)``.
         When ``0.0``, no experts are removed; saliency is still computed so
         that a ``report_path`` can be written, but the model weights and
@@ -196,6 +206,35 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     _expert_outputs: dict[str, dict[int, torch.Tensor]] = PrivateAttr(
         default_factory=dict
     )
+
+    # the router's true top-k per layer for the current batch, stashed by
+    # the experts block pre-hook when it appends the promoted expert as one
+    # extra zero-weight slot, and popped by the experts block hook
+    _refill_slots: dict[str, int] = PrivateAttr(default_factory=dict)
+
+    # -- lifecycle ------------------------------------------------------------
+
+    def on_calibration_start(self, state: State, event: Event, **kwargs):
+        """
+        Register the base class's calibration hooks, plus the experts block
+        pre-hook which routes the promoted expert through the block's own
+        forward under the refill criterion.
+        """
+        super().on_calibration_start(state, event, **kwargs)
+
+        if self.criterion != "refill":
+            return
+
+        model: torch.nn.Module = state.model
+        for moe_name, moe in model.named_modules():
+            experts, router = get_experts_router(moe_name, moe)
+            if experts is None or router is None:
+                continue
+
+            _experts_block_pre_hook = partial(
+                self.experts_block_pre_hook, moe_name, moe
+            )
+            self.register_hook(experts, _experts_block_pre_hook, "forward_pre")
 
     # -- statistics and saliency ---------------------------------------------
 
@@ -284,7 +323,10 @@ class RazorPruningModifier(ExpertPruningModifierBase):
 
         Stores the output for :meth:`experts_block_hook` to consume at the
         end of the batch: the consensus, the residuals, and the deletion
-        damage are all derived from these outputs.
+        damage are all derived from these outputs. Under sparse refill
+        execution the recorded output covers the expert's routed and refill
+        rows alike, since :meth:`experts_block_pre_hook` routes the promoted
+        expert through the block's forward.
 
         :param moe_name: Name of the MoE layer the expert belongs to
         :param expert_idx: Index of the expert within its layer
@@ -304,6 +346,99 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         self._expert_outputs[moe_name][expert_idx] = output.detach()
 
     @torch.no_grad()
+    def experts_block_pre_hook(
+        self,
+        moe_name: str,
+        moe: torch.nn.Module,
+        module: torch.nn.Module,
+        args: tuple,
+    ):
+        """
+        Rewrite the block's routing to top-(k+1) so the block's forward
+        evaluates the promoted expert.
+
+        Appends the expert each token would promote on a deletion as one
+        extra slot with zero mixture weight: the block evaluates it
+        alongside the routed experts (exactly ``k+1`` expert evaluations per
+        token), while its output is unchanged up to float rounding (the
+        zero-weight slot contributes nothing; only the experts' GEMM batch
+        sizes change). Does nothing under the other damage criteria, when
+        every expert is selected, or when calibrating all experts (the
+        promoted expert's output is then already computed).
+
+        :param moe_name: Name of the MoE layer the block belongs to
+        :param moe: The MoE layer the hooked experts block belongs to
+        :param module: The experts block the hook is attached to
+        :param args: The block's forward arguments, where ``args[0]`` is the
+            block input, and ``args[1]`` and ``args[2]`` are the router's
+            top-k indices and weights
+        :return: the rewritten forward arguments with the refill slot
+            appended, or ``None`` to leave them untouched
+        """
+        if moe_name not in self._moe_stats:
+            logger.warning(
+                f"Attempted to calibrate layer {moe_name} which was never "
+                "initialized or has already been finalized"
+            )
+            return
+
+        topk_indices: torch.Tensor = args[1]
+        top_k = topk_indices.shape[1]
+        if (
+            len(args) < 3
+            or self._moe_config.num_experts <= top_k
+            or get_calibrate_all_experts_flag()
+        ):
+            return
+
+        hidden_states: torch.Tensor = args[0]
+        experts, router = get_experts_router(moe_name, moe)
+
+        # recompute the full score vector (unselected experts included),
+        # exactly as experts_block_hook does
+        logits = F.linear(
+            hidden_states.to(self.precision),
+            router.weight.to(device=hidden_states.device, dtype=self.precision),
+        )
+        scores = _apply_score_function(logits, self._moe_config.score_function)
+
+        # the expert each token would promote on a deletion: the
+        # highest-ranked unselected expert by the router's selection rule
+        selection_scores = scores
+        bias = getattr(router, "e_score_correction_bias", None)
+        if not isinstance(bias, torch.Tensor):
+            bias = getattr(moe, "e_score_correction_bias", None)
+        if isinstance(bias, torch.Tensor):
+            selection_scores = selection_scores + bias.to(selection_scores)
+        selected = torch.zeros_like(scores, dtype=torch.bool)
+        selected.scatter_(1, topk_indices.to(torch.long), True)
+        promoted = selection_scores.masked_fill(selected, -float("inf")).argmax(dim=-1)
+
+        # tokens whose promoted expert no longer exists (already pruned away)
+        # cannot be routed to it; duplicate one of their routed experts in
+        # the refill slot instead -- a zero-weight no-op which
+        # experts_block_hook ignores for those tokens
+        num_module_experts = getattr(experts, "num_experts", len(experts))
+        safe_promoted = torch.where(
+            promoted < num_module_experts, promoted, topk_indices[:, 0]
+        ).to(topk_indices.dtype)
+
+        # stash the router's true top-k for experts_block_hook, which sees
+        # the rewritten (k+1)-slot indices
+        self._refill_slots[moe_name] = top_k
+
+        # the refill slot's zero mixture weight keeps the block's output
+        # unchanged up to float rounding from the experts' GEMM batch sizes
+        topk_weights: torch.Tensor = args[2]
+        refill_weights = torch.zeros_like(topk_weights[:, :1])
+        return (
+            args[0],
+            torch.cat([topk_indices, safe_promoted.unsqueeze(1)], dim=1),
+            torch.cat([topk_weights, refill_weights], dim=1),
+            *args[3:],
+        )
+
+    @torch.no_grad()
     def experts_block_hook(
         self,
         moe_name: str,
@@ -319,18 +454,20 @@ class RazorPruningModifier(ExpertPruningModifierBase):
         projection of the block input, so that the scores of unselected
         experts are available; renormalizes the selected scores into mixture
         weights and, under the refill criterion, determines the expert each
-        token would promote on a deletion (evaluating its output, which the
-        block's forward did not compute, since it is unselected). Then forms
-        the consensus output of each token from the recorded expert outputs,
-        and accumulates each pair's squared damage and count into the layer's
-        statistics. Resets the per-batch output buffers afterwards.
+        token would promote on a deletion (whose output the block's forward
+        already evaluated, since :meth:`experts_block_pre_hook` routed it as
+        the zero-weight top-(k+1)th slot). Then forms the consensus output
+        of each token from the recorded expert outputs, and accumulates each
+        pair's squared damage and count into the layer's statistics. Resets
+        the per-batch output buffers afterwards.
 
         :param moe_name: Name of the MoE layer the block belongs to
         :param moe: The MoE layer the hooked experts block belongs to
         :param module: The experts block the hook is attached to
         :param args: The block's forward arguments, where ``args[0]`` is the
             block input, and ``args[1]`` and ``args[2]`` are the router's
-            top-k indices and weights
+            top-k indices and weights (plus the pre-hook's appended refill
+            slot, when it injected one)
         :param output: The block's output for the current batch
         """
         if moe_name not in self._moe_stats:
@@ -341,11 +478,21 @@ class RazorPruningModifier(ExpertPruningModifierBase):
             return
 
         hidden_states: torch.Tensor = args[0]
-        topk_indices: torch.Tensor = args[1].to(torch.long)
-        num_tokens, top_k = topk_indices.shape
+        topk_indices_full: torch.Tensor = args[1].to(torch.long)
+        num_tokens = topk_indices_full.shape[0]
         num_experts = self._moe_config.num_experts
         hidden_dim = hidden_states.shape[-1]
         expert_outputs = self._expert_outputs[moe_name]
+
+        # the pre-hook appends the promoted expert as one extra zero-weight
+        # slot when it injects the refill evaluation; the router's true
+        # top-k, stashed by the pre-hook, splits the slots back apart
+        injected_k = self._refill_slots.pop(moe_name, None)
+        if injected_k is None:
+            top_k = topk_indices_full.shape[1]
+        else:
+            top_k = injected_k
+        topk_indices = topk_indices_full[:, :top_k]
 
         # -- routing context --------------------------------------------------
         # recompute the full score vector (unselected experts included) from
@@ -391,27 +538,37 @@ class RazorPruningModifier(ExpertPruningModifierBase):
                 scores.gather(1, promoted.unsqueeze(1)).squeeze(1) / score_sum
             )
 
-            # the promoted experts were not evaluated by the block's forward
-            # (they are unselected), so evaluate them here on the tokens they
-            # would refill: one additional expert output per token
             refill_outputs = hidden_states.new_zeros(num_tokens, hidden_dim)
-            if get_calibrate_all_experts_flag():
+            if injected_k is not None:
+                # the promoted experts ran as the block's top-(k+1)th slot,
+                # so their outputs are part of the recorded ones: read them
+                # back from the refill-slot rows of each expert's output,
+                # which LinearExperts2D lays out slot-major per expert
+                for expert_idx, expert_output in expert_outputs.items():
+                    slots, tokens = (topk_indices_full.T == expert_idx).nonzero(
+                        as_tuple=True
+                    )
+                    is_refill = slots == top_k
+                    if is_refill.any():
+                        refill_outputs[tokens[is_refill]] = expert_output[is_refill]
+                # tokens whose promoted expert no longer exists were routed
+                # to a duplicate routed expert in the refill slot; they get
+                # no refill output, like under calibrate-all execution
+                num_module_experts = getattr(experts, "num_experts", len(experts))
+                refill_outputs[promoted >= num_module_experts] = 0
+            elif get_calibrate_all_experts_flag():
                 # every expert already ran on every token
                 for expert_idx, expert_output in expert_outputs.items():
                     tokens = promoted == expert_idx
                     refill_outputs[tokens] = expert_output[tokens]
             else:
-                # the refill forwards are issued by this hook, so disable the
-                # expert hooks (including this modifier's) against recording
-                # them; their outputs are consumed directly here
-                with HooksMixin.disable_hooks():
-                    for expert_idx in promoted.unique().tolist():
-                        tokens = promoted == expert_idx
-                        if expert_idx >= len(experts):
-                            continue  # expert no longer exists (already pruned)
-                        refill_outputs[tokens] = experts[expert_idx](
-                            hidden_states[tokens]
-                        )
+                # unreachable in practice: the pre-hook injects the refill
+                # slot whenever the refill criterion runs sparsely
+                raise RuntimeError(
+                    f"Layer {moe_name}: the refill expert evaluation was not "
+                    "injected into the experts block forward by "
+                    "experts_block_pre_hook"
+                )
 
         # -- consensus ---------------------------------------------------------
         # the original routed mixture output of each token,
@@ -427,6 +584,18 @@ class RazorPruningModifier(ExpertPruningModifierBase):
                 contributions = weights[tokens, slots].unsqueeze(-1) * expert_output[
                     tokens
                 ].to(self.precision)
+            elif injected_k is not None:
+                # experts ran on their routed and refill rows, in the (slot,
+                # token) order of LinearExperts2D's torch.where scatter
+                slots, tokens = (topk_indices_full.T == expert_idx).nonzero(
+                    as_tuple=True
+                )
+                is_routed = slots < top_k
+                tokens, slots = tokens[is_routed], slots[is_routed]
+                contributions = (
+                    weights[tokens, slots].unsqueeze(-1)
+                    * (expert_output.to(self.precision)[is_routed])
+                )
             else:
                 # experts ran on their routed tokens only, in the (slot,
                 # token) order of LinearExperts2D's torch.where scatter
@@ -442,6 +611,13 @@ class RazorPruningModifier(ExpertPruningModifierBase):
             if calibrate_all:
                 tokens, slots = (topk_indices == expert_idx).nonzero(as_tuple=True)
                 expert_output = expert_output[tokens]
+            elif injected_k is not None:
+                slots, tokens = (topk_indices_full.T == expert_idx).nonzero(
+                    as_tuple=True
+                )
+                is_routed = slots < top_k
+                tokens, slots = tokens[is_routed], slots[is_routed]
+                expert_output = expert_output[is_routed]
             else:
                 slots, tokens = (topk_indices.T == expert_idx).nonzero(as_tuple=True)
 
@@ -475,4 +651,5 @@ class RazorPruningModifier(ExpertPruningModifierBase):
     def on_finalize(self, state: State, **kwargs) -> bool:
         ret = super().on_finalize(state, **kwargs)
         self._expert_outputs.clear()
+        self._refill_slots.clear()
         return ret

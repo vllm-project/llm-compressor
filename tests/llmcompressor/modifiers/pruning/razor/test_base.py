@@ -405,6 +405,94 @@ def test_refill_reduces_to_loo_when_all_experts_are_selected(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Tests: top-(k+1) refill execution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_refill_injection_leaves_forward_output_unchanged():
+    """Routing the promoted expert through the block as a zero-weight
+    top-(k+1)th slot must not change the model's forward output beyond
+    float rounding: the refill slot carries zero mixture weight, so its
+    contributions vanish, and only the experts' GEMM batch sizes change
+    (which can perturb results at the last-ulp level on some backends)."""
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    torch.manual_seed(7)
+    batches = [torch.randn(2, 8, config.hidden_size) for _ in range(4)]
+
+    # reference outputs, computed before any hook is attached
+    with torch.no_grad():
+        expected = [model(batch).clone() for batch in batches]
+
+    modifier = RazorPruningModifier(sparsity=0.5, criterion="refill")
+    state = make_state(model)
+    modifier.initialize(state)
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    with torch.no_grad():
+        outputs = [model(batch).clone() for batch in batches]
+
+    for output, reference in zip(outputs, expected):
+        torch.testing.assert_close(output, reference, rtol=1e-5, atol=1e-6)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "criterion, expected_per_token",
+    [("refill", 3), ("rcs_loo", 2), ("rcs", 2)],
+)
+def test_sparse_execution_evaluates_k_plus_1_experts_per_token(
+    criterion, expected_per_token
+):
+    """Sparse refill execution evaluates exactly ``k+1`` experts per token
+    (the ``k`` routed ones plus the promoted one, all inside the block's
+    forward); the refill-free criteria evaluate only the ``k`` routed ones.
+
+    Expert module invocations are counted with plain torch hooks, which
+    stay registered while the modifier disables its own.
+    """
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+
+    rows = {"count": 0}
+
+    def _count(module, args, output):
+        rows["count"] += args[0].shape[0]
+
+    handles = [
+        expert.register_forward_hook(_count)
+        for layer in model.layers
+        for expert in layer.experts.children()
+        if isinstance(expert, ExpertMLP)
+    ]
+    try:
+        modifier = RazorPruningModifier(sparsity=0.5, criterion=criterion)
+        _calibrate(model, modifier, num_batches=4, batch_shape=(2, 8, 16))
+    finally:
+        for handle in handles:
+            handle.remove()
+
+    num_batches, batch_tokens = 4, 2 * 8
+    tokens_per_layer = num_batches * batch_tokens
+    per_token = rows["count"] / (tokens_per_layer * len(model.layers))
+    k = config.num_experts_per_tok
+    assert per_token == pytest.approx(expected_per_token), (
+        f"criterion={criterion}: {per_token:.2f} expert evaluations per token "
+        f"per layer, expected {expected_per_token} (k={k})"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tests: full-model lifecycle
 # ---------------------------------------------------------------------------
 

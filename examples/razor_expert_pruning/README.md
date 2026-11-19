@@ -81,11 +81,13 @@ whose report format is shared), saliency visualization with
 recipe = RazorPruningModifier(sparsity=0.25, criterion="refill")
 ```
 
-Calibration runs with `moe_calibrate_all_experts=False` (the experts block
-evaluates only the routed experts, and the modifier itself evaluates the one
-additional expert per token that the refill criterion needs) or `True` (every
-expert runs on every token, and the refill expert's output is already
-available). Both execution paths produce the same saliency.
+Calibration runs with `moe_calibrate_all_experts=False` (the modifier rewrites
+the block's routing to top-(k+1), so the block's forward evaluates exactly the
+k routed experts plus the one promoted expert per token that the refill
+criterion needs — the promoted expert runs with zero mixture weight, leaving
+the block's output unchanged) or `True` (every expert runs on every token, and
+the refill expert's output is already available). Both execution paths produce
+the same saliency.
 
 ## GLM-5.3-Flash example
 
