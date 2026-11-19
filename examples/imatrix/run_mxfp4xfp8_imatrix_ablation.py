@@ -26,8 +26,13 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEME_NAME = "MXFP4XFP8"
 SCHEME_SLUG = SCHEME_NAME.lower()
 SCOPE_ABLATION = os.environ.get("MXFP4_IMATRIX_SCOPE_ABLATION", "0") == "1"
+DEFAULT_RUN_NAME = (
+    "mxfp4xfp8_imatrix_scope_extension_ablation"
+    if SCOPE_ABLATION
+    else "mxfp4xfp8_imatrix_ablation"
+)
 DEFAULT_RUN_ROOT = Path(
-    os.environ.get("MXFP4XFP8_RUN_ROOT", ROOT / "runs/mxfp4xfp8_imatrix_ablation")
+    os.environ.get("MXFP4XFP8_RUN_ROOT", ROOT / "runs" / DEFAULT_RUN_NAME)
 )
 HF_CACHE = Path(os.environ.get("HF_HOME", ROOT / "hf_cache"))
 for _cache_var in ("HF_HOME", "HF_HUB_CACHE", "TRANSFORMERS_CACHE"):
