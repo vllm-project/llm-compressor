@@ -37,10 +37,23 @@ This global allocation is inherited from `ExpertPruner` and has not been
 validated against the paper. Group-limited routers only support `uniform=True`,
 which drops the same number of experts from every group.
 
-AIMER scores each expert's projection weights: tensors named `<proj>.weight`
-(one per expert) or stacked `<name>_proj` parameters, as in the Hugging Face MoE
-implementations. Projections named otherwise are not scored. Biases and other
-expert tensors are pruned with their expert but not scored.
+AIMER scores each expert's projection weights: tensors named `<name>_proj.weight`
+(one per expert) or `<name>_proj` parameters (stacked), e.g. `gate_proj`,
+`up_proj` and `down_proj`, or fused `gate_up_proj`, as in the Hugging Face MoE
+implementations. Projections named otherwise are not scored. Every expert must
+match a complete set of projections, either `gate_proj`, `up_proj` and
+`down_proj`, or fused `gate_up_proj` and `down_proj`: a partial set is rejected
+with an error naming the `expert_pattern` to pass, rather than silently scored.
+The default `expert_pattern` matches all of these layouts.
+
+Tensors matched by `expert_pattern` are pruned with their expert: biases and
+other auxiliary tensors are not scored, but they are sliced or renumbered
+alongside it. Tensors not matched by `expert_pattern` are copied through
+unchanged, keeping their original names and expert indices, which orphans them
+when their expert is pruned. The example's `expert_pattern` matches each
+projection's weights and biases alike, because it is not anchored to the end of
+the tensor name; a pattern ending in `_proj\.weight$` would leave the projection
+biases behind.
 
 Every tensor matched by `expert_pattern` must have dtype F16, BF16, F32 or F64.
 This rejects matched packed-integer and FP8 representations; it does not detect

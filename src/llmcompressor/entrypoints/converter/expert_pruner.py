@@ -620,17 +620,18 @@ def _detect_moe_layout(
     Detect whether experts are 2D (per-expert tensors) or 3D (stacked).
     For 2D, also extract the expert index from each tensor name.
 
+    The checkpoint is stacked if any matched tensor is 3D: the first matched
+    tensor cannot be relied on, as it may be an auxiliary tensor such as an
+    expert bias, which is 2D even in a stacked checkpoint. Tensor ranks are
+    metadata-only reads, and the scan stops at the first stacked tensor found.
+
     Returns (expert_indices, is_3d).
     """
-    sample_name = expert_names[0]
-    sample_shard = weight_map[sample_name]
-    sample_path = model_files[sample_shard]
-
-    with safe_open(sample_path, framework="pt") as f:
-        sample_shape = f.get_slice(sample_name).get_shape()
-
-    if len(sample_shape) >= 3:
-        return {}, True
+    for path, names in _group_by_file(expert_names, weight_map, model_files).items():
+        with safe_open(path, framework="pt") as f:
+            for name in names:
+                if len(f.get_slice(name).get_shape()) >= 3:
+                    return {}, True
 
     # 2D: extract expert index from each tensor name
     expert_indices: dict[str, int] = {}
