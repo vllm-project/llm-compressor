@@ -79,6 +79,11 @@ Use the vLLM environment and evaluation dependencies validated by the
 - Each completed configuration is evaluated with three seeds: 1234, 2345,
   and 3456. The four eval-agent tasks are `gsm8k_platinum_cot_llama`,
   `mmlu_cot_llama`, `math_500`, and `gpqa_diamond`.
+- The pinned registry configures three repetitions per task, with maximum
+  generated-token limits of 8192 for GSM8K Platinum and MMLU, 16384 for
+  Math500, and 65536 for GPQA Diamond. These are ceilings; actual generation
+  lengths vary by model and prompt. The GPQA setting can make reasoning-model
+  evaluations take considerably longer than the shorter instruct tasks.
 - On the recorded H100/SM90 path, vLLM selected
   `HummingMxFp4LinearKernel` and Humming MoE kernels where applicable. These
   consume the checkpoint's dynamic FP8 activation configuration. The imatrix
