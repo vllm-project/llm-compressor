@@ -160,8 +160,9 @@ GPTQ_RUNS="$PWD/runs/mxfp4xfp8_gptq_imatrix_ablation"
 The default observer uses the exponential `1` through `1/16` candidates and
 retains the final linear-grid endpoint. The expanded observer searches the
 exponential `1` through `1/64` candidates and retains its final endpoint. Both
-use `patience=0`, `expand=1`, and E8M0 scales. A run manifest records the exact
-observer arguments and pinned revisions.
+use the observer names, grid sizes, and max-shrink values listed in the table
+above, with `patience=0`, `expand=1`, and `norm=power`. A run manifest records
+the exact observer arguments and pinned revisions.
 
 ## Model-free MSE ablation
 
