@@ -39,8 +39,15 @@ __all__ = [
     "restructure_and_swap_in",
     "offload_original_modules",
     "onload_and_restructure_modules",
+    "restructure_requires_restore",
     "restore_restructured_modules",
 ]
+
+
+def restructure_requires_restore(target: Module) -> bool:
+    """Return whether a restructured target needs its source restored afterward."""
+    # just this restructure for now, add moe repack later
+    return isinstance(target, NormCalibrationModule)
 
 
 def swap_in_meta_modules(
@@ -55,6 +62,7 @@ def swap_in_meta_modules(
     )
     for restructure in restructures:
         for fqn, source, context in restructure.targets(model):
+            # each restructure target is a leaf node, don't nest them
             if any(
                 fqn == root
                 or fqn.startswith(f"{root}.")
@@ -123,14 +131,13 @@ def onload_and_restructure_modules(
         copy_module_state(target, converted, device)
         metadata["materialized"] = True
 
-        # Offset-norm conversions retain their originals until calibration is complete
-        # Delete all others
-        if not isinstance(target, NormCalibrationModule):
-            delattr(target, RESTRUCTURE_METADATA_ATTR)
-        else:
+        # Keep source metadata only for restructures that need restoration.
+        if restructure_requires_restore(target):
             metadata["source_offload_kwargs"] = source_offload_kwargs[
                 metadata["fqn"]
             ]
+        else:
+            delattr(target, RESTRUCTURE_METADATA_ATTR)
 
     return restructured_roots, target_offload_kwargs
 
@@ -174,7 +181,7 @@ def restore_restructured_modules(
         source = metadata["original"]
         if not metadata["materialized"]:
             model.set_submodule(metadata["fqn"], source)
-        elif isinstance(target, NormCalibrationModule):
+        elif restructure_requires_restore(target):
             source_kwargs = metadata.get("source_offload_kwargs")
             if source_kwargs is None:
                 source_kwargs = get_cache_init_kwargs(source)
