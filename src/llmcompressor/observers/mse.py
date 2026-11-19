@@ -106,7 +106,12 @@ class MovingAverageMSEObserver(Observer):
     """
     Compute quantization parameters by finding the optimal min/max values which minimize
     the mean of quantization error squared, with moving average smoothing.
+
+    Activations are averaged once per calibration sample rather than once per batch,
+    so results do not depend on the calibration batch size.
     """
+
+    _update_per_sample = True
 
     _act_sync_dict = {
         "min_vals": dist.ReduceOp.AVG,

@@ -45,7 +45,12 @@ class StaticMinMaxObserver(MemorylessMinMaxObserver):
 class MinMaxObserver(Observer):
     """
     Compute quantization parameters by taking the moving average of min/max values.
+
+    Activations are averaged once per calibration sample rather than once per batch,
+    so results do not depend on the calibration batch size.
     """
+
+    _update_per_sample = True
 
     _act_sync_dict = {
         "min_vals": dist.ReduceOp.AVG,

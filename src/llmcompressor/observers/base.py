@@ -42,6 +42,12 @@ class Observer(InternalModule, RegistryMixin):
     # Attribute names that constitute this observer's statistics
     _stats_attrs: List[str] = ["min_vals", "max_vals"]
 
+    # If True, activation and attention observations are split along the batch
+    # dimension and statistics are updated once per sample, in batch order. This
+    # makes order-dependent statistics (e.g. moving averages) independent of the
+    # calibration batch size
+    _update_per_sample: bool = False
+
     def __init__(
         self,
         base_name: str,
@@ -137,12 +143,39 @@ class Observer(InternalModule, RegistryMixin):
         if self.is_weight_obs and self.has_statistics:
             return self
 
+        num_samples = self._get_num_samples(observed)
         observed = flatten_for_calibration(observed, self.base_name, self.args)
-        self.update_statistics_from_observed(observed)
+        if num_samples > 1:
+            # flattening keeps observations batch-major, so this splits by sample
+            for sample in observed.unflatten(0, (num_samples, -1)):
+                self.update_statistics_from_observed(sample)
+        else:
+            self.update_statistics_from_observed(observed)
 
         self.fusion_handler.get_fused_statistics()
 
         return self
+
+    def _get_num_samples(self, observed: torch.Tensor) -> int:
+        """
+        Number of samples to split an observation into before updating statistics.
+
+        Activations of shape (batch_size, seq_len, hidden_dim) and attention states
+        of shape (batch_size, num_heads, seq_len, head_dim) are split along the batch
+        dimension. Weights, and inputs without a batch dimension (such as the routed
+        tokens of an MoE expert), are observed as a whole.
+
+        :param observed: value being observed, before flattening
+        :return: number of samples, 1 if the value should not be split
+        """
+        if not self._update_per_sample or self.is_weight_obs:
+            return 1
+
+        batch_ndim = 4 if self.base_name in ("q", "k", "v") else 3
+        if observed.ndim < batch_ndim:
+            return 1
+
+        return observed.size(0)
 
     def sync_activation_stats(self) -> List[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.
