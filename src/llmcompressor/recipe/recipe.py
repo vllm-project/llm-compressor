@@ -189,13 +189,8 @@ class Recipe(BaseModel):
                     if group_key.endswith("_modifiers") and isinstance(group_val, dict):
                         inferred_group = group_key.replace("_modifiers", "")
                         for mod_type, mod_args in group_val.items():
-                            group = mod_args.get("group", inferred_group)
-                            modifier = ModifierFactory.create(
-                                mod_type,
-                                group=group,
-                                allow_registered=True,
-                                allow_experimental=True,
-                                **mod_args,
+                            modifier = cls._create_modifier(
+                                mod_type, mod_args, inferred_group
                             )
                             modifiers.append(modifier)
 
@@ -203,6 +198,32 @@ class Recipe(BaseModel):
             args=args,
             stage=stage,
             modifiers=modifiers,
+        )
+
+    @staticmethod
+    def _create_modifier(mod_type: str, mod_args: Any, inferred_group: str) -> Modifier:
+        """
+        Instantiate a modifier from a recipe entry.
+
+        YAML writes a modifier with no arguments as an empty value, which parses
+        to ``None``. ``group`` is passed explicitly to the factory, so it is
+        popped out of the remaining kwargs.
+        """
+        if mod_args is not None and not isinstance(mod_args, dict):
+            raise ValueError(
+                f"Arguments for modifier '{mod_type}' must be a mapping, "
+                f"got {type(mod_args).__name__}: {mod_args}"
+            )
+
+        # Copy so pop() does not mutate the input recipe dict.
+        args = dict(mod_args or {})
+        group = args.pop("group", inferred_group)
+        return ModifierFactory.create(
+            mod_type,
+            group=group,
+            allow_registered=True,
+            allow_experimental=True,
+            **args,
         )
 
     @model_validator(mode="after")

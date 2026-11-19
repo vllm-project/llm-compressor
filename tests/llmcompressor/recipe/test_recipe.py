@@ -181,6 +181,79 @@ def test_recipe_from_dict_loads_numbered_stages(stage_name):
     assert recipe.stage == stage_name
 
 
+@pytest.mark.parametrize(
+    "modifier_yaml",
+    [
+        "QuantizationModifier:",
+        "QuantizationModifier: {}",
+        "QuantizationModifier: null",
+    ],
+    ids=["empty-value", "empty-mapping", "null"],
+)
+def test_recipe_loads_modifier_without_arguments(modifier_yaml):
+    recipe = Recipe.create_instance(
+        f"""
+        test_stage:
+            quantization_modifiers:
+                {modifier_yaml}
+        """
+    )
+
+    assert len(recipe.modifiers) == 1
+    assert isinstance(recipe.modifiers[0], QuantizationModifier)
+    assert recipe.modifiers[0].group == "quantization"
+
+
+def test_recipe_loads_explicit_group():
+    recipe = Recipe.create_instance(
+        """
+        test_stage:
+            quantization_modifiers:
+                QuantizationModifier:
+                    scheme: FP8_DYNAMIC
+                    group: my_group
+        """
+    )
+
+    assert len(recipe.modifiers) == 1
+    assert recipe.modifiers[0].group == "my_group"
+    assert recipe.modifiers[0].scheme == "FP8_DYNAMIC"
+
+
+def test_recipe_rejects_non_mapping_modifier_arguments():
+    with pytest.raises(ValueError, match="must be a mapping"):
+        Recipe.create_instance(
+            """
+            test_stage:
+                quantization_modifiers:
+                    QuantizationModifier: not-a-mapping
+            """
+        )
+
+
+def test_recipe_from_dict_does_not_mutate_modifier_args():
+    recipe_dict = {
+        "test_stage": {
+            "quantization_modifiers": {
+                "QuantizationModifier": {
+                    "scheme": "FP8_DYNAMIC",
+                    "group": "my_group",
+                }
+            }
+        }
+    }
+
+    recipe = Recipe.from_dict(recipe_dict)
+
+    assert recipe.modifiers[0].group == "my_group"
+    assert recipe_dict["test_stage"]["quantization_modifiers"][
+        "QuantizationModifier"
+    ] == {
+        "scheme": "FP8_DYNAMIC",
+        "group": "my_group",
+    }
+
+
 def test_recipe_can_be_created_from_modifier_instances():
     modifier = QuantizationModifier(
         scheme="FP8",
