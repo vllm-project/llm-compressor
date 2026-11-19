@@ -16,6 +16,10 @@ from compressed_tensors.utils import (
 from loguru import logger
 from torch.nn import Module
 
+from llmcompressor.modifiers.utils.pytorch_helpers import (
+    apply_loss_mask,
+    get_current_loss_mask,
+)
 from llmcompressor.observers import Observer
 
 __all__ = [
@@ -181,19 +185,40 @@ def update_qparams(
                 getattr(module, full_param_name).data = param_val
 
 
+def _select_masked_tokens(value: torch.Tensor, seq_dim: int) -> torch.Tensor:
+    """
+    With `use_loss_mask=True`, keep only the tokens where the current batch's loss
+    mask is nonzero, as one sequence (batch size 1) with the dims of `value`.
+
+    :param value: (batch_size, seq_len, hidden_dim) activations if `seq_dim` is 1,
+        or (batch_size, num_heads, seq_len, head_dim) attention states if it is 2
+    """
+    mask = get_current_loss_mask()
+    if mask is None:
+        return value
+    if seq_dim == 1:
+        return apply_loss_mask(value, mask).unsqueeze(0)
+
+    states = value.transpose(1, 2)  # (batch_size, seq_len, num_heads, head_dim)
+    kept = apply_loss_mask(states.flatten(2), mask).unflatten(-1, states.shape[2:])
+    return kept.unsqueeze(0).transpose(1, 2)
+
+
 def calibrate_input_hook(module: Module, args: Any):
     """
     Hook to calibrate input activations by accumulating statistics in the observer.
+    With `use_loss_mask=True`, only tokens selected by the loss mask are observed.
     """
     args = args[0] if isinstance(args, tuple) else args
-    module.input_observer(args)
+    module.input_observer(_select_masked_tokens(args, seq_dim=1))
 
 
 def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
     """
     Hook to calibrate output activations by accumulating statistics in the observer.
+    With `use_loss_mask=True`, only tokens selected by the loss mask are observed.
     """
-    module.output_observer(output)
+    module.output_observer(_select_masked_tokens(output, seq_dim=1))
     output = forward_quantize(
         module=module,
         value=output,
@@ -204,15 +229,15 @@ def calibrate_output_hook(module: Module, _args: Any, output: torch.Tensor):
 
 
 def calibrate_query_hook(module: Module, query_states: torch.Tensor):
-    module.q_observer(query_states)
+    module.q_observer(_select_masked_tokens(query_states, seq_dim=2))
 
 
 def calibrate_key_hook(module: Module, key_states: torch.Tensor):
-    module.k_observer(key_states)
+    module.k_observer(_select_masked_tokens(key_states, seq_dim=2))
 
 
 def calibrate_value_hook(module: Module, value_states: torch.Tensor):
-    module.v_observer(value_states)
+    module.v_observer(_select_masked_tokens(value_states, seq_dim=2))
 
 
 def apply_calibration_status(module: Module):
