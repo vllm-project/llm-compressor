@@ -141,7 +141,8 @@ class MoEConfig:
         self = cls(
             num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
             num_experts_per_tok=_getattr_fallbacks(
-                config, ["top_k_experts", "num_experts_per_tok"]
+                config,
+                ["top_k_experts", "num_experts_per_tok", "num_experts_per_token"],
             ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
             top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
@@ -183,6 +184,12 @@ class MoEConfig:
             case "nemotron_h":
                 if config.moe_latent_size is None:
                     self.hidden_dim = config.hidden_size
+            case "kimi_k3" | "kimi_linear":
+                # latent MoE: experts run at routed_expert_hidden_size, which is
+                # both their input and output width, rather than at the model
+                # hidden size
+                if getattr(config, "routed_expert_hidden_size", None) is not None:
+                    self.hidden_dim = config.routed_expert_hidden_size
 
         return self
 

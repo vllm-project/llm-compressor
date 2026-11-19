@@ -199,7 +199,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
             from compressed_tensors.offload import disable_onloading
 
             with disable_onloading():
-                QuantizationMixin.initialize_quantization(self, state.model)
+                QuantizationMixin.initialize_quantization(self, state)
 
         # prepare module names
         self._add_temporary_names(state.model)
@@ -263,7 +263,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module],
+        modules: dict[str, torch.nn.Module],
         **kwargs,
     ):
         self.apply_autoround(state, modules)
@@ -285,14 +285,14 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         For more details, please refer to the AutoRound repository:
         https://github.com/intel/auto-round/
         """
-        modules = modules or []
+        modules = modules or {}
 
-        decoding_layers = [m for m in modules if self._is_decoding_layer(m)]
+        decoding_layers = [m for m in modules.values() if self._is_decoding_layer(m)]
         if len(decoding_layers) == 0:
             return
         if len(decoding_layers) != 1:
             raise ValueError(
-                "Only one decoding layer is expected in the modules list, "
+                "Only one decoding layer is expected in the subgraph modules, "
                 f"found {len(decoding_layers)}."
             )
         decoding_layer = decoding_layers[0]
@@ -642,7 +642,7 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
                         module.register_parameter(qparam_name, param_value)
 
     def _get_default_quant_scheme(self) -> QuantizationScheme:
-        resolved_config = self.resolved_config
+        resolved_config = self.resolve_quantization_config()
         for scheme in resolved_config.config_groups.values():
             if not isinstance(scheme, QuantizationScheme):
                 raise TypeError(f"Expected QuantizationScheme, got {type(scheme)}")
