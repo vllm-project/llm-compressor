@@ -1,4 +1,5 @@
 import pytest
+from loguru import logger
 
 from llmcompressor.modifiers.autoround import AutoRoundModifier
 from llmcompressor.modifiers.pruning import REAPPruningModifier
@@ -12,6 +13,7 @@ from llmcompressor.modifiers.transform import (
 from llmcompressor.pipelines import (
     CalibrationPipeline,
     DataFreePipeline,
+    IndependentPipeline,
     SequentialPipeline,
 )
 
@@ -31,9 +33,14 @@ from llmcompressor.pipelines import (
         ),
         ([GPTQModifier(scheme="FP8")], SequentialPipeline),
         ([GPTQModifier(scheme="W4A16")], SequentialPipeline),
-        ([SmoothQuantModifier(), GPTQModifier(scheme="W4A16")], SequentialPipeline),
-        ([AWQModifier(), QuantizationModifier(scheme="W4A16")], SequentialPipeline),
-        ([AWQModifier(), QuantizationModifier(scheme="FP8")], SequentialPipeline),
+        ([SmoothQuantModifier(), GPTQModifier(scheme="W4A16")], IndependentPipeline),
+        (
+            [SmoothQuantModifier(), QuantizationModifier(scheme="W4A16")],
+            IndependentPipeline,
+        ),
+        ([AWQModifier(), QuantizationModifier(scheme="W4A16")], IndependentPipeline),
+        ([AWQModifier(), QuantizationModifier(scheme="FP8")], IndependentPipeline),
+        ([AWQModifier(), GPTQModifier(scheme="W4A16")], IndependentPipeline),
         (
             [REAPPruningModifier(sparsity=0.5, report_path="reap.json")],
             SequentialPipeline,
@@ -48,3 +55,27 @@ from llmcompressor.pipelines import (
 def test_infer_pipeline(modifiers, exp_pipeline):
     pipeline = CalibrationPipeline.from_modifiers(modifiers)
     assert isinstance(pipeline, exp_pipeline)
+
+
+@pytest.mark.parametrize(
+    "modifiers",
+    [
+        [AWQModifier(), GPTQModifier(scheme="W4A16")],
+        [SmoothQuantModifier(), GPTQModifier(scheme="W4A16")],
+    ],
+)
+def test_deferred_transform_quantization_defaults_to_independent_but_allows_override(
+    modifiers,
+):
+    messages = []
+    handler_id = logger.add(messages.append, level="WARNING", format="{message}")
+    try:
+        pipeline = CalibrationPipeline.from_modifiers(modifiers, user="sequential")
+    finally:
+        logger.remove(handler_id)
+
+    assert isinstance(pipeline, SequentialPipeline)
+    assert any(
+        "independent calibration pipeline is recommended" in message
+        for message in messages
+    )

@@ -39,15 +39,25 @@ class CalibrationPipeline(ABC, RegistryMixin):
         user = standardize_lookup_name(user) if user else None
         inferred = standardize_lookup_name(cls._infer_pipeline(modifiers))
         independent = standardize_lookup_name("independent")
+        deferred_transform = cls._deferred_transform_precedes_quantization(modifiers)
 
-        if user == independent:
+        if deferred_transform is not None or user == independent:
             inferred = independent
 
         if user is not None and user != inferred:
-            logger.warning(
-                f"Calibration pipeline is set to `{user}`, but it is recommended to "
-                f"use `{inferred}`"
-            )
+            if deferred_transform is not None:
+                logger.warning(
+                    f"User requested pipeline {user} but when {deferred_transform} "
+                    "is followed by a quantization modifier, the independent "
+                    "calibration pipeline is recommended. Change or remove the "
+                    "pipeline argument in oneshot if you'd like to use the "
+                    "recommended pipeline"
+                )
+            else:
+                logger.warning(
+                    f"Calibration pipeline is set to `{user}`, but it is recommended "
+                    f"to use `{inferred}`"
+                )
 
         pipeline = user or inferred
         return cls.load_from_registry(pipeline)
@@ -58,3 +68,21 @@ class CalibrationPipeline(ABC, RegistryMixin):
             return "sequential"
         else:
             return "datafree"
+
+    @staticmethod
+    def _deferred_transform_precedes_quantization(
+        modifiers: list[Modifier],
+    ) -> str | None:
+        """Name a late-applied scaling transform followed by a quantizer."""
+        from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+        from llmcompressor.modifiers.transform.awq import AWQModifier
+        from llmcompressor.modifiers.transform.smoothquant import SmoothQuantModifier
+
+        transforms = []
+        for modifier in modifiers:
+            if isinstance(modifier, (AWQModifier, SmoothQuantModifier)):
+                transforms.append(type(modifier).__name__)
+            elif transforms and isinstance(modifier, QuantizationMixin):
+                return ", ".join(transforms)
+
+        return None
