@@ -38,7 +38,11 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
-from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.quantization.quantization.mixin import (
+    QuantizationMixin,
+    _is_mxfp4a8,
+    _is_nvfp4,
+)
 from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
@@ -198,6 +202,22 @@ class GPTQModifier(Modifier, QuantizationMixin):
                 scheme.weights.actorder = resolve_actorder(scheme.weights)
 
         return config
+
+    def _default_weight_observer_kwargs(
+        self,
+        has_calibration_data: bool,
+        scheme: QuantizationScheme,
+        observer: str,
+    ) -> dict[str, int | float | bool]:
+        """Tune GPTQ's default importance observer for microscaled formats."""
+        if observer == "imatrix_mse":
+            if _is_nvfp4(scheme):
+                return {"norm": 2, "magnitude_normalization": False}
+            if _is_mxfp4a8(scheme):
+                return {"norm": 3, "magnitude_normalization": True}
+        return super()._default_weight_observer_kwargs(
+            has_calibration_data, scheme, observer
+        )
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

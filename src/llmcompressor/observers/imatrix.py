@@ -52,7 +52,7 @@ class IMatrixMSEObserver(Observer):
         grid (float): Linear grid resolution or exponential candidate budget.
             Defaults to ``100``.
         norm (float): Power applied to absolute QDQ error before importance
-            weighting. Defaults to ``2.8``.
+            weighting. Defaults to ``3.0``.
         expand (float): Multiplier applied to observed min/max before the
             shrink search; must be at least ``1``. Defaults to ``1.0``.
         strict (bool): Raise an error if importance is unavailable or has an
@@ -79,7 +79,7 @@ class IMatrixMSEObserver(Observer):
         self.maxshrink = kw.get("maxshrink", 0.95)
         self.patience = kw.get("patience", 5)
         self.grid = kw.get("grid", 100)
-        self.norm = kw.get("norm", 2.8)
+        self.norm = kw.get("norm", 3.0)
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
         self.magnitude_normalization = kw.get("magnitude_normalization", True)

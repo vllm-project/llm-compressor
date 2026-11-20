@@ -28,8 +28,7 @@ class MemorylessMSEObserver(Observer):
     candidate with the lowest error. This observer does not average statistics
     across calls; :class:`MovingAverageMSEObserver` smooths the selected ranges.
 
-    The options below are read from ``QuantizationArgs.observer_kwargs``. The
-    expanded MSE observer inherits these options and overrides some defaults.
+    The options below are read from ``QuantizationArgs.observer_kwargs``.
 
     Observer kwargs:
         maxshrink (float): Maximum fraction of the expanded range to shrink.
@@ -75,7 +74,7 @@ class MemorylessMSEObserver(Observer):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.magnitude_normalization = observer_kwargs.get(
-            "magnitude_normalization", False
+            "magnitude_normalization", True
         )
         self.grid_type = _resolve_grid_type(observer_kwargs.get("grid_type"), self.args)
         self.expand = observer_kwargs.get("expand", 1.0)
@@ -122,7 +121,7 @@ class MovingAverageMSEObserver(Observer):
         self.grid = observer_kwargs.get("grid", 100.0)
         self.norm = observer_kwargs.get("norm", 2.4)
         self.magnitude_normalization = observer_kwargs.get(
-            "magnitude_normalization", False
+            "magnitude_normalization", True
         )
         self.grid_type = _resolve_grid_type(observer_kwargs.get("grid_type"), self.args)
         self.expand = observer_kwargs.get("expand", 1.0)
