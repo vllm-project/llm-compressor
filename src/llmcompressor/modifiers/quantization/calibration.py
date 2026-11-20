@@ -36,6 +36,8 @@ __all__ = [
 def initialize_observer(
     module: Module,
     base_name: str,
+    *,
+    is_gptq: bool = False,
 ):
     """
     Initialize observer module and attach as submodule.
@@ -47,6 +49,7 @@ def initialize_observer(
 
     :param module: torch.nn.Module that the observer is being attached to
     :param base_name: str used to name the observer attribute
+    :param is_gptq: whether to apply GPTQ-specific observer defaults
 
     """
     if base_name == "weight":
@@ -83,7 +86,13 @@ def initialize_observer(
         )
 
     if args is not None and args.dynamic is not True:
-        observer = Observer.load_from_registry(observer, base_name=base_name, args=args)
+        observer = Observer.load_from_registry(
+            observer,
+            base_name=base_name,
+            args=args,
+            scheme=module.quantization_scheme,
+            is_gptq=is_gptq,
+        )
         module.register_module(f"{base_name}_observer", observer)
         observer.attach(module)
 

@@ -126,8 +126,7 @@ Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` mo
 This observer (`imatrix_mse`) is the **default weight observer whenever calibration data is available**, except AWQ, since activation importance can only be accumulated by running calibration data through the model. MXFP4A8 without calibration data defaults to `memoryless_mse`; other weight formats default to `memoryless_minmax`.
 
 The default `imatrix_mse` settings use `norm=3` with magnitude normalization.
-For NVFP4, the search uses `grid=200`, `patience=1000`, `expand=1.8`, and
-`maxshrink=1 - 0.8 / 1.8`, matching the expanded NVFP4 observer's search range.
+It uses the same NVFP4 and MX search grids described for MSE above.
 Non-GPTQ MXFP4A8 uses `norm=2.6` without magnitude normalization; GPTQ uses
 `norm=2` without normalization for NVFP4, and `norm=3` with normalization for
 MXFP4A8. MX scale formats use the exponential search grid by default.
@@ -138,9 +137,10 @@ Best used when:
 
 #### [NVFP4 expanded IMatrix](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py) (`nvfp4_expanded_imatrix`)
 
-`nvfp4_expanded_imatrix` uses the same expanded candidate range and grid as
-`nvfp4_expanded_mse`, while weighting quantization error by per-input-channel
-importance and using imatrix's default magnitude normalization.
+`nvfp4_expanded_imatrix` applies the expanded candidate range and grid while
+weighting quantization error by per-input-channel importance and using imatrix's
+default magnitude normalization. The regular `imatrix_mse` observer now uses
+these search settings automatically for NVFP4.
 This is an opt-in observer; the default NVFP4 observer is `imatrix_mse`.
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
@@ -247,10 +247,14 @@ observer inherits these options but overrides some defaults as described above.
 | `patience`           | `5`     | Number of consecutive steps without strict improvement before early stopping in the eager implementation. Triton always evaluates the full grid. |
 | `grid`               | `100.0` | Resolution of the shrink search. Higher values give finer granularity. |
 | `norm`               | `2.4`   | Exponent used when computing the error. `norm=2` approximates MSE. |
-| `expand`             | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; the NVFP4 expanded MSE observer defaults to `1.8`. |
+| `expand`             | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; NVFP4 defaults to `1.8`. |
 | `averaging_constant` | `0.01`  | EMA weight for moving average. Only applies to `mse`. |
-| `grid_type` | `None` | `"linear"`, `"exponential"`. default spacing is exponential when MX scales are generated (E8M0), linear otherwise. Exponential candidates are `1, 1/2, 1/4, ...`. |
+| `grid_type` | Format-dependent | Exponential when MX scales are generated (E8M0), linear otherwise. Exponential candidates are `1, 1/2, 1/4, ...`. |
 | `magnitude_normalization` | `True` | Multiply each powered error by `sqrt(w² + group_absmax²)`, where `group_absmax` is the maximum absolute observed weight in the quantization group. |
+
+For NVFP4, MSE uses `grid=200`, `patience=1000`, `expand=1.8`, and
+`maxshrink=1 - 0.8 / 1.8`. MX scale formats use `grid=200`, `patience=1000`,
+`expand=1.0`, and `maxshrink=1 - 1 / 64`; their grid is exponential.
 
 MSE and iMatrix grid searches run with `global_scale=None` — the shrink search optimizes using FP32 scales, since `global_scale` cancels out when comparing quantization error across shrink candidates. The actual `global_scale` is computed later in `get_qparams()` from the final min/max values.
 
@@ -258,8 +262,8 @@ MSE and iMatrix grid searches run with `global_scale=None` — the shrink search
 
 The search options and objective are documented once in the
 [`IMatrixMSEObserver` docstring](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py).
-The expanded imatrix observer inherits them and changes the default search
-range, grid, norm, and patience.
+The expanded iMatrix observer remains available by name. Regular `imatrix_mse`
+now uses its NVFP4 and MX search ranges automatically.
 
 | Argument      | Default | Description |
 |---------------|---------|-------------|
@@ -267,9 +271,9 @@ range, grid, norm, and patience.
 | `patience`    | `5`     | Number of consecutive steps without strict improvement before early stopping in the eager implementation. Triton always evaluates the full grid. |
 | `grid`        | `100`   | Number of grid steps. Higher values give finer granularity at the cost of speed. |
 | `norm`        | `3.0`   | Exponent used when computing the importance-weighted error. |
-| `expand`      | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; `nvfp4_expanded_imatrix` defaults to `1.8`. |
+| `expand`      | `1.0`   | Multiplier for the initial min/max range. Must be at least `1.0`; NVFP4 defaults to `1.8`. |
 | `strict`      | `False` | If `True`, raise an error instead of falling back to uniform MSE when importance data is unavailable. |
-| `grid_type` | `None` | `"linear"`, `"exponential"`, default spacing is exponential when MX scales are generated (E8M0), linear otherwise. |
+| `grid_type` | Format-dependent | Exponential when MX scales are generated (E8M0), linear otherwise. |
 | `magnitude_normalization` | `True` | Multiply each importance-weighted error by `sqrt(w² + group_absmax²)`. |
 
 ## DDP (Distributed) Support

@@ -4,7 +4,11 @@ from typing import Dict, List, Optional, Tuple, TypedDict
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.offload.dist_utils import as_broadcastable
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
@@ -33,6 +37,8 @@ class Observer(InternalModule, RegistryMixin):
 
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
+    :param scheme: full scheme used to derive format-specific observer defaults
+    :param is_gptq: whether to apply GPTQ-specific observer defaults
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
@@ -46,11 +52,16 @@ class Observer(InternalModule, RegistryMixin):
         self,
         base_name: str,
         args: QuantizationArgs,
+        *,
+        scheme: QuantizationScheme | None = None,
+        is_gptq: bool = False,
         **observer_kwargs,
     ):
         super().__init__()
         self.base_name = base_name
         self.args = args
+        self.scheme = scheme
+        self.is_gptq = is_gptq
 
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)

@@ -3,7 +3,6 @@ from copy import deepcopy
 from typing import Any
 
 import torch
-from compressed_tensors.compressors import NVFP4PackedCompressor
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -26,10 +25,10 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
+from compressed_tensors.quantization.utils.helpers import is_module_quantized
 from compressed_tensors.quantization.utils.mxfp_utils import (
     should_generate_mx_scales,
 )
-from compressed_tensors.quantization.utils.helpers import is_module_quantized
 from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -529,15 +528,6 @@ class QuantizationMixin(HooksMixin):
                         )
                     continue
                 obs_value = None if q_args.dynamic is True else default_obs
-                if scheme_attr == "weights" and obs_value is not None:
-                    default_kwargs = self._default_weight_observer_kwargs(
-                        has_calibration_data, scheme, obs_value
-                    )
-                    if default_kwargs:
-                        q_args.observer_kwargs = {
-                            **default_kwargs,
-                            **q_args.observer_kwargs,
-                        }
             elif obs_value != default_obs:
                 _log_observer_default_override(display_name, default_obs, obs_value)
             q_args.observer = obs_value
@@ -566,25 +556,6 @@ class QuantizationMixin(HooksMixin):
         # calibration data is available.
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
-    def _default_weight_observer_kwargs(
-        self,
-        has_calibration_data: bool,
-        scheme: QuantizationScheme,
-        observer: str,
-    ) -> dict[str, int | float | bool]:
-        """Return format-specific kwargs for a selected default weight observer."""
-        if observer != "imatrix_mse":
-            return {}
-
-        if _is_gptq_modifier(self):
-            if _is_nvfp4(scheme):
-                return {"norm": 2, "magnitude_normalization": False}
-            if _is_mxfp4a8(scheme):
-                return {"norm": 3, "magnitude_normalization": True}
-        elif _is_mxfp4a8(scheme):
-            return {"norm": 2.6, "magnitude_normalization": False}
-        return {}
-
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
             return
@@ -611,7 +582,11 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            initialize_observer(module, base_name="weight")
+            initialize_observer(
+                module,
+                base_name="weight",
+                is_gptq=_is_gptq_modifier(self),
+            )
 
         # output activations
         if output:
@@ -670,11 +645,6 @@ def _is_mxfp4a8(scheme: QuantizationScheme) -> bool:
         and activations is not None
         and activations.num_bits == 8
     )
-
-
-def _is_nvfp4(scheme: QuantizationScheme) -> bool:
-    """Whether a scheme can be compressed to the NVFP4 packed format."""
-    return NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme)
 
 
 def _is_gptq_modifier(modifier: QuantizationMixin) -> bool:
