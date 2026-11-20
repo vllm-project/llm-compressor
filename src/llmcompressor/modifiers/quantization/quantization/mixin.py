@@ -3,7 +3,6 @@ from copy import deepcopy
 from typing import Any
 
 import torch
-from compressed_tensors.compressors import NVFP4PackedCompressor
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -27,6 +26,9 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.quantization.utils.helpers import is_module_quantized
+from compressed_tensors.quantization.utils.mxfp_utils import (
+    should_generate_mx_scales,
+)
 from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -85,9 +87,9 @@ class QuantizationMixin(HooksMixin):
         See QuantizationModifier.on_event method for example
 
     NOTE: When no observer is specified, weight observers default to
-        `imatrix_mse` if calibration data is available to the session and
-        `memoryless_minmax` otherwise. Activation observers default to
-        `minmax`.
+        `imatrix_mse` if calibration data is available and `memoryless_minmax`
+        otherwise, except MXFP4A8 weights without calibration data use
+        `memoryless_mse`. Activation observers default to `minmax`.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -119,7 +121,8 @@ class QuantizationMixin(HooksMixin):
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax",
         "memoryless_mse", and "imatrix_mse". Defaults to "imatrix_mse" when
-        calibration data is available and "memoryless_minmax" otherwise.
+        calibration data is available and "memoryless_minmax" otherwise,
+        except MXFP4A8 defaults to "memoryless_mse" without calibration data.
     :param input_observer: optional observer name for input activation quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
@@ -535,6 +538,9 @@ class QuantizationMixin(HooksMixin):
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Select the default observer based on calibration data and weight format."""
+        if not has_calibration_data and _is_mxfp4a8(scheme):
+            return "memoryless_mse"
+
         if has_calibration_data:
             modifiers = active_session().lifecycle.recipe.modifiers
             if any(modifier is self for modifier in modifiers):
@@ -544,11 +550,6 @@ class QuantizationMixin(HooksMixin):
                 # default to imat unless AWQ is updated to use real observers
                 if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
                     return "memoryless_minmax"
-
-            # Use the compressor's scheme predicate to keep NVFP4 detection in
-            # sync with the packed format. Linear is a supported module type.
-            if NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme):
-                return "nvfp4_expanded_imatrix"
 
         # The imatrix observer weights quantization error by per-channel
         # activation importance, which can only be accumulated when
@@ -581,7 +582,11 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            initialize_observer(module, base_name="weight")
+            initialize_observer(
+                module,
+                base_name="weight",
+                is_gptq=_is_gptq_modifier(self),
+            )
 
         # output activations
         if output:
@@ -626,6 +631,28 @@ def _has_observer_statistics(module: torch.nn.Module) -> bool:
         for base_name in ACTIVATION_OBS + ("weight",)
         if (observer := getattr(module, f"{base_name}_observer", None)) is not None
     )
+
+
+def _is_mxfp4a8(scheme: QuantizationScheme) -> bool:
+    """Whether a scheme quantizes weights to MXFP4 and activations to 8-bit."""
+    weights = scheme.weights
+    activations = scheme.input_activations
+    return (
+        weights is not None
+        and weights.num_bits == 4
+        and weights.type == "float"
+        and should_generate_mx_scales(weights)
+        and activations is not None
+        and activations.num_bits == 8
+    )
+
+
+def _is_gptq_modifier(modifier: QuantizationMixin) -> bool:
+    """Whether observer defaults are being resolved for GPTQ."""
+    # Import lazily to avoid a module cycle: GPTQModifier itself uses this mixin.
+    from llmcompressor.modifiers.gptq import GPTQModifier
+
+    return isinstance(modifier, GPTQModifier)
 
 
 def _resolved_targets(config: QuantizationConfig) -> set[str]:
