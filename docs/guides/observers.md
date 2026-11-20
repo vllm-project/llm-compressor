@@ -126,6 +126,8 @@ Supports CHANNEL, GROUP, and TENSOR_GROUP strategies for weight-only `Linear` mo
 This observer (`imatrix_mse`) is the **default weight observer whenever calibration data is available**, except AWQ, since activation importance can only be accumulated by running calibration data through the model. MXFP4A8 without calibration data defaults to `memoryless_mse`; other weight formats default to `memoryless_minmax`.
 
 The default `imatrix_mse` settings use `norm=3` with magnitude normalization.
+For NVFP4, the search uses `grid=200`, `patience=1000`, `expand=1.8`, and
+`maxshrink=1 - 0.8 / 1.8`, matching the expanded NVFP4 observer's search range.
 Non-GPTQ MXFP4A8 uses `norm=2.6` without magnitude normalization; GPTQ uses
 `norm=2` without normalization for NVFP4, and `norm=3` with normalization for
 MXFP4A8. MX scale formats use the exponential search grid by default.
