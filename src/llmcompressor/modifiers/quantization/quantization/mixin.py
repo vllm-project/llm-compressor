@@ -573,7 +573,15 @@ class QuantizationMixin(HooksMixin):
         observer: str,
     ) -> dict[str, int | float | bool]:
         """Return format-specific kwargs for a selected default weight observer."""
-        if observer == "imatrix_mse" and _is_mxfp4a8(scheme):
+        if observer != "imatrix_mse":
+            return {}
+
+        if _is_gptq_modifier(self):
+            if _is_nvfp4(scheme):
+                return {"norm": 2, "magnitude_normalization": False}
+            if _is_mxfp4a8(scheme):
+                return {"norm": 3, "magnitude_normalization": True}
+        elif _is_mxfp4a8(scheme):
             return {"norm": 2.6, "magnitude_normalization": False}
         return {}
 
@@ -667,6 +675,14 @@ def _is_mxfp4a8(scheme: QuantizationScheme) -> bool:
 def _is_nvfp4(scheme: QuantizationScheme) -> bool:
     """Whether a scheme can be compressed to the NVFP4 packed format."""
     return NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme)
+
+
+def _is_gptq_modifier(modifier: QuantizationMixin) -> bool:
+    """Whether observer defaults are being resolved for GPTQ."""
+    # Import lazily to avoid a module cycle: GPTQModifier itself uses this mixin.
+    from llmcompressor.modifiers.gptq import GPTQModifier
+
+    return isinstance(modifier, GPTQModifier)
 
 
 def _resolved_targets(config: QuantizationConfig) -> set[str]:
