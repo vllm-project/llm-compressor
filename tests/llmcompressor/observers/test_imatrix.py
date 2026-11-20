@@ -13,10 +13,12 @@ from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import triton
 
 import llmcompressor.observers.grid_search as grid_search_module
+from llmcompressor.modeling.module_restructure import copy_module_state
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.grid_search import _make_grid_points
 from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.utils.pytorch.meta import copy_module_to_meta
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,6 +92,48 @@ class TestActivationCollection:
 
         assert observer._imatrix_sum.device == module.weight.device
         assert observer._imatrix_count.device == module.weight.device
+
+    def test_meta_observer_materializes_and_collects_importance(self):
+        original = _make_linear(in_features=8, out_features=4)
+        module = copy_module_to_meta(original)
+        observer = _make_observer(module, strategy="channel")
+        module.register_module("weight_observer", observer)
+
+        copy_module_state(module, original, torch.device("cpu"))
+
+        assert module.weight_observer is observer
+        assert observer._imatrix_sum.device.type == "cpu"
+        assert observer._imatrix_sum.dtype == torch.float32
+        assert observer._imatrix_sum.count_nonzero().item() == 0
+        assert observer._imatrix_count.device.type == "cpu"
+        assert observer._imatrix_count.dtype == torch.int64
+        assert observer._imatrix_count.item() == 0
+
+        x = torch.ones(2, 3, 8)
+        x[..., 0] = 2
+        module(x)
+
+        assert observer._imatrix_count.item() == 6
+        torch.testing.assert_close(
+            observer._imatrix_sum,
+            torch.tensor([24.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]),
+        )
+        assert set(dict(observer.named_buffers())) == {"_imatrix_sum", "_imatrix_count"}
+        assert set(module.state_dict()) == {"weight", "bias"}
+
+    def test_reattach_after_cleanup_keeps_counters_nonpersistent(self):
+        module = _make_linear(in_features=8, out_features=4)
+        observer = _make_observer(module, strategy="channel")
+        module(torch.ones(2, 8))
+        observer(module.weight).get_qparams()
+
+        observer.attach(module)
+        module(torch.ones(3, 8))
+
+        assert observer._imatrix_count.item() == 3
+        torch.testing.assert_close(observer._imatrix_sum, torch.full((8,), 3.0))
+        assert set(dict(observer.named_buffers())) == {"_imatrix_sum", "_imatrix_count"}
+        assert not observer.state_dict()
 
     def test_attach_to_unsupported_module_removes_existing_hook(self):
         module = _make_linear(in_features=8, out_features=4)

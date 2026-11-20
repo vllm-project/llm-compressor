@@ -33,8 +33,8 @@ class IMatrixMSEObserver(Observer):
     Supports CHANNEL, GROUP, and TENSOR_GROUP for weight-only Linear modules.
     Falls back to uniform MSE when importance data is unavailable.
 
-    Importance is accumulated on the observer as raw ``_imatrix_sum`` /
-    ``_imatrix_count`` and synced across DDP ranks via ``_act_sync_dict``
+    Importance is accumulated in the observer's nonpersistent ``_imatrix_sum`` /
+    ``_imatrix_count`` buffers and synced across DDP ranks via ``_act_sync_dict``
     before observation.
 
     The base objective is ``importance * abs(QDQ(w) - w) ** norm``, summed over
@@ -85,8 +85,10 @@ class IMatrixMSEObserver(Observer):
         self.magnitude_normalization = kw.get("magnitude_normalization", True)
         self.grid_type = _resolve_grid_type(kw.get("grid_type"), self.args)
 
-        self._imatrix_sum: torch.Tensor | None = None
-        self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
+        self.register_buffer("_imatrix_sum", None, persistent=False)
+        self.register_buffer(
+            "_imatrix_count", torch.tensor(0, dtype=torch.int64), persistent=False
+        )
         self._imatrix_hook: RemovableHandle | None = None
 
         if self.grid <= 0:
@@ -123,10 +125,17 @@ class IMatrixMSEObserver(Observer):
         in_features = module.in_features
         param = next(module.parameters(), None)
         device = param.device if param is not None else None
-        self._imatrix_sum = torch.zeros(
-            in_features, dtype=IMATRIX_PRECISION, device=device
+        # Re-register on attachment because statistics cleanup deletes the buffers.
+        self.register_buffer(
+            "_imatrix_sum",
+            torch.zeros(in_features, dtype=IMATRIX_PRECISION, device=device),
+            persistent=False,
         )
-        self._imatrix_count = torch.tensor(0, dtype=torch.int64, device=device)
+        self.register_buffer(
+            "_imatrix_count",
+            torch.tensor(0, dtype=torch.int64, device=device),
+            persistent=False,
+        )
 
         def _hook(mod, args):
             if (
