@@ -24,9 +24,11 @@ from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
+from llmcompressor.datasets.utils import batch_by_tokens
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.grouping import (
     log_partitions,
+    plan_batch_tokens,
     plan_subgraph_memory,
 )
 from llmcompressor.pipelines.sequential.transformers_helpers import HFTracer
@@ -438,6 +440,49 @@ def partition_subgraphs(
     trace_consumed_names(subgraphs)
 
     return subgraphs
+
+
+def resize_batches(
+    model: Module,
+    graph: GraphModule,
+    targets: set[Module],
+    dataloader: "DataLoader",
+    modifiers: list["Modifier"],
+    dataset_args: "DatasetArguments",
+) -> "DataLoader":
+    """
+    For `batch_size="auto"`, rebuild the calibration dataloader with batches of as
+    many tokens as fit in device memory next to the largest subgraph (see
+    `plan_batch_tokens`). Memory goes to the batch first: with
+    `sequential_targets_per_subgraph="auto"`, subgraphs are planned afterwards from
+    the resized batches, so the batch is sized for one target per subgraph
+
+    :param model: model being calibrated
+    :param graph: graph produced by `trace_graph`
+    :param targets: sequential target modules produced by `trace_graph`
+    :param dataloader: calibration data with batch size 1
+    :param modifiers: modifiers which will calibrate the subgraphs
+    :param dataset_args: arguments which set the memory budget
+    :return: the rebuilt dataloader, or `dataloader` if batches cannot be sized
+    """
+    targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
+    if targets == {model}:
+        partitions = [list(graph.graph.nodes)]
+    else:
+        partitions = topological_partition(
+            graph,
+            targets,
+            1 if targets_per_subgraph == "auto" else targets_per_subgraph,
+        )
+
+    node_modules = {node: get_node_modules(model, node) for node in graph.graph.nodes}
+    max_tokens = plan_batch_tokens(
+        model, node_modules, partitions, dataloader, modifiers, dataset_args, targets
+    )
+    if max_tokens is None:
+        return dataloader
+
+    return batch_by_tokens(dataloader, max_tokens)
 
 
 def get_node_roots(node: Node) -> list[str]:
@@ -884,6 +929,13 @@ def handle_sequential_oom(func):
                 # "auto" never puts fewer than one target in a subgraph, so it cannot
                 # use less memory than one target per subgraph
                 grouping_hint = ""
+
+            if getattr(dataset_args, "batch_size", None) == "auto":
+                grouping_hint += (
+                    "batch_size='auto' estimates how many tokens per batch fit in "
+                    "free memory; lowering `gpu_memory_utilization` makes batches "
+                    "smaller. "
+                )
 
             raise torch.OutOfMemoryError(
                 "Sequential pipeline ran out of memory. "

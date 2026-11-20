@@ -30,6 +30,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     find_modules_outside_graph,
     handle_sequential_oom,
     partition_subgraphs,
+    resize_batches,
     trace_graph,
 )
 from llmcompressor.utils.dev import get_main_device
@@ -145,6 +146,13 @@ class SequentialPipeline(CalibrationPipeline):
             subgraph_onload_modules(persistent_modules)
 
         LifecycleCallbacks.calibration_start()
+
+        # batches are sized once modifiers have started, so that their memory can be
+        # estimated, and before anything below reads the dataloader by batch
+        if getattr(dataset_args, "batch_size", 1) == "auto":
+            dataloader = resize_batches(
+                model, graph, targets, dataloader, modifiers, dataset_args
+            )
 
         # partitioned once modifiers have started, so that "auto" can estimate the
         # memory they need

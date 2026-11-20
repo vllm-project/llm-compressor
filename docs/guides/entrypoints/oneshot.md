@@ -80,7 +80,7 @@ The `oneshot` entrypoint runs three phases:
 | `dataset_path` | `str \| None` | `None` | Path to a local dataset (JSON, CSV, or DVC) |
 | `num_calibration_samples` | `int` | `512` | Number of samples to use for calibration |
 | `max_seq_length` | `int \| None` | `None` | Maximum sequence length after tokenization. Longer sequences are truncated. When `None`, the tokenizer's `model_max_length` is used |
-| `batch_size` | `int` | `1` | Calibration batch size |
+| `batch_size` | `int \| str` | `1` | Calibration batch size, or `"auto"` to size batches by tokens to fit within `gpu_memory_utilization`. `"auto"` groups samples of similar length and falls back to 1 where memory cannot be estimated (no accelerator, `layerwise_decompression`, streamed data) |
 | `data_collator` | `str \| Callable` | `"truncation"` | Batch collation strategy. `"truncation"` or `"padding"`, or a custom callable |
 | `shuffle_calibration_samples` | `bool` | `True` | Whether to shuffle the dataset before selecting calibration samples |
 | `text_column` | `str` | `"text"` | Dataset column to use as text input to the tokenizer/processor |

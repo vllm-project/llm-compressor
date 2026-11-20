@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
     from llmcompressor.modifiers import Modifier
 
-__all__ = ["plan_subgraph_memory", "log_partitions"]
+__all__ = ["plan_subgraph_memory", "plan_batch_tokens", "log_partitions"]
 
 GiB = 1024**3
 
@@ -161,6 +161,109 @@ def plan_subgraph_memory(
         for node, names in node_modules.items()
     }
     return node_memory, budget - reserved
+
+
+def plan_batch_tokens(
+    model: Module,
+    node_modules: dict[Node, list[str]],
+    partitions: list[list[Node]],
+    dataloader: "DataLoader",
+    modifiers: list["Modifier"],
+    dataset_args: "DatasetArguments",
+    targets: set[Module] | None = None,
+) -> int | None:
+    """
+    Estimate how many tokens a calibration batch can hold, for `batch_size="auto"`.
+    The largest subgraph's onloaded and held memory is taken out of the budget, and
+    the rest goes to the activations of one batch, sized like
+    `estimate_activation_memory`. Modules are compressed after activations are
+    freed, so the largest modifier scratch only has to fit in the same space
+
+    :param model: model being calibrated
+    :param node_modules: map of each node to the names of the modules it onloads
+    :param partitions: nodes of each subgraph, as calibration will group them
+    :param dataloader: calibration data, read at batch size 1
+    :param modifiers: modifiers which will calibrate the subgraphs
+    :param dataset_args: arguments which set the budget and where activations are
+        cached
+    :param targets: sequential target modules, see `get_activation_width`
+    :return: tokens per batch, counting padding, or None to calibrate with batch
+        size 1
+    """
+    fallback = "Calibrating with batch_size=1"
+    device = get_main_device()
+    if device.type == "cpu":
+        logger.warning(
+            f'batch_size="auto" needs an accelerator to measure memory. {fallback}'
+        )
+        return None
+
+    if dataset_args.layerwise_decompression:
+        logger.warning(
+            'batch_size="auto" cannot estimate memory while weights are compressed '
+            f"(layerwise_decompression=True). {fallback}"
+        )
+        return None
+
+    # ranks agree on the budget, so that they choose batches of the same size
+    budget = get_memory_budget(device, dataset_args.gpu_memory_utilization)
+    shapes = get_input_shapes(dataloader)
+    if budget is not None and shapes is not None:
+        budget -= estimate_cached_activations(
+            model, shapes, dataset_args, device, targets
+        )
+    if is_distributed():
+        budget, shapes = reduce_across_ranks(budget, shapes, device)
+
+    width = get_activation_width(model, targets)
+    if budget is None or shapes is None or width is None:
+        logger.warning(
+            'batch_size="auto" needs to measure free memory, read `input_ids` from '
+            "every batch of calibration data which can be read twice (not a streamed "
+            f"dataset), and find a `hidden_size` in the model config. {fallback}"
+        )
+        return None
+
+    names = {name for names in node_modules.values() for name in names}
+    module_costs, unknown_modifiers = get_module_costs(
+        model, names, modifiers, num_tokens=shapes[2]
+    )
+    if len(unknown_modifiers) > 0:
+        logger.warning(
+            'batch_size="auto" cannot account for the memory used by '
+            f"{', '.join(sorted(unknown_modifiers))}. {fallback}"
+        )
+        return None
+
+    subgraph_memory = max(
+        (
+            sum(
+                module_costs[name][0]
+                for name in {name for node in nodes for name in node_modules[node]}
+            )
+            for nodes in partitions
+        ),
+        default=0,
+    )
+    largest_scratch = max((scratch for _, scratch in module_costs.values()), default=0)
+    available = budget - subgraph_memory
+    max_tokens = available // (width * ACTIVATION_BYTES)
+    if available < largest_scratch or max_tokens < shapes[1]:
+        logger.warning(
+            f"Not enough memory on {device} for a batch of the longest sample within "
+            f"gpu_memory_utilization={dataset_args.gpu_memory_utilization} (budget "
+            f"{budget / GiB:.2f} GiB, largest subgraph {subgraph_memory / GiB:.2f} "
+            f"GiB). {fallback}"
+        )
+        return None
+
+    logger.info(
+        f'batch_size="auto": up to {max_tokens} tokens per batch, from a budget of '
+        f"{budget / GiB:.2f} GiB (gpu_memory_utilization="
+        f"{dataset_args.gpu_memory_utilization}) less {subgraph_memory / GiB:.2f} GiB "
+        "for the largest subgraph"
+    )
+    return max_tokens
 
 
 def reduce_across_ranks(

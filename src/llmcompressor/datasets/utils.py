@@ -8,7 +8,7 @@ one-shot calibration workflows.
 """
 
 import math
-from collections.abc import Iterator, Sized
+from collections.abc import Iterable, Iterator, Mapping, Sequence, Sized
 from typing import Any, Callable
 
 import torch
@@ -171,7 +171,7 @@ def format_calibration_data(
         kwargs["persistent_workers"] = True
     return DataLoader(
         tokenized_dataset,
-        batch_size=args.batch_size,
+        batch_size=get_initial_batch_size(args),
         sampler=_make_sampler(args, tokenized_dataset),
         collate_fn=_make_collate_fn(args, processor),
         pin_memory=pin_memory,
@@ -185,7 +185,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
         return args.data_collator
 
     if args.data_collator == "truncation":
-        if args.batch_size > BS_WARNING_THRESHOLD:
+        if get_initial_batch_size(args) > BS_WARNING_THRESHOLD:
             logger.warning(
                 f"Calibrating with batch sizes greater than {BS_WARNING_THRESHOLD} and "
                 "`data_collator='truncation'` can lead to significant portions of the "
@@ -197,7 +197,7 @@ def _make_collate_fn(args: DatasetArguments, processor: Processor) -> Callable:
         return DataCollatorWithTruncation(args.max_seq_length)
 
     elif args.data_collator == "padding":
-        if args.batch_size > BS_WARNING_THRESHOLD:
+        if get_initial_batch_size(args) > BS_WARNING_THRESHOLD:
             logger.warning(
                 f"Calibrating with batch sizes greater than {BS_WARNING_THRESHOLD} and "
                 "`data_collator='padding'` can lead to excess token used for padding, "
@@ -257,7 +257,7 @@ def _get_partition_start_end(
 def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
     num_samples = args.num_calibration_samples
     shuffle = args.shuffle_calibration_samples
-    batch_size = args.batch_size
+    batch_size = get_initial_batch_size(args)
 
     # detect whether we're in a distributed setting
     # but all ranks have the same dataset.
@@ -400,6 +400,190 @@ class LengthAwareSampler(Sampler[int]):
 
     def __len__(self) -> int:
         return self._num_samples
+
+
+class TokenBudgetBatchSampler(Sampler[list[int]]):
+    """
+    Group samples into batches of at most `max_tokens` tokens, where a batch counts as
+    its number of samples times its longest sample (its padded size, which also bounds
+    a truncated batch).
+
+    The samples are those drawn once from `sampler`, so that the same subset of the
+    dataset is calibrated on as with batch size 1. They are grouped by descending
+    length so that samples of similar length share a batch. A sample only joins a
+    batch if it is at least `1 - max_length_spread` times as long as the batch's
+    longest sample, which bounds the tokens that padding adds or truncation removes. A
+    sample longer than `max_tokens` is given a batch of its own.
+
+    Batches are then ordered by their earliest sample in the sampler's order, and the
+    samples of a batch keep that order, so that statistics which depend on the order
+    of samples (such as moving averages) don't see them sorted by length.
+
+    :param sampler: sampler, or sequence of dataset indices, which selects and orders
+        the calibration samples
+    :param lengths: length of each sampled sample, by dataset index
+    :param max_tokens: maximum number of tokens per batch, counting padding
+    :param max_length_spread: largest fraction by which a sample may be shorter than
+        the longest sample of its batch
+    """
+
+    def __init__(
+        self,
+        sampler: Iterable[int],
+        lengths: Sequence[int] | Mapping[int, int],
+        max_tokens: int,
+        max_length_spread: float = 0.1,
+    ):
+        if max_tokens < 1:
+            raise ValueError(f"max_tokens must be positive, got {max_tokens}")
+
+        sampled = list(sampler)
+        position = {index: order for order, index in enumerate(sampled)}
+
+        # sorting is stable, so samples of equal length keep the sampler's order
+        indices = sorted(sampled, key=lambda index: lengths[index], reverse=True)
+
+        self.batches: list[list[int]] = []
+        batch: list[int] = []
+        longest = 0
+        for index in indices:
+            length = lengths[index]
+            if batch and (
+                (len(batch) + 1) * longest > max_tokens
+                or length < (1 - max_length_spread) * longest
+            ):
+                self.batches.append(batch)
+                batch = []
+
+            if not batch:
+                longest = length
+            batch.append(index)
+
+        if batch:
+            self.batches.append(batch)
+
+        for batch in self.batches:
+            batch.sort(key=position.__getitem__)
+        self.batches.sort(key=lambda batch: position[batch[0]])
+
+    def __iter__(self) -> Iterator[list[int]]:
+        return iter(self.batches)
+
+    def __len__(self) -> int:
+        return len(self.batches)
+
+
+def get_initial_batch_size(args: DatasetArguments) -> int:
+    """
+    :param args: dataset arguments
+    :return: batch size of the calibration dataloader as it is built. With
+        `batch_size="auto"`, batches are sized later by the sequential pipeline
+        (see `batch_by_tokens`), so the dataloader starts with batch size 1
+    """
+    return 1 if args.batch_size == "auto" else args.batch_size
+
+
+def batch_by_tokens(dataloader: DataLoader, max_tokens: int) -> DataLoader:
+    """
+    Rebuild a calibration dataloader so that its batches hold up to `max_tokens`
+    tokens each, using `TokenBudgetBatchSampler`. The dataset, collate function and
+    loading options are kept, so batches have the same keys as before
+
+    :param dataloader: calibration dataloader with batch size 1
+    :param max_tokens: maximum number of tokens per batch, counting padding
+    :return: the rebuilt dataloader, or `dataloader` itself if it is not a
+        `DataLoader` or the lengths of its samples cannot be read
+    """
+    indices = _draw_sample_indices(dataloader)
+    lengths = _get_sample_lengths(dataloader, indices) if indices is not None else None
+    if lengths is None:
+        logger.warning(
+            'batch_size="auto" needs a DataLoader over a map-style dataset whose '
+            "samples have `input_ids`. Calibrating with batch_size=1"
+        )
+        return dataloader
+
+    batch_sampler = TokenBudgetBatchSampler(indices, lengths, max_tokens)
+    batch_sizes = [len(batch) for batch in batch_sampler.batches]
+    logger.info(
+        f'batch_size="auto": {sum(batch_sizes)} samples in {len(batch_sizes)} '
+        f"batch(es) of {min(batch_sizes)} to {max(batch_sizes)} samples"
+    )
+
+    kwargs: dict[str, Any] = {}
+    if dataloader.num_workers > 0:
+        kwargs["persistent_workers"] = dataloader.persistent_workers
+        kwargs["prefetch_factor"] = dataloader.prefetch_factor
+    return DataLoader(
+        dataloader.dataset,
+        batch_sampler=batch_sampler,
+        collate_fn=dataloader.collate_fn,
+        pin_memory=dataloader.pin_memory,
+        num_workers=dataloader.num_workers,
+        timeout=dataloader.timeout,
+        worker_init_fn=dataloader.worker_init_fn,
+        multiprocessing_context=dataloader.multiprocessing_context,
+        generator=dataloader.generator,
+        **kwargs,
+    )
+
+
+def _draw_sample_indices(dataloader: Any) -> list[int] | None:
+    """
+    Draw the dataset indices which a batch size 1 dataloader would calibrate on,
+    without advancing the global random state or the dataloader's own generators,
+    which calibration continues to draw from
+
+    :param dataloader: calibration dataloader
+    :return: dataset indices in the sampler's order, or None if `dataloader` is not
+        a `DataLoader` over a map-style dataset
+    """
+    if not isinstance(dataloader, DataLoader) or not isinstance(
+        dataloader.dataset, Sized
+    ):
+        return None
+
+    sampler = dataloader.sampler
+    candidates = (dataloader.generator, getattr(sampler, "generator", None))
+    generators = {id(g): g for g in candidates if isinstance(g, torch.Generator)}
+    states = {key: generator.get_state() for key, generator in generators.items()}
+    try:
+        with torch.random.fork_rng(devices=[]):
+            return list(sampler)
+    finally:
+        for key, generator in generators.items():
+            generator.set_state(states[key])
+
+
+def _get_sample_lengths(
+    dataloader: DataLoader, indices: list[int]
+) -> dict[int, int] | None:
+    """
+    Read the number of tokens of the sampled samples, after the truncation which the
+    dataloader's collate function applies
+
+    :param dataloader: calibration dataloader over a map-style dataset
+    :param indices: dataset indices of the sampled samples
+    :return: length of each sampled sample by dataset index, or None if they cannot
+        be read
+    """
+    dataset = dataloader.dataset
+    try:
+        if isinstance(dataset, Dataset) and "input_ids" in dataset.column_names:
+            unique = sorted(set(indices))
+            column = dataset.select(unique)["input_ids"]
+            lengths = {index: len(ids) for index, ids in zip(unique, column)}
+        else:
+            lengths = {index: len(dataset[index]["input_ids"]) for index in indices}
+    except (KeyError, TypeError, IndexError):
+        return None
+
+    collate_fn = dataloader.collate_fn
+    max_seq_length = getattr(collate_fn, "max_seq_length", None)
+    if isinstance(collate_fn, DataCollatorWithTruncation) and max_seq_length:
+        lengths = {index: min(n, max_seq_length) for index, n in lengths.items()}
+
+    return lengths
 
 
 def get_rank_partition(split: str, num_samples: int) -> str:

@@ -33,6 +33,7 @@ from llmcompressor.pipelines.sequential.grouping import (
     get_memory_budget,
     get_module_costs,
     get_onload_bytes,
+    plan_batch_tokens,
     plan_subgraph_memory,
 )
 from llmcompressor.pipelines.sequential.helpers import (
@@ -608,7 +609,7 @@ def test_pipeline_traces_then_partitions(
     )
 
 
-def _run_oneshot(tmp_path, recipe, targets_per_subgraph="auto"):
+def _run_oneshot(tmp_path, recipe, targets_per_subgraph="auto", batch_size=1):
     """
     Run oneshot on a tiny seeded model without network access, and return the logged
     messages and the calibrated weights
@@ -647,6 +648,7 @@ def _run_oneshot(tmp_path, recipe, targets_per_subgraph="auto"):
             recipe=recipe,
             num_calibration_samples=num_samples,
             sequential_targets_per_subgraph=targets_per_subgraph,
+            batch_size=batch_size,
         )
     finally:
         logger.remove(sink)
@@ -735,3 +737,126 @@ def test_oneshot_auto_falls_back_for_unknown_memory(tmp_path):
         for message in messages
     )
     assert not any("subgraphs of sizes" in message for message in messages)
+
+
+class _HeldModifier:
+    """Holds 4000 bytes for every module, and 20 bytes of scratch"""
+
+    def estimate_sequential_memory(self, module, num_tokens):
+        return 4000, 20
+
+
+def _plan_batch(
+    monkeypatch,
+    budget,
+    modifiers=(_HeldModifier(),),
+    dataset_args=None,
+    device="cuda:0",
+    targets_per_subgraph=1,
+):
+    """Size batches for FourLayers on a simulated accelerator with the given budget"""
+    monkeypatch.setattr(grouping, "get_main_device", lambda: torch.device(device))
+    monkeypatch.setattr(grouping, "get_memory_budget", lambda *args: budget)
+
+    model = FourLayers()
+    model.config = SimpleNamespace(hidden_size=4)
+    targets = set(model.layers)
+    graph_module = torch.fx.symbolic_trace(model)
+    node_modules = {
+        node: get_node_modules(model, node) for node in graph_module.graph.nodes
+    }
+    partitions = topological_partition(graph_module, targets, targets_per_subgraph)
+    return plan_batch_tokens(
+        model=model,
+        node_modules=node_modules,
+        partitions=partitions,
+        dataloader=_batches((1, 8)),
+        modifiers=list(modifiers),
+        dataset_args=DatasetArguments() if dataset_args is None else dataset_args,
+        targets=targets,
+    )
+
+
+@pytest.mark.parametrize(
+    "targets_per_subgraph,subgraph_memory", [(1, 8000), (2, 12000)]
+)
+def test_plan_batch_tokens(monkeypatch, targets_per_subgraph, subgraph_memory):
+    # the largest subgraph holds the last targets and the head, at 4000 bytes each,
+    # and each token costs 4 hidden units of ACTIVATION_BYTES
+    max_tokens = _plan_batch(
+        monkeypatch, budget=100_000, targets_per_subgraph=targets_per_subgraph
+    )
+    assert max_tokens == (100_000 - subgraph_memory) // (4 * ACTIVATION_BYTES)
+
+
+def test_plan_batch_tokens_without_accelerator(monkeypatch):
+    assert _plan_batch(monkeypatch, budget=100_000, device="cpu") is None
+
+
+@pytest.mark.parametrize(
+    "budget",
+    [None, 8000 + 7 * 4 * ACTIVATION_BYTES],  # unmeasured, or under one 8-token sample
+)
+def test_plan_batch_tokens_falls_back_without_budget(monkeypatch, budget):
+    assert _plan_batch(monkeypatch, budget=budget) is None
+
+
+def test_plan_batch_tokens_falls_back_with_layerwise_decompression(monkeypatch):
+    dataset_args = DatasetArguments(layerwise_decompression=True)
+    assert _plan_batch(monkeypatch, budget=100_000, dataset_args=dataset_args) is None
+
+
+def test_plan_batch_tokens_falls_back_for_unknown_memory(monkeypatch):
+    modifiers = [_HeldModifier(), _UnknownModifier()]
+    assert _plan_batch(monkeypatch, budget=100_000, modifiers=modifiers) is None
+
+
+@pytest.mark.parametrize("batch_size", [1, "auto"])
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.resize_batches")
+@patch(f"{_PIPELINE}.partition_subgraphs")
+@patch(f"{_PIPELINE}.find_modules_outside_graph", return_value={})
+@patch(f"{_PIPELINE}.trace_graph")
+def test_pipeline_resizes_batches_before_partitioning(
+    mock_trace,
+    mock_outside,
+    mock_partition,
+    mock_resize,
+    mock_targets,
+    batch_size,
+    fake_pipeline_inputs,
+):
+    graph, targets = MagicMock(), {MagicMock()}
+    mock_trace.return_value = (graph, targets)
+    mock_partition.return_value = [_FakeSubgraph()]
+    model, dataloader = fake_pipeline_inputs
+    resized = DataLoader(dataloader.dataset, collate_fn=dataloader.collate_fn)
+    mock_resize.return_value = resized
+
+    dataset_args = DatasetArguments(batch_size=batch_size)
+    SequentialPipeline()(model, dataloader, dataset_args)
+
+    # subgraphs are planned from the batches that will be calibrated on
+    if batch_size == "auto":
+        mock_resize.assert_called_once_with(
+            model, graph, targets, dataloader, ANY, dataset_args
+        )
+        expected = resized
+    else:
+        mock_resize.assert_not_called()
+        expected = dataloader
+    mock_partition.assert_called_once_with(
+        model, graph, targets, 1, expected, ANY, dataset_args
+    )
+
+
+@requires_gpu
+def test_oneshot_auto_batch_size(tmp_path):
+    recipe = GPTQModifier(targets="Linear", scheme="W4A16", ignore=["lm_head"])
+    messages, _ = _run_oneshot(tmp_path, recipe, 1, batch_size="auto")
+
+    # the four 16-token samples fit in one batch
+    assert any(
+        "up to" in message and "tokens per batch" in message for message in messages
+    )
+    assert any("4 samples in 1 batch(es)" in message for message in messages)
