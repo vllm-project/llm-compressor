@@ -24,7 +24,12 @@ from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
-from llmcompressor.datasets.utils import batch_by_tokens
+from llmcompressor.datasets.utils import (
+    PACKING_COLLATORS,
+    batch_by_tokens,
+    get_attention_implementation,
+    supports_packed_attention,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.grouping import (
     log_partitions,
@@ -465,6 +470,18 @@ def resize_batches(
     :param dataset_args: arguments which set the memory budget
     :return: the rebuilt dataloader, or `dataloader` if batches cannot be sized
     """
+    # a packed row costs attention memory quadratic in its length unless the
+    # attention implementation skips the full mask, which the estimate assumes
+    packing = isinstance(getattr(dataloader, "collate_fn", None), PACKING_COLLATORS)
+    implementation = get_attention_implementation(model)
+    if packing and not supports_packed_attention(implementation):
+        logger.warning(
+            f'batch_size="auto" with data_collator="flatten" needs flex or flash '
+            f"attention, since {implementation} attention builds the full attention "
+            "mask of every packed row. Calibrating with batch_size=1"
+        )
+        return dataloader
+
     targets_per_subgraph = dataset_args.sequential_targets_per_subgraph
     if targets == {model}:
         partitions = [list(graph.graph.nodes)]

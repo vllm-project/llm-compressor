@@ -70,7 +70,7 @@ Best used for:
 - Most standard activation quantization scenarios with static/local quantization (FP8, NVFP4)
 
 #### [minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py)
-Computes min/max using an exponential moving average across observations, controlled by `averaging_constant`. This smooths out sample-to-sample variance while still adapting to new observations. Activations are averaged once per calibration sample, so the result does not depend on the calibration batch size.
+Computes min/max using an exponential moving average across observations, controlled by `averaging_constant`. This smooths out sample-to-sample variance while still adapting to new observations. Activations are averaged once per calibration sample, so the result does not depend on the calibration batch size. Samples packed into one row by `data_collator="flatten"` are also averaged one at a time.
 
 Best used for:
 - Scenarios with static/local activation quantization where there are infrequent outliers we'd like to average out but MSE observers are too slow.

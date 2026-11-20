@@ -3,7 +3,11 @@ import torch
 from compressed_tensors.quantization.quant_args import QuantizationArgs
 
 from llmcompressor.observers import Observer
-from llmcompressor.observers.helpers import lerp
+from llmcompressor.observers.helpers import (
+    lerp,
+    packed_sample_lengths,
+    sample_lengths_from_position_ids,
+)
 
 
 def _load(name, base_name, strategy, **observer_kwargs):
@@ -90,3 +94,63 @@ def test_other_minmax_observers_observe_whole_batch(name):
 
     assert observer.min_vals.item() == -3.0
     assert observer.max_vals.item() == 5.0
+
+
+@pytest.mark.parametrize("name", ["minmax", "mse"])
+@pytest.mark.parametrize(
+    "base_name,strategy", [("input", "tensor"), ("k", "tensor"), ("v", "attn_head")]
+)
+@pytest.mark.parametrize("lengths", [[7, 7, 7, 7], [3, 11, 1, 6]])
+def test_moving_average_splits_packed_rows(name, base_name, strategy, lengths):
+    samples = [
+        sample.narrow(2 if base_name in ("q", "k", "v") else 1, 0, length)
+        for sample, length in zip(
+            _samples(base_name, num_samples=4, seq_len=11), lengths
+        )
+    ]
+    seq_dim = 2 if base_name in ("q", "k", "v") else 1
+
+    one_at_a_time = _load(name, base_name, strategy, averaging_constant=0.1)
+    for sample in samples:
+        one_at_a_time(sample)
+
+    packed = _load(name, base_name, strategy, averaging_constant=0.1)
+    with packed_sample_lengths(lengths):
+        packed(torch.cat(samples, dim=seq_dim))
+
+    assert torch.equal(packed.min_vals, one_at_a_time.min_vals)
+    assert torch.equal(packed.max_vals, one_at_a_time.max_vals)
+
+
+def test_packed_row_without_lengths_is_one_observation():
+    row = torch.tensor([[[-1.0, 1.0], [-3.0, 5.0]]])  # two packed 1-token samples
+
+    observer = _load("minmax", "input", "tensor", averaging_constant=0.25)
+    observer(row)
+
+    assert observer.min_vals.item() == -3.0
+    assert observer.max_vals.item() == 5.0
+
+
+def test_packed_lengths_must_match_the_row():
+    row = torch.tensor([[[-1.0, 1.0], [-3.0, 5.0]]])
+
+    observer = _load("minmax", "input", "tensor", averaging_constant=0.25)
+    with packed_sample_lengths([1, 2]):  # 3 tokens, but the row has 2
+        observer(row)
+
+    assert observer.max_vals.item() == 5.0
+
+
+@pytest.mark.parametrize(
+    "position_ids,lengths",
+    [
+        ([[0, 1, 2, 0, 1]], [3, 2]),
+        ([[0, 0, 1]], [1, 2]),
+        ([[0, 1, 2]], None),  # one sample
+        ([[1, 2, 0, 1]], None),  # does not start a sample
+        ([[0, 1, 0], [0, 1, 0]], None),  # more than one row
+    ],
+)
+def test_sample_lengths_from_position_ids(position_ids, lengths):
+    assert sample_lengths_from_position_ids(torch.tensor(position_ids)) == lengths

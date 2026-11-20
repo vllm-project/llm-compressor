@@ -517,7 +517,8 @@ def oneshot(
         to size batches by tokens to fit within `gpu_memory_utilization`
     :param data_collator: The function to use to form a batch from the dataset. Can
         also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
-        lengths in a batch. Defaults to 'truncation'.
+        lengths in a batch, or 'flatten' to pack a batch's samples into one row (best
+        with flex or flash attention). Defaults to 'truncation'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before

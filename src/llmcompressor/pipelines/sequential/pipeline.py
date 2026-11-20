@@ -17,7 +17,12 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 from llmcompressor.core import LifecycleCallbacks, active_session
+from llmcompressor.datasets.utils import PACKING_COLLATORS, check_flattening_support
 from llmcompressor.modifiers.utils.hooks import HooksMixin
+from llmcompressor.observers.helpers import (
+    packed_sample_lengths,
+    sample_lengths_from_position_ids,
+)
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.error_logging import (
@@ -123,8 +128,20 @@ class SequentialPipeline(CalibrationPipeline):
         # forward passes, so quantization error should not be propagated between
         # layers during the calibration stage
         modifiers = session.lifecycle.recipe.modifiers
-        if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
+        uses_autoround = any(type(m).__name__ == "AutoRoundModifier" for m in modifiers)
+        if uses_autoround:
             dataset_args.propagate_error = False
+
+        # callers may pass any iterable of batches, without a collate function
+        packing = isinstance(getattr(dataloader, "collate_fn", None), PACKING_COLLATORS)
+        if packing:
+            check_flattening_support(model)
+            # AutoRound batches its captured inputs along the batch dimension and pads
+            # position ids, which would merge the samples of packed rows
+            if uses_autoround:
+                raise ValueError(
+                    'data_collator="flatten" is not supported with AutoRoundModifier'
+                )
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
@@ -214,6 +231,19 @@ class SequentialPipeline(CalibrationPipeline):
             else:
                 session.state.loss_masks = None
 
+            # lengths of the samples packed into each batch, so that observers which
+            # update per sample can split packed rows (see `packed_sample_lengths`)
+            sample_lengths = [None] * len(dataloader)
+            if packing:
+                sample_lengths = [
+                    sample_lengths_from_position_ids(
+                        activations.fetch(batch_idx, ["position_ids"]).get(
+                            "position_ids"
+                        )
+                    )
+                    for batch_idx in range(len(dataloader))
+                ]
+
             stage_weights_in_pinned_memory = getattr(
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
@@ -293,7 +323,8 @@ class SequentialPipeline(CalibrationPipeline):
                     calib_desc,
                 ):
                     session.state.current_batch_idx = batch_idx
-                    outputs = subgraph.forward(model, **inputs)
+                    with packed_sample_lengths(sample_lengths[batch_idx]):
+                        outputs = subgraph.forward(model, **inputs)
 
                     # update activations immediately only when no pass 2
                     # is needed; otherwise defer to after pass 2

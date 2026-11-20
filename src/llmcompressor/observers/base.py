@@ -10,7 +10,10 @@ from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
 
 from llmcompressor.observers.fusion import FusionHandler
-from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.observers.helpers import (
+    flatten_for_calibration,
+    get_packed_sample_lengths,
+)
 
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
@@ -143,39 +146,59 @@ class Observer(InternalModule, RegistryMixin):
         if self.is_weight_obs and self.has_statistics:
             return self
 
-        num_samples = self._get_num_samples(observed)
-        observed = flatten_for_calibration(observed, self.base_name, self.args)
-        if num_samples > 1:
-            # flattening keeps observations batch-major, so this splits by sample
-            for sample in observed.unflatten(0, (num_samples, -1)):
-                self.update_statistics_from_observed(sample)
+        flattened = flatten_for_calibration(observed, self.base_name, self.args)
+        sample_sizes = self._get_sample_sizes(observed, flattened)
+        if sample_sizes is None:
+            self.update_statistics_from_observed(flattened)
         else:
-            self.update_statistics_from_observed(observed)
+            # flattening keeps observations in order, sample after sample
+            for sample in flattened.split(sample_sizes):
+                self.update_statistics_from_observed(sample)
 
         self.fusion_handler.get_fused_statistics()
 
         return self
 
-    def _get_num_samples(self, observed: torch.Tensor) -> int:
+    def _get_sample_sizes(
+        self, observed: torch.Tensor, flattened: torch.Tensor
+    ) -> list[int] | None:
         """
-        Number of samples to split an observation into before updating statistics.
+        Number of flattened observations of each sample, to update statistics once
+        per sample.
 
         Activations of shape (batch_size, seq_len, hidden_dim) and attention states
         of shape (batch_size, num_heads, seq_len, head_dim) are split along the batch
-        dimension. Weights, and inputs without a batch dimension (such as the routed
-        tokens of an MoE expert), are observed as a whole.
+        dimension. A batch of one row is split by the lengths of the samples packed
+        into it, when the calibration pipeline provides them (see
+        `packed_sample_lengths`). Weights, and inputs without a batch dimension (such
+        as the routed tokens of an MoE expert), are observed as a whole.
 
         :param observed: value being observed, before flattening
-        :return: number of samples, 1 if the value should not be split
+        :param flattened: observed value after `flatten_for_calibration`
+        :return: sizes along the first dimension of `flattened`, or None if the
+            value should not be split
         """
         if not self._update_per_sample or self.is_weight_obs:
-            return 1
+            return None
 
-        batch_ndim = 4 if self.base_name in ("q", "k", "v") else 3
-        if observed.ndim < batch_ndim:
-            return 1
+        is_attention = self.base_name in ("q", "k", "v")
+        if observed.ndim < (4 if is_attention else 3):
+            return None
 
-        return observed.size(0)
+        num_samples = observed.size(0)
+        if num_samples > 1:
+            return [flattened.size(0) // num_samples] * num_samples
+
+        lengths = get_packed_sample_lengths()
+        seq_len = observed.size(2 if is_attention else 1)
+        if (
+            lengths is not None
+            and len(lengths) > 1
+            and sum(lengths) == seq_len == flattened.size(0)
+        ):
+            return lengths
+
+        return None
 
     def sync_activation_stats(self) -> List[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.

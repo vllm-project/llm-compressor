@@ -91,7 +91,12 @@ class CustomDatasetArguments(DVCDatasetArguments):
             "help": (
                 "The function to use to form a batch from the dataset. Can also "
                 "specify 'truncation' or 'padding' to truncate or pad non-uniform "
-                "sequence lengths in a batch. Defaults to 'truncation'."
+                "sequence lengths in a batch, or 'flatten' to concatenate a batch's "
+                "samples into one row with `position_ids` restarting per sample. "
+                "'flatten' is for text models which build attention masks from "
+                "`position_ids` (others are refused) and is best used with flex or "
+                "flash attention. "
+                "Defaults to 'truncation'."
             )
         },
     )

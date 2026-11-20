@@ -609,7 +609,9 @@ def test_pipeline_traces_then_partitions(
     )
 
 
-def _run_oneshot(tmp_path, recipe, targets_per_subgraph="auto", batch_size=1):
+def _run_oneshot(
+    tmp_path, recipe, targets_per_subgraph="auto", batch_size=1, **oneshot_kwargs
+):
     """
     Run oneshot on a tiny seeded model without network access, and return the logged
     messages and the calibrated weights
@@ -649,6 +651,7 @@ def _run_oneshot(tmp_path, recipe, targets_per_subgraph="auto", batch_size=1):
             num_calibration_samples=num_samples,
             sequential_targets_per_subgraph=targets_per_subgraph,
             batch_size=batch_size,
+            **oneshot_kwargs,
         )
     finally:
         logger.remove(sink)
@@ -860,3 +863,17 @@ def test_oneshot_auto_batch_size(tmp_path):
         "up to" in message and "tokens per batch" in message for message in messages
     )
     assert any("4 samples in 1 batch(es)" in message for message in messages)
+
+
+@requires_gpu
+def test_oneshot_auto_batch_size_with_flattening_needs_flex_or_flash(tmp_path):
+    recipe = QuantizationModifier(
+        targets="Linear", scheme="FP8", ignore=["lm_head"], kv_cache_scheme=None
+    )
+    messages, _ = _run_oneshot(
+        tmp_path, recipe, 1, batch_size="auto", data_collator="flatten"
+    )
+
+    # the tiny model runs sdpa, which would build the full mask of a packed row
+    assert any("needs flex or flash attention" in message for message in messages)
+    assert not any("tokens per batch" in message for message in messages)
