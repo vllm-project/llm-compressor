@@ -29,8 +29,8 @@ from llmcompressor.pipelines.sequential.helpers import (
     decompress_subgraph_modules,
     find_modules_outside_graph,
     handle_sequential_oom,
+    maybe_add_parent_restructure_targets,
     partition_subgraphs,
-    get_restructure_targets,
     trace_graph,
 )
 from llmcompressor.pipelines.sequential.restructure import (
@@ -149,12 +149,10 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            persistent_restructure_targets = get_restructure_targets(
-                model, persistent_modules
-            )
+            maybe_add_parent_restructure_targets(model, persistent_modules)
             subgraph_onload_modules(persistent_modules)
             onload_and_restructure_modules(
-                persistent_restructure_targets,
+                persistent_modules,
                 onload_device,
             )
             # Persistent modules stay onloaded for the full calibration run.
@@ -230,6 +228,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Prefetch first subgraph modules
             next_subgraph_modules = subgraphs[0].submodule_dict(model)
+            maybe_add_parent_restructure_targets(model, next_subgraph_modules)
             prefetched_staging = _submit_subgraph_staging(
                 stage_executor,
                 next_subgraph_modules,
@@ -239,9 +238,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 subgraph_modules = subgraph.submodule_dict(model)
-                restructure_targets = get_restructure_targets(
-                    model, subgraph_modules
-                )
+                maybe_add_parent_restructure_targets(model, subgraph_modules)
                 if prefetched_staging is None:
                     subgraph_stage_modules(
                         subgraph_modules,
@@ -276,6 +273,7 @@ class SequentialPipeline(CalibrationPipeline):
                     next_subgraph_modules = subgraphs[
                         subgraph_index + 1
                     ].submodule_dict(model)
+                    maybe_add_parent_restructure_targets(model, next_subgraph_modules)
                     prefetched_staging = _submit_subgraph_staging(
                         stage_executor,
                         next_subgraph_modules,
@@ -289,15 +287,9 @@ class SequentialPipeline(CalibrationPipeline):
                 # Meta placeholders have no offload caches, so the regular onload
                 # skips them. Their original modules are loaded during restructuring.
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                (
-                    restructured_roots,
-                    target_offload_kwargs,
-                ) = onload_and_restructure_modules(
-                    restructure_targets,
-                    onload_device,
+                offload_kwargs.update(
+                    onload_and_restructure_modules(subgraph_modules, onload_device)
                 )
-                offload_kwargs.update(target_offload_kwargs)
-                offload_modules = subgraph_modules | restructured_roots
                 modules = list(subgraph_modules.values())
 
                 # Decompress and initialize only this subgraph after onloading it.
@@ -376,13 +368,12 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                restored_sources = restore_restructured_modules(
+                restore_restructured_modules(
                     model,
-                    restructure_targets,
+                    subgraph_modules,
                     offload_sources=False,
                 )
-                offload_modules.update(restored_sources)
-                subgraph_offload_modules(offload_modules, offload_kwargs)
+                subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################

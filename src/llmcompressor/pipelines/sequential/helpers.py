@@ -2,7 +2,6 @@ import contextlib
 import enum
 import inspect
 from collections import UserDict, deque
-from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import wraps
 from types import FunctionType, MethodType
@@ -138,17 +137,13 @@ def collect_subgraph_modules(
     return modules
 
 
-def get_restructure_targets(
-    model: Module, modules: Mapping[str, Module]
-) -> list[Module]:
-    """Find restructure targets contained in, or ancestors of, supplied modules."""
-    targets: set[Module] = set()
+def maybe_add_parent_restructure_targets(
+    model: Module, modules: dict[str, Module]
+) -> dict[str, Module]:
+    """Add enclosing restructure roots to the supplied module mapping in place."""
     ancestor_names: set[str] = set()
 
-    for name, module in modules.items():
-        if hasattr(module, RESTRUCTURE_METADATA_ATTR):
-            targets.add(module)
-
+    for name in modules:
         # The supplied mapping includes descendants of graph roots. Their paths let
         # us find restructure roots above them without scanning the full model.
         parent_name = name
@@ -159,9 +154,9 @@ def get_restructure_targets(
     for name in sorted(ancestor_names, key=lambda item: (item.count("."), item)):
         ancestor = model.get_submodule(name) if name else model
         if hasattr(ancestor, RESTRUCTURE_METADATA_ATTR):
-            targets.add(ancestor)
+            modules[name] = ancestor
 
-    return list(targets)
+    return modules
 
 
 def find_modules_outside_subgraphs(

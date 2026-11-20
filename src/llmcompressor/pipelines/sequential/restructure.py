@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any
-
 import torch
 from compressed_tensors.compressors import decompress_module
 from compressed_tensors.offload import (
@@ -22,9 +19,9 @@ from compressed_tensors.quantization.utils import is_module_quantized
 from torch.nn import Module
 
 from llmcompressor.modeling.module_restructure import (
+    RESTRUCTURE_METADATA_ATTR,
     ModuleRestructure,
     copy_module_state,
-    RESTRUCTURE_METADATA_ATTR,
 )
 from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modeling.offset_norm import (
@@ -64,9 +61,7 @@ def swap_in_meta_modules(
         for fqn, source, context in restructure.targets(model):
             # each restructure target is a leaf node, don't nest them
             if any(
-                fqn == root
-                or fqn.startswith(f"{root}.")
-                or root.startswith(f"{fqn}.")
+                fqn == root or fqn.startswith(f"{root}.") or root.startswith(f"{fqn}.")
                 for root in restructured_roots
             ):
                 continue
@@ -87,9 +82,7 @@ def swap_in_meta_modules(
             model.set_submodule(fqn, target)
 
 
-def offload_original_modules(
-    model: Module, onload_device: torch.device
-) -> None:
+def offload_original_modules(model: Module, onload_device: torch.device) -> None:
     """Configure offloading for the retained original modules."""
     for module in model.modules():
         if hasattr(module, RESTRUCTURE_METADATA_ATTR):
@@ -98,33 +91,29 @@ def offload_original_modules(
 
 
 def onload_and_restructure_modules(
-    restructure_targets: Sequence[Module],
+    modules: dict[str, Module],
     device: torch.device,
-) -> tuple[dict[str, Module], dict[str, dict]]:
-    """Onload sources, materialize targets, and return their offload plan."""
-    pending: list[tuple[Module, dict[str, Any]]] = []
-    for target in restructure_targets:
-        metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
-        if not metadata["materialized"]:
-            pending.append((target, metadata))
+) -> dict[str, dict]:
+    """Materialize pending restructures in the mapping and return offload kwargs."""
+    pending: dict[str, Module] = {}
+    for name, target in modules.items():
+        metadata = getattr(target, RESTRUCTURE_METADATA_ATTR, None)
+        if metadata is not None and not metadata["materialized"]:
+            pending[name] = target
 
     source_modules = {
-        metadata["fqn"]: metadata["original"] for _, metadata in pending
+        name: getattr(target, RESTRUCTURE_METADATA_ATTR)["original"]
+        for name, target in pending.items()
     }
 
     # onload original modules
     source_offload_kwargs = subgraph_onload_modules(source_modules, recurse=True)
-    restructured_roots = {
-        metadata["fqn"]: target for target, metadata in pending
-    }
-
     # transfer the offload kwargs
-    target_offload_kwargs = {
-        fqn: source_offload_kwargs[fqn] for fqn in restructured_roots
-    }
+    target_offload_kwargs = {name: source_offload_kwargs[name] for name in pending}
 
     # iterate through targets and perform conversions
-    for target, metadata in pending:
+    for name, target in pending.items():
+        metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
         source = metadata["original"]
         remove_dispatch(target, onload_tensors=True)
         converted = metadata["transform"].restructure(source, metadata["context"])
@@ -133,13 +122,11 @@ def onload_and_restructure_modules(
 
         # Keep source metadata only for restructures that need restoration.
         if restructure_requires_restore(target):
-            metadata["source_offload_kwargs"] = source_offload_kwargs[
-                metadata["fqn"]
-            ]
+            metadata["source_offload_kwargs"] = source_offload_kwargs[name]
         else:
             delattr(target, RESTRUCTURE_METADATA_ATTR)
 
-    return restructured_roots, target_offload_kwargs
+    return target_offload_kwargs
 
 
 def restructure_and_swap_in(model: Module) -> None:
@@ -147,40 +134,36 @@ def restructure_and_swap_in(model: Module) -> None:
     onload_device = get_main_device()
     set_onload_device(model, onload_device)
     offload_original_modules(model, onload_device)
-    restructure_targets = [
-        module
-        for module in model.modules()
+    modules = {
+        name: module
+        for name, module in model.named_modules()
         if hasattr(module, RESTRUCTURE_METADATA_ATTR)
-    ]
-    restructured_roots, target_offload_kwargs = onload_and_restructure_modules(
-        restructure_targets,
+    }
+    offload_kwargs = onload_and_restructure_modules(
+        modules,
         onload_device,
     )
-    subgraph_offload_modules(restructured_roots, target_offload_kwargs)
+    subgraph_offload_modules(modules, offload_kwargs)
 
 
 def restore_restructured_modules(
     model: Module,
-    targets: Sequence[Module] | None = None,
+    modules: dict[str, Module] | None = None,
     *,
     offload_sources: bool = True,
-) -> dict[str, Module]:
-    """Restore temporary conversions and return original modules reinstated."""
-    if targets is None:
-        targets = [
-            module
-            for module in model.modules()
-            if hasattr(module, RESTRUCTURE_METADATA_ATTR)
-        ]
+) -> None:
+    """Restore temporary conversions in the model and supplied module mapping."""
+    if modules is None:
+        modules = dict(model.named_modules())
 
-    restored_sources = {}
-    for target in targets:
+    for name, target in modules.items():
         if not hasattr(target, RESTRUCTURE_METADATA_ATTR):
             continue
         metadata = getattr(target, RESTRUCTURE_METADATA_ATTR)
         source = metadata["original"]
         if not metadata["materialized"]:
             model.set_submodule(metadata["fqn"], source)
+            modules[name] = source
         elif restructure_requires_restore(target):
             source_kwargs = metadata.get("source_offload_kwargs")
             if source_kwargs is None:
@@ -191,10 +174,8 @@ def restore_restructured_modules(
             if offload_sources:
                 offload_module(source, **source_kwargs)
             model.set_submodule(metadata["fqn"], source)
-            restored_sources[metadata["fqn"]] = source
+            modules[name] = source
         delattr(target, RESTRUCTURE_METADATA_ATTR)
-
-    return restored_sources
 
 
 class OffsetNormRestructure(ModuleRestructure):
