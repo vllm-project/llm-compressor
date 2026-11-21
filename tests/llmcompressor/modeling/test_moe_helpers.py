@@ -38,3 +38,41 @@ def test_declared_score_function_still_wins():
 def test_other_model_types_keep_the_softmax_default(model_type):
     cfg = MoEConfig.from_config(_StubConfig(model_type))
     assert cfg.score_function == "softmax"
+
+
+@pytest.mark.parametrize("model_type", ["qwen3_5_moe", "qwen3_5_moe_text"])
+def test_both_qwen3_5_moe_configs_resolve_to_softmax(model_type):
+    """The top-level config and the text sub-config are the same family.
+
+    transformers ships ``Qwen3_5MoeConfig`` (``model_type == "qwen3_5_moe"``) and
+    ``Qwen3_5MoeTextConfig`` (``"qwen3_5_moe_text"``), and modifiers see whichever
+    one ``get_text_config()`` hands them. Neither declares a router activation, and
+    the router applies softmax.
+    """
+    cfg = MoEConfig.from_config(_StubConfig(model_type))
+    assert cfg.score_function == "softmax"
+
+
+@pytest.mark.parametrize("model_type", ["qwen3_5_moe", "qwen3_5_moe_text"])
+def test_inference_does_not_write_back_to_the_config(model_type):
+    """Reading the router activation must not add keys to the caller's config.
+
+    The previous form did ``config.scoring_func = "softmax"``, and that key
+    survives into any ``config.json`` saved after compression -- a field the
+    checkpoint never carried.
+    """
+    cfg = _StubConfig(model_type)
+    before = set(vars(cfg))
+
+    MoEConfig.from_config(cfg)
+
+    added = set(vars(cfg)) - before
+    assert set(vars(cfg)) == before, f"from_config added {added} to the config"
+
+
+def test_known_model_types_are_listed_in_the_router_mapping():
+    """The mapping is the contract that keeps the warning from firing for them."""
+    from llmcompressor.modeling.moe.helpers import DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE
+
+    assert DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE["qwen3_5_moe"] == "softmax"
+    assert DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE["qwen3_5_moe_text"] == "softmax"
