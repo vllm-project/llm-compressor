@@ -144,6 +144,35 @@ def test_quantize_weight_singular_hessian_uses_rtn():
     assert q_param_dict["weight"].shape == module.weight.shape
 
 
+@torch.no_grad()
+def test_quantize_weight_unobserved_module_rounds_to_nearest():
+    # a module that saw no tokens (an MoE expert the router never picked) has an
+    # all-zero hessian; its weights must be kept and rounded, not zeroed as dead
+    module, quant_args = _make_channel_quantized_linear()
+    hessian = make_empty_hessian(module)
+
+    _, q_param_dict, used_rtn_fallback = _quantize_module(module, quant_args, hessian)
+
+    assert not used_rtn_fallback  # not a failed inversion
+    assert q_param_dict["weight"].abs().sum() > 0
+    # round-to-nearest stays within half a quantization step of each weight
+    error = (q_param_dict["weight"] - module.weight).abs()
+    assert torch.all(error <= q_param_dict["weight_scale"] / 2 + 1e-6)
+
+
+@torch.no_grad()
+def test_quantize_weight_partially_dead_columns_still_zeroed():
+    module, quant_args = _make_channel_quantized_linear()
+    hessian = make_empty_hessian(module)
+    hessian[1:, 1:] += torch.eye(hessian.shape[0] - 1, dtype=hessian.dtype)
+
+    _, q_param_dict, used_rtn_fallback = _quantize_module(module, quant_args, hessian)
+
+    assert not used_rtn_fallback
+    assert torch.all(q_param_dict["weight"][:, 0] == 0)
+    assert q_param_dict["weight"][:, 1:].abs().sum() > 0
+
+
 @requires_compute_capability(9, 0)  # Requires H100 or higher
 @torch.no_grad()
 def test_gptq_nvfp4_saves_fused_global_scale(tmp_path):
