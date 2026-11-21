@@ -10,7 +10,7 @@ from transformers.models.deepseek_v4.modeling_deepseek_v4 import (
 )
 
 from llmcompressor import oneshot
-from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.utils import load_context
 
 # Upstream BUG: norms should be loaded in float32, but usually aren't due to the base
@@ -84,8 +84,12 @@ def tokenize(sample):
 ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
-#   * quantize mlp/expert weights to NVFP4
-#   * quantize attention projection weights to FP8_BLOCK
+#   * quantize mlp/expert weights and input activations to MXFP4
+#   * quantize attention projection weights and input activations to MXFP8
+#
+# Unlike RTN (used by QuantizationModifier), GPTQ uses the calibration data
+# above to accumulate Hessians, which are then used to compensate quantization
+# error when quantizing the weights
 # model.model.layers.0.self_attn.q_a_proj
 #
 # wq_a  | q_a_proj
@@ -94,7 +98,7 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 # wo_a  | o_a_proj
 # wo_b  | o_b_proj
 
-recipe = QuantizationModifier(
+recipe = GPTQModifier(
     config_groups={
         "attention": QuantizationScheme(
             targets=[
@@ -130,6 +134,6 @@ oneshot(
 )
 
 # Save to disk compressed.
-SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-Mixed-MXFP4-MXFP8"
+SAVE_DIR = MODEL_ID.rstrip("/").split("/")[-1] + "-Mixed-MXFP4-MXFP8-GPTQ"
 model.save_pretrained(SAVE_DIR, save_compressed=True)
 tokenizer.save_pretrained(SAVE_DIR)
