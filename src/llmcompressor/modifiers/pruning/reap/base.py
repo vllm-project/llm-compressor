@@ -22,6 +22,7 @@ from llmcompressor.modeling.moe.linear_experts import ExpertMLP
 from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
 )
+from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 
 __all__ = ["REAPPruningModifier"]
 
@@ -51,6 +52,13 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         (ordered by layer). Use ``tools/plot_reap_report.py`` to generate a
         saliency visualization. Required when ``sparsity`` is ``0.0``, since the
         report is then the modifier's only output.
+
+    Token masking: when the calibration data is loaded with
+    ``use_loss_mask=True`` and provides a ``loss_mask`` field, only tokens
+    where the mask is nonzero contribute to the saliency statistics (e.g.
+    only assistant responses). Masked-out tokens still flow through the model;
+    they are simply excluded from the accumulated statistics, exactly like
+    the masking applied to the AWQ activation statistics and the GPTQ Hessian.
 
     Example recipe::
 
@@ -146,6 +154,9 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         ``torch.where`` scatter order of ``LinearExperts2D``. Resets the
         per-batch norm buffers afterwards.
 
+        Only tokens selected by the current batch's loss mask (if any)
+        contribute to the statistics.
+
         :param moe_name: Name of the MoE layer the block belongs to
         :param moe: The MoE layer the hooked experts block belongs to
         :param module: The experts block the hook is attached to
@@ -163,11 +174,29 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         topk_indices: torch.Tensor = args[1].to(torch.long)
         topk_weights: torch.Tensor = args[2].to(self.precision)
 
+        token_mask = get_current_loss_mask()
+        if token_mask is not None:
+            token_mask = token_mask.to(
+                device=topk_indices.device, dtype=torch.bool
+            ).reshape(-1)
+            if token_mask.numel() != topk_indices.shape[0]:
+                raise ValueError(
+                    f"Token mask of {token_mask.numel()} tokens cannot be aligned "
+                    f"with the {topk_indices.shape[0]} tokens seen by the MoE "
+                    "layer. Token masking requires a loss mask covering exactly "
+                    "the tokens of the batch"
+                )
+
         sum_saliency = self._moe_stats[moe_name]["sum_saliency"]
         counts = self._moe_stats[moe_name]["count"]
 
         with local_torch_dtype(self.precision):
             if get_calibrate_all_experts_flag():
+                if token_mask is not None:
+                    # dense norms are gathered per token below, so rows can be
+                    # filtered up front without breaking alignment
+                    topk_indices = topk_indices[token_mask]
+                    topk_weights = topk_weights[token_mask]
                 # every expert ran on every token, so stack their per-token
                 # norms into a [num_tokens, num_experts] matrix ordered by
                 # expert index, then gather each token's routed experts
@@ -197,6 +226,13 @@ class REAPPruningModifier(ExpertPruningModifierBase):
 
                 # Vectorized computation using index_add_
                 contrib = flat_weights * flat_norms
+                if token_mask is not None:
+                    # flat order is (slot, token), so the per-token mask
+                    # repeats once per top-k slot; every norm stays aligned
+                    # with its selection, only kept tokens are accumulated
+                    keep = token_mask.repeat(topk_indices.shape[1])
+                    flat_idx = flat_idx[keep]
+                    contrib = contrib[keep]
                 sum_saliency.index_add_(0, flat_idx, contrib)
                 counts.index_add_(
                     0, flat_idx, torch.ones_like(flat_idx, dtype=counts.dtype)
