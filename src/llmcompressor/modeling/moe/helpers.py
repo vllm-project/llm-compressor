@@ -170,7 +170,7 @@ class MoEConfig:
                 config,
                 ["scoring_func", "score_func", "moe_router_activation_func"],
                 DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE.get(
-                    getattr(config, "model_type", None), "softmax"
+                    config.model_type, "softmax"
                 ),
                 warn_on_default=True,
             ),
