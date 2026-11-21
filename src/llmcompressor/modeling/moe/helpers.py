@@ -169,9 +169,7 @@ class MoEConfig:
             score_function=_getattr_fallbacks(
                 config,
                 ["scoring_func", "score_func", "moe_router_activation_func"],
-                DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE.get(
-                    config.model_type, "softmax"
-                ),
+                DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE.get(config.model_type, "softmax"),
                 warn_on_default=True,
             ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
