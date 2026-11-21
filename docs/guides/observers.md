@@ -70,7 +70,7 @@ Best used for:
 - Most standard activation quantization scenarios with static/local quantization (FP8, NVFP4)
 
 #### [minmax](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/min_max.py)
-Computes min/max using an exponential moving average across observations, controlled by `averaging_constant`. This smooths out batch-to-batch variance while still adapting to new observations.
+Computes min/max using an exponential moving average across observations, controlled by `averaging_constant`. This smooths out sample-to-sample variance while still adapting to new observations. Activations are averaged once per calibration sample, so the result does not depend on the calibration batch size. Samples packed into one row by `data_collator="flatten"` are also averaged one at a time.
 
 Best used for:
 - Scenarios with static/local activation quantization where there are infrequent outliers we'd like to average out but MSE observers are too slow.
@@ -88,7 +88,7 @@ Best used when:
 - Minimizing quantization error is more important than calibration speed
 
 #### [mse](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/mse.py)
-Performs an MSE grid search and maintains a moving average of the resulting min/max values across observations, controlled by `averaging_constant`.
+Performs an MSE grid search and maintains a moving average of the resulting min/max values across observations, controlled by `averaging_constant`. As with `minmax`, activations are averaged once per calibration sample.
 
 Best used when:
 - Calibration accuracy is critical across multiple batches
@@ -221,7 +221,7 @@ Observers can be configured with optional keyword arguments via `QuantizationArg
 
 | Argument             | Default | Description |
 |----------------------|---------|-------------|
-| `averaging_constant` | `0.01`  | EMA weight for moving average observers. Only applies to `minmax`. Higher values weight recent observations more heavily. |
+| `averaging_constant` | `0.01`  | EMA weight for moving average observers, applied once per calibration sample. Only applies to `minmax`. Higher values weight recent observations more heavily. |
 
 ### MSE observers (`mse`, `memoryless_mse`)
 

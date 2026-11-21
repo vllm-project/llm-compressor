@@ -7,6 +7,10 @@ effects and understanding model behavior during quantization and
 pruning operations.
 """
 
+import contextlib
+from collections.abc import Iterator
+from contextvars import ContextVar
+
 import torch
 from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
 from compressed_tensors.quantization.utils import (
@@ -20,10 +24,69 @@ from llmcompressor.observers.fused_mappings import get_fused_layers
 __all__ = [
     "flatten_for_calibration",
     "fuse_weight_observers",
+    "get_packed_sample_lengths",
+    "packed_sample_lengths",
+    "sample_lengths_from_position_ids",
     "ACTIVATION_OBS",
 ]
 
 ACTIVATION_OBS = ("input", "output", "q", "k", "v")
+
+# lengths of the samples packed into the batch being calibrated, see
+# `packed_sample_lengths`
+_PACKED_SAMPLE_LENGTHS: ContextVar[list[int] | None] = ContextVar(
+    "packed_sample_lengths", default=None
+)
+
+
+@contextlib.contextmanager
+def packed_sample_lengths(lengths: list[int] | None) -> Iterator[None]:
+    """
+    Tell observers the lengths of the samples packed into the one row of the batch
+    being calibrated (e.g. by `data_collator="flatten"`), so that observers which
+    update their statistics per sample can split the row by sample
+
+    :param lengths: number of tokens of each sample in order, or None if the batch
+        is not packed
+    """
+    token = _PACKED_SAMPLE_LENGTHS.set(lengths)
+    try:
+        yield
+    finally:
+        _PACKED_SAMPLE_LENGTHS.reset(token)
+
+
+def get_packed_sample_lengths() -> list[int] | None:
+    """
+    :return: lengths of the samples packed into the batch being calibrated, or None
+    """
+    return _PACKED_SAMPLE_LENGTHS.get()
+
+
+def sample_lengths_from_position_ids(
+    position_ids: torch.Tensor | None,
+) -> list[int] | None:
+    """
+    Read the lengths of the samples packed into one row from its position ids, which
+    restart at 0 at the start of every sample
+
+    :param position_ids: position ids of a batch, of shape (1, seq_len)
+    :return: lengths of the samples in order, or None if the batch is not one row
+        holding more than one sample
+    """
+    if (
+        not isinstance(position_ids, torch.Tensor)
+        or position_ids.dim() != 2
+        or position_ids.size(0) != 1
+    ):
+        return None
+
+    starts = (position_ids[0] == 0).nonzero().flatten().tolist()
+    if len(starts) < 2 or starts[0] != 0:
+        return None
+
+    ends = starts[1:] + [position_ids.size(1)]
+    return [end - start for start, end in zip(starts, ends)]
 
 
 def flatten_for_calibration(
