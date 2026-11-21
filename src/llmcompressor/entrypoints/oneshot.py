@@ -9,6 +9,7 @@ with various pipeline configurations for efficient model optimization.
 
 from __future__ import annotations
 
+import copy
 import os
 from contextlib import ExitStack, suppress
 from datetime import datetime
@@ -306,6 +307,11 @@ class Oneshot:
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
 
+            # Modifiers may adjust dataset arguments in place during calibration
+            # (e.g. AutoRoundModifier forces propagate_error=False). State holds a
+            # copy, and the pipelines below are run with that same copy, so such
+            # adjustments take effect without mutating the user's arguments
+            session.state.dataset_args = copy.copy(self.dataset_args)
             session.state.layerwise_decompression = (
                 self.dataset_args.layerwise_decompression
             )
@@ -332,7 +338,7 @@ class Oneshot:
             pipeline(
                 self.model,
                 calibration_dataloader,
-                self.dataset_args,
+                session.state.dataset_args,
             )
 
         session.finalize()
