@@ -1,0 +1,3221 @@
+{
+  "vllm_commit": "6eef078ce86b986cea5ead1e2f1be222504bd454",
+  "groups": [
+    {
+      "packed": "Wi",
+      "names": [
+        "Wi"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/modernbert.py"
+      ]
+    },
+    {
+      "packed": "Wqkv",
+      "names": [
+        "Wqkv"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/modernbert.py"
+      ]
+    },
+    {
+      "packed": "conv1d",
+      "names": [
+        "conv1d"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/granitemoehybrid.py"
+      ]
+    },
+    {
+      "packed": "conv1d",
+      "names": [
+        "q_conv1d",
+        "k_conv1d",
+        "v_conv1d"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/alice_ai.py",
+        "vllm/model_executor/models/olmo_hybrid.py",
+        "vllm/models/glm5next/common/model.py",
+        "vllm/models/kimi_k3/amd/linear.py",
+        "vllm/models/kimi_k3/amd/mtp.py",
+        "vllm/models/kimi_k3/nvidia/model.py",
+        "vllm/models/kimi_k3/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "dense_h_to_4h",
+      "names": [
+        "dense_h_to_4h"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/chatglm.py",
+        "vllm/model_executor/models/glm4v.py"
+      ]
+    },
+    {
+      "packed": "fc13",
+      "names": [
+        "fc1",
+        "fc3"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/aimv2.py",
+        "vllm/model_executor/models/dots_ocr.py"
+      ]
+    },
+    {
+      "packed": "fused_qkv_a_g_proj",
+      "names": [
+        "q_a_proj",
+        "kv_a_proj_with_mqa",
+        "g_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/kimi_k3/nvidia/model.py",
+        "vllm/models/kimi_k3/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "fused_qkv_a_proj",
+      "names": [
+        "q_a_proj",
+        "kv_a_proj_with_mqa"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/AXK1.py",
+        "vllm/model_executor/models/bailing_moe_linear.py",
+        "vllm/model_executor/models/bailing_moe_mtp.py",
+        "vllm/model_executor/models/bailing_moe_v3.py",
+        "vllm/model_executor/models/bailing_moe_v3_mtp.py",
+        "vllm/model_executor/models/deepseek_eagle.py",
+        "vllm/model_executor/models/deepseek_eagle3.py",
+        "vllm/model_executor/models/deepseek_mtp.py",
+        "vllm/model_executor/models/deepseek_v2.py",
+        "vllm/model_executor/models/glm4_moe_lite.py",
+        "vllm/model_executor/models/glm4_moe_lite_mtp.py",
+        "vllm/model_executor/models/longcat_flash.py",
+        "vllm/model_executor/models/longcat_flash_mtp.py",
+        "vllm/model_executor/models/openpangu.py",
+        "vllm/model_executor/models/openpangu_mtp.py",
+        "vllm/models/deepseek_v32/amd/model.py",
+        "vllm/models/deepseek_v32/amd/mtp.py",
+        "vllm/models/deepseek_v32/nvidia/model.py",
+        "vllm/models/deepseek_v32/nvidia/mtp.py",
+        "vllm/models/glm5next/common/model.py",
+        "vllm/models/glm5next/common/mtp.py",
+        "vllm/models/hy_v4/amd/model.py",
+        "vllm/models/hy_v4/nvidia/model.py",
+        "vllm/models/hy_v4/nvidia/mtp.py",
+        "vllm/models/kimi_k3/nvidia/dspark_mla.py",
+        "vllm/models/kimi_k3/nvidia/model.py",
+        "vllm/models/kimi_k3/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "fused_qkv_a_proj",
+      "names": [
+        "q_a_proj",
+        "kv_a_proj_with_mqa",
+        "g_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/kimi_k3/amd/linear.py",
+        "vllm/models/kimi_k3/amd/mtp.py"
+      ]
+    },
+    {
+      "packed": "fused_wkv_wgate",
+      "names": [
+        "wkv",
+        "wgate"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/deepseek_v4/amd/model.py",
+        "vllm/models/deepseek_v4/common/vl_model.py",
+        "vllm/models/deepseek_v4/cpu/model.py",
+        "vllm/models/deepseek_v4/nvidia/model.py",
+        "vllm/models/deepseek_v4/xpu/model.py",
+        "vllm/models/deepseek_v41/amd/model.py",
+        "vllm/models/deepseek_v41/nvidia/model.py",
+        "vllm/models/deepseek_v41/nvidia/vl_model.py"
+      ]
+    },
+    {
+      "packed": "fused_wqa_wkv",
+      "names": [
+        "wq_a",
+        "wkv"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/deepseek_v4/amd/dspark.py",
+        "vllm/models/deepseek_v4/amd/model.py",
+        "vllm/models/deepseek_v4/amd/mtp.py",
+        "vllm/models/deepseek_v4/common/vl_model.py",
+        "vllm/models/deepseek_v4/cpu/model.py",
+        "vllm/models/deepseek_v4/nvidia/dspark.py",
+        "vllm/models/deepseek_v4/nvidia/model.py",
+        "vllm/models/deepseek_v4/nvidia/mtp.py",
+        "vllm/models/deepseek_v4/xpu/dspark.py",
+        "vllm/models/deepseek_v4/xpu/model.py",
+        "vllm/models/deepseek_v4/xpu/mtp.py",
+        "vllm/models/deepseek_v41/amd/dspark.py",
+        "vllm/models/deepseek_v41/amd/model.py",
+        "vllm/models/deepseek_v41/nvidia/dspark.py",
+        "vllm/models/deepseek_v41/nvidia/model.py",
+        "vllm/models/deepseek_v41/nvidia/vl_model.py"
+      ]
+    },
+    {
+      "packed": "gate_up_proj",
+      "names": [
+        "c_fc_0",
+        "c_fc_1"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/exaone.py"
+      ]
+    },
+    {
+      "packed": "gate_up_proj",
+      "names": [
+        "fc1",
+        "fc3"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/voxtral.py"
+      ]
+    },
+    {
+      "packed": "gate_up_proj",
+      "names": [
+        "gate_proj",
+        "up_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/AXK1.py",
+        "vllm/model_executor/models/afmoe.py",
+        "vllm/model_executor/models/alice_ai.py",
+        "vllm/model_executor/models/aria.py",
+        "vllm/model_executor/models/audioflamingo3.py",
+        "vllm/model_executor/models/bailing_moe.py",
+        "vllm/model_executor/models/bailing_moe_linear.py",
+        "vllm/model_executor/models/bailing_moe_mtp.py",
+        "vllm/model_executor/models/bailing_moe_v3.py",
+        "vllm/model_executor/models/bailing_moe_v3_mtp.py",
+        "vllm/model_executor/models/bert_with_rope.py",
+        "vllm/model_executor/models/cohere2_moe.py",
+        "vllm/model_executor/models/cohere2_vision.py",
+        "vllm/model_executor/models/cohere_compass.py",
+        "vllm/model_executor/models/colultravbert.py",
+        "vllm/model_executor/models/commandr.py",
+        "vllm/model_executor/models/deepseek_eagle.py",
+        "vllm/model_executor/models/deepseek_eagle3.py",
+        "vllm/model_executor/models/deepseek_mtp.py",
+        "vllm/model_executor/models/deepseek_v2.py",
+        "vllm/model_executor/models/diffusion_gemma.py",
+        "vllm/model_executor/models/domyn_edge.py",
+        "vllm/model_executor/models/dory.py",
+        "vllm/model_executor/models/dots_ocr.py",
+        "vllm/model_executor/models/embedding_gemma2.py",
+        "vllm/model_executor/models/ernie45_moe.py",
+        "vllm/model_executor/models/ernie45_vl.py",
+        "vllm/model_executor/models/ernie45_vl_moe.py",
+        "vllm/model_executor/models/ernie_mtp.py",
+        "vllm/model_executor/models/exaone4.py",
+        "vllm/model_executor/models/exaone_moe.py",
+        "vllm/model_executor/models/exaone_moe_mtp.py",
+        "vllm/model_executor/models/falcon_h1.py",
+        "vllm/model_executor/models/gemma.py",
+        "vllm/model_executor/models/gemma2.py",
+        "vllm/model_executor/models/gemma3.py",
+        "vllm/model_executor/models/gemma3_mm.py",
+        "vllm/model_executor/models/gemma3n.py",
+        "vllm/model_executor/models/gemma3n_mm.py",
+        "vllm/model_executor/models/gemma4.py",
+        "vllm/model_executor/models/gemma4_dspark.py",
+        "vllm/model_executor/models/gemma4_mm.py",
+        "vllm/model_executor/models/gemma4_mtp.py",
+        "vllm/model_executor/models/glm4.py",
+        "vllm/model_executor/models/glm4_1v.py",
+        "vllm/model_executor/models/glm4_moe.py",
+        "vllm/model_executor/models/glm4_moe_lite.py",
+        "vllm/model_executor/models/glm4_moe_lite_mtp.py",
+        "vllm/model_executor/models/glm4_moe_mtp.py",
+        "vllm/model_executor/models/glm_ocr_mtp.py",
+        "vllm/model_executor/models/glmasr.py",
+        "vllm/model_executor/models/granite.py",
+        "vllm/model_executor/models/granite4_vision.py",
+        "vllm/model_executor/models/granite_speech.py",
+        "vllm/model_executor/models/hy_v3.py",
+        "vllm/model_executor/models/hy_v3_mtp.py",
+        "vllm/model_executor/models/hyperclovax.py",
+        "vllm/model_executor/models/hyperclovax_vision_v2.py",
+        "vllm/model_executor/models/idefics3.py",
+        "vllm/model_executor/models/iquest_loopcoder.py",
+        "vllm/model_executor/models/isaac.py",
+        "vllm/model_executor/models/jamba.py",
+        "vllm/model_executor/models/k2_horizon.py",
+        "vllm/model_executor/models/llama.py",
+        "vllm/model_executor/models/llama4.py",
+        "vllm/model_executor/models/llama4_eagle.py",
+        "vllm/model_executor/models/llama_eagle.py",
+        "vllm/model_executor/models/llama_eagle3.py",
+        "vllm/model_executor/models/llava.py",
+        "vllm/model_executor/models/llava_next.py",
+        "vllm/model_executor/models/llava_next_video.py",
+        "vllm/model_executor/models/longcat_flash.py",
+        "vllm/model_executor/models/longcat_flash_mtp.py",
+        "vllm/model_executor/models/longcat_flash_ngram.py",
+        "vllm/model_executor/models/midashenglm.py",
+        "vllm/model_executor/models/mimo_mtp.py",
+        "vllm/model_executor/models/mimo_v2.py",
+        "vllm/model_executor/models/mimo_v2_mtp.py",
+        "vllm/model_executor/models/mimo_v2_omni.py",
+        "vllm/model_executor/models/minicpm.py",
+        "vllm/model_executor/models/minicpm3.py",
+        "vllm/model_executor/models/minicpm_eagle.py",
+        "vllm/model_executor/models/minicpmo.py",
+        "vllm/model_executor/models/minicpmv.py",
+        "vllm/model_executor/models/minicpmv4_6.py",
+        "vllm/model_executor/models/mistral3.py",
+        "vllm/model_executor/models/mllama4.py",
+        "vllm/model_executor/models/moss_audio.py",
+        "vllm/model_executor/models/muse_glimmer.py",
+        "vllm/model_executor/models/nemotron_nas.py",
+        "vllm/model_executor/models/olmo_hybrid.py",
+        "vllm/model_executor/models/opencua.py",
+        "vllm/model_executor/models/openpangu.py",
+        "vllm/model_executor/models/openpangu_mtp.py",
+        "vllm/model_executor/models/openpangu_vl.py",
+        "vllm/model_executor/models/orion.py",
+        "vllm/model_executor/models/paligemma.py",
+        "vllm/model_executor/models/param2moe.py",
+        "vllm/model_executor/models/pixtral.py",
+        "vllm/model_executor/models/qwen2.py",
+        "vllm/model_executor/models/qwen2_5_omni_thinker.py",
+        "vllm/model_executor/models/qwen2_5_vl.py",
+        "vllm/model_executor/models/qwen2_moe.py",
+        "vllm/model_executor/models/qwen2_rm.py",
+        "vllm/model_executor/models/qwen3.py",
+        "vllm/model_executor/models/qwen3_5.py",
+        "vllm/model_executor/models/qwen3_5_mtp.py",
+        "vllm/model_executor/models/qwen3_asr.py",
+        "vllm/model_executor/models/qwen3_dflash.py",
+        "vllm/model_executor/models/qwen3_eagle3.py",
+        "vllm/model_executor/models/qwen3_moe.py",
+        "vllm/model_executor/models/qwen3_next.py",
+        "vllm/model_executor/models/qwen3_next_mtp.py",
+        "vllm/model_executor/models/qwen3_omni_moe_thinker.py",
+        "vllm/model_executor/models/qwen3_vl.py",
+        "vllm/model_executor/models/ricursive.py",
+        "vllm/model_executor/models/rnj1.py",
+        "vllm/model_executor/models/sarvam.py",
+        "vllm/model_executor/models/solar.py",
+        "vllm/model_executor/models/stablelm.py",
+        "vllm/model_executor/models/step1.py",
+        "vllm/model_executor/models/step3_text.py",
+        "vllm/model_executor/models/step3p5.py",
+        "vllm/model_executor/models/step3p5_mtp.py",
+        "vllm/model_executor/models/telechat2.py",
+        "vllm/model_executor/models/ultravox.py",
+        "vllm/model_executor/models/voxtral.py",
+        "vllm/model_executor/models/voyage.py",
+        "vllm/models/beam/amd/dflash2.py",
+        "vllm/models/beam/amd/model.py",
+        "vllm/models/beam/nvidia/dflash2.py",
+        "vllm/models/beam/nvidia/model.py",
+        "vllm/models/deepseek_v32/amd/model.py",
+        "vllm/models/deepseek_v32/amd/mtp.py",
+        "vllm/models/deepseek_v32/nvidia/model.py",
+        "vllm/models/deepseek_v32/nvidia/mtp.py",
+        "vllm/models/flint/model.py",
+        "vllm/models/glm5next/common/model.py",
+        "vllm/models/glm5next/common/mtp.py",
+        "vllm/models/glm5next/common/multimodal.py",
+        "vllm/models/hy_v4/amd/model.py",
+        "vllm/models/hy_v4/nvidia/model.py",
+        "vllm/models/hy_v4/nvidia/mtp.py",
+        "vllm/models/kimi_k3/amd/linear.py",
+        "vllm/models/kimi_k3/amd/mtp.py",
+        "vllm/models/kimi_k3/nvidia/dspark_mla.py",
+        "vllm/models/kimi_k3/nvidia/model.py",
+        "vllm/models/kimi_k3/nvidia/mtp.py",
+        "vllm/models/minimax_m3/amd/model.py",
+        "vllm/models/minimax_m3/amd/mtp.py",
+        "vllm/models/minimax_m3/nvidia/model.py",
+        "vllm/models/minimax_m3/nvidia/mtp.py",
+        "vllm/models/muse_spark/amd/model.py",
+        "vllm/models/muse_spark/common/dspark.py",
+        "vllm/models/muse_spark/nvidia/model.py",
+        "vllm/models/qwen3_5/nvidia/model.py",
+        "vllm/models/qwen3_5/nvidia/mtp.py",
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/amd/mtp.py",
+        "vllm/models/qwen4_exp/nvidia/model.py",
+        "vllm/models/qwen4_exp/nvidia/mtp.py",
+        "vllm/models/step5/amd/model.py",
+        "vllm/models/step5/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "gate_up_proj",
+      "names": [
+        "gate_proj",
+        "up_proj",
+        "w1",
+        "w3"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/pixtral.py"
+      ]
+    },
+    {
+      "packed": "gate_up_proj",
+      "names": [
+        "gate_up_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/glm4_1v.py",
+        "vllm/model_executor/models/molmo.py",
+        "vllm/model_executor/models/phi3.py",
+        "vllm/model_executor/models/phi4mm.py",
+        "vllm/model_executor/models/plamo3.py"
+      ]
+    },
+    {
+      "packed": "gate_up_proj",
+      "names": [
+        "w1",
+        "w3"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/internlm2.py",
+        "vllm/models/deepseek_v4/amd/dspark.py",
+        "vllm/models/deepseek_v4/amd/model.py",
+        "vllm/models/deepseek_v4/amd/mtp.py",
+        "vllm/models/deepseek_v4/common/vl_model.py",
+        "vllm/models/deepseek_v4/cpu/model.py",
+        "vllm/models/deepseek_v4/nvidia/dspark.py",
+        "vllm/models/deepseek_v4/nvidia/model.py",
+        "vllm/models/deepseek_v4/nvidia/mtp.py",
+        "vllm/models/deepseek_v4/xpu/dspark.py",
+        "vllm/models/deepseek_v4/xpu/model.py",
+        "vllm/models/deepseek_v4/xpu/mtp.py",
+        "vllm/models/deepseek_v41/amd/dspark.py",
+        "vllm/models/deepseek_v41/amd/model.py",
+        "vllm/models/deepseek_v41/nvidia/dspark.py",
+        "vllm/models/deepseek_v41/nvidia/model.py",
+        "vllm/models/deepseek_v41/nvidia/vl_model.py"
+      ]
+    },
+    {
+      "packed": "in_proj",
+      "names": [
+        "in_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/granitemoehybrid.py",
+        "vllm/model_executor/models/jamba.py",
+        "vllm/model_executor/models/lfm2.py",
+        "vllm/model_executor/models/lfm2_moe.py",
+        "vllm/model_executor/models/lfm3.py"
+      ]
+    },
+    {
+      "packed": "in_proj_ba",
+      "names": [
+        "in_proj_b",
+        "in_proj_a"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/minicpmv4_6.py",
+        "vllm/model_executor/models/qwen3_5.py",
+        "vllm/models/qwen3_5/nvidia/model.py",
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/amd/mtp.py",
+        "vllm/models/qwen4_exp/nvidia/model.py",
+        "vllm/models/qwen4_exp/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "in_proj_ba",
+      "names": [
+        "in_proj_ba"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/qwen3_next.py"
+      ]
+    },
+    {
+      "packed": "in_proj_qkvbfg_a",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "b_proj",
+        "f_a_proj",
+        "g_a_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/glm5next/common/model.py"
+      ]
+    },
+    {
+      "packed": "in_proj_qkvg",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "g_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/olmo_hybrid.py"
+      ]
+    },
+    {
+      "packed": "in_proj_qkvgfab",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "b_proj",
+        "f_a_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/alice_ai.py",
+        "vllm/models/kimi_k3/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "in_proj_qkvgfab",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "b_proj",
+        "f_a_proj",
+        "g_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/kimi_k3/amd/linear.py",
+        "vllm/models/kimi_k3/amd/mtp.py",
+        "vllm/models/kimi_k3/nvidia/model.py",
+        "vllm/models/kimi_k3/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "in_proj_qkvz",
+      "names": [
+        "in_proj_qkv",
+        "in_proj_z"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/minicpmv4_6.py",
+        "vllm/model_executor/models/qwen3_5.py",
+        "vllm/models/qwen3_5/nvidia/model.py",
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/amd/mtp.py",
+        "vllm/models/qwen4_exp/nvidia/model.py",
+        "vllm/models/qwen4_exp/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "in_proj_qkvz",
+      "names": [
+        "in_proj_qkvz"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/qwen3_next.py"
+      ]
+    },
+    {
+      "packed": "input_linear",
+      "names": [
+        "input_linear"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/granitemoehybrid.py"
+      ]
+    },
+    {
+      "packed": "input_mix_weight_down_block_inject",
+      "names": [
+        "input_mix_weight_down",
+        "block_inject_weight"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "input_mix_weight_down_block_inject",
+      "names": [
+        "input_mix_weight_down",
+        "block_inject_weight",
+        "_input_mix_padding"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/amd/mtp.py",
+        "vllm/models/qwen4_exp/nvidia/model.py",
+        "vllm/models/qwen4_exp/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "kv_a_proj_with_mqa",
+      "names": [
+        "kv_a_proj_with_mqa"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/sarvam.py"
+      ]
+    },
+    {
+      "packed": "kv_b_proj",
+      "names": [
+        "kv_b_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/sarvam.py"
+      ]
+    },
+    {
+      "packed": "kv_proj",
+      "names": [
+        "k_proj",
+        "v_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/canary.py",
+        "vllm/model_executor/models/cohere_asr.py",
+        "vllm/model_executor/models/fireredasr2.py",
+        "vllm/model_executor/models/nemotron_parse.py",
+        "vllm/model_executor/models/whisper.py"
+      ]
+    },
+    {
+      "packed": "kv_proj",
+      "names": [
+        "key_net",
+        "value_net"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/cohere_asr.py"
+      ]
+    },
+    {
+      "packed": "kv_proj",
+      "names": [
+        "key_proj",
+        "value_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "merged_kv",
+      "names": [
+        "k_proj",
+        "v_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/molmo2.py"
+      ]
+    },
+    {
+      "packed": "merged_linear",
+      "names": [
+        "gate_proj",
+        "up_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/molmo.py",
+        "vllm/model_executor/models/molmo2.py"
+      ]
+    },
+    {
+      "packed": "merged_proj",
+      "names": [
+        "gate_proj",
+        "dense_h_to_4h"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/glm4v.py"
+      ]
+    },
+    {
+      "packed": "merged_qkv",
+      "names": [
+        "wq",
+        "wk",
+        "wv"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/molmo2.py"
+      ]
+    },
+    {
+      "packed": "q_a_proj",
+      "names": [
+        "q_a_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/sarvam.py"
+      ]
+    },
+    {
+      "packed": "q_b_proj",
+      "names": [
+        "q_b_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/sarvam.py"
+      ]
+    },
+    {
+      "packed": "q_proj",
+      "names": [
+        "q_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/sarvam.py"
+      ]
+    },
+    {
+      "packed": "qk_proj",
+      "names": [
+        "q_proj",
+        "k_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/k2_horizon.py"
+      ]
+    },
+    {
+      "packed": "qkg_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "g_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/ricursive.py"
+      ]
+    },
+    {
+      "packed": "qkv",
+      "names": [
+        "attention.query",
+        "attention.key",
+        "attention.value",
+        "q_proj",
+        "k_proj",
+        "v_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/radio.py"
+      ]
+    },
+    {
+      "packed": "qkv",
+      "names": [
+        "q",
+        "k",
+        "v"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/cohere_compass.py",
+        "vllm/model_executor/models/glm4_1v.py",
+        "vllm/model_executor/models/openpangu_vl.py",
+        "vllm/model_executor/models/qwen2_5_omni_thinker.py",
+        "vllm/model_executor/models/qwen2_5_vl.py",
+        "vllm/model_executor/models/qwen3_omni_moe_thinker.py",
+        "vllm/model_executor/models/qwen3_vl.py",
+        "vllm/models/glm5next/common/multimodal.py"
+      ]
+    },
+    {
+      "packed": "qkv",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/blip.py",
+        "vllm/model_executor/models/funasr.py",
+        "vllm/model_executor/models/qwen2_vl.py"
+      ]
+    },
+    {
+      "packed": "qkv",
+      "names": [
+        "qkv"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/bailing_moe_v3_vl.py",
+        "vllm/model_executor/models/cohere_compass.py",
+        "vllm/model_executor/models/dots_ocr.py",
+        "vllm/model_executor/models/hyperclovax_vision_v2.py",
+        "vllm/model_executor/models/intern_vit.py",
+        "vllm/model_executor/models/qwen2_5_vl.py",
+        "vllm/model_executor/models/qwen3_omni_moe_thinker.py",
+        "vllm/model_executor/models/qwen3_vl.py",
+        "vllm/model_executor/models/radio.py"
+      ]
+    },
+    {
+      "packed": "qkv_gate_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "output_gate_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/models/beam/amd/model.py",
+        "vllm/models/beam/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "qkv_indexer_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "sparse_indexer_q",
+        "sparse_indexer_k",
+        "sparse_indexer_z",
+        "g_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/step5/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "indexer.index_qk_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/qwen4_exp/nvidia/qsa.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/AXK1.py",
+        "vllm/model_executor/models/afmoe.py",
+        "vllm/model_executor/models/alice_ai.py",
+        "vllm/model_executor/models/apertus.py",
+        "vllm/model_executor/models/aria.py",
+        "vllm/model_executor/models/audioflamingo3.py",
+        "vllm/model_executor/models/bailing_moe_v3.py",
+        "vllm/model_executor/models/blip.py",
+        "vllm/model_executor/models/canary.py",
+        "vllm/model_executor/models/clip.py",
+        "vllm/model_executor/models/cohere2_moe.py",
+        "vllm/model_executor/models/cohere2_vision.py",
+        "vllm/model_executor/models/cohere_asr.py",
+        "vllm/model_executor/models/cohere_compass.py",
+        "vllm/model_executor/models/colultravbert.py",
+        "vllm/model_executor/models/commandr.py",
+        "vllm/model_executor/models/cosmos3_edge.py",
+        "vllm/model_executor/models/deepseek_v2.py",
+        "vllm/model_executor/models/diffusion_gemma.py",
+        "vllm/model_executor/models/domyn_edge.py",
+        "vllm/model_executor/models/dory.py",
+        "vllm/model_executor/models/dots_ocr.py",
+        "vllm/model_executor/models/embedding_gemma2.py",
+        "vllm/model_executor/models/ernie45_moe.py",
+        "vllm/model_executor/models/ernie45_vl.py",
+        "vllm/model_executor/models/ernie45_vl_moe.py",
+        "vllm/model_executor/models/ernie_mtp.py",
+        "vllm/model_executor/models/exaone.py",
+        "vllm/model_executor/models/exaone4.py",
+        "vllm/model_executor/models/exaone_moe.py",
+        "vllm/model_executor/models/exaone_moe_mtp.py",
+        "vllm/model_executor/models/falcon_h1.py",
+        "vllm/model_executor/models/fireredasr2.py",
+        "vllm/model_executor/models/funaudiochat.py",
+        "vllm/model_executor/models/gemma.py",
+        "vllm/model_executor/models/gemma2.py",
+        "vllm/model_executor/models/gemma3.py",
+        "vllm/model_executor/models/gemma3_mm.py",
+        "vllm/model_executor/models/gemma3n.py",
+        "vllm/model_executor/models/gemma3n_mm.py",
+        "vllm/model_executor/models/gemma4.py",
+        "vllm/model_executor/models/gemma4_mm.py",
+        "vllm/model_executor/models/glm4.py",
+        "vllm/model_executor/models/glm4_1v.py",
+        "vllm/model_executor/models/glm4_moe.py",
+        "vllm/model_executor/models/glm4_moe_lite.py",
+        "vllm/model_executor/models/glm4_moe_mtp.py",
+        "vllm/model_executor/models/glm_ocr_mtp.py",
+        "vllm/model_executor/models/glmasr.py",
+        "vllm/model_executor/models/gpt_j.py",
+        "vllm/model_executor/models/gpt_oss.py",
+        "vllm/model_executor/models/granite.py",
+        "vllm/model_executor/models/granite4_vision.py",
+        "vllm/model_executor/models/granite_speech.py",
+        "vllm/model_executor/models/granitemoe.py",
+        "vllm/model_executor/models/granitemoehybrid.py",
+        "vllm/model_executor/models/granitemoeshared.py",
+        "vllm/model_executor/models/hy_v3.py",
+        "vllm/model_executor/models/hy_v3_mtp.py",
+        "vllm/model_executor/models/hyperclovax.py",
+        "vllm/model_executor/models/hyperclovax_vision_v2.py",
+        "vllm/model_executor/models/idefics2_vision_model.py",
+        "vllm/model_executor/models/idefics3.py",
+        "vllm/model_executor/models/interns1_pro.py",
+        "vllm/model_executor/models/iquest_loopcoder.py",
+        "vllm/model_executor/models/isaac.py",
+        "vllm/model_executor/models/jamba.py",
+        "vllm/model_executor/models/k2_horizon.py",
+        "vllm/model_executor/models/kimi_audio.py",
+        "vllm/model_executor/models/laguna.py",
+        "vllm/model_executor/models/lfm2.py",
+        "vllm/model_executor/models/lfm2_moe.py",
+        "vllm/model_executor/models/lfm2_siglip2.py",
+        "vllm/model_executor/models/lfm3.py",
+        "vllm/model_executor/models/lfm3_vl.py",
+        "vllm/model_executor/models/llama.py",
+        "vllm/model_executor/models/llama4.py",
+        "vllm/model_executor/models/llama4_eagle.py",
+        "vllm/model_executor/models/llama_eagle.py",
+        "vllm/model_executor/models/llama_eagle3.py",
+        "vllm/model_executor/models/llava.py",
+        "vllm/model_executor/models/llava_next.py",
+        "vllm/model_executor/models/llava_next_video.py",
+        "vllm/model_executor/models/longcat_flash.py",
+        "vllm/model_executor/models/longcat_flash_ngram.py",
+        "vllm/model_executor/models/midashenglm.py",
+        "vllm/model_executor/models/mimo_mtp.py",
+        "vllm/model_executor/models/mimo_v2.py",
+        "vllm/model_executor/models/mimo_v2_mtp.py",
+        "vllm/model_executor/models/ming_audio.py",
+        "vllm/model_executor/models/minicpm.py",
+        "vllm/model_executor/models/minicpm_eagle.py",
+        "vllm/model_executor/models/minicpmo.py",
+        "vllm/model_executor/models/minicpmv.py",
+        "vllm/model_executor/models/minicpmv4_6.py",
+        "vllm/model_executor/models/minimax_m2.py",
+        "vllm/model_executor/models/mistral3.py",
+        "vllm/model_executor/models/mixtral.py",
+        "vllm/model_executor/models/mllama4.py",
+        "vllm/model_executor/models/moondream3.py",
+        "vllm/model_executor/models/moss_audio.py",
+        "vllm/model_executor/models/moss_transcribe_diarize.py",
+        "vllm/model_executor/models/muse_glimmer.py",
+        "vllm/model_executor/models/nemotron.py",
+        "vllm/model_executor/models/nemotron_h.py",
+        "vllm/model_executor/models/nemotron_h_mtp.py",
+        "vllm/model_executor/models/nemotron_nas.py",
+        "vllm/model_executor/models/nemotron_parse.py",
+        "vllm/model_executor/models/nemotron_parse3_5.py",
+        "vllm/model_executor/models/olmo_hybrid.py",
+        "vllm/model_executor/models/opencua.py",
+        "vllm/model_executor/models/openpangu.py",
+        "vllm/model_executor/models/openpangu_vl.py",
+        "vllm/model_executor/models/opt.py",
+        "vllm/model_executor/models/orion.py",
+        "vllm/model_executor/models/paddleocr_vl.py",
+        "vllm/model_executor/models/paligemma.py",
+        "vllm/model_executor/models/phimoe.py",
+        "vllm/model_executor/models/pixtral.py",
+        "vllm/model_executor/models/qwen2.py",
+        "vllm/model_executor/models/qwen2_5_omni_thinker.py",
+        "vllm/model_executor/models/qwen2_5_vl.py",
+        "vllm/model_executor/models/qwen2_moe.py",
+        "vllm/model_executor/models/qwen2_rm.py",
+        "vllm/model_executor/models/qwen3.py",
+        "vllm/model_executor/models/qwen3_5.py",
+        "vllm/model_executor/models/qwen3_5_mtp.py",
+        "vllm/model_executor/models/qwen3_asr.py",
+        "vllm/model_executor/models/qwen3_dflash.py",
+        "vllm/model_executor/models/qwen3_eagle3.py",
+        "vllm/model_executor/models/qwen3_moe.py",
+        "vllm/model_executor/models/qwen3_next.py",
+        "vllm/model_executor/models/qwen3_next_mtp.py",
+        "vllm/model_executor/models/qwen3_omni_moe_thinker.py",
+        "vllm/model_executor/models/qwen3_vl.py",
+        "vllm/model_executor/models/qwen3_vl_moe.py",
+        "vllm/model_executor/models/rnj1.py",
+        "vllm/model_executor/models/siglip.py",
+        "vllm/model_executor/models/siglip2navit.py",
+        "vllm/model_executor/models/solar.py",
+        "vllm/model_executor/models/stablelm.py",
+        "vllm/model_executor/models/step1.py",
+        "vllm/model_executor/models/step3p5.py",
+        "vllm/model_executor/models/step3p5_mtp.py",
+        "vllm/model_executor/models/ultravox.py",
+        "vllm/model_executor/models/voxtral.py",
+        "vllm/model_executor/models/voyage.py",
+        "vllm/model_executor/models/whisper.py",
+        "vllm/model_executor/models/zamba2.py",
+        "vllm/models/beam/amd/dflash2.py",
+        "vllm/models/beam/amd/model.py",
+        "vllm/models/beam/nvidia/dflash2.py",
+        "vllm/models/beam/nvidia/model.py",
+        "vllm/models/flint/model.py",
+        "vllm/models/minimax_m3/amd/model.py",
+        "vllm/models/minimax_m3/common/vision_tower.py",
+        "vllm/models/minimax_m3/nvidia/model.py",
+        "vllm/models/muse_spark/amd/model.py",
+        "vllm/models/muse_spark/common/omni.py",
+        "vllm/models/muse_spark/nvidia/model.py",
+        "vllm/models/qwen3_5/nvidia/model.py",
+        "vllm/models/qwen3_5/nvidia/mtp.py",
+        "vllm/models/qwen4_exp/amd/model.py",
+        "vllm/models/qwen4_exp/amd/mtp.py",
+        "vllm/models/qwen4_exp/nvidia/model.py",
+        "vllm/models/qwen4_exp/nvidia/mtp.py",
+        "vllm/models/step5/amd/model.py",
+        "vllm/models/step5/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "gate_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/muse_spark/common/omni.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "index_q_proj",
+        "index_k_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/minimax_m3/amd/model.py",
+        "vllm/models/minimax_m3/amd/mtp.py",
+        "vllm/models/minimax_m3/nvidia/model.py",
+        "vllm/models/minimax_m3/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_gate_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/muse_spark/common/dspark.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "wq",
+        "wk",
+        "wv"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/pixtral.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "qkv_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/mimo_v2.py",
+        "vllm/model_executor/models/molmo.py",
+        "vllm/model_executor/models/molmo2.py",
+        "vllm/model_executor/models/phi3.py",
+        "vllm/model_executor/models/phi4mm.py",
+        "vllm/model_executor/models/plamo3.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "query",
+        "key",
+        "value"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/bert.py",
+        "vllm/model_executor/models/roberta.py",
+        "vllm/model_executor/models/telechat2.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "query_key_value"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/param2moe.py"
+      ]
+    },
+    {
+      "packed": "qkv_proj",
+      "names": [
+        "query_net",
+        "key_net",
+        "value_net"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/cohere_asr.py"
+      ]
+    },
+    {
+      "packed": "qkvb_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "b_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/bailing_moe_v3.py"
+      ]
+    },
+    {
+      "packed": "qkvg_proj",
+      "names": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "g_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/step5/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "qkvr",
+      "names": [
+        "wq_du",
+        "wk_dv",
+        "wv_dv",
+        "wr_du"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/inkling/amd/model.py",
+        "vllm/models/inkling/amd/mtp.py",
+        "vllm/models/inkling/nvidia/model.py",
+        "vllm/models/inkling/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "query_key_value",
+      "names": [
+        "query_key_value"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/bailing_moe.py",
+        "vllm/model_executor/models/chatglm.py",
+        "vllm/model_executor/models/falcon.py",
+        "vllm/model_executor/models/glm4v.py"
+      ]
+    },
+    {
+      "packed": "up_gate_proj",
+      "names": [
+        "up_gate_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/molmo2.py"
+      ]
+    },
+    {
+      "packed": "w1",
+      "names": [
+        "w1"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/models/deepseek_v4/common/vl_model.py"
+      ]
+    },
+    {
+      "packed": "w13",
+      "names": [
+        "w1",
+        "w3"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/lfm2.py",
+        "vllm/model_executor/models/lfm2_moe.py",
+        "vllm/model_executor/models/lfm3.py",
+        "vllm/model_executor/models/lfm3_vl.py",
+        "vllm/models/inkling/amd/model.py",
+        "vllm/models/inkling/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "wk_weights_proj",
+      "names": [
+        "weights_proj"
+      ],
+      "kinds": [
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/models/hy_v4/amd/model.py",
+        "vllm/models/hy_v4/nvidia/model.py"
+      ]
+    },
+    {
+      "packed": "wk_weights_proj",
+      "names": [
+        "wk",
+        "weights_proj"
+      ],
+      "kinds": [
+        "packed_modules_mapping",
+        "stacked_params_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/deepseek_mtp.py",
+        "vllm/model_executor/models/deepseek_v2.py",
+        "vllm/models/deepseek_v32/amd/model.py",
+        "vllm/models/deepseek_v32/amd/mtp.py",
+        "vllm/models/deepseek_v32/nvidia/model.py",
+        "vllm/models/deepseek_v32/nvidia/mtp.py",
+        "vllm/models/glm5next/common/model.py",
+        "vllm/models/glm5next/common/mtp.py",
+        "vllm/models/hy_v4/amd/model.py",
+        "vllm/models/hy_v4/nvidia/model.py",
+        "vllm/models/hy_v4/nvidia/mtp.py"
+      ]
+    },
+    {
+      "packed": "wqkv",
+      "names": [
+        "wqkv"
+      ],
+      "kinds": [
+        "packed_modules_mapping"
+      ],
+      "files": [
+        "vllm/model_executor/models/internlm2.py",
+        "vllm/models/deepseek_v4/common/vl_model.py"
+      ]
+    }
+  ],
+  "modules": [
+    {
+      "file": "vllm/model_executor/models/AXK1.py",
+      "class": "AXK1MLAAttention",
+      "layers": [
+        "fused_qkv_a_proj",
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "o_proj",
+        "q_b_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/afmoe.py",
+      "class": "AfmoeAttention",
+      "layers": [
+        "gate_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/aimv2.py",
+      "class": "AIMv2SwiGLUFFN",
+      "layers": [
+        "fc13",
+        "fc2"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/apertus.py",
+      "class": "ApertusAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bailing_moe.py",
+      "class": "BailingAttention",
+      "layers": [
+        "dense",
+        "query_key_value"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bailing_moe.py",
+      "class": "BailingMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bailing_moe_linear.py",
+      "class": "BailingMoeV25MLAAttention",
+      "layers": [
+        "fused_qkv_a_proj",
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "o_proj",
+        "q_b_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bailing_moe_v3.py",
+      "class": "BailingMoeV3MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bailing_moe_v3.py",
+      "class": "BailingMoeV3MLAAttention",
+      "layers": [
+        "dense",
+        "fused_qkv_a_proj",
+        "g_proj",
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "q_b_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bailing_moe_v3.py",
+      "class": "BailingMoeV3KimiDeltaAttention",
+      "layers": [
+        "b_proj",
+        "f_proj",
+        "g_proj",
+        "k_conv1d",
+        "o_proj",
+        "q_conv1d",
+        "qkv_proj",
+        "qkvb_proj",
+        "v_conv1d"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bert.py",
+      "class": "BertSelfAttention",
+      "layers": [
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/bert_with_rope.py",
+      "class": "BertWithRopeGatedMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/blip.py",
+      "class": "BlipAttention",
+      "layers": [
+        "projection",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/chatglm.py",
+      "class": "GLMAttention",
+      "layers": [
+        "dense",
+        "query_key_value"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/chatglm.py",
+      "class": "GLMMLP",
+      "layers": [
+        "dense_4h_to_h",
+        "dense_h_to_4h"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/clip.py",
+      "class": "CLIPAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/cohere2_moe.py",
+      "class": "Cohere2MoeMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/cohere2_moe.py",
+      "class": "Cohere2MoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/cohere_asr.py",
+      "class": "CohereASRAttention",
+      "layers": [
+        "out_projection",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/cohere_asr.py",
+      "class": "CohereASRCrossAttention",
+      "layers": [
+        "kv_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/cohere_compass.py",
+      "class": "Cohere_VisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/cohere_compass.py",
+      "class": "CohereCompassAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/colultravbert.py",
+      "class": "UltraBertAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/colultravbert.py",
+      "class": "UltraBertMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/commandr.py",
+      "class": "CohereMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/commandr.py",
+      "class": "CohereAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/deepseek_v2.py",
+      "class": "DeepseekAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/deepseek_v2.py",
+      "class": "DeepseekV2MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/deepseek_v2.py",
+      "class": "Indexer",
+      "layers": [
+        "wk_weights_proj",
+        "wq_b"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/deepseek_v2.py",
+      "class": "DeepseekV2MLAAttention",
+      "layers": [
+        "fused_qkv_a_proj",
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "o_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/domyn_edge.py",
+      "class": "DomynEdgeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/dory.py",
+      "class": "DoryAttention",
+      "layers": [
+        "g_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/dory.py",
+      "class": "DoryMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/dots_ocr.py",
+      "class": "DotsVisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/dots_ocr.py",
+      "class": "DotsSwiGLUFFN",
+      "layers": [
+        "fc13",
+        "fc2"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/embedding_gemma2.py",
+      "class": "EmbeddingGemma2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/ernie45_moe.py",
+      "class": "Ernie4_5_MoeMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/ernie45_moe.py",
+      "class": "Ernie4_5_MoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/ernie45_vl_moe.py",
+      "class": "Ernie4_5_VLMoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/exaone.py",
+      "class": "ExaoneGatedMLP",
+      "layers": [
+        "c_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/exaone.py",
+      "class": "ExaoneAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/exaone4.py",
+      "class": "Exaone4GatedMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/exaone4.py",
+      "class": "Exaone4Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/exaone_moe.py",
+      "class": "ExaoneMoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/falcon.py",
+      "class": "FalconAttention",
+      "layers": [
+        "dense",
+        "query_key_value"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/falcon_h1.py",
+      "class": "FalconH1MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/falcon_h1.py",
+      "class": "FalconH1AttentionDecoderLayer",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/funasr.py",
+      "class": "FunASRAudioAttention",
+      "layers": [
+        "out_proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/funaudiochat.py",
+      "class": "FunAudioChatAudioAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma.py",
+      "class": "GemmaMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma.py",
+      "class": "GemmaAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma2.py",
+      "class": "Gemma2MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma2.py",
+      "class": "Gemma2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma3.py",
+      "class": "Gemma3MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma3.py",
+      "class": "Gemma3Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma3n.py",
+      "class": "Gemma3nMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma3n.py",
+      "class": "Gemma3nAttention",
+      "layers": [
+        "o_proj",
+        "q_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma4.py",
+      "class": "Gemma4MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gemma4.py",
+      "class": "Gemma4Attention",
+      "layers": [
+        "o_proj",
+        "q_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4.py",
+      "class": "Glm4Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4_1v.py",
+      "class": "Glm4vVisionMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4_1v.py",
+      "class": "Glm4vVisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4_1v.py",
+      "class": "Glm4vPatchMerger",
+      "layers": [
+        "down_proj",
+        "gate_up_proj",
+        "proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4_moe.py",
+      "class": "Glm4MoeMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4_moe.py",
+      "class": "Glm4MoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4v.py",
+      "class": "EVA2CLIPAttention",
+      "layers": [
+        "dense",
+        "query_key_value"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glm4v.py",
+      "class": "EVA2CLIPGLU",
+      "layers": [
+        "dense_4h_to_h",
+        "linear_proj",
+        "merged_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/glmasr.py",
+      "class": "GlmAsrEncoderAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gpt_j.py",
+      "class": "GPTJAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/gpt_oss.py",
+      "class": "OAIAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/granite.py",
+      "class": "GraniteMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/granite.py",
+      "class": "GraniteAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/granitemoe.py",
+      "class": "GraniteMoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/granitemoehybrid.py",
+      "class": "GraniteMoeHybridAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/hy_v3.py",
+      "class": "HYV3FeedForward",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/hy_v3.py",
+      "class": "HYV3Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/hyperclovax.py",
+      "class": "HyperCLOVAXMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/hyperclovax.py",
+      "class": "HyperCLOVAXAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/idefics2_vision_model.py",
+      "class": "Idefics2VisionAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/intern_vit.py",
+      "class": "InternParallelAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/internlm2.py",
+      "class": "InternLM2MLP",
+      "layers": [
+        "gate_up_proj",
+        "w2"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/internlm2.py",
+      "class": "InternLM2Attention",
+      "layers": [
+        "wo",
+        "wqkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/interns1_pro.py",
+      "class": "InternS1ProMoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/iquest_loopcoder.py",
+      "class": "LoopCoderAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/isaac.py",
+      "class": "Siglip2VisionAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/jamba.py",
+      "class": "JambaAttentionDecoderLayer",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/k2_horizon.py",
+      "class": "K2HorizonMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/k2_horizon.py",
+      "class": "K2HorizonAttention",
+      "layers": [
+        "gate_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/k2_horizon.py",
+      "class": "K2HorizonMoVAAttention",
+      "layers": [
+        "gate_proj",
+        "o_proj",
+        "qk_proj",
+        "v_router"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/laguna.py",
+      "class": "LagunaAttention",
+      "layers": [
+        "g_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm2.py",
+      "class": "Lfm2MLP",
+      "layers": [
+        "w13",
+        "w2"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm2.py",
+      "class": "Lfm2Attention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm2.py",
+      "class": "Lfm2BidirectionalShortConv",
+      "layers": [
+        "conv",
+        "in_proj",
+        "out_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm2_moe.py",
+      "class": "Lfm2MoeMlp",
+      "layers": [
+        "w13",
+        "w2"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm2_moe.py",
+      "class": "Lfm2MoeAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm2_siglip2.py",
+      "class": "Siglip2Attention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm3.py",
+      "class": "Lfm3MLP",
+      "layers": [
+        "w13",
+        "w2"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm3.py",
+      "class": "Lfm3Attention",
+      "layers": [
+        "gate_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/lfm3_vl.py",
+      "class": "Lfm3VlVisionAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/llama.py",
+      "class": "LlamaMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/llama.py",
+      "class": "LlamaAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/llama4.py",
+      "class": "Llama4Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/longcat_flash.py",
+      "class": "FlashMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/mimo_v2.py",
+      "class": "MiMoV2MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/mimo_v2.py",
+      "class": "MiMoV2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/minicpm.py",
+      "class": "MiniCPMMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/minicpm.py",
+      "class": "MiniCPMAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/minicpmv4_6.py",
+      "class": "MiniCPMV4_6ViTWindowAttentionSelfAttn",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/minimax_m2.py",
+      "class": "MiniMaxM2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/mixtral.py",
+      "class": "MixtralAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/mllama4.py",
+      "class": "Llama4VisionAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/modernbert.py",
+      "class": "ModernBertAttention",
+      "layers": [
+        "Wo",
+        "Wqkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/modernbert.py",
+      "class": "ModernBertMLP",
+      "layers": [
+        "Wi",
+        "Wo"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo.py",
+      "class": "MolmoAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo.py",
+      "class": "LanguageModelMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo.py",
+      "class": "ImageProjectorMLP",
+      "layers": [
+        "down_proj",
+        "merged_linear"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo2.py",
+      "class": "ViTMultiHeadDotProductAttention",
+      "layers": [
+        "merged_qkv",
+        "wo"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo2.py",
+      "class": "ImagePoolingAttention",
+      "layers": [
+        "merged_kv",
+        "o_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo2.py",
+      "class": "ImageProjectorMLP",
+      "layers": [
+        "down_proj",
+        "merged_linear"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo2.py",
+      "class": "Molmo2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/molmo2.py",
+      "class": "LanguageModelMLP",
+      "layers": [
+        "down_proj",
+        "up_gate_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/moondream3.py",
+      "class": "Moondream3VisionAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/moondream3.py",
+      "class": "Moondream3Attention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/moss_audio.py",
+      "class": "GatedMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/muse_glimmer.py",
+      "class": "MuseGlimmerVisionAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/muse_glimmer.py",
+      "class": "MuseGlimmerMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/muse_glimmer.py",
+      "class": "MuseGlimmerAttention",
+      "layers": [
+        "o_proj",
+        "output_gate_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/nemotron.py",
+      "class": "NemotronAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/nemotron_h.py",
+      "class": "NemotronHAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/nemotron_parse3_5.py",
+      "class": "NemotronParseSelfAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/olmo_hybrid.py",
+      "class": "OlmoHybridAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/olmo_hybrid.py",
+      "class": "OlmoHybridMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/openpangu.py",
+      "class": "OpenPanguMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/openpangu.py",
+      "class": "OpenPanguMLAAttention",
+      "layers": [
+        "fused_qkv_a_proj",
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "o_proj",
+        "q_b_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/openpangu.py",
+      "class": "OpenPanguEmbeddedAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/openpangu.py",
+      "class": "OpenPanguSinkAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/openpangu_vl.py",
+      "class": "OpenPanguVisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/openpangu_vl.py",
+      "class": "OpenPanguVisionMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj",
+        "up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/opt.py",
+      "class": "OPTAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/orion.py",
+      "class": "OrionMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/orion.py",
+      "class": "OrionAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/paddleocr_vl.py",
+      "class": "SiglipAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/param2moe.py",
+      "class": "Param2MoEAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/param2moe.py",
+      "class": "Param2MoEMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/phimoe.py",
+      "class": "PhiMoEAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/pixtral.py",
+      "class": "FeedForward",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/pixtral.py",
+      "class": "Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/pixtral.py",
+      "class": "PixtralHFMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/pixtral.py",
+      "class": "PixtralHFAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/plamo3.py",
+      "class": "DenseMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/plamo3.py",
+      "class": "Plamo3AttentionMixer",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2.py",
+      "class": "Qwen2MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2.py",
+      "class": "Qwen2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2_5_vl.py",
+      "class": "Qwen2_5_VisionMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2_5_vl.py",
+      "class": "Qwen2_5_VisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2_moe.py",
+      "class": "Qwen2MoeMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2_moe.py",
+      "class": "Qwen2MoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen2_vl.py",
+      "class": "Qwen2VisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen3.py",
+      "class": "Qwen3Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen3_dflash.py",
+      "class": "DFlashQwen3Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen3_moe.py",
+      "class": "Qwen3MoeMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen3_moe.py",
+      "class": "Qwen3MoeAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen3_next.py",
+      "class": "Qwen3NextAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/qwen3_omni_moe_thinker.py",
+      "class": "Qwen3OmniMoeAudioAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/radio.py",
+      "class": "RadioAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/ricursive.py",
+      "class": "RicursiveMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/ricursive.py",
+      "class": "RicursiveAttention",
+      "layers": [
+        "o_proj",
+        "qkg_proj",
+        "v_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/rnj1.py",
+      "class": "Rnj1MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/rnj1.py",
+      "class": "Rnj1Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/sarvam.py",
+      "class": "SarvamMLAAttention",
+      "layers": [
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "o_proj",
+        "q_a_proj",
+        "q_b_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/sarvam.py",
+      "class": "SarvamMLAMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/siglip.py",
+      "class": "SiglipAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/siglip2navit.py",
+      "class": "Siglip2Attention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/solar.py",
+      "class": "SolarMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/solar.py",
+      "class": "SolarAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/stablelm.py",
+      "class": "StablelmMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/stablelm.py",
+      "class": "StablelmAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/step1.py",
+      "class": "StepAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/step1.py",
+      "class": "StepMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/step3_text.py",
+      "class": "Step3TextMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/step3p5.py",
+      "class": "Step3p5MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/step3p5.py",
+      "class": "Step3p5Attention",
+      "layers": [
+        "g_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/whisper.py",
+      "class": "WhisperAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/whisper.py",
+      "class": "WhisperCrossAttention",
+      "layers": [
+        "kv_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/model_executor/models/zamba2.py",
+      "class": "Zamba2Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/beam/amd/dflash2.py",
+      "class": "DFlash2BeamAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/beam/amd/dflash2.py",
+      "class": "DFlash2BeamMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/beam/nvidia/dflash2.py",
+      "class": "DFlash2BeamAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/beam/nvidia/dflash2.py",
+      "class": "DFlash2BeamMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/deepseek_v4/amd/model.py",
+      "class": "DeepseekV4MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/deepseek_v4/cpu/model.py",
+      "class": "DeepseekV4MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/deepseek_v4/nvidia/model.py",
+      "class": "DeepseekV4MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/deepseek_v4/xpu/model.py",
+      "class": "DeepseekV4MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/flint/model.py",
+      "class": "FlintMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/flint/model.py",
+      "class": "FlintAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/glm5next/common/model.py",
+      "class": "Glm5NextMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/glm5next/common/multimodal.py",
+      "class": "Glm5NextVisionMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/glm5next/common/multimodal.py",
+      "class": "Glm5NextVisionAttention",
+      "layers": [
+        "proj",
+        "qkv"
+      ]
+    },
+    {
+      "file": "vllm/models/glm5next/common/multimodal.py",
+      "class": "Glm5NextPatchMerger",
+      "layers": [
+        "down_proj",
+        "gate_up_proj",
+        "proj"
+      ]
+    },
+    {
+      "file": "vllm/models/kimi_k3/amd/linear.py",
+      "class": "KimiMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/kimi_k3/amd/linear.py",
+      "class": "KimiMLAAttention",
+      "layers": [
+        "fused_qkv_a_proj",
+        "g_proj",
+        "kv_a_proj_with_mqa",
+        "kv_b_proj",
+        "o_proj",
+        "q_b_proj",
+        "q_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/kimi_k3/nvidia/model.py",
+      "class": "KimiMLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/minimax_m3/amd/model.py",
+      "class": "MiniMaxM3MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/minimax_m3/amd/model.py",
+      "class": "MiniMaxM3Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/minimax_m3/common/vision_tower.py",
+      "class": "MiniMaxVLAttention",
+      "layers": [
+        "out_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/minimax_m3/nvidia/model.py",
+      "class": "MiniMaxM3MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/minimax_m3/nvidia/model.py",
+      "class": "MiniMaxM3Attention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/muse_spark/amd/model.py",
+      "class": "MuseSpark1xAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/muse_spark/nvidia/model.py",
+      "class": "MuseSpark1xAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/qwen4_exp/nvidia/qsa.py",
+      "class": "Qwen4ExpQSAAttention",
+      "layers": [
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/step5/amd/model.py",
+      "class": "Step5MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/step5/amd/model.py",
+      "class": "Step5Attention",
+      "layers": [
+        "g_proj",
+        "o_proj",
+        "qkv_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/step5/nvidia/model.py",
+      "class": "Step5MLP",
+      "layers": [
+        "down_proj",
+        "gate_up_proj"
+      ]
+    },
+    {
+      "file": "vllm/models/step5/nvidia/model.py",
+      "class": "Step5Attention",
+      "layers": [
+        "g_proj",
+        "o_proj",
+        "qkv_indexer_proj",
+        "qkv_proj",
+        "qkvg_proj",
+        "sparse_indexer_w"
+      ]
+    }
+  ]
+}
