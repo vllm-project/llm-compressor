@@ -1,14 +1,31 @@
+import gc
 import os
 import shutil
 import tempfile
 from typing import List
 
 import pytest
+import torch
 
 from llmcompressor.modifiers.factory import ModifierFactory
 
 os.environ["NM_TEST_MODE"] = "True"
 os.environ["NM_TEST_LOG_DIR"] = "nm_temp_test_logs"
+
+
+@pytest.fixture(autouse=True)
+def _release_accelerator_memory_between_tests():
+    """Give each test's device memory back before the next one starts.
+
+    Tests here load and quantize models, and the allocator does not hand the memory
+    back on its own. Without this, later tests in the same directory run out: either
+    a CUDA OOM, or a refusal from compressed_tensors' memory scheduler, which decides
+    what still fits from a snapshot of free memory.
+    """
+    yield
+    gc.collect()
+    if torch.accelerator.is_available():
+        torch.accelerator.empty_cache()
 
 
 @pytest.fixture

@@ -69,17 +69,6 @@ CONFIG_OVERRIDES = {
 }
 
 
-@pytest.fixture(autouse=True)
-def _release_gpu_between_cases():
-    # Releasing between parametrisations: each case loads its model onto cuda, and
-    # without a teardown the allocations accumulate until smaller cards cannot continue.
-    yield
-    import gc
-
-    gc.collect()
-    torch.accelerator.empty_cache()
-
-
 @pytest.fixture
 def patch_deepseek_fp32_modules():
     """
