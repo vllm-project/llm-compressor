@@ -265,20 +265,21 @@ class QuantizationMixin(HooksMixin):
         :param model: model to end calibration for
         """
         self.remove_hooks(self._calibration_hooks)
-        modules = [
-            module
-            for _, module in match_named_modules(
-                model, self.resolved_targets, self.ignore
-            )
-        ]
+        modules = dict(match_named_modules(model, self.resolved_targets, self.ignore))
 
         # observer statistics are consumed when qparams are updated. Modules which
         # still have statistics were never passed to `on_sequential_epoch_end`, for
         # example modules which are traced through rather than called by a sequential
         # subgraph (e.g. attention when using `sequential_targets="Linear"`)
-        remaining = [module for module in modules if _has_observer_statistics(module)]
+        remaining = {
+            name: module
+            for name, module in modules.items()
+            if _has_observer_statistics(module)
+        }
         if len(remaining) > 0:
-            module_types = sorted({type(module).__name__ for module in remaining})
+            module_types = sorted(
+                {type(module).__name__ for module in remaining.values()}
+            )
             logger.warning(
                 f"Found {len(remaining)} modules of type(s) {module_types} which were "
                 "calibrated but not quantized. This can occur when setting highly "
@@ -292,13 +293,13 @@ class QuantizationMixin(HooksMixin):
                 modules=remaining,
             )
 
-        for module in modules:
+        for module in modules.values():
             freeze_module_quantization(module)  # remove observers
 
         model.apply(enable_quantization)  # keep quantization enabled
 
     def start_layerwise_calibration(
-        self, state: State, model: torch.nn.Module, modules: list[torch.nn.Module]
+        self, state: State, model: torch.nn.Module, modules: dict[str, torch.nn.Module]
     ):
         """
         Set up quantization for a subset of modules after layerwise
@@ -309,11 +310,13 @@ class QuantizationMixin(HooksMixin):
         :param state: session state, used to resolve observer defaults
             according to ``state.has_calibration_data``
         :param model: the full model (needed for config application)
-        :param modules: modules in the current subgraph to prepare
+        :param modules: modules in the current subgraph to prepare, keyed by their
+            qualified names
         """
         config = self.resolve_quantization_config(
             has_calibration_data=state.has_calibration_data
         )
+        modules = list(modules.values())
         apply_quantization_config(model, config, allowed_modules=modules)
         for module in modules:
             if is_module_quantized(module):
