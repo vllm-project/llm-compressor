@@ -19,7 +19,9 @@ class _StubConfig:
         self.model_type = model_type
 
 
-@pytest.mark.parametrize("model_type", ["glm4_moe", "glm4v_moe_text", "glm4_moe_lite"])
+@pytest.mark.parametrize(
+    "model_type", ["glm4_moe", "glm4_moe_lite", "glm4v_moe", "glm4v_moe_text"]
+)
 def test_sigmoid_routers_are_detected_without_a_config_field(model_type):
     """transformers applies sigmoid in these routers and the configs do not say so."""
     cfg = MoEConfig.from_config(_StubConfig(model_type))
