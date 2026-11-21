@@ -4,7 +4,14 @@ from typing import Dict, List, Optional, Tuple, TypedDict
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.offload.dist_utils import as_broadcastable
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
+from compressed_tensors.quantization import (
+    FP8_E4M3_DATA,
+    UE5M3_DATA,
+    GlobalScaleType,
+    QuantizationArgs,
+    QuantizationStrategy,
+    ScaleFormat,
+)
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
@@ -84,7 +91,10 @@ class Observer(InternalModule, RegistryMixin):
 
         :return: global_scale tensor or None
         """
-        if self.args.strategy != QuantizationStrategy.TENSOR_GROUP:
+        if (
+            self.args.strategy != QuantizationStrategy.TENSOR_GROUP
+            or self.args.global_scale == GlobalScaleType.NONE
+        ):
             return None
 
         all_stats = self.fusion_handler.get_fused_statistics()
@@ -93,7 +103,14 @@ class Observer(InternalModule, RegistryMixin):
             global_absmax = torch.max(global_absmax, -stats["min_vals"].min())
             global_absmax = torch.max(global_absmax, stats["max_vals"].max())
 
-        return generate_gparam(-global_absmax.reshape(1), global_absmax.reshape(1))
+        scale_data = (
+            UE5M3_DATA if self.args.scale_format == ScaleFormat.UE5M3 else FP8_E4M3_DATA
+        )
+        return generate_gparam(
+            -global_absmax.reshape(1),
+            global_absmax.reshape(1),
+            scale_data=scale_data,
+        )
 
     @torch.no_grad
     def get_qparams(self) -> QParamsDict:
