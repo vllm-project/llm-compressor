@@ -193,10 +193,13 @@ class REAPPruningModifier(ExpertPruningModifierBase):
         with local_torch_dtype(self.precision):
             if get_calibrate_all_experts_flag():
                 if token_mask is not None:
-                    # dense norms are gathered per token below, so rows can be
-                    # filtered up front without breaking alignment
                     topk_indices = topk_indices[token_mask]
                     topk_weights = topk_weights[token_mask]
+                    # filter norm rows to stay aligned with the topk rows
+                    self._expert_norms[moe_name] = {
+                        idx: norm[token_mask]
+                        for idx, norm in self._expert_norms[moe_name].items()
+                    }
                 # every expert ran on every token, so stack their per-token
                 # norms into a [num_tokens, num_experts] matrix ordered by
                 # expert index, then gather each token's routed experts
