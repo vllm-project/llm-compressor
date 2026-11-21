@@ -122,6 +122,21 @@ DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE = {
     # Both are listed so a caller holding either object resolves the same way.
     "glm4v_moe": "sigmoid",
     "glm4v_moe_text": "sigmoid",
+    # The same gap exists for the newer GLM families, which arrived after the
+    # GLM-4 entries were written: `GlmMoeDsaTopkRouter` and
+    # `Glm5NextTextTopkRouter` call `.sigmoid()` too, and neither
+    # `configuration_glm_moe_dsa.py` nor `configuration_glm5_next.py` declares a
+    # router activation. glm5_next ships a vision config as well; a vision tower
+    # has no router, so only the language configs are listed.
+    "glm_moe_dsa": "sigmoid",
+    "glm5_next": "sigmoid",
+    "glm5_next_text": "sigmoid",
+    # qwen3_5_moe leaves the router activation out of its config completely and
+    # uses softmax. Both the top-level config and the text sub-config reach
+    # from_config() -- modifiers call get_text_config() -- so both are listed,
+    # for the same reason as the GLM pair above.
+    "qwen3_5_moe": "softmax",
+    "qwen3_5_moe_text": "softmax",
 }
 
 
@@ -156,9 +171,14 @@ class MoEConfig:
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
-        # special case: qwen3_5_moe does not specify scoring func in config
-        if config.model_type == "qwen3_5_moe_text":
-            config.scoring_func = "softmax"
+        # A model type listed in the mapping above has a known router activation,
+        # so falling back to it is not a silent default and must not warn. The
+        # previous form wrote the value back onto `config`, which leaked a
+        # `scoring_func` key into any config saved after compression -- a field
+        # the checkpoint never had.
+        score_function_is_known = (
+            config.model_type in DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE
+        )
 
         self = cls(
             num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
@@ -170,7 +190,7 @@ class MoEConfig:
                 config,
                 ["scoring_func", "score_func", "moe_router_activation_func"],
                 DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE.get(config.model_type, "softmax"),
-                warn_on_default=True,
+                warn_on_default=not score_function_is_known,
             ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
             top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
