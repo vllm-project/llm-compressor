@@ -384,14 +384,12 @@ def resave_config(config: PretrainedConfig, save_dir: str):
         levels = [(src_config, tgt_config)]
         if tgt_text_config is not tgt_config:
             levels.append((src_text_config, tgt_text_config))
-        patched = False
         for source, target in levels:
-            if key in target and key in source:
+            if key in source:
+                if key not in target:
+                    logger.warning(f"Failed to find {key} key in original config.")
+                    return False
                 target[key] = source[key]
-                patched = True
-        if not patched and (key in src_config or key in src_text_config):
-            logger.warning(f"Failed to find {key} key in original config.")
-            return False
         return True
 
     if not all(
