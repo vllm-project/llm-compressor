@@ -27,6 +27,14 @@ NUM_TEST_TOKENS = 64
 MODEL_MSE = 1e-2
 MODULE_MSE = 1e-8
 CONFIG_OVERRIDES = {
+    # defaults are hidden_size 3072 with 256 experts, which alone exceeds an 8 GiB
+    # card; only the width and the expert count are reduced, so the intermediate
+    # sizes keep their default ratio to hidden_size.
+    "minimax_m2": {
+        "hidden_size": 512,
+        "num_local_experts": 8,
+        "num_experts_per_tok": 2,
+    },
     "deepseek_ocr2": {"num_experts_per_tok": 16},
     "deepseek_v3": {"hidden_size": 512, "moe_intermediate_size": 1024},
     "cohere2_moe": {"hidden_size": 256, "intermediate_size": 256},
@@ -59,6 +67,17 @@ CONFIG_OVERRIDES = {
         "activation_situ_linear_beta": 25.0,
     },
 }
+
+
+@pytest.fixture(autouse=True)
+def _release_gpu_between_cases():
+    # Releasing between parametrisations: each case loads its model onto cuda, and
+    # without a teardown the allocations accumulate until smaller cards cannot continue.
+    yield
+    import gc
+
+    gc.collect()
+    torch.accelerator.empty_cache()
 
 
 @pytest.fixture
