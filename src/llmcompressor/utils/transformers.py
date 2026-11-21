@@ -47,6 +47,9 @@ def untie_word_embeddings(model: PreTrainedModel):
     # modify model config
     if hasattr(model.config, "tie_word_embeddings"):
         model.config.tie_word_embeddings = False
+    text_config = getattr(model.config, "text_config", None)
+    if text_config is not None and hasattr(text_config, "tie_word_embeddings"):
+        text_config.tie_word_embeddings = False
 
 
 def targets_embeddings(

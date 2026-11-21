@@ -150,6 +150,28 @@ def test_tie_word_embeddings_patched(save_dir, original_dir):
     assert _read_json(save_dir / "config.json")["tie_word_embeddings"] is False
 
 
+def test_nested_tie_word_embeddings_patched_at_both_levels(save_dir, original_dir):
+    _write_json(
+        original_dir / "config.json",
+        {
+            "tie_word_embeddings": True,
+            "text_config": {"tie_word_embeddings": True, "torch_dtype": "float32"},
+        },
+    )
+    config = FakeConfig(
+        name_or_path=str(original_dir),
+        dtype="float32",
+        tie_word_embeddings=False,
+        text_config=FakeConfig(tie_word_embeddings=False, dtype="float32"),
+    )
+
+    resave_config(config, str(save_dir))
+
+    saved = _read_json(save_dir / "config.json")
+    assert saved["tie_word_embeddings"] is False
+    assert saved["text_config"]["tie_word_embeddings"] is False
+
+
 def test_dtype_patched_via_key_fallback(save_dir, original_dir):
     # original serializes the dtype under "torch_dtype"; config exposes "dtype"
     _write_json(original_dir / "config.json", {"torch_dtype": "float32"})

@@ -88,6 +88,11 @@ def _retie_embeddings(model: PreTrainedModel):
     text_config = get_text_config(decoder=True) if callable(get_text_config) else config
     if text_config is not None:
         text_config.tie_word_embeddings = True
+    nested_config = getattr(config, "text_config", None)
+    if nested_config is not None and nested_config is not text_config:
+        nested_config.tie_word_embeddings = True
+    if config is not None and hasattr(config, "tie_word_embeddings"):
+        config.tie_word_embeddings = True
     logger.info("Re-tied input/output embeddings; saving a single shared table.")
 
 
@@ -299,7 +304,7 @@ def resave_config(config: PretrainedConfig, save_dir: str):
     sometimes supports loading the transformers-serialized one. To stay
     compatible, this loads the original config file referenced by
     ``config._name_or_path``, overwrites only the fields that llmcompressor has
-    changed (currently the expert-count fields in
+    changed (embedding ties, dtype, and the expert-count fields in
     :data:`NUM_EXPERTS_CONFIG_KEYS`, which change under REAP expert pruning),
     and writes the result to ``save_dir/config.json``.
 
@@ -361,9 +366,26 @@ def resave_config(config: PretrainedConfig, save_dir: str):
                 return False
         return True
 
+    def modify_tie_word_embeddings() -> bool:
+        # Multimodal configs can serialize the tie flag at both levels. Patch
+        # every level present in the original, using its corresponding live flag.
+        key = "tie_word_embeddings"
+        levels = [(src_config, tgt_config)]
+        if tgt_text_config is not tgt_config:
+            levels.append((src_text_config, tgt_text_config))
+        patched = False
+        for source, target in levels:
+            if key in target and key in source:
+                target[key] = source[key]
+                patched = True
+        if not patched and (key in src_config or key in src_text_config):
+            logger.warning(f"Failed to find {key} key in original config.")
+            return False
+        return True
+
     if not all(
         [
-            modify_text_config(["tie_word_embeddings"]),
+            modify_tie_word_embeddings(),
             modify_text_config(["torch_dtype", "dtype"]),
             modify_text_config(NUM_EXPERTS_CONFIG_KEYS),
         ]
