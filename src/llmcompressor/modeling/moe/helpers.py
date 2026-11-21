@@ -110,6 +110,21 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
     return None
 
 
+# Routers of these models apply an activation that their published configs do
+# not declare, and transformers hard-codes it in the router module itself
+# (Glm4MoeTopkRouter, Glm4vMoeTextTopkRouter, Glm4MoeLiteTopkRouter all call
+# `.sigmoid()`), so the plain softmax default is wrong for them.
+DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE = {
+    "glm4_moe": "sigmoid",
+    "glm4_moe_lite": "sigmoid",
+    # glm4v_moe is the multimodal wrapper; its MoE lives in the text model,
+    # whose config is what get_text_config() returns and what the modifiers use.
+    # Both are listed so a caller holding either object resolves the same way.
+    "glm4v_moe": "sigmoid",
+    "glm4v_moe_text": "sigmoid",
+}
+
+
 @dataclass
 class MoEConfig:
     # experts routing
@@ -154,7 +169,7 @@ class MoEConfig:
             score_function=_getattr_fallbacks(
                 config,
                 ["scoring_func", "score_func", "moe_router_activation_func"],
-                "softmax",
+                DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE.get(config.model_type, "softmax"),
                 warn_on_default=True,
             ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
