@@ -1,3 +1,4 @@
+import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -24,6 +25,27 @@ smoothquant_dynamic_mappings = (
     "llmcompressor.modifiers.transform.smoothquant.dynamic_mappings"
 )
 smoothquant_utils = "llmcompressor.modifiers.transform.smoothquant.utils"
+
+
+def _assert_mappings_match_module_tree(mappings, module_names, arch_name):
+    """Assert every smooth and balance pattern of ``mappings`` matches at
+    least one module name of a constructed module tree."""
+    for layer_map in mappings:
+        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
+        smooth_re = re.compile(smooth_pat)
+        smooth_hits = [n for n in module_names if smooth_re.search(n)]
+        assert smooth_hits, (
+            f"{arch_name}: smooth pattern {smooth_pat!r} matched no "
+            f"modules; sample names: {module_names[:20]}"
+        )
+        for balance_pat_raw in layer_map.balance_layers:
+            balance_pat = balance_pat_raw.removeprefix("re:")
+            balance_re = re.compile(balance_pat)
+            balance_hits = [n for n in module_names if balance_re.search(n)]
+            assert balance_hits, (
+                f"{arch_name}: balance pattern {balance_pat!r} matched "
+                f"no modules; sample names: {module_names[:20]}"
+            )
 
 
 @pytest.mark.unit
@@ -243,8 +265,6 @@ def test_granite_default_mapping_regex_matches_real_module_tree():
     attention + MLP modules per layer. No HF Hub downloads, no weight
     allocation. Validates the registry entry added in this PR.
     """
-    import re
-
     import torch
     from transformers import GraniteConfig, GraniteForCausalLM
 
@@ -261,22 +281,9 @@ def test_granite_default_mapping_regex_matches_real_module_tree():
 
     module_names = [name for name, _ in model.named_modules()]
 
-    for layer_map in DEFAULT_SMOOTHQUANT_MAPPINGS:
-        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
-        smooth_re = re.compile(smooth_pat)
-        smooth_hits = [n for n in module_names if smooth_re.search(n)]
-        assert smooth_hits, (
-            f"GraniteForCausalLM: smooth pattern {smooth_pat!r} matched no "
-            f"modules; sample names: {module_names[:20]}"
-        )
-        for balance_pat_raw in layer_map.balance_layers:
-            balance_pat = balance_pat_raw.removeprefix("re:")
-            balance_re = re.compile(balance_pat)
-            balance_hits = [n for n in module_names if balance_re.search(n)]
-            assert balance_hits, (
-                f"GraniteForCausalLM: balance pattern {balance_pat!r} matched "
-                f"no modules; sample names: {module_names[:20]}"
-            )
+    _assert_mappings_match_module_tree(
+        DEFAULT_SMOOTHQUANT_MAPPINGS, module_names, "GraniteForCausalLM"
+    )
 
 
 @pytest.mark.unit
@@ -322,22 +329,9 @@ def test_glm4_moe_lite_mapping_regex_matches_real_module_tree():
         DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS
     )
 
-    for layer_map in DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS:
-        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
-        smooth_re = re.compile(smooth_pat)
-        smooth_hits = [n for n in module_names if smooth_re.search(n)]
-        assert smooth_hits, (
-            f"Glm4MoeLiteForCausalLM: smooth pattern {smooth_pat!r} matched "
-            f"no modules; sample names: {module_names[:20]}"
-        )
-        for balance_pat_raw in layer_map.balance_layers:
-            balance_pat = balance_pat_raw.removeprefix("re:")
-            balance_re = re.compile(balance_pat)
-            balance_hits = [n for n in module_names if balance_re.search(n)]
-            assert balance_hits, (
-                f"Glm4MoeLiteForCausalLM: balance pattern {balance_pat!r} "
-                f"matched no modules; sample names: {module_names[:20]}"
-            )
+    _assert_mappings_match_module_tree(
+        DEEPSEEK_V2_SMOOTHQUANT_MAPPINGS, module_names, "Glm4MoeLiteForCausalLM"
+    )
 
     # The previous fallback (DEFAULT_SMOOTHQUANT_MAPPINGS) is the actual bug:
     # its plain q_proj/k_proj/v_proj balance layers never match this arch's
@@ -373,8 +367,6 @@ def test_nanbeige_default_mapping_regex_matches_standard_module_tree():
     a minimal synthetic module tree with the documented standard layer names
     and confirm the regex matches it.
     """
-    import re
-
     import torch
 
     layers = []
@@ -410,17 +402,6 @@ def test_nanbeige_default_mapping_regex_matches_standard_module_tree():
         is DEFAULT_SMOOTHQUANT_MAPPINGS
     )
 
-    for layer_map in DEFAULT_SMOOTHQUANT_MAPPINGS:
-        smooth_pat = layer_map.smooth_layers.removeprefix("re:")
-        smooth_hits = [n for n in module_names if re.search(smooth_pat, n)]
-        assert smooth_hits, (
-            f"NanbeigeForCausalLM: smooth pattern {smooth_pat!r} matched no "
-            f"modules; sample names: {module_names[:20]}"
-        )
-        for balance_pat_raw in layer_map.balance_layers:
-            balance_pat = balance_pat_raw.removeprefix("re:")
-            balance_hits = [n for n in module_names if re.search(balance_pat, n)]
-            assert balance_hits, (
-                f"NanbeigeForCausalLM: balance pattern {balance_pat!r} matched "
-                f"no modules; sample names: {module_names[:20]}"
-            )
+    _assert_mappings_match_module_tree(
+        DEFAULT_SMOOTHQUANT_MAPPINGS, module_names, "NanbeigeForCausalLM"
+    )

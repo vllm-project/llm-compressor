@@ -850,16 +850,11 @@ def test_imatrix_fp8_e4b15_matches_native(monkeypatch):
     assert torch.equal(native[1], e4b15[1])
 
 
-@pytest.mark.parametrize("device", ["cuda", "xpu"])
-@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
-def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm, device):
-    """A Llama-derived BF16 case chooses the same NVFP4 grid point."""
-    device_module = getattr(torch, device, None)
-    if device_module is None or not device_module.is_available():
-        pytest.skip(f"{device} is not available")
-
-    args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
-    observed = torch.tensor(
+# Llama-derived BF16 NVFP4 cases. The grid_choice case exercises ordinary
+# observed/importance magnitudes; the weighted_power case includes an extreme
+# importance outlier (14119.03), stressing the weighted error power accumulation
+_NVFP4_BF16_CASES = [
+    pytest.param(
         [
             0.0078125,
             0.00439453125,
@@ -878,10 +873,6 @@ def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm, device):
             0.0133056640625,
             -0.00174713134765625,
         ],
-        device=device,
-        dtype=torch.bfloat16,
-    ).reshape(1, 1, 1, 16)
-    importance = torch.tensor(
         [
             0.0008253254927694798,
             0.002562405075877905,
@@ -900,31 +891,9 @@ def test_imatrix_nvfp4_bf16_grid_choice_matches_eager(norm, device):
             0.007513321004807949,
             0.0026003867387771606,
         ],
-        device=device,
-        dtype=torch.float32,
-    ).reshape(1, 1, 1, 16)
-    _assert_imatrix_eager_triton_parity(
-        args,
-        observed,
-        importance,
-        maxshrink=1.0 - 0.8 / 1.8,
-        patience=1000,
-        grid=200.0,
-        norm=norm,
-        expand=1.8,
-    )
-
-
-@pytest.mark.parametrize("device", ["cuda", "xpu"])
-@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
-def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm, device):
-    """Match eager's weighted error power for this BF16 NVFP4 case."""
-    device_module = getattr(torch, device, None)
-    if device_module is None or not device_module.is_available():
-        pytest.skip(f"{device} is not available")
-
-    args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
-    observed = torch.tensor(
+        id="grid_choice",
+    ),
+    pytest.param(
         [
             -0.013671875,
             0.01007080078125,
@@ -943,10 +912,6 @@ def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm, device):
             0.006927490234375,
             0.01318359375,
         ],
-        device=device,
-        dtype=torch.bfloat16,
-    ).reshape(1, 1, 1, 16)
-    importance = torch.tensor(
         [
             0.002571985125541687,
             0.0014283129712566733,
@@ -965,8 +930,30 @@ def test_imatrix_nvfp4_bf16_weighted_power_matches_eager(norm, device):
             0.010342647321522236,
             0.0010723379673436284,
         ],
-        device=device,
-        dtype=torch.float32,
+        id="weighted_power",
+    ),
+]
+
+
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+@pytest.mark.parametrize("norm", [2.0, 2.4, 2.8, 3.0])
+@pytest.mark.parametrize(("observed_values", "importance_values"), _NVFP4_BF16_CASES)
+def test_imatrix_nvfp4_bf16_matches_eager(
+    observed_values, importance_values, norm, device
+):
+    """Llama-derived BF16 cases choose the same NVFP4 grid point as eager,
+    both for ordinary importance magnitudes and for an extreme weighted
+    error power outlier."""
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
+    args = preset_name_to_scheme("NVFP4A16", ["Linear"]).weights
+    observed = torch.tensor(
+        observed_values, device=device, dtype=torch.bfloat16
+    ).reshape(1, 1, 1, 16)
+    importance = torch.tensor(
+        importance_values, device=device, dtype=torch.float32
     ).reshape(1, 1, 1, 16)
     _assert_imatrix_eager_triton_parity(
         args,

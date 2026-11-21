@@ -94,7 +94,14 @@ def test_calibration_forward_context():
 @pytest.mark.parametrize(
     "model_cls,model_stub",
     [
-        (MllamaForConditionalGeneration, "meta-llama/Llama-3.2-11B-Vision-Instruct"),
+        # the 11B vision model is expensive to download and run, so it only
+        # runs on the nightly cadence; the tiny variant covers the commit
+        # cadence
+        pytest.param(
+            MllamaForConditionalGeneration,
+            "meta-llama/Llama-3.2-11B-Vision-Instruct",
+            marks=pytest.mark.nightly,
+        ),
         (AutoModelForCausalLM, "nm-testing/tinysmokellama-3.2"),
     ],
 )
