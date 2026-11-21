@@ -89,7 +89,11 @@ def _retie_embeddings(model: PreTrainedModel):
     if text_config is not None:
         text_config.tie_word_embeddings = True
     nested_config = getattr(config, "text_config", None)
-    if nested_config is not None and nested_config is not text_config:
+    if (
+        nested_config is not None
+        and nested_config is not text_config
+        and hasattr(nested_config, "tie_word_embeddings")
+    ):
         nested_config.tie_word_embeddings = True
     if config is not None and hasattr(config, "tie_word_embeddings"):
         config.tie_word_embeddings = True
@@ -346,10 +350,17 @@ def resave_config(config: PretrainedConfig, save_dir: str):
         )
         return
 
+    if not isinstance(tgt_config, dict):
+        logger.warning("Original config.json is not an object. Keeping saved config.")
+        return
+
     # modify config.json to reflect fields that llmcompressor has modified
     src_config = config.to_dict()
     src_text_config = src_config.get("text_config", src_config)
     tgt_text_config = tgt_config.get("text_config", tgt_config)
+    if not isinstance(src_text_config, dict) or not isinstance(tgt_text_config, dict):
+        logger.warning("Invalid text_config. Keeping transformers-serialized config.")
+        return
 
     def modify_text_config(attrs: list[str]) -> bool:
         _missing = Sentinel("_missing")

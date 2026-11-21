@@ -172,6 +172,27 @@ def test_nested_tie_word_embeddings_patched_at_both_levels(save_dir, original_di
     assert saved["text_config"]["tie_word_embeddings"] is False
 
 
+@pytest.mark.parametrize("malformed_text_config", [None, [], "invalid"])
+def test_malformed_nested_config_keeps_serialized_config(
+    save_dir, original_dir, malformed_text_config
+):
+    _write_json(
+        original_dir / "config.json",
+        {"tie_word_embeddings": True, "text_config": malformed_text_config},
+    )
+    config = FakeConfig(
+        name_or_path=str(original_dir),
+        text_config=FakeConfig(tie_word_embeddings=False),
+    )
+
+    resave_config(config, str(save_dir))
+
+    assert _read_json(save_dir / "config.json") == {
+        "dtype": "float32",
+        "serialized_by": "transformers",
+    }
+
+
 def test_dtype_patched_via_key_fallback(save_dir, original_dir):
     # original serializes the dtype under "torch_dtype"; config exposes "dtype"
     _write_json(original_dir / "config.json", {"torch_dtype": "float32"})

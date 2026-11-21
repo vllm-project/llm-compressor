@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 import torch
 from accelerate import dispatch_model
@@ -31,6 +33,35 @@ def test_untie_word_embeddings_updates_nested_config():
     assert model.lm_head.weight is not model.embed_tokens.weight
     assert model.config.tie_word_embeddings is False
     assert model.config.text_config.tie_word_embeddings is False
+
+
+def test_untie_word_embeddings_updates_decoder_config():
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            decoder_config = SimpleNamespace(tie_word_embeddings=True)
+            self.config = SimpleNamespace(
+                tie_word_embeddings=True,
+                text_config=SimpleNamespace(tie_word_embeddings=True),
+                get_text_config=lambda decoder: decoder_config,
+            )
+            self.decoder_config = decoder_config
+            self.embed_tokens = nn.Embedding(4, 3)
+            self.lm_head = nn.Linear(3, 4, bias=False)
+            self.lm_head.weight = self.embed_tokens.weight
+
+        def get_input_embeddings(self):
+            return self.embed_tokens
+
+        def get_output_embeddings(self):
+            return self.lm_head
+
+    model = TinyModel()
+    untie_word_embeddings(model)
+
+    assert model.config.tie_word_embeddings is False
+    assert model.config.text_config.tie_word_embeddings is False
+    assert model.decoder_config.tie_word_embeddings is False
 
 
 @pytest.mark.parametrize(

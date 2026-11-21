@@ -45,11 +45,13 @@ def untie_word_embeddings(model: PreTrainedModel):
         module.register_parameter("weight", param)
 
     # modify model config
-    if hasattr(model.config, "tie_word_embeddings"):
-        model.config.tie_word_embeddings = False
-    text_config = getattr(model.config, "text_config", None)
-    if text_config is not None and hasattr(text_config, "tie_word_embeddings"):
-        text_config.tie_word_embeddings = False
+    config = getattr(model, "config", None)
+    get_text_config = getattr(config, "get_text_config", None)
+    text_config = get_text_config(decoder=True) if callable(get_text_config) else config
+    nested_config = getattr(config, "text_config", None)
+    for level in (config, text_config, nested_config):
+        if level is not None and hasattr(level, "tie_word_embeddings"):
+            level.tie_word_embeddings = False
 
 
 def targets_embeddings(
