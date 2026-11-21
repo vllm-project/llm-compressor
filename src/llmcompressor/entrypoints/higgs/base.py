@@ -56,6 +56,22 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
+def _unique_scheme_key(base: str, resolved: Dict[str, QuantizationScheme]) -> str:
+    """Return a candidate key that does not collide with a resolved scheme.
+
+    A bitwidth-derived name does not distinguish schemes that differ in
+    strategy, group size, type, symmetry, or other quantization args, and a
+    preset name can collide with a scheme object. Every candidate needs its own
+    key so the ILP can consider all of them.
+    """
+    if base not in resolved:
+        return base
+    suffix = 2
+    while f"{base}_{suffix}" in resolved:
+        suffix += 1
+    return f"{base}_{suffix}"
+
+
 class HiggsMSECollectorConverter(Converter):
     """
     First-pass converter that collects per-layer MSE data, solves the ILP,
@@ -93,7 +109,8 @@ class HiggsMSECollectorConverter(Converter):
         resolved = {}
         for scheme in schemes:
             if isinstance(scheme, str):
-                resolved[scheme] = preset_name_to_scheme(scheme, targets=self.targets)
+                key = _unique_scheme_key(scheme, resolved)
+                resolved[key] = preset_name_to_scheme(scheme, targets=self.targets)
             elif isinstance(scheme, QuantizationScheme):
                 if scheme.weights:
                     key = f"W{scheme.weights.num_bits}"
@@ -103,8 +120,8 @@ class HiggsMSECollectorConverter(Converter):
                         else "A16"
                     )
                 else:
-                    key = f"scheme_{len(resolved)}"
-                resolved[key] = scheme
+                    key = "scheme"
+                resolved[_unique_scheme_key(key, resolved)] = scheme
             else:
                 raise ValueError(f"Invalid scheme type: {type(scheme)}")
         return resolved
