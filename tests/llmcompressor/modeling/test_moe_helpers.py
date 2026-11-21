@@ -76,3 +76,23 @@ def test_known_model_types_are_listed_in_the_router_mapping():
 
     assert DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE["qwen3_5_moe"] == "softmax"
     assert DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE["qwen3_5_moe_text"] == "softmax"
+
+
+@pytest.mark.parametrize("model_type", ["glm_moe_dsa", "glm5_next", "glm5_next_text"])
+def test_newer_glm_families_use_sigmoid_too(model_type, caplog):
+    """GLM-MoE-DSA and GLM-5 fell into the same gap as GLM-4.
+
+    `GlmMoeDsaTopkRouter` and `Glm5NextTextTopkRouter` call `.sigmoid()`, and
+    neither `configuration_glm_moe_dsa.py` nor `configuration_glm5_next.py`
+    declares a router activation, so the plain softmax default was wrong for them
+    exactly as it was for the GLM-4 family in #3557.
+    """
+    cfg = MoEConfig.from_config(_StubConfig(model_type))
+    assert cfg.score_function == "sigmoid"
+
+
+def test_glm5_next_vision_is_not_given_a_score_function():
+    """The vision tower has no router, so it must not inherit the family's sigmoid."""
+    from llmcompressor.modeling.moe.helpers import DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE
+
+    assert "glm5_next_vision" not in DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE

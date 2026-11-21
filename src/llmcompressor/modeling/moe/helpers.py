@@ -122,6 +122,15 @@ DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE = {
     # Both are listed so a caller holding either object resolves the same way.
     "glm4v_moe": "sigmoid",
     "glm4v_moe_text": "sigmoid",
+    # The same gap exists for the newer GLM families, which arrived after the
+    # GLM-4 entries were written: `GlmMoeDsaTopkRouter` and
+    # `Glm5NextTextTopkRouter` call `.sigmoid()` too, and neither
+    # `configuration_glm_moe_dsa.py` nor `configuration_glm5_next.py` declares a
+    # router activation. glm5_next ships a vision config as well; a vision tower
+    # has no router, so only the language configs are listed.
+    "glm_moe_dsa": "sigmoid",
+    "glm5_next": "sigmoid",
+    "glm5_next_text": "sigmoid",
     # qwen3_5_moe leaves the router activation out of its config completely and
     # uses softmax. Both the top-level config and the text sub-config reach
     # from_config() -- modifiers call get_text_config() -- so both are listed,
