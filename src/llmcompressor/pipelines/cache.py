@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
 from typing import Any, Generator
-from weakref import WeakKeyDictionary
+from weakref import ref
 
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -81,9 +81,10 @@ class IntermediatesCache:
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
 
-    # map of onload value -> offload value
-    # used to avoid excess memory usage when shared tensors are offloaded
-    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
+    # Deduplicate by source identity and destination without dispatching Tensor.__eq__.
+    offload_values: dict[
+        tuple[int, torch.device | None], tuple[ref[torch.Tensor], torch.Tensor]
+    ] = {}
 
     def __init__(
         self,
@@ -437,7 +438,7 @@ class IntermediatesCache:
     def _offload_value(
         cls,
         value: Any,
-        offload_device: torch.device | None,
+        offload_device: torch.device | str | None,
         onload_device: torch.device | None = None,
     ) -> IntermediateValue:
         """
@@ -452,15 +453,35 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                with OverrideEqMode():
-                    # check for cache hit between shared tensors
-                    if value in cls.offload_values:
-                        offloaded = cls.offload_values[value]
-                    else:
-                        # move to offload if no hit
-                        offloaded = value.to(device=offload_device)
-                        if offloaded is not value:  # avoid circular ref
-                            cls.offload_values[value] = offloaded
+                device = offload_device
+                if device is not None:
+                    if not isinstance(device, torch.device):
+                        device = torch.device(device)
+                    # An unindexed accelerator target follows the current device.
+                    if (
+                        device.index is None
+                        and device.type not in ("cpu", "meta")
+                        and device == torch.accelerator.current_accelerator()
+                    ):
+                        device = torch.device(
+                            device.type, torch.accelerator.current_device_index()
+                        )
+                key = (id(value), device)
+                offload_values = cls.offload_values
+                entry = offload_values.get(key)
+                # An id can be reused once its original tensor is gone.
+                if entry is not None and entry[0]() is value:
+                    offloaded = entry[1]
+                else:
+                    offloaded = value.to(device=device)
+                    if offloaded is not value:  # avoid retaining the source tensor
+
+                        def remove(dead_ref: ref[torch.Tensor]) -> None:
+                            current = offload_values.get(key)
+                            if current is not None and current[0] is dead_ref:
+                                del offload_values[key]
+
+                        offload_values[key] = (ref(value, remove), offloaded)
 
                 return IntermediateValue(
                     value=offloaded,

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, fields, is_dataclass
 from types import SimpleNamespace
 from typing import Optional
+from weakref import ref
 
 import pytest
 import torch
@@ -219,6 +220,123 @@ def test_offload_and_onload(value):
     offloaded = cache._offload_value(value, torch.device("cpu"))
     onloaded = cache._onload_value(offloaded)
     assert deep_equal(onloaded, value)
+
+
+@pytest.mark.unit
+def test_shared_offload_uses_identity_without_dispatch_mode(monkeypatch):
+    def unexpected_mode():
+        pytest.fail("offloading a tensor must not enter OverrideEqMode")
+
+    monkeypatch.setattr("llmcompressor.pipelines.cache.OverrideEqMode", unexpected_mode)
+    cache = IntermediatesCache.empty(1, torch.device("meta"))
+    tensor = torch.ones(2, 3)
+    cache.update(0, {"shared": [tensor, tensor], "distinct": tensor.clone()})
+
+    batch = cache.batch_intermediates[0]
+    first, second = batch["shared"].value
+    assert first.value.device.type == "meta"
+    assert first.value is second.value
+    assert first.value is not batch["distinct"].value
+
+
+@pytest.mark.unit
+def test_shared_offload_respects_each_cache_device():
+    source = torch.ones(2, 3)
+    meta_cache = IntermediatesCache.empty(1, "meta")
+    cpu_cache = IntermediatesCache.empty(1, torch.device("cpu"))
+    no_offload_cache = IntermediatesCache.empty(1, None)
+
+    for cache in (meta_cache, cpu_cache, no_offload_cache):
+        cache.update(0, {"source": source})
+
+    offloaded = meta_cache.batch_intermediates[0]["source"].value
+    assert offloaded.device.type == "meta"
+    assert cpu_cache.fetch(0)["source"] is source
+    assert no_offload_cache.fetch(0)["source"] is source
+    assert (
+        IntermediatesCache._offload_value(source, torch.device("meta")).value
+        is offloaded
+    )
+
+
+@pytest.mark.unit
+def test_unindexed_offload_tracks_current_accelerator_device(monkeypatch):
+    current_index = 0
+    transfers = []
+
+    class SourceTensor(torch.Tensor):
+        def to(self, *, device):
+            transfers.append(device)
+            return self.as_subclass(torch.Tensor).clone()
+
+    source = torch.ones(2, 3).as_subclass(SourceTensor)
+    monkeypatch.setattr(
+        torch.accelerator, "current_accelerator", lambda: torch.device("cuda")
+    )
+    monkeypatch.setattr(
+        torch.accelerator, "current_device_index", lambda: current_index
+    )
+
+    first = IntermediatesCache._offload_value(source, "cuda").value
+    current_index = 1
+    second = IntermediatesCache._offload_value(source, "cuda").value
+    again = IntermediatesCache._offload_value(source, torch.device("cuda:0")).value
+
+    assert first is not second
+    assert first is again
+    assert transfers == [torch.device("cuda:0"), torch.device("cuda:1")]
+
+
+@pytest.mark.unit
+def test_offload_entry_expires_with_source():
+    source = torch.ones(2, 3)
+    meta = torch.device("meta")
+    cpu = torch.device("cpu:0")
+    keys = {(id(source), meta), (id(source), cpu)}
+    source_ref = ref(source)
+    offloaded = IntermediatesCache._offload_value(source, meta)
+    IntermediatesCache._offload_value(source, cpu)
+
+    assert keys <= IntermediatesCache.offload_values.keys()
+    del source
+    assert source_ref() is None
+    assert keys.isdisjoint(IntermediatesCache.offload_values)
+    assert offloaded.value.device.type == "meta"
+
+
+@pytest.mark.unit
+def test_offload_replaces_stale_identity_entry(monkeypatch):
+    old_source = torch.ones(2, 3)
+    old_ref = ref(old_source)
+    old_offload = old_source.to("meta")
+    del old_source
+    assert old_ref() is None
+
+    source = torch.ones(4, 5)
+    device = torch.device("meta")
+    key = (id(source), device)
+    # Simulate id reuse without depending on Python's allocator.
+    entries = {key: (old_ref, old_offload)}
+    monkeypatch.setattr(IntermediatesCache, "offload_values", entries)
+
+    offloaded = IntermediatesCache._offload_value(source, device)
+
+    assert offloaded.value.shape == source.shape
+    assert entries[key][0]() is source
+    assert entries[key][1] is offloaded.value
+
+
+@pytest.mark.unit
+def test_noop_offload_does_not_retain_source():
+    source = torch.ones(2, 3)
+    source_ref = ref(source)
+    device = torch.device("cpu")
+    offloaded = IntermediatesCache._offload_value(source, device)
+
+    assert offloaded.value is source
+    assert (id(source), device) not in IntermediatesCache.offload_values
+    del offloaded, source
+    assert source_ref() is None
 
 
 @pytest.mark.unit
