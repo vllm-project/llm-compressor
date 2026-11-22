@@ -297,6 +297,37 @@ def test_get_unquantized_layer_names_includes_layers_outside_targets(
     }
 
 
+_LLAMA_LINEARS = {
+    "self_attn.q_proj",
+    "self_attn.k_proj",
+    "self_attn.v_proj",
+    "self_attn.o_proj",
+    "mlp.gate_proj",
+    "mlp.up_proj",
+    "mlp.down_proj",
+}
+
+
+@pytest.mark.parametrize("with_scheme", [False, True])
+def test_get_unquantized_layer_names_unchanged_for_linear_targets(
+    tiny_llama_decoder_layer, with_scheme
+):
+    """With the default `targets="Linear"`, every supported layer is a target, so
+    only Linears without a quantization scheme are reported, as before."""
+    modifier = AutoRoundModifier(ignore=["lm_head"], iters=0, scheme="W4A16")
+    layer = tiny_llama_decoder_layer
+    if with_scheme:
+        for name in _LLAMA_LINEARS:
+            layer.get_submodule(name).quantization_scheme = QuantizationScheme(
+                targets=["Linear"],
+                weights=QuantizationArgs(num_bits=4, strategy="group", group_size=128),
+            )
+
+    unquantized = modifier.get_unquantized_layer_names(layer)
+
+    assert set(unquantized) == (set() if with_scheme else _LLAMA_LINEARS)
+
+
 def test_postprocess_qparams_applies_autoround_decision_with_regex_targets(
     tiny_llama_decoder_layer,
 ):

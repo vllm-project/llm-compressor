@@ -468,11 +468,17 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         supported layer of the block that is not ignored, so this covers layers
         outside this modifier's targets (or in its `ignore` list) as well as
         targets that have no quantization scheme.
+
+        The layer-type check uses `isinstance`, which is deliberately wider than
+        AutoRound's exact-type wrapping check: listing a subclass AutoRound would
+        not wrap is harmless, while missing a layer it does wrap is not.
         """
         autoround_targets = self._match_autoround_targets(wrapped_model)
         unquantized_layers = []
 
         for name, module in wrapped_model.named_modules():
+            if not name:
+                continue
             if not (
                 isinstance(module, SUPPORTED_LAYER_TYPES)
                 or type(module).__name__ in INNER_SUPPORTED_LAYER_TYPES
