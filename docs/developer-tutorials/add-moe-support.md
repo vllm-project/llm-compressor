@@ -10,7 +10,10 @@ LLM Compressor also performs an operation called **linearization**, by which fus
 
 # Adding MoE Support
 
-Since upgrading to [transformers v5](https://github.com/vllm-project/llm-compressor/pull/2647), LLM Compressor automatically handles MoE support for nearly all model architectures supported by transformers.
++!!! note
++    If your model architecture is **not yet supported in `transformers` at all**, see [Adding Custom Transformers Modeling Support](add-custom-model.md) first to create a Custom Modeling Package with `@use_experts_implementation` already integrated.
++
+ Since upgrading to [transformers v5](https://github.com/vllm-project/llm-compressor/pull/2647), LLM Compressor automatically handles MoE support for nearly all model architectures supported by transformers.
 
 Mixture of Experts (MoE) models should be loaded with the `load_context` provided by LLM Compressor in order to ensure that they are loaded correctly and optimally for calibration.
 ```python

@@ -30,4 +30,12 @@ These guides are for contributors who want to extend LLM Compressor with new fun
 
     [:octicons-arrow-right-24: Adding MoE Calibration Support for a New Model](add-moe-support.md)
 
+- **Adding Custom Transformers Modeling Support**
+
+    ---
+
+    Learn how to port a vLLM or standalone PyTorch model definition into `src/llmcompressor/modeling/` using agent skills, verify parity, and open a PR.
+
+    [:octicons-arrow-right-24: Adding Custom Transformers Modeling Support](add-custom-model.md)
+
 </div>
