@@ -24,9 +24,6 @@ from tqdm import tqdm
 from transformers import PreTrainedModel
 from transformers.configuration_utils import PretrainedConfig
 
-from llmcompressor.modeling.module_restructure import (
-    RESTRUCTURE_METADATA_ATTR,
-)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.sequential.grouping import (
     log_partitions,
@@ -134,28 +131,6 @@ def collect_subgraph_modules(
     modules: dict[str, Module] = {}
     for subgraph in subgraphs:
         modules.update(subgraph.submodule_dict(model, recurse=recurse))
-    return modules
-
-
-def maybe_add_parent_restructure_targets(
-    model: Module, modules: dict[str, Module]
-) -> dict[str, Module]:
-    """Add enclosing restructure roots to the supplied module mapping in place."""
-    ancestor_names: set[str] = set()
-
-    for name in modules:
-        # The supplied mapping includes descendants of graph roots. Their paths let
-        # us find restructure roots above them without scanning the full model.
-        parent_name = name
-        while parent_name:
-            parent_name = parent_name.rpartition(".")[0]
-            ancestor_names.add(parent_name)
-
-    for name in sorted(ancestor_names, key=lambda item: (item.count("."), item)):
-        ancestor = model.get_submodule(name) if name else model
-        if hasattr(ancestor, RESTRUCTURE_METADATA_ATTR):
-            modules[name] = ancestor
-
     return modules
 
 

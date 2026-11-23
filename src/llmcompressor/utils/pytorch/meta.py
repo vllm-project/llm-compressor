@@ -96,17 +96,13 @@ def materialize_meta_module(
                     saved_value = None
                 else:
                     saved_value = tensor.detach().clone()
-                originals.append(
-                    (submodule, mapping_name, name, tensor, saved_value)
-                )
-
-    if not has_meta_tensors:
-        raise ValueError("module has no meta parameters or buffers to materialize")
+                originals.append((submodule, mapping_name, name, tensor, saved_value))
 
     swap_params = torch.__future__.get_swap_module_params_on_conversion()
     torch.__future__.set_swap_module_params_on_conversion(True)
     try:
-        module.to_empty(device=device, recurse=recurse)
+        if has_meta_tensors:
+            module.to_empty(device=device, recurse=recurse)
     finally:
         torch.__future__.set_swap_module_params_on_conversion(swap_params)
 
@@ -127,7 +123,7 @@ def materialize_meta_module(
     # ``to_empty`` only handles registered parameters and buffers. Tensor-valued
     # attributes are converted to meta by ``copy_module_to_meta`` too, so fail here
     # with a useful error instead of letting a later forward encounter meta state.
-    for submodule in (module.modules() if recurse else (module,)):
+    for submodule in module.modules() if recurse else (module,):
         for name, value in submodule.__dict__.items():
             if name in {"_parameters", "_buffers", "_modules"}:
                 continue

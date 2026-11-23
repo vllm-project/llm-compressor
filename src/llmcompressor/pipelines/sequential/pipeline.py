@@ -29,14 +29,11 @@ from llmcompressor.pipelines.sequential.helpers import (
     decompress_subgraph_modules,
     find_modules_outside_graph,
     handle_sequential_oom,
-    maybe_add_parent_restructure_targets,
     partition_subgraphs,
     trace_graph,
 )
 from llmcompressor.pipelines.sequential.restructure import (
-    offload_original_modules,
-    onload_and_restructure_modules,
-    restore_restructured_modules,
+    RestructureHandler,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -91,6 +88,7 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        restructure_handler: RestructureHandler | None = None,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -118,12 +116,13 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
+        restructure_handler = restructure_handler or RestructureHandler(model)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
-        offload_original_modules(model, onload_device)
+        restructure_handler.configure_onload(onload_device)
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -149,9 +148,8 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            maybe_add_parent_restructure_targets(model, persistent_modules)
             subgraph_onload_modules(persistent_modules)
-            onload_and_restructure_modules(
+            restructure_handler.onload_and_restructure_modules(
                 persistent_modules,
                 onload_device,
             )
@@ -228,7 +226,6 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Prefetch first subgraph modules
             next_subgraph_modules = subgraphs[0].submodule_dict(model)
-            maybe_add_parent_restructure_targets(model, next_subgraph_modules)
             prefetched_staging = _submit_subgraph_staging(
                 stage_executor,
                 next_subgraph_modules,
@@ -238,7 +235,6 @@ class SequentialPipeline(CalibrationPipeline):
 
             for subgraph_index, subgraph in enumerate(subgraphs):
                 subgraph_modules = subgraph.submodule_dict(model)
-                maybe_add_parent_restructure_targets(model, subgraph_modules)
                 if prefetched_staging is None:
                     subgraph_stage_modules(
                         subgraph_modules,
@@ -273,7 +269,6 @@ class SequentialPipeline(CalibrationPipeline):
                     next_subgraph_modules = subgraphs[
                         subgraph_index + 1
                     ].submodule_dict(model)
-                    maybe_add_parent_restructure_targets(model, next_subgraph_modules)
                     prefetched_staging = _submit_subgraph_staging(
                         stage_executor,
                         next_subgraph_modules,
@@ -288,7 +283,9 @@ class SequentialPipeline(CalibrationPipeline):
                 # skips them. Their original modules are loaded during restructuring.
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
                 offload_kwargs.update(
-                    onload_and_restructure_modules(subgraph_modules, onload_device)
+                    restructure_handler.onload_and_restructure_modules(
+                        subgraph_modules, onload_device
+                    )
                 )
                 modules = list(subgraph_modules.values())
 
@@ -368,8 +365,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                restore_restructured_modules(
-                    model,
+                restructure_handler.restore_restructured_modules(
                     subgraph_modules,
                     offload_sources=False,
                 )
@@ -380,7 +376,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Restore temporary conversions that weren't part of a traced subgraph,
             # such as persistent modules.
-            restore_restructured_modules(model)
+            restructure_handler.restore_restructured_modules()
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

@@ -41,9 +41,7 @@ from llmcompressor.modifiers.quantization.quantization.mixin import Quantization
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.restructure import (
-    restore_restructured_modules,
-    restructure_and_swap_in,
-    swap_in_meta_modules,
+    RestructureHandler,
 )
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
@@ -51,6 +49,7 @@ from llmcompressor.transformers.compression.mtp import (
     validate_mtp_copy_source,
 )
 from llmcompressor.utils.helpers import use_eager_attention
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -294,9 +293,12 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        swap_in_meta_modules(
-            self.model,
+        restructure_handler = RestructureHandler(self.model)
+        restructure_handler.prepare_for_restructuring(
             layerwise_decompression=self.dataset_args.layerwise_decompression,
+            sequential_targets=infer_sequential_targets(
+                self.model, self.dataset_args.sequential_targets
+            ),
         )
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
@@ -338,15 +340,16 @@ class Oneshot:
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
+                    restructure_handler=restructure_handler,
                 )
             else:
-                restructure_and_swap_in(self.model)
+                restructure_handler.materialize_all()
                 pipeline(
                     self.model,
                     calibration_dataloader,
                     self.dataset_args,
                 )
-                restore_restructured_modules(self.model)
+            restructure_handler.finish()
 
         session.finalize()
 
