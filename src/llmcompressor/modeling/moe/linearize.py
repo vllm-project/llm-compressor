@@ -128,7 +128,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                 )
 
 
-def linearize_moe(model: PreTrainedModel):
+def linearize_moe(model: PreTrainedModel, *, decompress: bool = False):
     """
     Linearize a mixture-of-experts model after it has been loaded. For more
     runtime-efficient loading, please see `load_quantizable_moe`.
@@ -139,6 +139,7 @@ def linearize_moe(model: PreTrainedModel):
     (as designated by the `use_experts_implementation` decorator)
 
     :param model: model containing MoE layers to linearize
+    :param decompress: Decompress quantized expert state before linearizing.
     """
     non_linearized_moes = get_non_linearized_moes(model)
 
@@ -153,11 +154,13 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = _experts_config(module, model)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
-        model.set_submodule(name, linear_moe)
+    restructure = MoELinearizationRestructure(decompress=decompress)
+    for name, module, context in tqdm.tqdm(
+        restructure.targets(model),
+        total=len(non_linearized_moes),
+        desc="Linearizing experts",
+    ):
+        model.set_submodule(name, restructure.restructure(module, context))
 
     return model
 

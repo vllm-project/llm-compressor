@@ -1,5 +1,6 @@
 import copy
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -20,20 +21,22 @@ from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 
 @pytest.mark.parametrize(
-    "targets,eager_layers",
+    "targets,lazy_linearization,expected_lazy",
     [
-        (["ExpertMLP"], {0, 1}),
-        (["Linear"], {0, 1}),
-        (["model.layers.0.mlp.experts.0"], {0}),
-        ([r"re:model\.layers\.0\.mlp\.experts\.0\..*_proj$"], {0}),
-        (["Qwen3MoeDecoderLayer"], set()),
-        (["LinearExperts2D"], set()),
-        (["Qwen3MoeDecoderLayer", "ExpertMLP"], set()),
-        ([""], set()),
+        (None, None, True),
+        (["ExpertMLP"], True, False),
+        (["Linear"], True, False),
+        (["model.layers.0.mlp.experts.0"], True, False),
+        ([r"re:model\.layers\.0\.mlp\.experts\.0\..*_proj$"], True, False),
+        (["Qwen3MoeDecoderLayer"], True, True),
+        (["LinearExperts2D"], True, True),
+        (["Qwen3MoeDecoderLayer", "ExpertMLP"], True, True),
+        ([""], True, True),
+        (["Qwen3MoeDecoderLayer"], False, False),
     ],
 )
-def test_split_moes_are_linearized_upfront_but_initialize_on_meta(
-    monkeypatch, targets, eager_layers
+def test_lazy_linearization_option_and_split_target_fallback(
+    monkeypatch, tmp_path, targets, lazy_linearization, expected_lazy
 ):
     monkeypatch.setattr(
         "llmcompressor.pipelines.sequential.restructure.get_main_device",
@@ -55,30 +58,31 @@ def test_split_moes_are_linearized_upfront_but_initialize_on_meta(
     model = AutoModelForCausalLM.from_config(config, attn_implementation="eager")
     reference = copy.deepcopy(model)
     linearize_moe(reference)
-    oneshot = Oneshot.__new__(Oneshot)
-    oneshot.model = model
-    oneshot.dataset_args = SimpleNamespace(
-        layerwise_decompression=False, sequential_targets=targets
+    config.save_pretrained(tmp_path)
+    model.config.name_or_path = str(tmp_path)
+    oneshot = Oneshot(
+        model=model,
+        processor=object(),
+        recipe=[],
+        sequential_targets=targets,
+        **(
+            {"lazy_linearization": lazy_linearization}
+            if lazy_linearization is not None
+            else {}
+        ),
     )
-    oneshot._linearize_moe_if_needed()
+    assert oneshot.dataset_args.lazy_linearization is expected_lazy
     assert all(not tensor.is_meta for tensor in model.parameters())
-    handler = RestructureHandler(model)
-    handler.convert_model_to_meta()
-    assert not handler.restructures
-    handler.apply_restructuring()
-    assert all(tensor.is_meta for tensor in model.parameters())
-    assert all(tensor.is_meta for tensor in model.buffers())
-    for index, layer in enumerate(model.model.layers):
-        experts = layer.mlp.experts
-        assert (experts not in handler.restructures) == (index in eager_layers)
-    handler.materialize_all()
+    with patch(
+        "llmcompressor.entrypoints.oneshot.linearize_moe", wraps=linearize_moe
+    ) as upfront_linearize:
+        oneshot.apply_recipe_modifiers(None)
+        assert upfront_linearize.call_count == (0 if expected_lazy else 1)
     for index, layer in enumerate(model.model.layers):
         torch.testing.assert_close(
             layer.mlp.experts.state_dict(),
             reference.model.layers[index].mlp.experts.state_dict(),
         )
-    handler.finish()
-    assert not handler.mapping
 
 
 def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():

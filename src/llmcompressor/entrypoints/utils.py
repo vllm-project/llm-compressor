@@ -27,12 +27,16 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
+from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
+from llmcompressor.pipelines.sequential.helpers import _resolve_sequential_targets
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils import untie_word_embeddings
+from llmcompressor.utils.pytorch.meta import copy_module_to_meta
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 
 def pre_process(
@@ -88,6 +92,30 @@ def pre_process(
     # if the model was loaded with accelerate offloading, convert to CT offloading
     if hasattr(model_args.model, "hf_device_map"):
         from_accelerate(model_args.model)
+
+    if dataset_args.lazy_linearization:
+        moe_modules = get_non_linearized_moes(model_args.model)
+        if moe_modules:
+            # Expert targets may only exist after linearization. Resolve them on
+            # meta state before deciding whether real conversion can be delayed.
+            preview = copy_module_to_meta(model_args.model)
+            linearize_moe(preview, decompress=dataset_args.layerwise_decompression)
+            targets = _resolve_sequential_targets(
+                preview,
+                infer_sequential_targets(
+                    model_args.model, dataset_args.sequential_targets
+                ),
+            )
+            if any(
+                child in targets
+                for fqn, _ in moe_modules
+                for child in list(preview.get_submodule(fqn).modules())[1:]
+            ):
+                dataset_args.lazy_linearization = False
+                logger.warning(
+                    "Disabling lazy_linearization because sequential targets "
+                    "split an experts block."
+                )
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)

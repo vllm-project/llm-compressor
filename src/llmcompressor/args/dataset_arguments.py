@@ -223,6 +223,14 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
+    lazy_linearization: bool = field(
+        default=True,
+        metadata={
+            "help": "Linearize MoE experts when their subgraph is onloaded. "
+            "Automatically disabled when sequential targets split an experts "
+            "block. Set False to linearize upfront. Default True."
+        },
+    )
     # --- pipeline arguments --- #
     pipeline: str | None = field(
         default="independent",

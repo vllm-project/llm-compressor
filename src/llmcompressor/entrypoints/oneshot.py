@@ -37,11 +37,10 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
-from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
+from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
-from llmcompressor.pipelines.sequential.helpers import _resolve_sequential_targets
 from llmcompressor.pipelines.sequential.restructure import (
     RestructureHandler,
 )
@@ -51,8 +50,6 @@ from llmcompressor.transformers.compression.mtp import (
     validate_mtp_copy_source,
 )
 from llmcompressor.utils.helpers import use_eager_attention
-from llmcompressor.utils.pytorch.meta import copy_module_to_meta
-from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 __all__ = ["Oneshot", "oneshot"]
 
@@ -296,7 +293,18 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        self._linearize_moe_if_needed()
+        if (
+            not self.dataset_args.lazy_linearization
+            and len(get_non_linearized_moes(self.model)) > 0
+        ):
+            logger.warning(
+                "Detected an MoE model which has not been linearized. First load "
+                "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
+                " before passing to `oneshot`. Falling back to post-load linearization."
+            )
+            linearize_moe(
+                self.model, decompress=self.dataset_args.layerwise_decompression
+            )
 
         restructure_handler = RestructureHandler(self.model)
         restructure_handler.convert_model_to_meta()
@@ -355,35 +363,6 @@ class Oneshot:
             restructure_handler.finish()
 
         session.finalize()
-
-    def _linearize_moe_if_needed(self):
-        """Linearize upfront when sequential targets split an experts block."""
-        restructure = MoELinearizationRestructure(
-            decompress=self.dataset_args.layerwise_decompression
-        )
-        sources = list(restructure.targets(self.model))
-        if not sources:
-            return
-
-        # Targets may name experts or projections that only exist after conversion.
-        # Resolve them on a meta preview, before changing any real tensor state.
-        preview = copy_module_to_meta(self.model)
-        for fqn, source, context in restructure.targets(preview):
-            preview.set_submodule(fqn, restructure.restructure(source, context))
-        targets = _resolve_sequential_targets(
-            preview,
-            infer_sequential_targets(self.model, self.dataset_args.sequential_targets),
-        )
-        for fqn, source, context in sources:
-            experts = preview.get_submodule(fqn)
-            if any(
-                child in targets for child in experts.modules() if child is not experts
-            ):
-                logger.warning(
-                    f"Linearizing {fqn} upfront because sequential targets split "
-                    "its experts block."
-                )
-                self.model.set_submodule(fqn, restructure.restructure(source, context))
 
     def validate_model(self, model: PreTrainedModel):
         """
@@ -489,6 +468,7 @@ def oneshot(
     dataloader_num_workers: int = 0,
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
+    lazy_linearization: bool = True,
     pipeline: str | None = "independent",
     use_eager_attention: bool = False,
     tracing_ignore: list[str] = [
@@ -587,6 +567,9 @@ def oneshot(
         model calibration. When True, all experts will see all tokens during
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
+    :param lazy_linearization: Whether to linearize MoE experts when their subgraph
+        is onloaded. Automatically disabled when sequential targets split an experts
+        block. Set False to linearize upfront. Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
         ['basic', 'datafree', 'sequential', 'independent']
     :param use_eager_attention: Whether to force eager attention during tracing and
