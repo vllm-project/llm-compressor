@@ -27,7 +27,7 @@ def test_charles_reobservation_schedule_and_next_epoch_scales(kind):
         num_epochs=2,
         lr=0.003,
     )
-    modules = list(model.seq_target.modules())
+    modules = dict(model.seq_target.named_modules())
     weight_modules = [
         model.seq_target.left,
         model.seq_target.right,

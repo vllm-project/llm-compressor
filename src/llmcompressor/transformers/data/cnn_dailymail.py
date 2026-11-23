@@ -24,7 +24,7 @@ class CNNDailyMailDataset(TextGenerationDataset):
         self, dataset_args: "DatasetArguments", split: str, processor: Processor
     ):
         dataset_args = deepcopy(dataset_args)
-        dataset_args.dataset = "cnn_dailymail"
+        dataset_args.dataset = "abisee/cnn_dailymail"
         dataset_args.dataset_config_name = "3.0.0"
 
         super().__init__(dataset_args=dataset_args, split=split, processor=processor)
