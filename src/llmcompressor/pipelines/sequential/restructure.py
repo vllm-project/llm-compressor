@@ -125,7 +125,7 @@ class RestructureHandler:
     def apply_restructuring(self) -> None:
         """Restructure the meta model and associate replacements with real sources."""
         roots: set[str] = set()
-        for transform in (
+        for restructure in (
             MoELinearizationRestructure(),
             OffsetNormRestructure(),
             DecompressionRestructure(),
@@ -140,11 +140,11 @@ class RestructureHandler:
                     continue
                 source = self.mapping[module]
                 old_modules = list(module.modules())
-                target = transform.restructure(module, context)
+                target = restructure.restructure(module, context)
                 for old in old_modules:
                     self.mapping.pop(old, None)
                 self.mapping[target] = source
-                self.restructures[target] = (transform, context)
+                self.restructures[target] = (restructure, context)
                 self._replace_module(module, target)
                 roots.add(fqn)
 
