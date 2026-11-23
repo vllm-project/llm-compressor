@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
-from typing import Any
+from collections.abc import Callable
 
 import torch
 from torch.nn import Module
@@ -11,17 +10,29 @@ from llmcompressor.utils.pytorch.meta import (
     materialize_meta_module,
 )
 
+ReplacementCallback = Callable[[str, Module, Module], None]
+
 
 class ModuleRestructure(ABC):
-    """Select modules and restructure either their meta or real copies."""
+    """A restructuring pass shared by the meta model and retained real subtrees."""
 
     @abstractmethod
-    def targets(self, model: Module) -> Iterable[tuple[str, Module, Any]]:
-        """Find modules and the information needed to restructure them."""
+    def apply(
+        self, model: Module, on_restructure: ReplacementCallback | None = None
+    ) -> Module:
+        """Restructure a tree and report changed modules relative to its root."""
 
-    @abstractmethod
-    def restructure(self, source: Module, context: Any) -> Module:
-        """Restructure a module using the same operation for meta and real tensors."""
+
+def replace_module(model: Module, source: Module, target: Module) -> Module:
+    """Replace a module, including every shared alias and the root itself."""
+    if model is source:
+        return target
+    if source is not target:
+        for parent in list(model.modules()):
+            for name, child in parent._modules.items():
+                if child is source:
+                    parent._modules[name] = target
+    return model
 
 
 def copy_module_state(

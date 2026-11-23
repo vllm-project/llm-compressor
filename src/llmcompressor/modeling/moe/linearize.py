@@ -20,6 +20,8 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
+    ReplacementCallback,
+    replace_module,
 )
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
@@ -111,7 +113,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         for _, module in get_linearized_moes(model):
             module._source_experts_cls = experts_cls
-            module._source_config = _experts_config(module, model)
+            module._source_config = _experts_config(module, model.config)
 
         return model
 
@@ -152,45 +154,46 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    restructure = MoELinearizationRestructure()
-    for name, module, context in tqdm.tqdm(
-        restructure.targets(model),
-        total=len(non_linearized_moes),
-        desc="Linearizing experts",
-    ):
-        model.set_submodule(name, restructure.restructure(module, context))
-
-    return model
+    # This standalone entrypoint only materializes experts, leaving other
+    # compressed layers available for later subgraph-scoped decompression.
+    for _, module in non_linearized_moes:
+        DecompressionRestructure().apply(module)
+    return MoELinearizationRestructure().apply(model)
 
 
 class MoELinearizationRestructure(ModuleRestructure):
     """Model-wide MoE linearization with subgraph-scoped materialization."""
 
-    def restructure(self, source, context):
-        config = context
-        DecompressionRestructure().restructure(source, None)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(source.__class__)
-        return linear_experts_cls.from_experts_module(source, config)
+    def __init__(self, config: PreTrainedConfig | None = None):
+        self.config = config
 
-    def targets(self, model: torch.nn.Module):
+    def apply(
+        self, model: torch.nn.Module, on_restructure: ReplacementCallback | None = None
+    ) -> torch.nn.Module:
         moe_modules = get_non_linearized_moes(model)
-        if moe_modules and not isinstance(model, PreTrainedModel):
-            raise TypeError("MoE linearization requires a PreTrainedModel root")
-
+        config = getattr(model, "config", None) or self.config
         for fqn, source in moe_modules:
-            config = _experts_config(source, model)
-            yield fqn, source, config
+            experts_config = _experts_config(source, config)
+            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(
+                source.__class__
+            )
+            target = linear_experts_cls.from_experts_module(source, experts_config)
+            if on_restructure is not None:
+                on_restructure(fqn, source, target)
+            model = replace_module(model, source, target)
+        return model
 
 
 def _experts_config(
-    module: torch.nn.Module, model: PreTrainedModel
+    module: torch.nn.Module, config: PreTrainedConfig | None
 ) -> PreTrainedConfig:
     """Prefer a nested text config so fused experts construct with the right
     constructor (e.g. InklingExperts(InklingTextConfig)).
     """
-    if (config := getattr(module, "config", None)) is not None:
-        return config
-    config = model.config
+    if (module_config := getattr(module, "config", None)) is not None:
+        return module_config
+    if config is None:
+        raise TypeError("MoE linearization requires a model config")
     get_text_config = getattr(config, "get_text_config", None)
     if callable(get_text_config):
         return get_text_config()

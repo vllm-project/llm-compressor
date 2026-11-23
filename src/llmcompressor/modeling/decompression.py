@@ -5,22 +5,24 @@ from compressed_tensors.compressors import decompress_module
 from compressed_tensors.quantization import QuantizationMetadata, QuantizationStatus
 from torch.nn import Embedding, Linear, Module, Parameter
 
-from llmcompressor.modeling.module_restructure import ModuleRestructure
+from llmcompressor.modeling.module_restructure import (
+    ModuleRestructure,
+    ReplacementCallback,
+)
 
 
 class DecompressionRestructure(ModuleRestructure):
     """Decompress input weights on meta, then repeat on their retained real sources."""
 
-    def targets(self, model: Module):
+    def apply(
+        self, model: Module, on_restructure: ReplacementCallback | None = None
+    ) -> Module:
         for name, module in list(model.named_modules()):
-            if getattr(module, "quantization_status", None) in (
+            if getattr(module, "quantization_status", None) not in (
                 QuantizationStatus.COMPRESSED,
                 QuantizationStatus.DECOMPRESSED,
             ):
-                yield name, module, None
-
-    def restructure(self, source: Module, context) -> Module:
-        for _, module, _ in self.targets(source):
+                continue
             if module.quantization_status == QuantizationStatus.COMPRESSED:
                 decompress_module(module, leave_decompressed=False)
                 # Packed meta tensors can only approximate unpadded dimensions.
@@ -41,4 +43,6 @@ class DecompressionRestructure(ModuleRestructure):
                 # qparams/forward without attempting a second dequantization.
                 QuantizationMetadata.clear_quantization(module)
                 del module.quantization_status
-        return source
+            if on_restructure is not None:
+                on_restructure(name, module, module)
+        return model

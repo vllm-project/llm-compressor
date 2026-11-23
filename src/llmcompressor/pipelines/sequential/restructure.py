@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import copy
-from typing import Any
 
 import torch
-from compressed_tensors.offload import offload_module, set_onload_device
+from compressed_tensors.offload import (
+    get_cache_init_kwargs,
+    offload_module,
+    set_onload_device,
+)
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.module import (
     remove_module_offload,
@@ -17,13 +20,13 @@ from torch.nn import Module, Parameter
 
 from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
-    ModuleRestructure,
     copy_module_state,
+    replace_module,
 )
 from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modeling.offset_norm import (
     NormCalibrationModule,
-    get_norm_calibration_targets,
+    OffsetNormRestructure,
 )
 from llmcompressor.utils.dev import get_main_device
 
@@ -61,7 +64,13 @@ class RestructureHandler:
     def __init__(self, model: Module):
         self.model = model
         self.mapping: dict[Module, Module] = {}
-        self.restructures: dict[Module, tuple[ModuleRestructure, Any]] = {}
+        config = getattr(model, "config", None)
+        self.restructures = (
+            DecompressionRestructure(),
+            MoELinearizationRestructure(config),
+            OffsetNormRestructure(config),
+        )
+        self.restructured_modules: set[Module] = set()
         self.restore_sources: dict[Module, tuple[Module, dict]] = {}
         self.source_root: Module | None = None
 
@@ -116,45 +125,35 @@ class RestructureHandler:
             }
         self.source_root = self.mapping[self.model]
 
-    def _replace_module(self, old: Module, new: Module) -> None:
-        for parent in list(self.model.modules()):
-            for name, child in parent._modules.items():
-                if child is old:
-                    parent._modules[name] = new
-
     def apply_restructuring(self) -> None:
         """Restructure the meta model and associate replacements with real sources."""
-        roots: set[str] = set()
-        for restructure in (
-            MoELinearizationRestructure(),
-            OffsetNormRestructure(),
-            DecompressionRestructure(),
-        ):
-            for fqn, module, context in transform.targets(self.model):
-                if any(
-                    fqn == root
-                    or fqn.startswith(f"{root}.")
-                    or root.startswith(f"{fqn}.")
-                    for root in roots
-                ):
-                    continue
-                source = self.mapping[module]
-                old_modules = list(module.modules())
-                target = restructure.restructure(module, context)
-                for old in old_modules:
-                    self.mapping.pop(old, None)
-                self.mapping[target] = source
-                self.restructures[target] = (restructure, context)
-                self._replace_module(module, target)
-                roots.add(fqn)
+        for restructure in self.restructures:
+            self.model = restructure.apply(self.model, self._record_restructure)
+
+    def _record_restructure(self, _name: str, module: Module, target: Module) -> None:
+        # A previous parent replacement already owns any newly created children.
+        if module not in self.mapping:
+            return
+        source = self.mapping[module]
+        for old in module.modules():
+            self.mapping.pop(old, None)
+            self.restructured_modules.discard(old)
+        self.mapping[target] = source
+        self.restructured_modules.add(target)
 
     def configure_onload(self, device: torch.device) -> None:
         if self.source_root is not None:
             set_onload_device(self.source_root, device)
 
-    @staticmethod
-    def _release_source(source: Module, recurse: bool) -> None:
+    def _release_source(self, source: Module, recurse: bool) -> None:
+        retained = {
+            module
+            for original, _ in self.restore_sources.values()
+            for module in original.modules()
+        }
         for module in source.modules() if recurse else (source,):
+            if module in retained:
+                continue
             module._parameters = {}
             module._buffers = {}
             for name, value in list(vars(module).items()):
@@ -178,26 +177,39 @@ class RestructureHandler:
         sources = {}
         for name, target in pending.items():
             source = self.mapping[target]
-            if target in self.restructures:
+            if target in self.restructured_modules:
                 sources.update(source.named_modules(prefix=name))
             else:
                 sources[name] = source
         kwargs = subgraph_onload_modules(sources)
         for name, target in pending.items():
             source = self.mapping.pop(target)
-            record = self.restructures.pop(target, None)
+            restructured = target in self.restructured_modules
+            self.restructured_modules.discard(target)
             remove_module_offload(target, onload_tensors=True)
-            if record is None:
+            if not restructured:
                 copy_module_state(target, source, device, recurse=False)
                 self._materialize_added_children(target, device)
             else:
-                transform, context = record
-                converted = transform.restructure(source, context)
+
+                def retain_for_restore(relative_name, original, replacement):
+                    if restructure_requires_restore(replacement):
+                        module_name = ".".join(
+                            part for part in (name, relative_name) if part
+                        )
+                        live = target.get_submodule(relative_name)
+                        settings = (
+                            kwargs.get(module_name)
+                            or kwargs.get(name)
+                            or get_cache_init_kwargs(original)
+                        )
+                        self.restore_sources[live] = (original, settings)
+
+                converted = source
+                for restructure in self.restructures:
+                    converted = restructure.apply(converted, retain_for_restore)
                 copy_module_state(target, converted, device)
-                if restructure_requires_restore(target):
-                    self.restore_sources[target] = (source, kwargs[name])
-            if target not in self.restore_sources:
-                self._release_source(source, recurse=record is not None)
+            self._release_source(source, recurse=restructured)
         return kwargs
 
     def materialize_all(self) -> None:
@@ -226,7 +238,7 @@ class RestructureHandler:
             target.restore(source)
             if offload_sources:
                 offload_module(source, **kwargs)
-            self._replace_module(target, source)
+            self.model = replace_module(self.model, target, source)
             if modules is not None:
                 for name, module in modules.items():
                     if module is target:
@@ -238,23 +250,5 @@ class RestructureHandler:
         self.materialize_all()
         self.restore_restructured_modules()
         self.mapping.clear()
-        self.restructures.clear()
+        self.restructured_modules.clear()
         self.source_root = None
-
-
-class OffsetNormRestructure(ModuleRestructure):
-    def restructure(self, source: Module, context) -> Module:
-        class_name, config = context
-        return NormCalibrationModule.load_from_registry(
-            class_name, original=source, config=config
-        )
-
-    def targets(self, model: Module):
-        targets = get_norm_calibration_targets(model)
-        if not targets:
-            return
-        config = getattr(model, "config", None)
-        if config is None:
-            raise ValueError("Offset norm restructures require a model config")
-        for fqn, source, class_name in targets:
-            yield fqn, source, (class_name, config)

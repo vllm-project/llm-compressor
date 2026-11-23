@@ -24,10 +24,17 @@ from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from transformers import PreTrainedModel
 
+from llmcompressor.modeling.module_restructure import (
+    ModuleRestructure,
+    ReplacementCallback,
+    replace_module,
+)
+
 __all__ = [
     "NormCalibrationModule",
     "get_norm_calibration_targets",
     "norm_calibration_context",
+    "OffsetNormRestructure",
 ]
 
 
@@ -100,6 +107,33 @@ class CalibrationOffsetNorm(NormCalibrationModule):
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
         original.weight.data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
         return original
+
+
+class OffsetNormRestructure(ModuleRestructure):
+    """Replace offset norms throughout either a model or a retained subtree."""
+
+    def __init__(self, config=None):
+        self.config = config
+
+    def apply(
+        self,
+        model: torch.nn.Module,
+        on_restructure: ReplacementCallback | None = None,
+    ) -> torch.nn.Module:
+        targets = get_norm_calibration_targets(model)
+        if not targets:
+            return model
+        config = getattr(model, "config", None) or self.config
+        if config is None:
+            raise ValueError("Offset norm restructures require a model config")
+        for name, source, class_name in targets:
+            target = NormCalibrationModule.load_from_registry(
+                class_name, original=source, config=config
+            )
+            if on_restructure is not None:
+                on_restructure(name, source, target)
+            model = replace_module(model, source, target)
+        return model
 
 
 @contextlib.contextmanager
