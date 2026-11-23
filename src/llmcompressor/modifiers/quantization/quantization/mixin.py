@@ -50,7 +50,6 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.observers.defaults import (
     ObserverDefaultOverrides,
-    ObserverKind,
     is_mxfp4a8,
 )
 from llmcompressor.utils import (
@@ -561,13 +560,18 @@ class QuantizationMixin(HooksMixin):
     def _get_observer_defaults(
         self,
         args: QuantizationArgs,
-        observer: ObserverKind,
         scheme: QuantizationScheme,
     ) -> ObserverDefaultOverrides:
         """Return common observer defaults; modifiers can override this hook."""
-        if observer == "mse":
+        observer = args.observer
+        if observer in (
+            "mse",
+            "memoryless_mse",
+            "nvfp4_expanded_mse",
+            "fouroversix",
+        ):
             return {"norm": 2.4, "magnitude_normalization": True}
-        if observer == "imatrix":
+        if observer in ("imatrix_mse", "nvfp4_expanded_imatrix"):
             if is_mxfp4a8(scheme):
                 return {"norm": 2.6, "magnitude_normalization": False}
             return {"norm": 3.0, "magnitude_normalization": True}
@@ -599,24 +603,7 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            observer_name = scheme.weights.observer
-            observer_kind: ObserverKind | None
-            if observer_name in ("imatrix_mse", "nvfp4_expanded_imatrix"):
-                observer_kind = "imatrix"
-            elif observer_name in (
-                "mse",
-                "memoryless_mse",
-                "nvfp4_expanded_mse",
-                "fouroversix",
-            ):
-                observer_kind = "mse"
-            else:
-                observer_kind = None
-            observer_defaults = (
-                self._get_observer_defaults(scheme.weights, observer_kind, scheme)
-                if observer_kind is not None
-                else {}
-            )
+            observer_defaults = self._get_observer_defaults(scheme.weights, scheme)
             initialize_observer(
                 module,
                 base_name="weight",

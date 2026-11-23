@@ -44,7 +44,6 @@ from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.observers.defaults import (
     ObserverDefaultOverrides,
-    ObserverKind,
     is_nvfp4,
 )
 from llmcompressor.sentinel import Sentinel
@@ -141,12 +140,17 @@ class GPTQModifier(Modifier, QuantizationMixin):
     def _get_observer_defaults(
         self,
         args: QuantizationArgs,
-        observer: ObserverKind,
         scheme: QuantizationScheme,
     ) -> ObserverDefaultOverrides:
-        if observer == "mse":
+        observer = args.observer
+        if observer in (
+            "mse",
+            "memoryless_mse",
+            "nvfp4_expanded_mse",
+            "fouroversix",
+        ):
             return {"norm": 2.4, "magnitude_normalization": True}
-        if observer == "imatrix":
+        if observer in ("imatrix_mse", "nvfp4_expanded_imatrix"):
             if is_nvfp4(args):
                 return {"norm": 2, "magnitude_normalization": False}
             return {"norm": 3.0, "magnitude_normalization": True}
