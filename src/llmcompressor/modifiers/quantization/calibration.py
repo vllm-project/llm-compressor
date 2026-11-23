@@ -17,6 +17,7 @@ from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.observers import Observer
+from llmcompressor.observers.defaults import ObserverDefaults
 
 __all__ = [
     "initialize_observer",
@@ -37,7 +38,7 @@ def initialize_observer(
     module: Module,
     base_name: str,
     *,
-    is_gptq: bool = False,
+    observer_defaults: ObserverDefaults | None = None,
 ):
     """
     Initialize observer module and attach as submodule.
@@ -49,7 +50,7 @@ def initialize_observer(
 
     :param module: torch.nn.Module that the observer is being attached to
     :param base_name: str used to name the observer attribute
-    :param is_gptq: whether to apply GPTQ-specific observer defaults
+    :param observer_defaults: modifier-provided observer defaults
 
     """
     if base_name == "weight":
@@ -91,7 +92,7 @@ def initialize_observer(
             base_name=base_name,
             args=args,
             scheme=module.quantization_scheme,
-            is_gptq=is_gptq,
+            observer_defaults=observer_defaults,
         )
         module.register_module(f"{base_name}_observer", observer)
         observer.attach(module)

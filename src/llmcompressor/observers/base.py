@@ -13,6 +13,7 @@ from compressed_tensors.quantization.utils import calculate_qparams, generate_gp
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
 
+from llmcompressor.observers.defaults import ObserverDefaults
 from llmcompressor.observers.fusion import FusionHandler
 from llmcompressor.observers.helpers import flatten_for_calibration
 
@@ -38,7 +39,7 @@ class Observer(InternalModule, RegistryMixin):
     :param base_name: str used to name the observer attribute
     :param args: quantization args used to calibrate and quantize the observed value
     :param scheme: full scheme used to derive format-specific observer defaults
-    :param is_gptq: whether to apply GPTQ-specific observer defaults
+    :param observer_defaults: modifier-provided observer defaults
     :param **observer_kwargs: keyword arguments for observer initialization
     """
 
@@ -54,14 +55,14 @@ class Observer(InternalModule, RegistryMixin):
         args: QuantizationArgs,
         *,
         scheme: QuantizationScheme | None = None,
-        is_gptq: bool = False,
+        observer_defaults: ObserverDefaults | None = None,
         **observer_kwargs,
     ):
         super().__init__()
         self.base_name = base_name
         self.args = args
         self.scheme = scheme
-        self.is_gptq = is_gptq
+        self.observer_defaults = observer_defaults or {}
 
         self.args.observer_kwargs = self.args.observer_kwargs or {}
         self.args.observer_kwargs.update(observer_kwargs)

@@ -1,5 +1,5 @@
 import contextlib
-from typing import Literal
+from typing import ClassVar, Literal
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
@@ -41,6 +41,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.observers.defaults import ObserverDefaults
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -131,6 +132,22 @@ class GPTQModifier(Modifier, QuantizationMixin):
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
+
+    observer_defaults: ClassVar[ObserverDefaults] = {
+        "weight_observer": {
+            "default": {
+                "with_calibration": "imatrix_mse",
+                "without_calibration": "memoryless_minmax",
+            },
+            "mxfp4a8": {"without_calibration": "memoryless_mse"},
+        },
+        "mse": {"default": {"norm": 2.4, "magnitude_normalization": True}},
+        "imatrix": {
+            "default": {"norm": 3.0, "magnitude_normalization": True},
+            "nvfp4": {"norm": 2, "magnitude_normalization": False},
+            "mxfp4a8": {"norm": 3.0, "magnitude_normalization": True},
+        },
+    }
 
     requires_calibration_data: bool = True
 

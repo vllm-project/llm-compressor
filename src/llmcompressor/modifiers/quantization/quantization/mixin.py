@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from copy import deepcopy
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -51,6 +51,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
+from llmcompressor.observers.defaults import ObserverDefaults
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -147,6 +148,7 @@ class QuantizationMixin(HooksMixin):
     ignore: list[str] = Field(default_factory=list)
     scheme: str | dict[str, Any] | None = None
     kv_cache_scheme: QuantizationArgs | None = None
+    observer_defaults: ClassVar[ObserverDefaults] = {}
     # Observer parameters for easy specification
     weight_observer: str | None = None
     input_observer: str | None = None
@@ -537,24 +539,49 @@ class QuantizationMixin(HooksMixin):
     def _default_weight_observer(
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
-        """Select the default observer based on calibration data and weight format."""
-        if not has_calibration_data and _is_mxfp4a8(scheme):
-            return "memoryless_mse"
+        """Delegate weight-observer choice to the modifier-specific policy hook."""
+        return self._get_default_weight_observer(has_calibration_data, scheme)
 
+    def _get_default_weight_observer(
+        self, has_calibration_data: bool, scheme: QuantizationScheme
+    ) -> str:
+        """Select the default observer based on calibration data and weight format."""
         if has_calibration_data:
             modifiers = active_session().lifecycle.recipe.modifiers
             if any(modifier is self for modifier in modifiers):
                 from llmcompressor.modifiers.transform.awq import AWQModifier
 
-                # AWQ spins up its own observers so the quantizations shouldn't
-                # default to imat unless AWQ is updated to use real observers
+                # AWQ spins up its own observers, so use RTN until it uses the
+                # observer attached to the quantization scheme.
                 if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
                     return "memoryless_minmax"
+
+        observer_defaults = self._observer_defaults_for_scheme(scheme)
+        selection_defaults = observer_defaults.get("weight_observer", {}).get(
+            "default", {}
+        )
+        format_defaults = observer_defaults.get("weight_observer", {}).get(
+            "mxfp4a8", {}
+        )
+        calibration_key = (
+            "with_calibration" if has_calibration_data else "without_calibration"
+        )
+        default_observer = selection_defaults.get(calibration_key)
+        if not has_calibration_data and _is_mxfp4a8(scheme):
+            default_observer = format_defaults.get(calibration_key, default_observer)
+        if default_observer is not None:
+            return default_observer
 
         # The imatrix observer weights quantization error by per-channel
         # activation importance, which can only be accumulated when
         # calibration data is available.
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
+
+    def _observer_defaults_for_scheme(
+        self, scheme: QuantizationScheme
+    ) -> ObserverDefaults:
+        """Return this modifier's observer defaults for the given scheme."""
+        return self.observer_defaults
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
@@ -585,7 +612,7 @@ class QuantizationMixin(HooksMixin):
             initialize_observer(
                 module,
                 base_name="weight",
-                is_gptq=_is_gptq_modifier(self),
+                observer_defaults=self._observer_defaults_for_scheme(scheme),
             )
 
         # output activations
@@ -645,14 +672,6 @@ def _is_mxfp4a8(scheme: QuantizationScheme) -> bool:
         and activations is not None
         and activations.num_bits == 8
     )
-
-
-def _is_gptq_modifier(modifier: QuantizationMixin) -> bool:
-    """Whether observer defaults are being resolved for GPTQ."""
-    # Import lazily to avoid a module cycle: GPTQModifier itself uses this mixin.
-    from llmcompressor.modifiers.gptq import GPTQModifier
-
-    return isinstance(modifier, GPTQModifier)
 
 
 def _resolved_targets(config: QuantizationConfig) -> set[str]:

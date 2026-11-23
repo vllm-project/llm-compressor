@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import torch
 import torch.distributed as dist
 from compressed_tensors.distributed import (
@@ -16,6 +18,7 @@ from llmcompressor.modifiers.quantization.calibration import (
 )
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.observers.defaults import ObserverDefaults
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 
 __all__ = ["QuantizationModifier"]
@@ -56,6 +59,21 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
+
+    observer_defaults: ClassVar[ObserverDefaults] = {
+        "weight_observer": {
+            "default": {
+                "with_calibration": "imatrix_mse",
+                "without_calibration": "memoryless_minmax",
+            },
+            "mxfp4a8": {"without_calibration": "memoryless_mse"},
+        },
+        "mse": {"default": {"norm": 2.4, "magnitude_normalization": True}},
+        "imatrix": {
+            "default": {"norm": 3.0, "magnitude_normalization": True},
+            "mxfp4a8": {"norm": 2.6, "magnitude_normalization": False},
+        },
+    }
 
     def on_initialize(self, state: State, **kwargs) -> bool:
         """

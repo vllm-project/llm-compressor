@@ -68,7 +68,12 @@ class MemorylessMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
-        defaults = get_defaults(self.args, "mse", self.scheme, is_gptq=self.is_gptq)
+        defaults = get_defaults(
+            self.args,
+            "mse",
+            self.scheme,
+            observer_defaults=self.observer_defaults,
+        )
         self.maxshrink = observer_kwargs.get("maxshrink", defaults["maxshrink"])
         self.patience = observer_kwargs.get("patience", defaults["patience"])
         if self.patience < 0:
@@ -118,9 +123,16 @@ class MovingAverageMSEObserver(Observer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
         observer_kwargs = self.args.observer_kwargs
-        defaults = get_defaults(self.args, "mse", self.scheme, is_gptq=self.is_gptq)
+        defaults = get_defaults(
+            self.args,
+            "mse",
+            self.scheme,
+            observer_defaults=self.observer_defaults,
+        )
+        self.avg_constant = observer_kwargs.get(
+            "averaging_constant", defaults["averaging_constant"]
+        )
         self.maxshrink = observer_kwargs.get("maxshrink", defaults["maxshrink"])
         self.patience = observer_kwargs.get("patience", defaults["patience"])
         self.grid = observer_kwargs.get("grid", defaults["grid"])

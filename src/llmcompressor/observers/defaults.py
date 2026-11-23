@@ -8,6 +8,7 @@ from compressed_tensors.quantization.utils.mxfp_utils import (
 )
 
 ObserverKind = Literal["imatrix", "mse"]
+ObserverDefaults = dict[str, dict[str, dict[str, int | float | bool | str | None]]]
 
 
 def get_defaults(
@@ -15,14 +16,29 @@ def get_defaults(
     observer: ObserverKind,
     scheme: QuantizationScheme | None = None,
     *,
-    is_gptq: bool = False,
+    observer_defaults: ObserverDefaults | None = None,
 ) -> dict[str, int | float | bool | str | None]:
-    """Return observer search defaults, with format and GPTQ adjustments."""
+    """Return search defaults with format and modifier-specific adjustments."""
     is_mx = (
         args.num_bits == 4 and args.type == "float" and should_generate_mx_scales(args)
     )
 
     is_nvfp4 = args.num_bits == 4 and args.type == "float" and args.group_size == 16
+    is_mxfp4a8 = (
+        is_mx
+        and scheme is not None
+        and scheme.input_activations is not None
+        and scheme.input_activations.num_bits == 8
+    )
+    format_profile = (
+        "nvfp4"
+        if is_nvfp4
+        else "mxfp4a8"
+        if is_mxfp4a8
+        else "mx"
+        if is_mx
+        else "default"
+    )
 
     # Expanded observer ranges become the regular defaults for microscaled
     # formats. NVFP4 expands to 1.8x and searches down to 0.8x; MX formats
@@ -52,34 +68,24 @@ def get_defaults(
         )
 
     if observer == "mse":
-        return {
+        defaults = {
             **search_defaults,
             "norm": 2.4,
             "magnitude_normalization": True,
+            "averaging_constant": 0.01,
         }
-
-    if observer != "imatrix":
+    elif observer == "imatrix":
+        defaults = {
+            **search_defaults,
+            "norm": 3.0,
+            "strict": False,
+            "magnitude_normalization": True,
+        }
+    else:
         raise ValueError(f"Unknown observer kind: {observer}")
 
-    defaults = {
-        **search_defaults,
-        "norm": 3.0,
-        "strict": False,
-        "magnitude_normalization": True,
-    }
-    if is_nvfp4 and is_gptq:
-        defaults.update(norm=2, magnitude_normalization=False)
-
-    is_mxfp4a8 = (
-        is_mx
-        and scheme is not None
-        and scheme.input_activations is not None
-        and scheme.input_activations.num_bits == 8
-    )
-    if is_mxfp4a8:
-        if is_gptq:
-            defaults.update(norm=3.0, magnitude_normalization=True)
-        else:
-            defaults.update(norm=2.6, magnitude_normalization=False)
+    profile = (observer_defaults or {}).get(observer, {})
+    defaults.update(profile.get("default", {}))
+    defaults.update(profile.get(format_profile, {}))
 
     return defaults
