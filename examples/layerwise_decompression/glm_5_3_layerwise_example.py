@@ -56,7 +56,6 @@ oneshot(
     shuffle_calibration_samples=False,
     pipeline="sequential",
     sequential_targets=["GlmMoeDsaAttention", "GlmMoeDsaMoE"],
-    layerwise_decompression=True,
     layerwise_compression=True,
 )
 

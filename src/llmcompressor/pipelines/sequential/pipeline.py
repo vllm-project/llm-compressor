@@ -26,7 +26,6 @@ from llmcompressor.pipelines.sequential.error_logging import (
 )
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
-    decompress_subgraph_modules,
     find_modules_outside_graph,
     handle_sequential_oom,
     partition_subgraphs,
@@ -288,15 +287,6 @@ class SequentialPipeline(CalibrationPipeline):
                     )
                 )
                 modules = list(subgraph_modules.values())
-
-                # Decompress and initialize only this subgraph after onloading it.
-                if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
-                    for modifier in modifiers:
-                        if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(
-                                session.state, model, modules
-                            )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(

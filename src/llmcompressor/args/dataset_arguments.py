@@ -348,14 +348,6 @@ class DatasetArguments(CustomDatasetArguments):
             "device. Only moves weights. Default False."
         },
     )
-    layerwise_decompression: bool = field(
-        default=False,
-        metadata={
-            "help": "When True, each layer is decompressed before calibrating in "
-            "the sequential pipeline. Use when loading a pre-compressed model "
-            "that needs recalibration. Default False."
-        },
-    )
     layerwise_compression: bool = field(
         default=False,
         metadata={

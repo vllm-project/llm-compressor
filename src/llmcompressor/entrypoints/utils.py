@@ -99,7 +99,7 @@ def pre_process(
             # Expert targets may only exist after linearization. Resolve them on
             # meta state before deciding whether real conversion can be delayed.
             preview = copy_module_to_meta(model_args.model)
-            linearize_moe(preview, decompress=dataset_args.layerwise_decompression)
+            linearize_moe(preview)
             targets = _resolve_sequential_targets(
                 preview,
                 infer_sequential_targets(

@@ -95,7 +95,6 @@ oneshot(
         "KimiDecoderLayer",
     ],  # Determines what is selected for subgraphs
     sequential_targets_per_subgraph=1,  # Number of targets for subgraph
-    layerwise_decompression=True,
     layerwise_compression=True,
 )
 

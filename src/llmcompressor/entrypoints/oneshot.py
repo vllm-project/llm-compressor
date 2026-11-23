@@ -231,10 +231,7 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        # Skip model validation if using layerwise decompression
-        # for pre-quantized models
-        if not getattr(self.dataset_args, "layerwise_decompression", False):
-            self.validate_model(self.model)
+        self.validate_model(self.model)
 
     @handle_error
     def __call__(self):
@@ -302,15 +299,11 @@ class Oneshot:
                 "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
                 " before passing to `oneshot`. Falling back to post-load linearization."
             )
-            linearize_moe(
-                self.model, decompress=self.dataset_args.layerwise_decompression
-            )
+            linearize_moe(self.model)
 
         restructure_handler = RestructureHandler(self.model)
         restructure_handler.convert_model_to_meta()
-        restructure_handler.apply_restructuring(
-            layerwise_decompression=self.dataset_args.layerwise_decompression,
-        )
+        restructure_handler.apply_restructuring()
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
@@ -320,9 +313,6 @@ class Oneshot:
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
 
-            session.state.layerwise_decompression = (
-                self.dataset_args.layerwise_decompression
-            )
             session.state.layerwise_compression = (
                 self.dataset_args.layerwise_compression
             )
@@ -367,7 +357,7 @@ class Oneshot:
     def validate_model(self, model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
-        Raise warning if model is quantized with compressed-tensors quant method.
+        Report automatic decompression for compressed-tensors checkpoints.
         Raise error if model is quantized with any other quant method.
         """
         if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
@@ -405,12 +395,15 @@ class Oneshot:
             trust_remote_code=self.model_args.trust_remote_code_model,
         )
         qconfig = getattr_chain(config, QUANTIZATION_CONFIG_NAME, None)
+        # Fall back to quantization configured on an in-memory model.
+        if qconfig is None:
+            qconfig = getattr_chain(model.config, QUANTIZATION_CONFIG_NAME, None)
         quant_method = (
-            qconfig.get(QUANTIZATION_METHOD_NAME, None) if qconfig is not None else None
+            qconfig.get(QUANTIZATION_METHOD_NAME)
+            if isinstance(qconfig, dict)
+            else getattr(qconfig, QUANTIZATION_METHOD_NAME, None)
         )
 
-        # Fall back to in-memory config for models with
-        # quantization_config set programmatically
         resolution = (
             "To resolve, load a full-precision checkpoint instead, or dequantize the "
             "checkpoint first with the compressed-tensors convert_checkpoint entrypoint"
@@ -422,9 +415,9 @@ class Oneshot:
 
         elif quant_method == QUANTIZATION_METHOD:
             logger.warning(
-                "oneshot has limited support for models already quantized in the "
-                "`compressed-tensors` format. If the recipe targets layers that have "
-                f"already been quantized, oneshot will likely fail. {resolution}"
+                "Detected a model already quantized in the `compressed-tensors` "
+                "format. Supported compressed modules will be decompressed "
+                "automatically before recalibration."
             )
         else:
             raise ValueError(

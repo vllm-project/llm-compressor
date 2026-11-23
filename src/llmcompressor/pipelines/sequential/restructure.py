@@ -7,7 +7,6 @@ from types import MethodType
 from typing import Any
 
 import torch
-from compressed_tensors.compressors import decompress_module
 from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.module import (
@@ -15,9 +14,9 @@ from compressed_tensors.offload.module import (
     subgraph_offload_modules,
     subgraph_onload_modules,
 )
-from compressed_tensors.quantization.utils import is_module_quantized
 from torch.nn import Module, Parameter
 
+from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
     copy_module_state,
@@ -133,17 +132,13 @@ class RestructureHandler:
                 if child is old:
                     parent._modules[name] = new
 
-    def apply_restructuring(
-        self,
-        *,
-        layerwise_decompression: bool = False,
-    ) -> None:
+    def apply_restructuring(self) -> None:
         """Restructure the meta model and associate replacements with real sources."""
         roots: set[str] = set()
         for transform in (
-            MoELinearizationRestructure(decompress=layerwise_decompression),
+            MoELinearizationRestructure(),
             OffsetNormRestructure(),
-            DecompressionRestructure(enabled=layerwise_decompression),
+            DecompressionRestructure(),
         ):
             for fqn, module, context in transform.targets(self.model):
                 if any(
@@ -270,20 +265,3 @@ class OffsetNormRestructure(ModuleRestructure):
             raise ValueError("Offset norm restructures require a model config")
         for fqn, source, class_name in targets:
             yield fqn, source, (class_name, config)
-
-
-class DecompressionRestructure(ModuleRestructure):
-    def __init__(self, enabled: bool):
-        self.enabled = enabled
-
-    def restructure(self, module: Module, context) -> Module:
-        for submodule in list(module.modules()):
-            if is_module_quantized(submodule):
-                decompress_module(submodule, leave_decompressed=False)
-        return module
-
-    def targets(self, model: Module):
-        if self.enabled:
-            for fqn, source in list(model.named_modules()):
-                if is_module_quantized(source):
-                    yield fqn, source, None

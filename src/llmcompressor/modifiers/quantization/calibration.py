@@ -236,12 +236,6 @@ def freeze_module_quantization(module: Module):
         # no quantization scheme nothing to do
         return
 
-    if module.quantization_status in (
-        QuantizationStatus.FROZEN,
-        QuantizationStatus.COMPRESSED,
-    ):
-        return
-
     # remove observers
     for name in ("input", "weight", "output", "q", "k", "v"):
         obs_name = f"{name}_observer"
@@ -249,7 +243,11 @@ def freeze_module_quantization(module: Module):
             getattr(module, obs_name).detach(module)
             delattr(module, obs_name)
 
-    module.quantization_status = QuantizationStatus.FROZEN
+    if module.quantization_status not in (
+        QuantizationStatus.FROZEN,
+        QuantizationStatus.COMPRESSED,
+    ):
+        module.quantization_status = QuantizationStatus.FROZEN
 
 
 def reset_quantization_status(model: Module):

@@ -4,8 +4,6 @@ from typing import Type
 
 import torch
 import tqdm
-from compressed_tensors.compressors import decompress_module
-from compressed_tensors.quantization.utils import is_module_quantized
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -19,6 +17,7 @@ from transformers.conversion_mapping import (
 )
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
+from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
 )
@@ -36,8 +35,8 @@ def _patch_replace_with_fp8_linear_for_moe():
     """Make replace_with_fp8_linear a no-op for MoE models.
 
     MoE models with pre-quantized experts don't need FP8 linear replacement.
-    The quantized weights are already in the checkpoint and our layerwise
-    decompression code handles dequantization.
+    The quantized weights are already in the checkpoint and restructuring
+    handles dequantization.
     """
     try:
         import transformers.integrations.finegrained_fp8
@@ -128,7 +127,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
                 )
 
 
-def linearize_moe(model: PreTrainedModel, *, decompress: bool = False):
+def linearize_moe(model: PreTrainedModel):
     """
     Linearize a mixture-of-experts model after it has been loaded. For more
     runtime-efficient loading, please see `load_quantizable_moe`.
@@ -139,7 +138,6 @@ def linearize_moe(model: PreTrainedModel, *, decompress: bool = False):
     (as designated by the `use_experts_implementation` decorator)
 
     :param model: model containing MoE layers to linearize
-    :param decompress: Decompress quantized expert state before linearizing.
     """
     non_linearized_moes = get_non_linearized_moes(model)
 
@@ -154,7 +152,7 @@ def linearize_moe(model: PreTrainedModel, *, decompress: bool = False):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    restructure = MoELinearizationRestructure(decompress=decompress)
+    restructure = MoELinearizationRestructure()
     for name, module, context in tqdm.tqdm(
         restructure.targets(model),
         total=len(non_linearized_moes),
@@ -168,16 +166,9 @@ def linearize_moe(model: PreTrainedModel, *, decompress: bool = False):
 class MoELinearizationRestructure(ModuleRestructure):
     """Model-wide MoE linearization with subgraph-scoped materialization."""
 
-    def __init__(self, decompress: bool = False):
-        super().__init__()
-        self.decompress = decompress
-
     def restructure(self, source, context):
-        config, decompress = context
-        if decompress:
-            for submodule in list(source.modules()):
-                if is_module_quantized(submodule):
-                    decompress_module(submodule, leave_decompressed=False)
+        config = context
+        DecompressionRestructure().restructure(source, None)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(source.__class__)
         return linear_experts_cls.from_experts_module(source, config)
 
@@ -188,10 +179,7 @@ class MoELinearizationRestructure(ModuleRestructure):
 
         for fqn, source in moe_modules:
             config = _experts_config(source, model)
-            should_decompress = self.decompress and any(
-                is_module_quantized(child) for child in source.modules()
-            )
-            yield fqn, source, (config, should_decompress)
+            yield fqn, source, config
 
 
 def _experts_config(

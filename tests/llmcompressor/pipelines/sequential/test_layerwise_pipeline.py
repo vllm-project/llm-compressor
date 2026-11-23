@@ -38,28 +38,18 @@ class _FakeSubgraph:
         return {}
 
 
-class _FakeModifier:
-    def __init__(self, events):
-        self.events = events
-
-    def start_layerwise_calibration(self, state, model, modules):
-        self.events.append(("start_layerwise_calibration", modules))
-
-
-def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
+def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     monkeypatch,
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
     module = model[0]
     events = []
 
-    modifier = _FakeModifier(events)
     session = SimpleNamespace(
-        lifecycle=SimpleNamespace(recipe=SimpleNamespace(modifiers=[modifier])),
+        lifecycle=SimpleNamespace(recipe=SimpleNamespace(modifiers=[])),
         state=SimpleNamespace(),
     )
     dataset_args = SimpleNamespace(
-        layerwise_decompression=True,
         layerwise_compression=True,
         propagate_error=False,
         log_sequential_error=False,
@@ -130,11 +120,12 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         lambda candidate: candidate is module,
     )
     monkeypatch.setattr(
-        helpers_module,
-        "decompress_module",
-        lambda candidate, leave_decompressed=True: events.append(
-            ("decompress_module", candidate, leave_decompressed)
-        ),
+        pipeline_module.RestructureHandler,
+        "onload_and_restructure_modules",
+        lambda self, modules, device: events.append(
+            ("restructure", list(modules.values()))
+        )
+        or {},
     )
     monkeypatch.setattr(
         helpers_module,
@@ -148,8 +139,7 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     assert events == [
         "calibration_start",
         "onload",
-        ("decompress_module", module, False),
-        ("start_layerwise_calibration", [module]),
+        ("restructure", [module]),
         "forward",
         ("sequential_epoch_end", [module]),
         ("compress_module", module),
