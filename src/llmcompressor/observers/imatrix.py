@@ -82,7 +82,6 @@ class IMatrixMSEObserver(Observer):
         defaults = get_defaults(
             self.args,
             "imatrix",
-            self.scheme,
             observer_defaults=self.observer_defaults,
         )
         self.maxshrink = kw.get("maxshrink", defaults["maxshrink"])

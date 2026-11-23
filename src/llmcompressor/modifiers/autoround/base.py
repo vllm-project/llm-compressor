@@ -1,6 +1,6 @@
 import os
 from contextlib import contextmanager
-from typing import Any, ClassVar
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -31,7 +31,6 @@ from llmcompressor.modifiers.autoround.utils import (
 )
 from llmcompressor.modifiers.quantization.calibration import apply_calibration_status
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
-from llmcompressor.observers.defaults import ObserverDefaults
 from llmcompressor.utils import targets_embeddings, untie_word_embeddings
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.pytorch import infer_sequential_targets
@@ -167,21 +166,6 @@ class AutoRoundModifier(Modifier, QuantizationMixin):
         When None, no dispatching occurs and the model remains on its current device.
         Defaults to None.
     """
-
-    observer_defaults: ClassVar[ObserverDefaults] = {
-        "weight_observer": {
-            "default": {
-                "with_calibration": "imatrix_mse",
-                "without_calibration": "memoryless_minmax",
-            },
-            "mxfp4a8": {"without_calibration": "memoryless_mse"},
-        },
-        "mse": {"default": {"norm": 2.4, "magnitude_normalization": True}},
-        "imatrix": {
-            "default": {"norm": 3.0, "magnitude_normalization": True},
-            "mxfp4a8": {"norm": 2.6, "magnitude_normalization": False},
-        },
-    }
 
     requires_calibration_data: bool = True
 

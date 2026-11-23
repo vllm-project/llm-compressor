@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from copy import deepcopy
-from typing import Any, ClassVar
+from typing import Any
 
 import torch
 from compressed_tensors.distributed import wait_for_comms
@@ -26,9 +26,6 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.quantization.utils.helpers import is_module_quantized
-from compressed_tensors.quantization.utils.mxfp_utils import (
-    should_generate_mx_scales,
-)
 from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -51,7 +48,11 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
-from llmcompressor.observers.defaults import ObserverDefaults
+from llmcompressor.observers.defaults import (
+    ObserverDefaultOverrides,
+    ObserverKind,
+    is_mxfp4a8,
+)
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -148,7 +149,6 @@ class QuantizationMixin(HooksMixin):
     ignore: list[str] = Field(default_factory=list)
     scheme: str | dict[str, Any] | None = None
     kv_cache_scheme: QuantizationArgs | None = None
-    observer_defaults: ClassVar[ObserverDefaults] = {}
     # Observer parameters for easy specification
     weight_observer: str | None = None
     input_observer: str | None = None
@@ -540,48 +540,38 @@ class QuantizationMixin(HooksMixin):
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Delegate weight-observer choice to the modifier-specific policy hook."""
-        return self._get_default_weight_observer(has_calibration_data, scheme)
-
-    def _get_default_weight_observer(
-        self, has_calibration_data: bool, scheme: QuantizationScheme
-    ) -> str:
-        """Select the default observer based on calibration data and weight format."""
         if has_calibration_data:
             modifiers = active_session().lifecycle.recipe.modifiers
             if any(modifier is self for modifier in modifiers):
                 from llmcompressor.modifiers.transform.awq import AWQModifier
 
-                # AWQ spins up its own observers, so use RTN until it uses the
-                # observer attached to the quantization scheme.
+                # AWQ uses its own observers, so leave weight quantization on RTN.
                 if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
                     return "memoryless_minmax"
+        return self._get_default_weight_observer(has_calibration_data, scheme)
 
-        observer_defaults = self._observer_defaults_for_scheme(scheme)
-        selection_defaults = observer_defaults.get("weight_observer", {}).get(
-            "default", {}
-        )
-        format_defaults = observer_defaults.get("weight_observer", {}).get(
-            "mxfp4a8", {}
-        )
-        calibration_key = (
-            "with_calibration" if has_calibration_data else "without_calibration"
-        )
-        default_observer = selection_defaults.get(calibration_key)
-        if not has_calibration_data and _is_mxfp4a8(scheme):
-            default_observer = format_defaults.get(calibration_key, default_observer)
-        if default_observer is not None:
-            return default_observer
-
-        # The imatrix observer weights quantization error by per-channel
-        # activation importance, which can only be accumulated when
-        # calibration data is available.
+    def _get_default_weight_observer(
+        self, has_calibration_data: bool, scheme: QuantizationScheme
+    ) -> str:
+        """Select the common default weight observer."""
+        if not has_calibration_data and is_mxfp4a8(scheme):
+            return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
-    def _observer_defaults_for_scheme(
-        self, scheme: QuantizationScheme
-    ) -> ObserverDefaults:
-        """Return this modifier's observer defaults for the given scheme."""
-        return self.observer_defaults
+    def _get_observer_defaults(
+        self,
+        args: QuantizationArgs,
+        observer: ObserverKind,
+        scheme: QuantizationScheme,
+    ) -> ObserverDefaultOverrides:
+        """Return common observer defaults; modifiers can override this hook."""
+        if observer == "mse":
+            return {"norm": 2.4, "magnitude_normalization": True}
+        if observer == "imatrix":
+            if is_mxfp4a8(scheme):
+                return {"norm": 2.6, "magnitude_normalization": False}
+            return {"norm": 3.0, "magnitude_normalization": True}
+        return {}
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
@@ -609,10 +599,28 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
+            observer_name = scheme.weights.observer
+            observer_kind: ObserverKind | None
+            if observer_name in ("imatrix_mse", "nvfp4_expanded_imatrix"):
+                observer_kind = "imatrix"
+            elif observer_name in (
+                "mse",
+                "memoryless_mse",
+                "nvfp4_expanded_mse",
+                "fouroversix",
+            ):
+                observer_kind = "mse"
+            else:
+                observer_kind = None
+            observer_defaults = (
+                self._get_observer_defaults(scheme.weights, observer_kind, scheme)
+                if observer_kind is not None
+                else {}
+            )
             initialize_observer(
                 module,
                 base_name="weight",
-                observer_defaults=self._observer_defaults_for_scheme(scheme),
+                observer_defaults=observer_defaults,
             )
 
         # output activations
@@ -657,20 +665,6 @@ def _has_observer_statistics(module: torch.nn.Module) -> bool:
         getattr(observer, "has_statistics", False)
         for base_name in ACTIVATION_OBS + ("weight",)
         if (observer := getattr(module, f"{base_name}_observer", None)) is not None
-    )
-
-
-def _is_mxfp4a8(scheme: QuantizationScheme) -> bool:
-    """Whether a scheme quantizes weights to MXFP4 and activations to 8-bit."""
-    weights = scheme.weights
-    activations = scheme.input_activations
-    return (
-        weights is not None
-        and weights.num_bits == 4
-        and weights.type == "float"
-        and should_generate_mx_scales(weights)
-        and activations is not None
-        and activations.num_bits == 8
     )
 
 

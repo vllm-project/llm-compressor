@@ -17,7 +17,7 @@ from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.observers import Observer
-from llmcompressor.observers.defaults import ObserverDefaults
+from llmcompressor.observers.defaults import ObserverDefaultOverrides
 
 __all__ = [
     "initialize_observer",
@@ -38,7 +38,7 @@ def initialize_observer(
     module: Module,
     base_name: str,
     *,
-    observer_defaults: ObserverDefaults | None = None,
+    observer_defaults: ObserverDefaultOverrides | None = None,
 ):
     """
     Initialize observer module and attach as submodule.
@@ -91,7 +91,6 @@ def initialize_observer(
             observer,
             base_name=base_name,
             args=args,
-            scheme=module.quantization_scheme,
             observer_defaults=observer_defaults,
         )
         module.register_module(f"{base_name}_observer", observer)

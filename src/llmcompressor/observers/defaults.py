@@ -8,38 +8,40 @@ from compressed_tensors.quantization.utils.mxfp_utils import (
 )
 
 ObserverKind = Literal["imatrix", "mse"]
-ObserverDefaults = dict[str, dict[str, dict[str, int | float | bool | str | None]]]
+ObserverDefaultOverrides = dict[str, int | float | bool | str | None]
+
+
+def is_nvfp4(args: QuantizationArgs) -> bool:
+    """Return whether quantization args match the packed NVFP4 weight format."""
+    return args.num_bits == 4 and args.type == "float" and args.group_size == 16
+
+
+def is_mxfp4a8(scheme: QuantizationScheme) -> bool:
+    """Return whether the scheme quantizes MXFP4 weights with 8-bit activations."""
+    weights = scheme.weights
+    activations = scheme.input_activations
+    return (
+        weights is not None
+        and weights.num_bits == 4
+        and weights.type == "float"
+        and should_generate_mx_scales(weights)
+        and activations is not None
+        and activations.num_bits == 8
+    )
 
 
 def get_defaults(
     args: QuantizationArgs,
     observer: ObserverKind,
-    scheme: QuantizationScheme | None = None,
     *,
-    observer_defaults: ObserverDefaults | None = None,
+    observer_defaults: ObserverDefaultOverrides | None = None,
 ) -> dict[str, int | float | bool | str | None]:
     """Return search defaults with format and modifier-specific adjustments."""
     is_mx = (
         args.num_bits == 4 and args.type == "float" and should_generate_mx_scales(args)
     )
 
-    is_nvfp4 = args.num_bits == 4 and args.type == "float" and args.group_size == 16
-    is_mxfp4a8 = (
-        is_mx
-        and scheme is not None
-        and scheme.input_activations is not None
-        and scheme.input_activations.num_bits == 8
-    )
-    format_profile = (
-        "nvfp4"
-        if is_nvfp4
-        else "mxfp4a8"
-        if is_mxfp4a8
-        else "mx"
-        if is_mx
-        else "default"
-    )
-
+    is_nvfp4_format = is_nvfp4(args)
     # Expanded observer ranges become the regular defaults for microscaled
     # formats. NVFP4 expands to 1.8x and searches down to 0.8x; MX formats
     # search the 1x to 1/64x range on an exponential grid.
@@ -50,7 +52,7 @@ def get_defaults(
         "expand": 1.0,
         "grid_type": "exponential" if is_mx else "linear",
     }
-    if is_nvfp4:
+    if is_nvfp4_format:
         search_defaults.update(
             maxshrink=1 - 0.8 / 1.8,
             patience=1000,
@@ -84,8 +86,6 @@ def get_defaults(
     else:
         raise ValueError(f"Unknown observer kind: {observer}")
 
-    profile = (observer_defaults or {}).get(observer, {})
-    defaults.update(profile.get("default", {}))
-    defaults.update(profile.get(format_profile, {}))
+    defaults.update(observer_defaults or {})
 
     return defaults

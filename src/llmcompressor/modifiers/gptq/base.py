@@ -1,5 +1,5 @@
 import contextlib
-from typing import ClassVar, Literal
+from typing import Literal
 
 import torch
 from compressed_tensors.distributed import greedy_bin_packing, wait_for_comms
@@ -7,6 +7,7 @@ from compressed_tensors.offload import disable_offloading
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.offload.dist_utils import is_source_process as is_src
 from compressed_tensors.quantization import (
+    QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStrategy,
@@ -41,7 +42,11 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
-from llmcompressor.observers.defaults import ObserverDefaults
+from llmcompressor.observers.defaults import (
+    ObserverDefaultOverrides,
+    ObserverKind,
+    is_nvfp4,
+)
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -133,21 +138,19 @@ class GPTQModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
-    observer_defaults: ClassVar[ObserverDefaults] = {
-        "weight_observer": {
-            "default": {
-                "with_calibration": "imatrix_mse",
-                "without_calibration": "memoryless_minmax",
-            },
-            "mxfp4a8": {"without_calibration": "memoryless_mse"},
-        },
-        "mse": {"default": {"norm": 2.4, "magnitude_normalization": True}},
-        "imatrix": {
-            "default": {"norm": 3.0, "magnitude_normalization": True},
-            "nvfp4": {"norm": 2, "magnitude_normalization": False},
-            "mxfp4a8": {"norm": 3.0, "magnitude_normalization": True},
-        },
-    }
+    def _get_observer_defaults(
+        self,
+        args: QuantizationArgs,
+        observer: ObserverKind,
+        scheme: QuantizationScheme,
+    ) -> ObserverDefaultOverrides:
+        if observer == "mse":
+            return {"norm": 2.4, "magnitude_normalization": True}
+        if observer == "imatrix":
+            if is_nvfp4(args):
+                return {"norm": 2, "magnitude_normalization": False}
+            return {"norm": 3.0, "magnitude_normalization": True}
+        return {}
 
     requires_calibration_data: bool = True
 

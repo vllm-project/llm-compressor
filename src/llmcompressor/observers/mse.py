@@ -71,7 +71,6 @@ class MemorylessMSEObserver(Observer):
         defaults = get_defaults(
             self.args,
             "mse",
-            self.scheme,
             observer_defaults=self.observer_defaults,
         )
         self.maxshrink = observer_kwargs.get("maxshrink", defaults["maxshrink"])
@@ -127,7 +126,6 @@ class MovingAverageMSEObserver(Observer):
         defaults = get_defaults(
             self.args,
             "mse",
-            self.scheme,
             observer_defaults=self.observer_defaults,
         )
         self.avg_constant = observer_kwargs.get(
