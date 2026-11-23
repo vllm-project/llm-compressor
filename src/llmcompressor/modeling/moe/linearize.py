@@ -20,7 +20,8 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
-    ReplacementCallback,
+    clear_module_state,
+    copy_module_state,
     replace_module,
 )
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
@@ -164,24 +165,45 @@ def linearize_moe(model: PreTrainedModel):
 class MoELinearizationRestructure(ModuleRestructure):
     """Model-wide MoE linearization with subgraph-scoped materialization."""
 
-    def __init__(self, config: PreTrainedConfig | None = None):
-        self.config = config
-
     def apply(
-        self, model: torch.nn.Module, on_restructure: ReplacementCallback | None = None
+        self,
+        model: torch.nn.Module,
+        mapping: dict[torch.nn.Module, torch.nn.Module] | None = None,
     ) -> torch.nn.Module:
-        moe_modules = get_non_linearized_moes(model)
-        config = getattr(model, "config", None) or self.config
-        for fqn, source in moe_modules:
-            experts_config = _experts_config(source, config)
-            linear_experts_cls = LinearExperts2D.get_linear_experts_cls(
-                source.__class__
-            )
-            target = linear_experts_cls.from_experts_module(source, experts_config)
-            if on_restructure is not None:
-                on_restructure(fqn, source, target)
-            model = replace_module(model, source, target)
+        if mapping is not None:
+            self.delayed = mapping
+        for _, module in get_non_linearized_moes(model):
+            target = self._linearize(module, model)
+            if mapping is not None:
+                source = mapping[module]
+                self.mapping[source] = target
+                # Linearization consumes the entire original experts tree.
+                for old in module.modules():
+                    mapping.pop(old, None)
+                mapping[target] = source
+            model = replace_module(model, module, target)
         return model
+
+    def add_source_modules(self, sources: dict[str, torch.nn.Module]) -> None:
+        for name, source in list(sources.items()):
+            if source in self.mapping:
+                sources.update(source.named_modules(prefix=name))
+
+    def materialize(self, model, sources, device, offload_kwargs):
+        for source in sources.values():
+            target = self.mapping.pop(source, None)
+            if target is not None:
+                converted = self._linearize(source, model)
+                copy_module_state(target, converted, device)
+                self.delayed.pop(target)
+                for child in source.modules():
+                    clear_module_state(child)
+
+    @staticmethod
+    def _linearize(source, model):
+        config = _experts_config(source, getattr(model, "config", None))
+        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(type(source))
+        return linear_experts_cls.from_experts_module(source, config)
 
 
 def _experts_config(

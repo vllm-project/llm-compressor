@@ -20,13 +20,15 @@ import contextlib
 from abc import ABC, abstractmethod
 
 import torch
+from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload.module import remove_module_offload
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
 from transformers import PreTrainedModel
 
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
-    ReplacementCallback,
+    copy_module_state,
     replace_module,
 )
 
@@ -88,7 +90,7 @@ class CalibrationOffsetNorm(NormCalibrationModule):
 
     is_permanent = False
 
-    def __init__(self, original: torch.nn.Module, config):
+    def __init__(self, original: torch.nn.Module):
         super().__init__()
         self.eps = original.eps
         self._orig_dtype = original.weight.dtype
@@ -110,29 +112,60 @@ class CalibrationOffsetNorm(NormCalibrationModule):
 
 
 class OffsetNormRestructure(ModuleRestructure):
-    """Replace offset norms throughout either a model or a retained subtree."""
+    """Own offset-norm conversion, materialization, and restoration."""
 
-    def __init__(self, config=None):
-        self.config = config
+    def __init__(self):
+        super().__init__()
+        self.offload_kwargs: dict[torch.nn.Module, dict] = {}
 
     def apply(
         self,
         model: torch.nn.Module,
-        on_restructure: ReplacementCallback | None = None,
+        mapping: dict[torch.nn.Module, torch.nn.Module] | None = None,
     ) -> torch.nn.Module:
+        if mapping is not None:
+            self.delayed = mapping
         targets = get_norm_calibration_targets(model)
-        if not targets:
-            return model
-        config = getattr(model, "config", None) or self.config
-        if config is None:
-            raise ValueError("Offset norm restructures require a model config")
         for name, source, class_name in targets:
             target = NormCalibrationModule.load_from_registry(
-                class_name, original=source, config=config
+                class_name, original=source
             )
-            if on_restructure is not None:
-                on_restructure(name, source, target)
+            if mapping is not None:
+                original = mapping.pop(source)
+                self.mapping[original] = target
+                mapping[target] = original
             model = replace_module(model, source, target)
+        return model
+
+    def materialize(self, model, sources, device, offload_kwargs):
+        for name, source in sources.items():
+            target = self.mapping.get(source)
+            if target is not None and source not in self.offload_kwargs:
+                converted = type(target)(original=source)
+                copy_module_state(target, converted, device)
+                self.delayed.pop(target)
+                self.offload_kwargs[source] = offload_kwargs.get(
+                    name
+                ) or get_cache_init_kwargs(source)
+
+    def restore(self, model, modules=None, *, offload_sources=True):
+        for source, kwargs in list(self.offload_kwargs.items()):
+            target = self.mapping[source]
+            if modules is not None and target not in modules.values():
+                continue
+            remove_module_offload(target, onload_tensors=True)
+            remove_module_offload(source, onload_tensors=True)
+            source.forward = source.forward.__func__.__get__(source)
+            target.restore(source)
+            if offload_sources:
+                offload_module(source, **kwargs)
+            model = replace_module(model, target, source)
+            if modules is not None:
+                for name, module in modules.items():
+                    if module is target:
+                        modules[name] = source
+            del self.mapping[source]
+            del self.offload_kwargs[source]
         return model
 
 
@@ -172,7 +205,6 @@ def norm_calibration_context(model: PreTrainedModel):
             replacement = NormCalibrationModule.load_from_registry(
                 class_name,
                 original=module,
-                config=model.config,
             )
             model.set_submodule(name, replacement)
             replaced[name] = (module, replacement)

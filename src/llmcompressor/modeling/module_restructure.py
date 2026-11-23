@@ -1,26 +1,66 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
 
 import torch
+from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module
 
 from llmcompressor.utils.pytorch.meta import (
     materialize_meta_module,
 )
 
-ReplacementCallback = Callable[[str, Module, Module], None]
-
 
 class ModuleRestructure(ABC):
-    """A restructuring pass shared by the meta model and retained real subtrees."""
+    """Track the real sources affected by one model-wide restructuring operation."""
+
+    def __init__(self):
+        self.mapping: dict[Module, Module] = {}  # real source -> live target
+        self.delayed: dict[Module, Module] = {}  # handler's live target -> source
 
     @abstractmethod
     def apply(
-        self, model: Module, on_restructure: ReplacementCallback | None = None
+        self,
+        model: Module,
+        mapping: dict[Module, Module] | None = None,
     ) -> Module:
-        """Restructure a tree and report changed modules relative to its root."""
+        """Restructure the model and remember sources when loading is delayed."""
+
+    @abstractmethod
+    def materialize(
+        self,
+        model: Module,
+        sources: dict[str, Module],
+        device: torch.device,
+        offload_kwargs: dict[str, dict],
+    ) -> None:
+        """Convert this operation's sources among the modules just onloaded."""
+
+
+def _map_tensors(value, function):
+    if isinstance(value, torch.Tensor):
+        return function(value)
+    if isinstance(value, dict):
+        mapped = value.copy()
+        for key, item in value.items():
+            mapped[key] = _map_tensors(item, function)
+        return mapped
+    if isinstance(value, tuple):
+        return tuple(_map_tensors(item, function) for item in value)
+    if isinstance(value, list):
+        return [_map_tensors(item, function) for item in value]
+    if isinstance(value, set):
+        return {_map_tensors(item, function) for item in value}
+    return value
+
+
+def clear_module_state(module: Module) -> None:
+    """Release a consumed source's direct tensors, leaving its children alone."""
+    module._parameters = {}
+    module._buffers = {}
+    for name, value in list(vars(module).items()):
+        if name not in {"_parameters", "_buffers", "_modules"}:
+            module.__dict__[name] = _map_tensors(value, lambda tensor: None)
 
 
 def replace_module(model: Module, source: Module, target: Module) -> Module:
@@ -42,6 +82,7 @@ def copy_module_state(
     *,
     recurse: bool = True,
 ) -> None:
+    remove_module_offload(target, onload_tensors=True)
     source_state = _named_state(source, recurse=recurse)
     target_meta_state = _named_state(target, recurse=recurse)
     missing_source_names = set(source_state) - set(target_meta_state)
@@ -92,6 +133,12 @@ def copy_module_state(
     materialize_meta_module(
         target, device=device, initializer=initialize, recurse=recurse
     )
+    if not recurse:
+        # Modifier initialization can add observers with meta buffers. Existing
+        # structural children are materialized through their own source mappings.
+        for name, child in target.named_children():
+            if source._modules.get(name) is None:
+                copy_module_state(child, Module(), device)
 
 
 def _materialize_attribute(target, source, device):

@@ -1,5 +1,5 @@
 import copy
-from types import MethodType, SimpleNamespace
+from types import MethodType
 from unittest.mock import patch
 
 import pytest
@@ -184,7 +184,6 @@ def test_norm_restore_updates_same_mapping_before_offload(
     patched_forward, offload_state
 ):
     model = torch.nn.Module()
-    model.config = SimpleNamespace()
     model.norm = Gemma2RMSNorm(4, eps=1e-6)
     model.norm.weight = torch.nn.Parameter(torch.arange(4.0))
     if patched_forward:
@@ -225,5 +224,6 @@ def test_norm_restore_updates_same_mapping_before_offload(
     assert torch.isfinite(outputs).all()
     if patched_forward:
         torch.testing.assert_close(outputs, inputs * (1 + expected))
-    assert not handler.restore_sources
+    assert not handler.offset_norms.mapping
+    assert not handler.offset_norms.offload_kwargs
     handler.finish()

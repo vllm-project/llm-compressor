@@ -1,5 +1,4 @@
 import copy
-from types import SimpleNamespace
 
 import pytest
 import torch
@@ -18,7 +17,6 @@ from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 from llmcompressor import oneshot
 from llmcompressor.core import State
 from llmcompressor.modeling.decompression import DecompressionRestructure
-from llmcompressor.modeling.module_restructure import ModuleRestructure, replace_module
 from llmcompressor.modeling.moe.linear_experts import LinearExperts2D
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modeling.offset_norm import NormCalibrationModule
@@ -253,9 +251,9 @@ def test_decompression_then_linearization_materializes_one_source_tree(
     handler.apply_restructuring()
     target = model.model.layers[0].mlp.experts
     assert isinstance(target, LinearExperts2D)
-    assert handler.restructured_modules == {target}
     assert all(child not in handler.mapping for child in old_children)
     source = handler.mapping[target]
+    assert handler.linearization.mapping == {source: target}
     assert "weight_packed" in source.gate_up_storage._parameters
 
     modifier = QuantizationModifier(
@@ -294,48 +292,40 @@ def test_decompression_then_linearization_materializes_one_source_tree(
     handler.finish()
 
 
-def test_parent_replacement_retains_nested_norm_for_restoration():
-    class Block(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.linear = torch.nn.Linear(16, 16)
-            self.norm = Gemma2RMSNorm(16, eps=1e-6)
-
-    class WrapBlock(ModuleRestructure):
-        def apply(self, model, on_restructure=None):
-            for name, source in list(model.named_modules()):
-                if isinstance(source, Block):
-                    target = torch.nn.Sequential(source.linear, source.norm)
-                    if on_restructure is not None:
-                        on_restructure(name, source, target)
-                    model = replace_module(model, source, target)
-            return model
-
+def test_decompression_then_offset_norm_reuses_the_same_source():
     model = torch.nn.Module()
-    model.config = SimpleNamespace()
-    model.block = Block()
-    _compress(model.block.linear)
-    handler = RestructureHandler(model)
-    handler.restructures = (
-        handler.restructures[0],
-        WrapBlock(),
-        handler.restructures[2],
+    model.norm = Gemma2RMSNorm(16, eps=1e-6)
+    model.norm.weight = torch.nn.Parameter(
+        torch.arange(16, dtype=torch.int8), requires_grad=False
     )
+    model.norm.weight_scale = torch.nn.Parameter(
+        torch.tensor([0.125]), requires_grad=False
+    )
+    model.norm.quantization_scheme = QuantizationScheme(
+        targets=["Gemma2RMSNorm"],
+        format="int-quantized",
+        weights=QuantizationArgs(num_bits=8, strategy="tensor"),
+    )
+    model.norm.quantization_status = QuantizationStatus.COMPRESSED
+    handler = RestructureHandler(model)
     handler.convert_model_to_meta()
-    source = handler.mapping[model.block]
-    original_norm = source.norm
+    original = model.norm
+    source = handler.mapping[original]
     handler.apply_restructuring()
-    target = model.block
-    assert handler.restructured_modules == {target}
-    assert isinstance(target[1], NormCalibrationModule)
-    modules = dict(target.named_modules(prefix="block"))
+    target = model.norm
+    assert isinstance(target, NormCalibrationModule)
+    assert handler.restructures[0].mapping[source] is original
+    assert handler.offset_norms.mapping[source] is target
+    modules = {"norm": target}
     handler.configure_onload(torch.device("cpu"))
     handler.onload_and_restructure_modules(modules, torch.device("cpu"))
-    assert original_norm._parameters  # The source subtree release must retain it.
+    assert not handler.restructures[0].mapping
+    assert source._parameters  # Only the norm operation retains this source now.
+    torch.testing.assert_close(source.weight, torch.arange(16) * 0.125)
     with torch.no_grad():
-        target[1].weight.add_(2)
+        target.weight.add_(2)
     handler.restore_restructured_modules(modules, offload_sources=False)
-    assert model.block[1] is original_norm
-    assert modules["block.1"] is original_norm
-    torch.testing.assert_close(original_norm.weight, torch.full((16,), 2.0))
+    assert model.norm is source
+    assert modules["norm"] is source
+    torch.testing.assert_close(source.weight, torch.arange(16) * 0.125 + 2)
     handler.finish()
