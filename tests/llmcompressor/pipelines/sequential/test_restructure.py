@@ -1,15 +1,12 @@
 import copy
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import torch
 from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import (
-    subgraph_onload_modules,
-    subgraph_stage_modules,
-)
+from compressed_tensors.offload.module import subgraph_stage_modules
 from compressed_tensors.quantization import QuantizationArgs
 from transformers import AutoModelForCausalLM, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
@@ -121,7 +118,7 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
 
 @pytest.mark.parametrize("staged", [False, True])
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
-def test_source_dispatch_is_rebound_and_new_hooks_stay_on_target(
+def test_source_caches_materialize_without_executing_source_forward(
     staged, offload_device, tmp_path
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
@@ -142,13 +139,12 @@ def test_source_dispatch_is_rebound_and_new_hooks_stay_on_target(
     handler.apply_restructuring()
     source = handler.mapping[model[0]]
     assert source._parameters is cache
-    assert source.forward.__self__ is source
+    source.register_forward_pre_hook(
+        lambda *_: pytest.fail("Retained sources should only supply tensor state")
+    )
     calls = []
     model[0].register_forward_hook(lambda *args: calls.append("target"))
     assert source._forward_hooks is not model[0]._forward_hooks
-    subgraph_onload_modules({"0": source})
-    torch.testing.assert_close(source(inputs), expected)
-    assert not calls
     handler.configure_onload(torch.device("cpu"))
     handler.onload_and_restructure_modules({"0": model[0]}, torch.device("cpu"))
     torch.testing.assert_close(model[0](inputs), expected)
@@ -182,13 +178,27 @@ def test_new_observer_meta_buffers_materialize_with_ordinary_module():
     handler.finish()
 
 
-def test_norm_restore_updates_same_mapping_before_offload():
+@pytest.mark.parametrize("patched_forward", [False, True])
+@pytest.mark.parametrize("offload_state", ["none", "offloaded", "staged"])
+def test_norm_restore_updates_same_mapping_before_offload(
+    patched_forward, offload_state
+):
     model = torch.nn.Module()
     model.config = SimpleNamespace()
     model.norm = Gemma2RMSNorm(4, eps=1e-6)
     model.norm.weight = torch.nn.Parameter(torch.arange(4.0))
+    if patched_forward:
+
+        def forward(self, inputs):
+            return inputs * (1 + self.weight)
+
+        model.norm.forward = MethodType(forward, model.norm)
     model.alias = model.norm
     expected = model.norm.weight.detach().clone() + 2
+    if offload_state != "none":
+        offload_module(model.norm, onload_device="cpu", offload_device="cpu")
+    if offload_state == "staged":
+        subgraph_stage_modules(dict(model.named_modules()))
     handler = RestructureHandler(model)
     original_norm = model.norm
     handler.convert_model_to_meta()
@@ -209,5 +219,11 @@ def test_norm_restore_updates_same_mapping_before_offload():
     assert model.alias is source
     assert modules["norm"] is source
     torch.testing.assert_close(source.weight, expected)
+    assert source.forward.__self__ is source
+    inputs = torch.ones(2, 4)
+    outputs = source(inputs)
+    assert torch.isfinite(outputs).all()
+    if patched_forward:
+        torch.testing.assert_close(outputs, inputs * (1 + expected))
     assert not handler.restore_sources
     handler.finish()

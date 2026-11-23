@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-from types import MethodType
 from typing import Any
 
 import torch
@@ -68,31 +67,22 @@ class RestructureHandler:
 
     def delay_loading(self, module: Module, memo: dict[int, torch.Tensor]) -> Module:
         """Move direct tensor ownership to a copied holder, leaving meta tensors."""
-        source = copy.copy(module)
-        for name, value in vars(module).items():
-            if isinstance(value, MethodType) and value.__self__ is module:
-                source.__dict__[name] = value.__func__.__get__(source)
-            elif (
-                "hook" in name and isinstance(value, dict)
-            ) or name == "_non_persistent_buffers_set":
-                source.__dict__[name] = copy.copy(value)
-        # Cached storage is independent of its module, but the dispatch wrapper
-        # captures the original. Rebind the underlying forward to the holder.
-        # Source onload removes the cache before conversion uses this forward.
-        if isinstance(source._parameters, OffloadCache):
-            if hasattr(source, "_original_forward_func"):
-                source.forward = source._original_forward_func.__get__(source)
-            remove_module_offload(module, onload_tensors=False)
 
         def to_meta(tensor, parameter=False):
             if id(tensor) not in memo:
                 empty = torch.empty_like(tensor, device="meta")
+                # for tracing
                 memo[id(tensor)] = (
                     Parameter(empty, requires_grad=tensor.requires_grad)
                     if parameter or isinstance(tensor, Parameter)
                     else empty
                 )
             return memo[id(tensor)]
+
+        source = copy.copy(module)
+        # Retain the source caches and remove dispatch from the live meta module.
+        if isinstance(source._parameters, OffloadCache):
+            remove_module_offload(module, onload_tensors=False)
 
         for name in ("_parameters", "_buffers"):
             state = getattr(source, name)
@@ -230,6 +220,9 @@ class RestructureHandler:
                 continue
             remove_module_offload(target, onload_tensors=True)
             remove_module_offload(source, onload_tensors=True)
+            # Restored sources execute forward again; copied instance forwards
+            # must bind to the restored module rather than the old meta module.
+            source.forward = source.forward.__func__.__get__(source)
             target.restore(source)
             if offload_sources:
                 offload_module(source, **kwargs)
