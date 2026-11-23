@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 import torch
 from compressed_tensors.quantization import (
@@ -130,6 +132,34 @@ def test_mse_triton_matches_eager_for_realistic_schemes(
     )
     assert torch.equal(eager[0], triton[0])
     assert torch.equal(eager[1], triton[1])
+
+
+@pytest.mark.parametrize("device", ["cuda", "xpu"])
+@pytest.mark.parametrize("group_size", [128, 1024], ids=["packed", "split"])
+@pytest.mark.parametrize("symmetric", [True, False], ids=["symmetric", "asymmetric"])
+def test_triton_grid_search_base_zero_point(group_size, symmetric, device):
+    device_module = getattr(torch, device, None)
+    if device_module is None or not device_module.is_available():
+        pytest.skip(f"{device} is not available")
+
+    args = QuantizationArgs(
+        num_bits=4, strategy="group", group_size=group_size, symmetric=symmetric
+    )
+    # A positive range needs a nonzero asymmetric zero point. Expand it so
+    # that returning the initial bounds would also fail the comparison.
+    observed = torch.linspace(0, 1, group_size, device=device).reshape(1, 1, -1)
+    search_args = (observed, args, 0.75, 0, 8.0, 2.0)
+    expected = ImplBackend.call("_grid_search_observer", *search_args, expand=2.0)
+    with patch(
+        "llmcompressor.observers.grid_search.calculate_qparams", wraps=calculate_qparams
+    ) as base_qparams:
+        actual = ImplBackend.call(
+            "_grid_search_observer_triton", *search_args, expand=2.0
+        )
+
+    assert base_qparams.call_count == (0 if symmetric else 1)
+    assert actual[1].item() < 2.0
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
 @triton.jit

@@ -249,17 +249,19 @@ def _grid_search_observer_triton(
 
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
-    qparam_args = (
-        args.model_copy(update={"scale_dtype": None})
-        if args.scale_dtype is not None
-        else args
-    )
-    _, zp_base = calculate_qparams(min_val, max_val, qparam_args, None)
+    zp_base = None
+    if not args.symmetric:
+        qparam_args = (
+            args.model_copy(update={"scale_dtype": None})
+            if args.scale_dtype is not None
+            else args
+        )
+        _, zp_base = calculate_qparams(min_val, max_val, qparam_args, None)
+        zp_base = zp_base.reshape(-1).to(torch.float32).contiguous()
     min_base = torch.minimum(min_val, torch.zeros_like(min_val))
     min_base = min_base.reshape(-1).contiguous()
     max_base = torch.maximum(max_val, torch.zeros_like(max_val))
     max_base = max_base.reshape(-1).contiguous()
-    zp_base = zp_base.reshape(-1).to(torch.float32).contiguous()
 
     observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
@@ -454,7 +456,10 @@ def _grid_search_observer_triton_packed_kernel(
     max_base = tl.load(max_base_ptr + qparams, mask=qparam_mask, other=0.0).to(
         tl.float32
     )
-    zp = tl.load(zp_base_ptr + qparams, mask=qparam_mask, other=0.0).to(tl.float32)
+    if HAS_ZP:
+        zp = tl.load(zp_base_ptr + qparams, mask=qparam_mask, other=0.0).to(tl.float32)
+    else:
+        zp = tl.zeros((TILE_QPARAMS,), tl.float32)
     if HAS_IMPORTANCE:
         importance = tl.load(
             importance_ptr + qparams[:, None] * group_size + group_idx[None, :],
@@ -595,7 +600,10 @@ def _grid_search_observer_triton_split_kernel(
     max_base = tl.load(max_base_ptr + qparam, mask=qparam_mask, other=0.0).to(
         tl.float32
     )
-    zp = tl.load(zp_base_ptr + qparam, mask=qparam_mask, other=0.0).to(tl.float32)
+    if HAS_ZP:
+        zp = tl.load(zp_base_ptr + qparam, mask=qparam_mask, other=0.0).to(tl.float32)
+    else:
+        zp = 0.0
     if HAS_IMPORTANCE:
         importance = tl.load(
             importance_ptr + qparam * group_size + group_idx,
