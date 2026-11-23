@@ -37,9 +37,11 @@ from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
 from llmcompressor.entrypoints.utils import post_process, pre_process
 from llmcompressor.modeling.moe.context import moe_calibration_context
+from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.pipelines.sequential.helpers import _resolve_sequential_targets
 from llmcompressor.pipelines.sequential.restructure import (
     RestructureHandler,
 )
@@ -49,6 +51,7 @@ from llmcompressor.transformers.compression.mtp import (
     validate_mtp_copy_source,
 )
 from llmcompressor.utils.helpers import use_eager_attention
+from llmcompressor.utils.pytorch.meta import copy_module_to_meta
 from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 __all__ = ["Oneshot", "oneshot"]
@@ -293,12 +296,12 @@ class Oneshot:
         session = active_session()
         session.reset()
 
+        self._linearize_moe_if_needed()
+
         restructure_handler = RestructureHandler(self.model)
-        restructure_handler.prepare_for_restructuring(
+        restructure_handler.convert_model_to_meta()
+        restructure_handler.apply_restructuring(
             layerwise_decompression=self.dataset_args.layerwise_decompression,
-            sequential_targets=infer_sequential_targets(
-                self.model, self.dataset_args.sequential_targets
-            ),
         )
 
         # (Helen INFERENG-661): validate recipe modifiers before initialization
@@ -352,6 +355,35 @@ class Oneshot:
             restructure_handler.finish()
 
         session.finalize()
+
+    def _linearize_moe_if_needed(self):
+        """Linearize upfront when sequential targets split an experts block."""
+        restructure = MoELinearizationRestructure(
+            decompress=self.dataset_args.layerwise_decompression
+        )
+        sources = list(restructure.targets(self.model))
+        if not sources:
+            return
+
+        # Targets may name experts or projections that only exist after conversion.
+        # Resolve them on a meta preview, before changing any real tensor state.
+        preview = copy_module_to_meta(self.model)
+        for fqn, source, context in restructure.targets(preview):
+            preview.set_submodule(fqn, restructure.restructure(source, context))
+        targets = _resolve_sequential_targets(
+            preview,
+            infer_sequential_targets(self.model, self.dataset_args.sequential_targets),
+        )
+        for fqn, source, context in sources:
+            experts = preview.get_submodule(fqn)
+            if any(
+                child in targets for child in experts.modules() if child is not experts
+            ):
+                logger.warning(
+                    f"Linearizing {fqn} upfront because sequential targets split "
+                    "its experts block."
+                )
+                self.model.set_submodule(fqn, restructure.restructure(source, context))
 
     def validate_model(self, model: PreTrainedModel):
         """

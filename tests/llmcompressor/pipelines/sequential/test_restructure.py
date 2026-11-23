@@ -13,6 +13,7 @@ from compressed_tensors.quantization import QuantizationArgs
 from transformers import AutoModelForCausalLM, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 
+from llmcompressor.entrypoints.oneshot import Oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
@@ -54,8 +55,17 @@ def test_split_moes_are_linearized_upfront_but_initialize_on_meta(
     model = AutoModelForCausalLM.from_config(config, attn_implementation="eager")
     reference = copy.deepcopy(model)
     linearize_moe(reference)
+    oneshot = Oneshot.__new__(Oneshot)
+    oneshot.model = model
+    oneshot.dataset_args = SimpleNamespace(
+        layerwise_decompression=False, sequential_targets=targets
+    )
+    oneshot._linearize_moe_if_needed()
+    assert all(not tensor.is_meta for tensor in model.parameters())
     handler = RestructureHandler(model)
-    handler.prepare_for_restructuring(sequential_targets=targets)
+    handler.convert_model_to_meta()
+    assert not handler.restructures
+    handler.apply_restructuring()
     assert all(tensor.is_meta for tensor in model.parameters())
     assert all(tensor.is_meta for tensor in model.buffers())
     for index, layer in enumerate(model.model.layers):
@@ -81,7 +91,8 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     model.position_alias = model.position
     initial = model.block[0].weight.detach().clone()
     handler = RestructureHandler(model)
-    handler.prepare_for_restructuring()
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
     assert model.block is model.alias
     assert model.block[0].weight is model.other.weight
     assert model.position_alias is model.position
@@ -123,7 +134,8 @@ def test_source_dispatch_is_rebound_and_new_hooks_stay_on_target(
         subgraph_stage_modules(dict(model.named_modules()))
     cache = model[0]._parameters
     handler = RestructureHandler(model)
-    handler.prepare_for_restructuring()
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
     source = handler.mapping[model[0]]
     assert source._parameters is cache
     assert source.forward.__self__ is source
@@ -145,7 +157,8 @@ def test_source_dispatch_is_rebound_and_new_hooks_stay_on_target(
 def test_new_observer_meta_buffers_materialize_with_ordinary_module():
     model = torch.nn.Linear(4, 4)
     handler = RestructureHandler(model)
-    handler.prepare_for_restructuring()
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
     observer = Observer.load_from_registry(
         "imatrix_mse",
         base_name="weight",
@@ -173,7 +186,11 @@ def test_norm_restore_updates_same_mapping_before_offload():
     model.alias = model.norm
     expected = model.norm.weight.detach().clone() + 2
     handler = RestructureHandler(model)
-    handler.prepare_for_restructuring()
+    original_norm = model.norm
+    handler.convert_model_to_meta()
+    assert model.norm is original_norm
+    assert original_norm.weight.is_meta
+    handler.apply_restructuring()
     target = model.norm
     assert model.alias is target
     source = handler.mapping[target]

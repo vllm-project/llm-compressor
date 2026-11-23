@@ -27,7 +27,6 @@ from llmcompressor.modeling.offset_norm import (
     NormCalibrationModule,
     get_norm_calibration_targets,
 )
-from llmcompressor.pipelines.sequential.helpers import _resolve_sequential_targets
 from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["RestructureHandler", "restructure_requires_restore"]
@@ -64,7 +63,7 @@ class RestructureHandler:
     def __init__(self, model: Module):
         self.model = model
         self.mapping: dict[Module, Module] = {}
-        self.restructures: dict[Module, tuple[ModuleRestructure, Any, str]] = {}
+        self.restructures: dict[Module, tuple[ModuleRestructure, Any]] = {}
         self.restore_sources: dict[Module, tuple[Module, dict]] = {}
         self.source_root: Module | None = None
 
@@ -115,8 +114,9 @@ class RestructureHandler:
         self.mapping[module] = source
         return module
 
-    def _delay_tree(self, root: Module) -> Module:
-        nodes = list(root.modules())
+    def convert_model_to_meta(self) -> None:
+        """Retain a real source tree and replace the live model's tensors with meta."""
+        nodes = list(self.model.modules())
         memo: dict[int, torch.Tensor] = {}
         for module in nodes:
             self.delay_loading(module, memo)
@@ -125,7 +125,7 @@ class RestructureHandler:
                 name: self.mapping[child] if child is not None else None
                 for name, child in module._modules.items()
             }
-        return self.mapping[root]
+        self.source_root = self.mapping[self.model]
 
     def _replace_module(self, old: Module, new: Module) -> None:
         for parent in list(self.model.modules()):
@@ -133,13 +133,12 @@ class RestructureHandler:
                 if child is old:
                     parent._modules[name] = new
 
-    def prepare_for_restructuring(
+    def apply_restructuring(
         self,
         *,
         layerwise_decompression: bool = False,
-        sequential_targets: list[str] | None = None,
     ) -> None:
-        self.source_root = self._delay_tree(self.model)
+        """Restructure the meta model and associate replacements with real sources."""
         roots: set[str] = set()
         for transform in (
             MoELinearizationRestructure(decompress=layerwise_decompression),
@@ -160,22 +159,9 @@ class RestructureHandler:
                 for old in old_modules:
                     self.mapping.pop(old, None)
                 self.mapping[target] = source
-                self.restructures[target] = (transform, context, fqn)
+                self.restructures[target] = (transform, context)
                 self._replace_module(module, target)
                 roots.add(fqn)
-        # Linearize split MoEs upfront, then delay their converted state again:
-        # even these experts initialize and trace on meta, without ancestor lookup.
-        targets = _resolve_sequential_targets(self.model, sequential_targets or [])
-        for target, (_, _, fqn) in list(self.restructures.items()):
-            if any(
-                child in targets for child in target.modules() if child is not target
-            ):
-                device = get_main_device()
-                self.configure_onload(device)
-                modules = dict(target.named_modules(prefix=fqn))
-                kwargs = self.onload_and_restructure_modules(modules, device)
-                subgraph_offload_modules(modules, kwargs)
-                self.source_root.set_submodule(fqn, self._delay_tree(target))
 
     def configure_onload(self, device: torch.device) -> None:
         if self.source_root is not None:
@@ -220,7 +206,7 @@ class RestructureHandler:
                 copy_module_state(target, source, device, recurse=False)
                 self._materialize_added_children(target, device)
             else:
-                transform, context, _ = record
+                transform, context = record
                 converted = transform.restructure(source, context)
                 copy_module_state(target, converted, device)
                 if restructure_requires_restore(target):
