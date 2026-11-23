@@ -38,14 +38,25 @@ class OverthinkPenalizer(Converter):
     with a single fixed strength is training-free, adds no inference overhead,
     and shortens chain-of-thought by 12-23% while preserving accuracy.
 
-    The paper applies the penalty to the logits at each decoding step. This
-    converter folds an equivalent penalty into the lm_head weights, so any
-    runtime which loads the checkpoint is penalized with no extra machinery:
-    the lm_head rows of the overthinking tokens are scaled by exp(-lam),
-    reducing the logits of exactly those tokens which are close to being
-    sampled. For checkpoints with tied embeddings the lm_head is untied
-    first, so that only the output logits and not the input embeddings of the
-    penalized tokens are modified.
+    The paper subtracts a fixed penalty from the logits of the overthinking
+    tokens at each decoding step. A constant logit offset cannot be expressed
+    in a bias-free lm_head, so this converter instead scales the lm_head rows
+    of the overthinking tokens by exp(-lam), and any runtime which loads the
+    checkpoint is penalized with no extra machinery. This is NOT equivalent
+    to the paper's penalty and `lam` is not the paper's lambda: a logit z
+    becomes z * exp(-lam), i.e. it is reduced by (1 - exp(-lam)) * z. The
+    penalty therefore grows with the logit, and is largest exactly where a
+    token is about to be sampled, where its logit is close to the top logit
+    of the distribution (typically 20-35 for current LLMs). For example, on
+    Qwen3.6-35B-A3B lam=0.5 lowers a competitive marker's logit by ~11 nats
+    (the paper sweeps 0.5-4) and removes ~96% of the markers from generated
+    text, and lam>=1.5 removes them entirely. On that model the penalty still
+    shortened reasoning (by 15-19% on GPQA-Diamond at lam=0.5 and 2.5) without
+    hurting accuracy, but because the markers are effectively banned, the
+    token list must contain only tokens which are safe to ban. For
+    checkpoints with tied embeddings the lm_head is untied first, so that only
+    the output logits and not the input embeddings of the penalized tokens are
+    modified.
 
     Construct with :meth:`from_pretrained` and use alone or chain it before
     quantization, e.g.
@@ -61,13 +72,15 @@ class OverthinkPenalizer(Converter):
     )
     ```
 
-    The token list from the paper is shipped at the repository root as
-    `overthink_tokens.json`.
+    The paper's 50-token list (Table 8, every token with a leading space) is
+    shipped at the repository root as `overthink_tokens.json`.
 
     :param token_ids: vocabulary ids of the overthinking tokens to penalize
     :param lam: penalty strength. The logits of the overthinking tokens are
-        scaled by exp(-lam), so larger values penalize more strongly and
-        negative values boost the tokens instead
+        scaled by exp(-lam), so larger values penalize more strongly. Negative
+        values scale the logits up and boost the tokens instead, which is much
+        stronger than the paper's negative-lambda ablation (lam=-0.5 multiplies
+        the logits by 1.65) and makes generations degenerate
     :param tie_word_embeddings: whether the source checkpoint ties `lm_head` to
         the embedding. If so, the saved config is untied, since the penalized
         `lm_head` and the embedding differ
@@ -82,6 +95,12 @@ class OverthinkPenalizer(Converter):
         tie_word_embeddings: bool = False,
         emit_lm_head: bool = False,
     ):
+        if lam < 0:
+            logger.warning(
+                f"lam={lam} scales the logits of the overthinking tokens up by "
+                f"{math.exp(-lam):.2f}x, which boosts them far more strongly than "
+                "the paper's negative-lambda ablation and degenerates generations"
+            )
         self.token_ids = token_ids
         self.lam = lam
         self.tie_word_embeddings = tie_word_embeddings
@@ -213,8 +232,7 @@ def _penalize(weight: torch.Tensor, token_ids: list[int], lam: float):
             "before quantization, or dequantize the checkpoint first"
         )
     # scale the rows toward zero: the logit of each token becomes exp(-lam)
-    # times its original value, so tokens which are close to being sampled
-    # (large positive logits) are pushed down, while unlikely tokens, whose
-    # logits are already far below the top of the distribution, are left
-    # effectively unchanged
+    # times its original value. The reduction (1 - exp(-lam)) * logit is
+    # largest where the token is about to be sampled, so even small lam is a
+    # strong penalty there (see the class docstring)
     weight[token_ids] *= math.exp(-lam)

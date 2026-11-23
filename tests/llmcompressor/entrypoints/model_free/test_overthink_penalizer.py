@@ -1,5 +1,6 @@
 import json
 import math
+from pathlib import Path
 
 import pytest
 import torch
@@ -18,7 +19,7 @@ from llmcompressor.entrypoints.model_free import OverthinkPenalizer
 
 LAM = 1.5
 SCALE = math.exp(-LAM)
-OVERTHINK_TOKENS = [" perhaps", " maybe", " wait", "However", " -"]
+OVERTHINK_TOKENS = [" perhaps", " maybe", " wait", " However", " but"]
 
 _COMMON = dict(
     vocab_size=64,
@@ -147,3 +148,37 @@ def test_overthink_penalty_no_known_tokens(tmp_path):
 
     with pytest.raises(ValueError, match="No tokens"):
         OverthinkPenalizer.from_pretrained(source, tokens_path, lam=LAM)
+
+
+# the paper's overthinking markers (arXiv:2606.00206, Table 8): 50 tokens, each
+# with a leading space
+PAPER_TOKENS = (
+    "perhaps maybe wait Wait actually hold Hmm hmm Alternatively alternatively "
+    "However however instead Instead But but though although yet rather unless "
+    "otherwise nonetheless nevertheless regardless still anyway Or or either "
+    "whether uncertain unsure possibly might could another different reconsider "
+    "rethink backtrack retry recheck revisit doubt confused wrong mistake error "
+    "incorrect"
+).split()
+
+
+def test_shipped_tokens_match_paper():
+    # the list was once copied from the paper's PDF with line-wrap hyphens, which
+    # added " -" (the minus sign, which must never be penalized) and dropped the
+    # leading space of three tokens
+    root = Path(__file__).resolve().parents[4]
+    with open(root / "overthink_tokens.json") as file:
+        tokens = json.load(file)
+    assert tokens == [" " + token for token in PAPER_TOKENS]
+    assert len(tokens) == 50
+
+
+def test_negative_lam_warns(caplog):
+    from loguru import logger
+
+    handler = logger.add(caplog.handler, format="{message}")
+    try:
+        OverthinkPenalizer(token_ids=[2], lam=-0.5)
+    finally:
+        logger.remove(handler)
+    assert "boosts them far more strongly" in caplog.text
