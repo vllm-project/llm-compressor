@@ -552,11 +552,7 @@ class QuantizationMixin(HooksMixin):
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Select the common default weight observer."""
-        if (
-            not has_calibration_data
-            and scheme.weights is not None
-            and is_mxfp4(scheme.weights)
-        ):
+        if not has_calibration_data and is_mxfp4(scheme):
             return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
@@ -576,7 +572,7 @@ class QuantizationMixin(HooksMixin):
             return {}
 
         defaults: ObserverKwargs = {}
-        if is_nvfp4(args):
+        if is_nvfp4(scheme):
             defaults.update(
                 maxshrink=1 - 0.8 / 1.8,
                 patience=1000,
@@ -584,7 +580,7 @@ class QuantizationMixin(HooksMixin):
                 expand=1.8,
                 grid_type="linear",
             )
-        elif is_mxfp4(args):
+        elif is_mxfp4(scheme):
             defaults.update(
                 maxshrink=1 - 1.0 / 64.0,
                 patience=1000,

@@ -142,7 +142,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
     ) -> ObserverKwargs:
         defaults = super()._get_weight_observer_defaults(args, scheme)
         if args.observer == "imatrix_mse":
-            if is_nvfp4(args):
+            if is_nvfp4(scheme):
                 defaults.update(norm=2, magnitude_normalization=False)
             elif is_mxfp4a8(scheme):
                 defaults.update(norm=3, magnitude_normalization=True)
