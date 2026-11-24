@@ -7,7 +7,6 @@ from compressed_tensors.offload import disable_offloading
 from compressed_tensors.offload.dist_utils import is_distributed
 from compressed_tensors.offload.dist_utils import is_source_process as is_src
 from compressed_tensors.quantization import (
-    QuantizationArgs,
     QuantizationConfig,
     QuantizationScheme,
     QuantizationStrategy,
@@ -137,11 +136,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
 
     def _get_weight_observer_defaults(
         self,
-        args: QuantizationArgs,
         scheme: QuantizationScheme,
     ) -> ObserverKwargs:
-        defaults = super()._get_weight_observer_defaults(args, scheme)
-        if args.observer == "imatrix_mse":
+        defaults = super()._get_weight_observer_defaults(scheme)
+        if scheme.weights is not None and scheme.weights.observer == "imatrix_mse":
             if is_nvfp4(scheme):
                 defaults.update(norm=2, magnitude_normalization=False)
             elif is_mxfp4a8(scheme):

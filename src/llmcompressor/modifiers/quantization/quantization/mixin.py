@@ -558,10 +558,13 @@ class QuantizationMixin(HooksMixin):
 
     def _get_weight_observer_defaults(
         self,
-        args: QuantizationArgs,
         scheme: QuantizationScheme,
     ) -> ObserverKwargs:
         """Return format-specific parameters for the selected weight observer."""
+        args = scheme.weights
+        if args is None:
+            return {}
+
         observer = args.observer
         if observer not in (
             "mse",
@@ -620,7 +623,7 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            observer_kwargs = self._get_weight_observer_defaults(scheme.weights, scheme)
+            observer_kwargs = self._get_weight_observer_defaults(scheme)
             # Explicit observer kwargs take precedence over modifier defaults.
             observer_kwargs.update(scheme.weights.observer_kwargs or {})
             initialize_observer(
