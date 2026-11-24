@@ -143,15 +143,6 @@ from compressed_tensors.quantization import preset_name_to_scheme
 
 nvfp4_scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
 nvfp4_scheme.weights.observer = "memoryless_mse"
-nvfp4_scheme.weights.observer_kwargs = {
-    "grid": 200,
-    "grid_type": "linear",
-    "maxshrink": 1 - 0.8 / 1.8,
-    "expand": 1.8,
-    "patience": 0,
-    "norm": 3.0,
-    "magnitude_normalization": True,
-}
 
 model_free_ptq(
     model_stub="unsloth/Kimi-K2-Thinking-BF16",
@@ -168,13 +159,11 @@ model_free_ptq(
 )
 ```
 
-`model_free_ptq` uses the observer and `observer_kwargs` stored in each scheme.
-The example explicitly selects `memoryless_mse` and supplies the NVFP4 range
-and objective settings because it runs outside a quantization modifier.
-
-This example opts into an MSE search for the model-free path. To use the
-standard data-free NVFP4 behavior instead, omit the observer override and let
-the scheme use `memoryless_minmax`.
+`model_free_ptq` uses the no-calibration observer policy and format-specific
+MSE kwargs shared with quantization modifiers. This example explicitly selects
+`memoryless_mse` to request an MSE search; model-free PTQ supplies the NVFP4
+range and objective settings. If the observer is omitted, NVFP4 uses
+`memoryless_minmax`.
 
 ## Ignoring Layers
 

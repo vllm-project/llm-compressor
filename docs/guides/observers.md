@@ -105,9 +105,9 @@ Best used when:
 
 There is no NVFP4-specific MSE observer. The former `nvfp4_expanded_mse` and
 `nvfp4_expanded_imatrix` observer names have been removed. Use the standard
-`memoryless_mse` or `imatrix_mse` observer; quantization modifiers apply the
-NVFP4 search defaults to them. With calibration data, weights default to
-`imatrix_mse`; without calibration data, NVFP4 defaults to
+`memoryless_mse` or `imatrix_mse` observer; quantization modifiers and
+`model_free_ptq` apply the NVFP4 search defaults to them. With calibration data,
+weights default to `imatrix_mse`; without calibration data, NVFP4 defaults to
 `memoryless_minmax`. Choose `memoryless_mse` explicitly to run the MSE search
 without calibration data.
 

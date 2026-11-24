@@ -16,6 +16,7 @@ from loguru import logger
 from llmcompressor.entrypoints.model_free.lifecycle import (
     calibrate_weight,
     initialize_quantized_linear,
+    initialize_weight_observer,
     validate_weight_for_quantization,
 )
 from llmcompressor.entrypoints.model_free.microscale import (
@@ -26,10 +27,10 @@ from llmcompressor.entrypoints.model_free.microscale import (
 from llmcompressor.modifiers.quantization.calibration import (
     apply_calibration_status,
     freeze_module_quantization,
-    initialize_observer,
     observe,
     update_qparams,
 )
+from llmcompressor.modifiers.quantization.helpers import get_default_weight_observer
 from llmcompressor.observers import FusionHandler
 
 __all__ = ["ModelFreePtqConverter"]
@@ -77,6 +78,16 @@ class ModelFreePtqConverter(Converter):
             some layers and with MLA q_a/kv_a projections on others
         """
         self.config = config
+        # Model-free PTQ has no calibration dataset; share the mixin's
+        # no-calibration observer selection for each scheme.
+        for scheme in self.config.config_groups.values():
+            args = scheme.weights
+            if args is not None and args.dynamic is not True and (
+                args.observer is None or "observer" not in args.model_fields_set
+            ):
+                args.observer = get_default_weight_observer(
+                    scheme, has_calibration_data=False
+                )
 
         # primary weight name -> names of the fused partners it loads
         self._fused_partners: dict[str, set[str]] | None = None
@@ -215,7 +226,7 @@ class ModelFreePtqConverter(Converter):
             if is_microscale_scheme(scheme) and name in fused_name_to_fused_index:
                 fused_index = fused_name_to_fused_index[name]
                 fused_modules[fused_index][name] = module
-                initialize_observer(module, "weight")
+                initialize_weight_observer(module)
                 apply_calibration_status(module)
                 continue
 

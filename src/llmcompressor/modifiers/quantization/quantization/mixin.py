@@ -47,10 +47,8 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.quantization.helpers import (
-    is_fp8,
-    is_mxfp4,
-    is_mxfp4aN,
-    is_nvfp4,
+    get_default_weight_observer,
+    get_weight_observer_defaults,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -542,69 +540,14 @@ class QuantizationMixin(HooksMixin):
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Select the common default weight observer."""
-        if is_fp8(scheme):
-            # fp8 doesn't benefit from shrinkage so
-            # imat/mse are unnecessary
-            return "memoryless_minmax"
-        if not has_calibration_data and is_mxfp4(scheme):
-            # the exponential search seems to make a difference
-            # for mxfp4 even when there's no calibration data
-            return "memoryless_mse"
-        return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
+        return get_default_weight_observer(scheme, has_calibration_data)
 
     def _get_weight_observer_defaults(
         self,
         scheme: QuantizationScheme,
     ) -> ObserverKwargs:
         """Return format-specific parameters for the selected weight observer."""
-        args = scheme.weights
-        if args is None:
-            return {}
-
-        observer = args.observer
-        if observer not in (
-            "mse",
-            "memoryless_mse",
-            "imatrix_mse",
-        ):
-            return {}
-
-        # SEARCH DEFAULTS
-        defaults: ObserverKwargs = {
-            "maxshrink": 0.95,
-            "expand": 1.0,
-            "grid": 200,
-            "grid_type": "linear",
-            "patience": 0,
-
-        }
-        if is_nvfp4(scheme):
-            # we want to take advantage of fouroversix range
-            # benefits at 1.5,1 so we go from 1.8 to .8 to cover that
-            defaults.update(
-                maxshrink=1 - 0.8 / 1.8,
-                expand=1.8,
-            )
-        elif is_mxfp4(scheme):
-            # since mxfp4 scale is a power of 2, all expansions
-            # will be powers of two so we use exponential grid
-            # and search from 2^0 to 2^(-6)
-            defaults.update(
-                maxshrink=1 - 1.0 / 64.0,
-                grid_type="exponential"
-            )
-
-        # OBJECTIVE FUNCTION DEFAULTS
-        if is_nvfp4(scheme):
-            defaults.update(norm=3.0, magnitude_normalization=True)
-
-        elif observer == "imatrix_mse" and is_mxfp4aN(scheme):
-            defaults.update(norm=2, magnitude_normalization=False)
-
-        else: # w4a16, mxfp4a16, mxfp4a8 MSE
-            defaults.update(norm=2.8, magnitude_normalization=True)
-
-        return defaults
+        return get_weight_observer_defaults(scheme)
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
