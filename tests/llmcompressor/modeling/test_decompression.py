@@ -223,7 +223,7 @@ def test_oneshot_recalibrates_packed_inputs_with_decompression_enabled(
 
 
 @pytest.mark.parametrize("layerwise_decompression", [False, True])
-def test_layerwise_decompression_preserves_model_validation_policy(
+def test_decompression_flag_does_not_skip_model_validation(
     tmp_path, layerwise_decompression
 ):
     config = LlamaConfig(
@@ -239,19 +239,13 @@ def test_layerwise_decompression_preserves_model_validation_policy(
     config.save_pretrained(tmp_path)
     model = AutoModelForCausalLM.from_config(config)
     model.config.name_or_path = str(tmp_path)
-    if layerwise_decompression:
-        assert (
-            oneshot(
-                model=model,
-                processor=object(),
-                recipe=[],
-                layerwise_decompression=True,
-            )
-            is model
+    with pytest.raises(ValueError, match="different format"):
+        oneshot(
+            model=model,
+            processor=object(),
+            recipe=[],
+            layerwise_decompression=layerwise_decompression,
         )
-    else:
-        with pytest.raises(ValueError, match="different format"):
-            oneshot(model=model, processor=object(), recipe=[])
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])

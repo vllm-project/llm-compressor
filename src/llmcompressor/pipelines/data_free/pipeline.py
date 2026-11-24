@@ -4,7 +4,7 @@ import torch
 from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 
-from llmcompressor.core.session_functions import LifecycleCallbacks, active_session
+from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential.offload import (
     subgraph_offload_modules,
@@ -51,12 +51,5 @@ class DataFreePipeline(CalibrationPipeline):
         subgraph_offload_modules(modules, offload_kwargs)
 
         LifecycleCallbacks.calibration_start()
-        if dataset_args.layerwise_decompression:
-            session = active_session()
-            for modifier in session.lifecycle.recipe.modifiers:
-                if hasattr(modifier, "start_layerwise_calibration"):
-                    modifier.start_layerwise_calibration(
-                        session.state, model, list(model.modules())
-                    )
         LifecycleCallbacks.sequential_epoch_end(dict(model.named_modules()))
         LifecycleCallbacks.calibration_end()

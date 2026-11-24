@@ -266,14 +266,6 @@ class SequentialPipeline(CalibrationPipeline):
                     subgraph_modules, restructure_handler, onload_device
                 )
 
-                if dataset_args.layerwise_decompression:
-                    modules = list(subgraph_modules.values())
-                    for modifier in modifiers:
-                        if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(
-                                session.state, model, modules
-                            )
-
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
                     activations,

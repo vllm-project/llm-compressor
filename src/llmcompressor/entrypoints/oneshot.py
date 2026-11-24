@@ -230,10 +230,7 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        # Skip model validation if using layerwise decompression
-        # for pre-quantized models
-        if not getattr(self.dataset_args, "layerwise_decompression", False):
-            self.validate_model(self.model)
+        self.validate_model(self.model)
 
     @handle_error
     def __call__(self):
@@ -318,9 +315,6 @@ class Oneshot:
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
 
-            session.state.layerwise_decompression = (
-                self.dataset_args.layerwise_decompression
-            )
             session.state.layerwise_compression = (
                 self.dataset_args.layerwise_compression
             )
@@ -354,7 +348,7 @@ class Oneshot:
     def validate_model(self, model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
-        Raise warning if model is quantized with compressed-tensors quant method.
+        Report decompression requirements for compressed-tensors checkpoints.
         Raise error if model is quantized with any other quant method.
         """
         if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
@@ -409,9 +403,10 @@ class Oneshot:
 
         elif quant_method == QUANTIZATION_METHOD:
             logger.warning(
-                "oneshot has limited support for models already quantized in the "
-                "`compressed-tensors` format. If the recipe targets layers that have "
-                f"already been quantized, oneshot will likely fail. {resolution}"
+                "Detected a model already quantized in the `compressed-tensors` "
+                "format. Modules requiring the general decompression transform "
+                "require layerwise_decompression=True. MoE linearization "
+                "decompresses its own expert weights independently of this flag."
             )
         else:
             raise ValueError(
