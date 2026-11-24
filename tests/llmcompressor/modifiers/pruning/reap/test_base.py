@@ -9,11 +9,13 @@ calibrate-all execution paths; full-model pruning with real routing; and
 distributed calibration with unevenly distributed data.
 """
 
+import json
+
 import pytest
 import torch
 from torch import distributed as dist
 
-from llmcompressor.core import Event, EventType
+from llmcompressor.core import Event, EventType, active_session, reset_session
 from llmcompressor.modeling.moe import context as moe_context
 from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
@@ -155,6 +157,64 @@ def test_saliency_agrees_between_sparse_and_calibrate_all_execution(monkeypatch)
         )
 
 
+@pytest.mark.unit
+def test_reap_masked_saliency_agrees_between_execution_paths(monkeypatch):
+    """With a loss mask active, the sparse and calibrate-all execution paths
+    must still produce the same per-expert saliency: the dense path gathers
+    per-token norms positionally, so norm rows filtered apart from the
+    routing rows show up here as a value difference."""
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    reference_model = FakeMoEModel(config)
+    reference_model.eval()
+    reference_state = reference_model.state_dict()
+
+    inputs = [torch.randn(2, 8, config.hidden_size) for _ in range(5)]
+    masks = [torch.ones(2, 8, dtype=torch.long) for _ in inputs]
+    for mask in masks:
+        mask[:, :4] = 0
+
+    saliency_by_mode = {}
+    for calibrate_all in (False, True):
+        reset_session()
+        monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+        model = FakeMoEModel(config)
+        model.load_state_dict(reference_state)
+        model.eval()
+
+        modifier = REAPPruningModifier(sparsity=0.5)
+        state = make_state(model)
+        modifier.initialize(state)
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+        session_state = active_session().state
+        session_state.loss_masks = masks
+        with torch.no_grad():
+            for batch_idx, x in enumerate(inputs):
+                session_state.current_batch_idx = batch_idx
+                model(x)
+
+        saliency_by_mode[calibrate_all] = {
+            layer_name: modifier.saliency(layer_name).clone()
+            for layer_name in modifier._moe_stats
+        }
+        reset_session()
+
+    # the two paths sum the same contributions in a different order, so
+    # allow for float32 reduction-order noise
+    sparse_routing_saliency = saliency_by_mode[False]
+    calibrate_all_saliency = saliency_by_mode[True]
+    for layer_name in sparse_routing_saliency:
+        torch.testing.assert_close(
+            sparse_routing_saliency[layer_name],
+            calibrate_all_saliency[layer_name],
+            rtol=1e-5,
+            atol=1e-6,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tests: full-model lifecycle
 # ---------------------------------------------------------------------------
@@ -211,6 +271,73 @@ def test_reap_full_lifecycle():
         out = model(torch.randn(2, 4, config.hidden_size))
     assert out.shape == (2, 4, config.hidden_size)
     assert not torch.isnan(out).any()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("calibrate_all", [False, True])
+def test_reap_loss_mask_read_from_state(tmp_path, calibrate_all, monkeypatch):
+    """The experts-block hook reads the current batch's loss mask from the
+    session state; only unmasked tokens contribute to the statistics.
+
+    The same model and inputs are calibrated twice (identical routing): once
+    without masks and once with the first half of each sequence masked out.
+    Every expert's selection count can then only shrink."""
+    monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+    torch.manual_seed(42)
+
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+    inputs = [torch.randn(2, 8, config.hidden_size) for _ in range(5)]
+
+    def collect_report(loss_masks, report_path):
+        reset_session()
+        modifier = REAPPruningModifier(sparsity=0.0, report_path=str(report_path))
+        state = make_state(model)
+        modifier.initialize(state)
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+        session_state = active_session().state
+        session_state.loss_masks = loss_masks
+        with torch.no_grad():
+            for batch_idx, x in enumerate(inputs):
+                session_state.current_batch_idx = batch_idx
+                model(x)
+
+        modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+        modifier.finalize(state)
+        reset_session()
+
+        with open(report_path) as f:
+            return json.load(f)
+
+    # unmasked baseline; the same inputs are reused below, so routing
+    # decisions are identical across the masked runs
+    report_unmasked = collect_report(None, tmp_path / "unmasked.json")
+
+    # first half of each sequence masked out: with identical routing, every
+    # expert's count can only shrink, and the total strictly does
+    masks = [torch.ones(2, 8, dtype=torch.long) for _ in inputs]
+    for mask in masks:
+        mask[:, :4] = 0
+    report_masked = collect_report(masks, tmp_path / "masked.json")
+    for counts_unmasked, counts_masked in zip(
+        report_unmasked["count"], report_masked["count"]
+    ):
+        assert sum(counts_masked) < sum(counts_unmasked)
+        assert all(
+            c <= u for c, u in zip(counts_masked, counts_unmasked)
+        ), f"{counts_masked} vs {counts_unmasked}"
+
+    # an all-zero mask leaves every layer without samples: its statistics
+    # are recorded as None in the report
+    zero_masks = [torch.zeros(2, 8, dtype=torch.long) for _ in inputs]
+    report_zero = collect_report(zero_masks, tmp_path / "zero.json")
+    for counts in report_zero["count"]:
+        assert counts is None
 
 
 # ---------------------------------------------------------------------------
