@@ -30,12 +30,12 @@ class RestructureHandler:
     Each restructure owns its affected modules and any replacement-specific work.
     """
 
-    def __init__(self, model: Module):
+    def __init__(self, model: Module, *, layerwise_decompression: bool = False):
         self.model = model
         self.mapping: dict[Module, Module] = {}
         self.restructures = (
-            DecompressionRestructure(),
             MoELinearizationRestructure(),
+            DecompressionRestructure(enabled=layerwise_decompression),
             OffsetNormRestructure(),
         )
         self.source_root: Module | None = None

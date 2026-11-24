@@ -163,7 +163,6 @@ def linearize_moe(model: PreTrainedModel):
     for _, module in non_linearized_moes:
         offload_kwargs = get_cache_init_kwargs(module)
         with disable_offloading():
-            DecompressionRestructure().apply(module)
             target = MoELinearizationRestructure._linearize(module, model)
         if str(offload_kwargs["offload_device"]) != "meta":
             subgraph_offload_modules(dict(target.named_modules()), {"": offload_kwargs})
@@ -172,7 +171,11 @@ def linearize_moe(model: PreTrainedModel):
 
 
 class MoELinearizationRestructure(ModuleRestructure):
-    """Model-wide MoE linearization with subgraph-scoped materialization."""
+    """Linearize supported MoE trees independently of recipe quantization targets.
+
+    Conversion requires dense tensors, so linearization decompresses its own source
+    tree on both the meta model and the onloaded real source.
+    """
 
     def apply(
         self,
@@ -205,6 +208,7 @@ class MoELinearizationRestructure(ModuleRestructure):
 
     @staticmethod
     def _linearize(source, model):
+        DecompressionRestructure(enabled=True).apply(source)
         config = _experts_config(source, getattr(model, "config", None))
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(type(source))
         return linear_experts_cls.from_experts_module(source, config)

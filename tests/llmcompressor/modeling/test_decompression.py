@@ -13,6 +13,7 @@ from compressed_tensors.quantization import (
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, LlamaConfig, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
+from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
 
 from llmcompressor import oneshot
 from llmcompressor.core import State
@@ -47,6 +48,53 @@ def _compress(layer, compression_format="pack-quantized"):
     compress_module(layer)
 
 
+@pytest.mark.parametrize("already_decompressed", [False, True])
+def test_restructuring_requires_decompression_opt_in(already_decompressed):
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 4))
+    _compress(model[1])
+    if already_decompressed:
+        decompress_module(model[1], leave_decompressed=True)
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    source = handler.mapping[model[1]]
+
+    with pytest.raises(ValueError, match="Module '1'.*layerwise_decompression=True"):
+        handler.apply_restructuring()
+
+    assert all(parameter.is_meta for parameter in model.parameters())
+    assert all(not parameter.is_meta for parameter in source.parameters())
+    assert model[1].quantization_status == source.quantization_status
+
+
+@pytest.mark.parametrize("remaining_compressed_module", [False, True])
+def test_restructuring_checks_model_after_upfront_linearization(
+    remaining_compressed_module,
+):
+    model = torch.nn.Module()
+    model.config = Qwen3MoeConfig(
+        hidden_size=16,
+        moe_intermediate_size=8,
+        num_experts=2,
+        num_experts_per_tok=1,
+    )
+    model.experts = Qwen3MoeExperts(model.config)
+    model.experts.quantization_status = QuantizationStatus.DECOMPRESSED
+    if remaining_compressed_module:
+        model.other = torch.nn.Linear(16, 16)
+        _compress(model.other)
+
+    linearize_moe(model)
+    assert not hasattr(model.experts, "quantization_status")
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    if remaining_compressed_module:
+        with pytest.raises(ValueError, match="Module 'other'.*layerwise_decompression"):
+            handler.apply_restructuring()
+    else:
+        handler.apply_restructuring()
+        assert all(parameter.is_meta for parameter in model.parameters())
+
+
 @pytest.mark.parametrize("compression_format", ["pack-quantized", "int-quantized"])
 @pytest.mark.parametrize("already_decompressed", [False, True])
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
@@ -67,7 +115,7 @@ def test_decompression_preserves_new_recipe_state(
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
     model = torch.nn.Sequential(layer)
-    handler = RestructureHandler(model)
+    handler = RestructureHandler(model, layerwise_decompression=True)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
     assert model[0] is layer
@@ -118,7 +166,7 @@ def test_decompression_preserves_new_recipe_state(
         (GPTQModifier, "sequential", True),
     ],
 )
-def test_oneshot_recalibrates_packed_inputs_automatically(
+def test_oneshot_recalibrates_packed_inputs_with_decompression_enabled(
     tmp_path, modifier_class, pipeline, recompress
 ):
     config = LlamaConfig(
@@ -137,7 +185,7 @@ def test_oneshot_recalibrates_packed_inputs_automatically(
         if isinstance(layer, torch.nn.Linear):
             _compress(layer)
     reference = copy.deepcopy(model)
-    DecompressionRestructure().apply(reference)
+    DecompressionRestructure(enabled=True).apply(reference)
     batches = [
         {"input_ids": torch.tensor([[1, 2, 3, 4]])},
         {"input_ids": torch.tensor([[5, 6, 7, 8]])},
@@ -162,6 +210,7 @@ def test_oneshot_recalibrates_packed_inputs_automatically(
             else DataLoader(batches, batch_size=None),
             pipeline=pipeline,
             sequential_targets=["LlamaDecoderLayer"],
+            layerwise_decompression=True,
             layerwise_compression=recompress,
         )
         assert not any(
@@ -173,7 +222,10 @@ def test_oneshot_recalibrates_packed_inputs_automatically(
     )
 
 
-def test_automatic_decompression_keeps_unsupported_format_validation(tmp_path):
+@pytest.mark.parametrize("layerwise_decompression", [False, True])
+def test_layerwise_decompression_preserves_model_validation_policy(
+    tmp_path, layerwise_decompression
+):
     config = LlamaConfig(
         vocab_size=32,
         hidden_size=16,
@@ -183,17 +235,28 @@ def test_automatic_decompression_keeps_unsupported_format_validation(tmp_path):
         num_key_value_heads=2,
         head_dim=8,
     )
+    config.quantization_config = {"quant_method": "gptq"}
     config.save_pretrained(tmp_path)
     model = AutoModelForCausalLM.from_config(config)
     model.config.name_or_path = str(tmp_path)
-    model.config.quantization_config = {"quant_method": "gptq"}
-    with pytest.raises(ValueError, match="different format"):
-        oneshot(model=model, processor=object(), recipe=[])
+    if layerwise_decompression:
+        assert (
+            oneshot(
+                model=model,
+                processor=object(),
+                recipe=[],
+                layerwise_decompression=True,
+            )
+            is model
+        )
+    else:
+        with pytest.raises(ValueError, match="different format"):
+            oneshot(model=model, processor=object(), recipe=[])
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
 @pytest.mark.parametrize("stage", [False, True])
-def test_decompression_then_linearization_materializes_one_source_tree(
+def test_linearization_decompresses_its_source_tree(
     monkeypatch, tmp_path, offload_device, stage
 ):
     config = Qwen3MoeConfig(
@@ -239,7 +302,7 @@ def test_decompression_then_linearization_materializes_one_source_tree(
         _compress(module)
     model.model.layers[0].mlp.experts = packed
     reference = copy.deepcopy(model)
-    DecompressionRestructure().apply(reference)
+    DecompressionRestructure(enabled=True).apply(reference)
     linearize_moe(reference)
     expected = reference.model.layers[0].mlp.experts
     for module in packed.children():
@@ -258,7 +321,8 @@ def test_decompression_then_linearization_materializes_one_source_tree(
     assert isinstance(target, LinearExperts2D)
     assert all(child not in handler.mapping for child in old_children)
     source = handler.mapping[target]
-    assert handler.restructures[1].mapping == {source: target}
+    assert handler.restructures[0].mapping == {source: target}
+    assert not handler.restructures[1].mapping
     assert "weight_packed" in source.gate_up_storage._parameters
 
     modifier = QuantizationModifier(
@@ -316,19 +380,19 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
         weights=QuantizationArgs(num_bits=8, strategy="tensor"),
     )
     model.norm.quantization_status = QuantizationStatus.COMPRESSED
-    handler = RestructureHandler(model)
+    handler = RestructureHandler(model, layerwise_decompression=True)
     handler.convert_model_to_meta()
     original = model.norm
     source = handler.mapping[original]
     handler.apply_restructuring()
     target = model.norm
     assert isinstance(target, NormCalibrationModule)
-    assert handler.restructures[0].mapping[source] is original
+    assert handler.restructures[1].mapping[source] is original
     assert handler.restructures[2].mapping[source] is target
     modules = {"norm": target}
     handler.configure_onload(torch.device("cpu"))
     subgraph_onload_modules(modules, handler, torch.device("cpu"))
-    assert not handler.restructures[0].mapping
+    assert not handler.restructures[1].mapping
     assert source._parameters  # Only the norm operation retains this source now.
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125)
     with torch.no_grad():

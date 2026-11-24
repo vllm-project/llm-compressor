@@ -52,6 +52,7 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
         state=SimpleNamespace(),
     )
     dataset_args = SimpleNamespace(
+        layerwise_decompression=False,
         layerwise_compression=True,
         propagate_error=False,
         log_sequential_error=False,

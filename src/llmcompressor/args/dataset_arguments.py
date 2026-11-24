@@ -348,6 +348,15 @@ class DatasetArguments(CustomDatasetArguments):
             "device. Only moves weights. Default False."
         },
     )
+    layerwise_decompression: bool = field(
+        default=False,
+        metadata={
+            "help": "Allow decompression of compressed-tensors modules during "
+            "restructuring. Default False; remaining modules that need this "
+            "operation raise an error. MoE linearization decompresses its own "
+            "expert weights independently of this flag."
+        },
+    )
     layerwise_compression: bool = field(
         default=False,
         metadata={

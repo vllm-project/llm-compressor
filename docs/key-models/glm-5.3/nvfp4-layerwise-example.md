@@ -64,7 +64,7 @@ recipe = QuantizationModifier(
 
 ### 3. Apply Layerwise Decompression and Compression
 
-Compressed input modules are decompressed automatically through restructuring, and `layerwise_compression=True` compresses each subgraph again after propagation. The sequential targets keep the model's attention and MoE blocks as the atomic units.
+`layerwise_decompression=True` decompresses each layer immediately before it is quantized, and `layerwise_compression=True` compresses it again as soon as quantization finishes. The sequential targets keep the model's attention and MoE blocks as the atomic units.
 
 ```python
 from llmcompressor import oneshot
@@ -84,6 +84,7 @@ oneshot(
     shuffle_calibration_samples=False,
     pipeline="sequential",
     sequential_targets=["GlmMoeDsaAttention", "GlmMoeDsaMoE"],
+    layerwise_decompression=True,
     layerwise_compression=True,
 )
 ```
