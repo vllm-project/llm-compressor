@@ -4,6 +4,7 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.offload import disable_offloading, get_cache_init_kwargs
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -155,11 +156,19 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    # This standalone entrypoint only materializes experts, leaving other
-    # compressed layers available for later subgraph-scoped decompression.
+    from llmcompressor.pipelines.sequential.offload import subgraph_offload_modules
+
+    # The standalone path owns dispatch; the converters only restructure tensors.
+    # Process one experts tree at a time, leaving other layers offloaded.
     for _, module in non_linearized_moes:
-        DecompressionRestructure().apply(module)
-    return MoELinearizationRestructure().apply(model)
+        offload_kwargs = get_cache_init_kwargs(module)
+        with disable_offloading():
+            DecompressionRestructure().apply(module)
+            target = MoELinearizationRestructure._linearize(module, model)
+        if str(offload_kwargs["offload_device"]) != "meta":
+            subgraph_offload_modules(dict(target.named_modules()), {"": offload_kwargs})
+        model = replace_module(model, module, target)
+    return model
 
 
 class MoELinearizationRestructure(ModuleRestructure):

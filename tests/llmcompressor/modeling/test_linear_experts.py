@@ -1,4 +1,6 @@
+import pytest
 import torch
+from compressed_tensors.offload.cache import OffloadCache
 from transformers import initialization as init
 from transformers.models.qwen3_moe.configuration_qwen3_moe import Qwen3MoeConfig
 from transformers.models.qwen3_moe.modeling_qwen3_moe import Qwen3MoeExperts
@@ -9,6 +11,40 @@ from llmcompressor.modeling.moe.linear_experts import (
     LinearExperts2D,
     _group_tokens_by_expert,
 )
+
+
+@pytest.mark.parametrize("device", ["cpu", "meta"])
+@torch.no_grad()
+def test_from_experts_preserves_device_without_dispatch(device):
+    config = Qwen3MoeConfig(
+        hidden_size=16,
+        moe_intermediate_size=8,
+        num_experts=2,
+        num_experts_per_tok=1,
+    )
+    with torch.device(device):
+        source = Qwen3MoeExperts(config)
+    for parameter in source.parameters():
+        init.normal_(parameter)
+    experts_cls = LinearExperts2D.get_linear_experts_cls(type(source))
+
+    # Construction follows the source even when the caller has a different default.
+    with torch.device("meta" if device == "cpu" else "cpu"):
+        target = experts_cls.from_experts_module(source, config)
+
+    assert all(parameter.device.type == device for parameter in target.parameters())
+    assert all(
+        not isinstance(module._parameters, OffloadCache) for module in target.modules()
+    )
+    if device == "cpu":
+        for index in range(target.num_experts):
+            expert = target[index]
+            gate, up = source.gate_up_proj[index].chunk(2, dim=0)
+            torch.testing.assert_close(expert.gate_proj.weight, gate, rtol=0, atol=0)
+            torch.testing.assert_close(expert.up_proj.weight, up, rtol=0, atol=0)
+            torch.testing.assert_close(
+                expert.down_proj.weight, source.down_proj[index], rtol=0, atol=0
+            )
 
 
 @torch.no_grad()
