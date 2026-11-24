@@ -10,6 +10,7 @@ from llmcompressor.pipelines.registry import CalibrationPipeline
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
+    from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 __all__ = ["IndependentPipeline"]
 
@@ -21,6 +22,7 @@ class IndependentPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        restructure_handler: "RestructureHandler",
     ):
         """
         Data pipeline where each modifier is assigned its own calibration epoch and data
@@ -29,6 +31,7 @@ class IndependentPipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param restructure_handler: handler prepared before modifier initialization
         """
         _logger = logger.patch(lambda r: r.update(function="IndependentPipeline"))
 
@@ -42,6 +45,6 @@ class IndependentPipeline(CalibrationPipeline):
                 pipeline_name = pipeline.__class__.__name__
                 _logger.info(f"Inferred `{pipeline_name}` for `{mod_type}`")
 
-                pipeline(model, dataloader, dataset_args)
+                pipeline(model, dataloader, dataset_args, restructure_handler)
 
                 # restore modifiers on exit so model can be compressed based on recipe

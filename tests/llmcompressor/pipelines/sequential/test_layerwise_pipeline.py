@@ -6,6 +6,7 @@ import torch
 import llmcompressor.pipelines.sequential.helpers as helpers_module
 import llmcompressor.pipelines.sequential.pipeline as pipeline_module
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 
 class _FakeActivations:
@@ -134,7 +135,7 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     )
     monkeypatch.setattr(helpers_module, "is_distributed", lambda: False)
 
-    SequentialPipeline.__call__(model, [{}], dataset_args)
+    SequentialPipeline.__call__(model, [{}], dataset_args, RestructureHandler(model))
 
     assert events == [
         "calibration_start",

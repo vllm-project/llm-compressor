@@ -87,7 +87,7 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
-        restructure_handler: RestructureHandler | None = None,
+        restructure_handler: RestructureHandler,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -111,11 +111,11 @@ class SequentialPipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param restructure_handler: handler prepared before modifier initialization
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
-        restructure_handler = restructure_handler or RestructureHandler(model)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()

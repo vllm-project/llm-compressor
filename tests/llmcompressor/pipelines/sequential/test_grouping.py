@@ -42,6 +42,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     topological_partition,
 )
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.dev import get_main_device
 from tests.testing_utils import requires_gpu
 
@@ -592,7 +593,7 @@ def test_pipeline_traces_then_partitions(
     model, dataloader = fake_pipeline_inputs
 
     dataset_args = DatasetArguments(sequential_targets_per_subgraph="auto")
-    SequentialPipeline()(model, dataloader, dataset_args)
+    SequentialPipeline()(model, dataloader, dataset_args, RestructureHandler(model))
 
     # the graph is traced once and partitioned once, with what "auto" needs
     mock_trace.assert_called_once()

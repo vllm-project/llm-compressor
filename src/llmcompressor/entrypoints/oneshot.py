@@ -336,20 +336,14 @@ class Oneshot:
             # Modifiers always initialize against the restructured modules.
             # Sequential calibration can fill targets by subgraph; other pipelines
             # need all targets ready before their first pass.
-            if isinstance(pipeline, SequentialPipeline):
-                pipeline(
-                    self.model,
-                    calibration_dataloader,
-                    self.dataset_args,
-                    restructure_handler=restructure_handler,
-                )
-            else:
+            if not isinstance(pipeline, SequentialPipeline):
                 restructure_handler.materialize_all()
-                pipeline(
-                    self.model,
-                    calibration_dataloader,
-                    self.dataset_args,
-                )
+            pipeline(
+                self.model,
+                calibration_dataloader,
+                self.dataset_args,
+                restructure_handler=restructure_handler,
+            )
             restructure_handler.finish()
 
         session.finalize()

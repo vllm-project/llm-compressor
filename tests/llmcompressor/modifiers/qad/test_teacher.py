@@ -10,6 +10,7 @@ from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
@@ -83,7 +84,7 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
                     model=model, recipe=[_quantizer(kind), qad], start=-1
                 )
                 args = DatasetArguments(sequential_targets_per_subgraph=per_subgraph)
-                SequentialPipeline()(model, data, args)
+                SequentialPipeline()(model, data, args, RestructureHandler(model))
                 session.finalize()
     finally:
         handle.remove()

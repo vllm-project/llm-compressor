@@ -10,6 +10,7 @@ from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import LifecycleCallbacks, create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.pipelines.basic import BasicPipeline, run_calibration
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -59,8 +60,11 @@ def test_basic_pipeline_preserves_untraced_calibration():
         ),
         create_session() as session,
     ):
+        handler = RestructureHandler(model)
+        handler.convert_model_to_meta()
+        handler.apply_restructuring()
         session.initialize(model=model, start=-1)
-        BasicPipeline()(model, dataloader, args)
+        BasicPipeline()(model, dataloader, args, handler)
         assert len(pre_calls) == len(outputs) == len(samples)
         for received, index in zip(pre_calls, order):
             torch.testing.assert_close(received, samples[index]["x"])
@@ -69,6 +73,7 @@ def test_basic_pipeline_preserves_untraced_calibration():
         assert torch.count_nonzero(outputs[2]) == 0
         for received, index in zip(session.state.loss_masks, order):
             torch.testing.assert_close(received.cpu(), samples[index]["loss_mask"])
+        handler.finish()
         session.finalize()
 
     assert args == original_args
@@ -87,9 +92,13 @@ def test_run_calibration_without_dataset_arguments(num_batches):
         ),
         create_session() as session,
     ):
+        handler = RestructureHandler(model)
+        handler.convert_model_to_meta()
+        handler.apply_restructuring()
         session.initialize(model=model, start=-1)
-        run_calibration(model, dataloader)
+        run_calibration(model, dataloader, handler)
         assert len(outputs) == num_batches
+        handler.finish()
         session.finalize()
 
 
@@ -129,6 +138,10 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
     )
     for candidate in (reference, model):
         with create_session() as session:
+            if candidate is model:
+                handler = RestructureHandler(candidate)
+                handler.convert_model_to_meta()
+                handler.apply_restructuring()
             session.initialize(
                 model=candidate,
                 recipe=QuantizationModifier(config_groups={"group": deepcopy(scheme)}),
@@ -146,7 +159,8 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                 LifecycleCallbacks.sequential_epoch_end(list(candidate.modules()))
                 LifecycleCallbacks.calibration_end()
             else:
-                BasicPipeline()(candidate, dataloader, DatasetArguments())
+                BasicPipeline()(candidate, dataloader, DatasetArguments(), handler)
+                handler.finish()
             session.finalize()
 
     expected = reference.state_dict()

@@ -20,6 +20,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
@@ -237,7 +238,7 @@ def test_real_llama_sequential_pipeline(kind, scheme):
         recipe.extend([_quantizer(kind, scheme), qad])
         session.initialize(model=model, recipe=recipe, start=-1)
         with _capture_logs() as logs:
-            SequentialPipeline()(model, data, args)
+            SequentialPipeline()(model, data, args, RestructureHandler(model))
         assert _logged_updates(logs) == {"model.layers.0": 3, "model.layers.1": 3}
         assert not qad._input_caches and not qad._output_caches and not qad._hooks
         session.finalize()
@@ -520,7 +521,7 @@ def test_subgraph_targets_train_jointly(per_subgraph, expected):
     with create_session() as session:
         session.initialize(model=model, recipe=[_quantizer("rtn"), qad], start=-1)
         with _capture_logs() as logs:
-            SequentialPipeline()(model, data, args)
+            SequentialPipeline()(model, data, args, RestructureHandler(model))
         assert _logged_updates(logs) == expected
         assert (
             not qad._input_caches

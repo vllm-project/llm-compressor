@@ -10,6 +10,7 @@ from llmcompressor.utils.dev import get_main_device
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
+    from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 __all__ = ["DataFreePipeline"]
 
@@ -21,6 +22,7 @@ class DataFreePipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: Optional[DataLoader],
         dataset_args: "DatasetArguments",
+        restructure_handler: "RestructureHandler",
     ):
         """
         A pipeline for data-free calibration
@@ -28,6 +30,7 @@ class DataFreePipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param restructure_handler: handler prepared before modifier initialization
         """
         # some ops are still performed on the model by modifiers
         # we want those ops to occur on the GPU
