@@ -108,7 +108,7 @@ def subgraph_onload_modules(
                 remove_module_offload(source, onload_tensors=True)
 
     for restructure in restructure_handler.restructures:
-        restructure.materialize(
+        restructure.restructure_sources(
             restructure_handler.model, sources, device, offload_kwargs
         )
     for target in pending.values():
@@ -125,13 +125,11 @@ def subgraph_offload_modules(
     offload_kwargs: dict[str, dict],
     default: dict | None = None,
 ) -> None:
-    """Offload scoped modules and new descendants using saved or inherited settings.
+    """Offload exactly the supplied modules using saved or inherited settings.
 
     Modules without settings for themselves or an ancestor retain the device-based
-    fallback, overridden by ``default`` when provided. Already offloaded descendants
-    outside the supplied scope, including staged modules, are left untouched.
+    fallback, overridden by ``default`` when provided.
     """
-    scoped_modules = set(modules.values())
 
     def get_offload_kwargs(name: str, module: Module) -> dict:
         offload_name = name
@@ -145,17 +143,5 @@ def subgraph_offload_modules(
             module_kwargs.update(default)
         return module_kwargs
 
-    def offload_new_descendants(name: str, module: Module) -> None:
-        for child_name, child in module.named_children():
-            if child in scoped_modules or isinstance(child._parameters, OffloadCache):
-                continue
-
-            child_name = f"{name}.{child_name}" if name else child_name
-            offload_module(child, **get_offload_kwargs(child_name, child))
-            offload_new_descendants(child_name, child)
-
     for name, module in modules.items():
         offload_module(module, **get_offload_kwargs(name, module))
-
-    for name, module in modules.items():
-        offload_new_descendants(name, module)

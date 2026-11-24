@@ -27,14 +27,14 @@ class ModuleRestructure(ABC):
         """Restructure the model and remember sources when loading is delayed."""
 
     @abstractmethod
-    def materialize(
+    def restructure_sources(
         self,
         model: Module,
         sources: dict[str, Module],
         device: torch.device,
         offload_kwargs: dict[str, dict],
     ) -> None:
-        """Convert this operation's sources among the modules just onloaded."""
+        """Restructure onloaded sources, transferring replacement state to targets."""
 
     def restore(
         self,

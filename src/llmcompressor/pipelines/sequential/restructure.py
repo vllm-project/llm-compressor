@@ -122,6 +122,12 @@ class RestructureHandler:
         }
         kwargs = subgraph_onload_modules(modules, self, device)
         self.restore_restructured_modules(modules)
+        # Include materialized descendants while leaving existing caches untouched.
+        modules = {
+            name: module
+            for name, module in self.model.named_modules()
+            if not isinstance(module._parameters, OffloadCache)
+        }
         subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()
         self.source_root = None

@@ -300,3 +300,46 @@ def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_d
     if offload_device == "disk":
         assert model.norm._parameters.offload_dir == tmp_path
     torch.testing.assert_close(model.norm.weight, torch.arange(4.0) + 2)
+
+
+@pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+def test_finish_offloads_materialized_expert_children(tmp_path, offload_device):
+    model = AutoModelForCausalLM.from_config(
+        Qwen3MoeConfig(
+            vocab_size=32,
+            hidden_size=16,
+            intermediate_size=32,
+            moe_intermediate_size=16,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=2,
+            head_dim=8,
+            num_experts=2,
+            num_experts_per_tok=1,
+        ),
+        attn_implementation="eager",
+    )
+    reference = copy.deepcopy(model)
+    linearize_moe(reference)
+    for module in model.modules():
+        offload_module(
+            module,
+            onload_device="cpu",
+            offload_device=offload_device,
+            **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
+        )
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
+    experts = model.model.layers[0].mlp.experts
+    assert experts in handler.mapping
+    assert experts[0].gate_proj not in handler.mapping
+
+    handler.finish()
+
+    for module in experts.modules():
+        assert isinstance(module._parameters, OffloadCache)
+        assert str(module._parameters.offload_device) == offload_device
+    torch.testing.assert_close(
+        model.state_dict(), reference.state_dict(), rtol=0, atol=0
+    )

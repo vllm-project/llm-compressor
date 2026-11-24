@@ -184,7 +184,7 @@ class MoELinearizationRestructure(ModuleRestructure):
             model = replace_module(model, module, target)
         return model
 
-    def materialize(self, model, sources, device, offload_kwargs):
+    def restructure_sources(self, model, sources, device, offload_kwargs):
         for source in sources.values():
             target = self.mapping.pop(source, None)
             if target is not None:
