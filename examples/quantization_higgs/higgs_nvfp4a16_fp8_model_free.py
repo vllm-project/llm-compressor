@@ -41,10 +41,19 @@ def main():
     args = parser.parse_args()
 
     nvfp4a16_scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
-    nvfp4a16_scheme.weights.observer = "nvfp4_expanded_mse"
+    nvfp4a16_scheme.weights.observer = "memoryless_mse"
+    nvfp4a16_scheme.weights.observer_kwargs = {
+        "grid": 200,
+        "grid_type": "linear",
+        "maxshrink": 1 - 0.8 / 1.8,
+        "expand": 1.8,
+        "patience": 0,
+        "norm": 3.0,
+        "magnitude_normalization": True,
+    }
     schemes = [nvfp4a16_scheme, "FP8_DYNAMIC"]
     model_short = args.model.rstrip("/").split("/")[-1]
-    tag = "NVFP4A16+FP8_DYNAMIC+ExpandedMSE"
+    tag = "NVFP4A16+FP8_DYNAMIC+MemorylessMSE"
     save_dir = os.path.expanduser(
         f"~/hf_hub/{model_short}-HIGGS-{tag}-W{args.target_bits}avg-convert"
     )

@@ -1,14 +1,11 @@
-"""NVFP4 quantization with expanded MSE observer.
+"""NVFP4 quantization with memoryless MSE range search.
 
-The ``nvfp4_expanded_mse`` observer searches over a range of per-group
-scale expansions (1.8x down to 0.8x of the observed range) to find the
-scale that minimizes quantization error.  This typically gives better
-quality than the default minmax observer at the cost of a longer
-calibration pass.
+The standard ``memoryless_mse`` observer uses the NVFP4 search defaults
+provided by ``QuantizationModifier`` to search expanded per-group ranges.
 
 Usage::
 
-    python llama3_nvfp4_expanded_mse_example.py
+    python llama3_nvfp4_mse_example.py
 """
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -23,7 +20,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 recipe = QuantizationModifier(
     scheme="NVFP4",
-    weight_observer="nvfp4_expanded_mse",
+    weight_observer="memoryless_mse",
     ignore=["lm_head"],
 )
 

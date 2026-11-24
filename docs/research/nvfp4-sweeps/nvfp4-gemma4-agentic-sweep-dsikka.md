@@ -28,6 +28,11 @@ recovery from 92.4% to 99.9%. The three 31B AWQ combinations were not run.
 
 ## Setup
 
+This is a historical experiment report. Its `nvfp4_expanded_imatrix` and
+`nvfp4_expanded_mse` labels refer to observer implementations that have since
+been removed. Current recipes express those search settings through
+`observer_kwargs` on `imatrix_mse` or `memoryless_mse`.
+
 - Models: `google/gemma-4-26B-A4B-it` and `google/gemma-4-31B-it` (BF16
   baselines), plus the `dsikka/gemma-4-*-NVFP4*` checkpoints listed below.
 - Scheme/recipe: NVFP4 with `QuantizationModifier` (RTN), expanded

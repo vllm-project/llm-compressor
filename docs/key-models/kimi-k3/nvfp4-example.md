@@ -60,7 +60,7 @@ recipe = QuantizationModifier(
         "re:.*vision_tower.*",
         "lm_head",
     ],
-    weight_observer="nvfp4_expanded_mse",
+    weight_observer="imatrix_mse",
 )
 
 oneshot(

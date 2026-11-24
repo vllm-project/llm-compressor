@@ -23,6 +23,11 @@ tags:
 
 ## Setup
 
+This is a historical experiment report. Its `nvfp4_expanded_imatrix` and
+`nvfp4_expanded_mse` labels refer to observer implementations that have since
+been removed. Current recipes express those search settings through
+`observer_kwargs` on `imatrix_mse` or `memoryless_mse`.
+
 **Baseline** — `Qwen/Qwen3-30B-A3B` (BF16)
 
 **Variants** — 20 NVFP4 W4A4 models, all `nvfp4-pack-quantized`, group_size 16, `tensor_group` strategy, all 48 `mlp.gate` routers and `lm_head` left unquantized. Naming is `NVFP4[-GPTQ][-AWQ|-SmoothQuant][-ultrachat|-IMATRIX|-MSE]`:
