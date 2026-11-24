@@ -42,10 +42,10 @@ class MemorylessMSEObserver(Observer):
         expand (float): Multiplier applied to the observed min/max range before
             shrink candidates are searched. Must be at least ``1``. Defaults
             to ``1``.
-        grid_type (str or None): ``"linear"`` or ``"exponential"``. Modifier
-            defaults select exponential spacing for MX scales and linear
-            spacing otherwise. Exponential candidates are ``1, 1/2, 1/4, ...``
-            times the expanded range. Defaults to ``None``.
+        grid_type (str): ``"linear"`` or ``"exponential"``. Defaults to
+            ``"linear"``; modifier defaults select exponential spacing for MX
+            scales. Exponential candidates are ``1, 1/2, 1/4, ...`` times the
+            expanded range.
         magnitude_normalization (bool): If true, multiply each powered error
             by ``sqrt(w**2 + group_absmax**2)``, where ``group_absmax`` is the
             largest absolute observed value in that quantization group.
@@ -69,7 +69,7 @@ class MemorylessMSEObserver(Observer):
         self.magnitude_normalization = observer_kwargs.get(
             "magnitude_normalization", False
         )
-        self.grid_type = observer_kwargs.get("grid_type")
+        self.grid_type = observer_kwargs.get("grid_type", "linear")
         self.expand = observer_kwargs.get("expand", 1.0)
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
@@ -116,7 +116,7 @@ class MovingAverageMSEObserver(Observer):
         self.magnitude_normalization = observer_kwargs.get(
             "magnitude_normalization", False
         )
-        self.grid_type = observer_kwargs.get("grid_type")
+        self.grid_type = observer_kwargs.get("grid_type", "linear")
         self.expand = observer_kwargs.get("expand", 1.0)
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")

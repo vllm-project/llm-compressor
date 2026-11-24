@@ -52,10 +52,9 @@ class IMatrixMSEObserver(Observer):
         strict (bool): Raise an error if importance is unavailable or has an
             unsupported shape. If false, warn and fall back to uniform MSE.
             Defaults to ``False``.
-        grid_type (str or None): ``"linear"`` or ``"exponential"``. Modifier
-            defaults select exponential spacing for MX scales and linear
-            spacing otherwise. Exponential candidates are powers of two
-            starting at 1. Defaults to ``None``.
+        grid_type (str): ``"linear"`` or ``"exponential"``. Defaults to
+            ``"linear"``; modifier defaults select exponential spacing for MX
+            scales. Exponential candidates are powers of two starting at 1.
         magnitude_normalization (bool): Multiply each error by
             ``sqrt(w**2 + group_absmax**2)``. Defaults to ``True``.
     """
@@ -77,7 +76,7 @@ class IMatrixMSEObserver(Observer):
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
         self.magnitude_normalization = kw.get("magnitude_normalization", True)
-        self.grid_type = kw.get("grid_type")
+        self.grid_type = kw.get("grid_type", "linear")
 
         self._imatrix_sum: torch.Tensor | None = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)

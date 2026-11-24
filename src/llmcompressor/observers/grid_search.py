@@ -32,13 +32,11 @@ from llmcompressor.utils.triton_utils import (
 _GRID_SEARCH_TILE_SIZE = 512
 
 
-def _validate_grid_type(grid_type: str | None) -> str:
-    """Validate grid spacing, using linear spacing when unspecified."""
-    if grid_type is None:
-        return "linear"
+def _validate_grid_type(grid_type: str) -> str:
+    """Validate the configured grid spacing."""
     if grid_type not in ("linear", "exponential"):
         raise ValueError(
-            f"grid_type must be None, 'linear', or 'exponential', got {grid_type!r}"
+            f"grid_type must be 'linear' or 'exponential', got {grid_type!r}"
         )
     return grid_type
 
@@ -61,7 +59,7 @@ def _grid_search_observer(
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
     magnitude_normalization: bool = False,
-    grid_type: str | None = None,
+    grid_type: str = "linear",
 ) -> MinMaxTuple:
     """Search candidate ranges using linear or exponential shrinkage."""
     if (
@@ -231,7 +229,7 @@ def _grid_search_observer_triton(
     expand: float = 1.0,
     importance_weights: torch.Tensor | None = None,
     magnitude_normalization: bool = False,
-    grid_type: str | None = None,
+    grid_type: str = "linear",
 ) -> MinMaxTuple:
     """Shared Triton implementation of MSE and iMatrix grid search."""
     # Triton always evaluates every candidate; patience controls eager search.
