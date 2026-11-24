@@ -5,7 +5,10 @@ chain-of-thought, but calibration sets usually contain responses written by
 someone else. [Reasoning-Aware Compression (RAC)](https://arxiv.org/abs/2509.12464)
 proposes calibrating on the model's *own* reasoning traces instead: generate
 responses with the uncompressed model, then calibrate on `prompt + generated
-response` with the statistics restricted to the generated tokens.
+response`. The paper studies pruning (SparseGPT, ALPS, WANDA) and keeps both
+the prompt and the generated tokens in the reconstruction objective. Following
+#3548, this example applies the idea to GPTQ and additionally masks the prompt,
+so that only response tokens enter the Hessian.
 
 llm-compressor needs no changes for this. Trace generation is done with vLLM,
 and GPTQ can exclude tokens from its Hessian through
@@ -23,13 +26,15 @@ exactly the same number of active Hessian tokens.
 |---|---|---|
 | `full` | prompt + dataset solution | all tokens (regular GPTQ) |
 | `dataset_masked` | prompt + dataset solution | solution tokens only |
-| `onpolicy_masked` | prompt + the BF16 model's own trace | generated tokens only (RAC) |
+| `onpolicy_masked` | prompt + the BF16 model's own trace | generated tokens only |
 
 Generated traces are much longer than dataset solutions, so without a token
 budget a gain from `onpolicy_masked` could come from more calibration tokens
 rather than from the traces being on-policy. For every problem, the masked
 conditions therefore keep the shorter of the dataset solution and the generated
-trace. The `full` condition keeps every prompt and spends the remaining budget
+trace. Dataset solutions are almost always the shorter of the two, so in
+practice `onpolicy_masked` calibrates on the leading part of each trace rather
+than the full chain-of-thought. The `full` condition keeps every prompt and spends the remaining budget
 on solution prefixes, proportionally to the same per-problem lengths. Masked
 prompt tokens are still forwarded as context.
 
