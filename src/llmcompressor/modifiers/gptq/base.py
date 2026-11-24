@@ -137,7 +137,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
 
-    def _get_observer_defaults(
+    def _get_weight_observer_defaults(
         self,
         args: QuantizationArgs,
         scheme: QuantizationScheme,

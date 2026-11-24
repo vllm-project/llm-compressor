@@ -557,7 +557,7 @@ class QuantizationMixin(HooksMixin):
             return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
-    def _get_observer_defaults(
+    def _get_weight_observer_defaults(
         self,
         args: QuantizationArgs,
         scheme: QuantizationScheme,
@@ -596,7 +596,9 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            observer_defaults = self._get_observer_defaults(scheme.weights, scheme)
+            observer_defaults = self._get_weight_observer_defaults(
+                scheme.weights, scheme
+            )
             initialize_observer(
                 module,
                 base_name="weight",
