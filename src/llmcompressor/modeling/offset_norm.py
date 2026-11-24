@@ -20,7 +20,6 @@ import contextlib
 from abc import ABC, abstractmethod
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
 from compressed_tensors.offload.module import remove_module_offload
 from compressed_tensors.registry import RegistryMixin, standardize_lookup_name
 from loguru import logger
@@ -114,10 +113,6 @@ class CalibrationOffsetNorm(NormCalibrationModule):
 class OffsetNormRestructure(ModuleRestructure):
     """Own offset-norm conversion, materialization, and restoration."""
 
-    def __init__(self):
-        super().__init__()
-        self.offload_kwargs: dict[torch.nn.Module, dict] = {}
-
     def apply(
         self,
         model: torch.nn.Module,
@@ -138,34 +133,29 @@ class OffsetNormRestructure(ModuleRestructure):
         return model
 
     def materialize(self, model, sources, device, offload_kwargs):
-        for name, source in sources.items():
+        for source in sources.values():
             target = self.mapping.get(source)
-            if target is not None and source not in self.offload_kwargs:
+            if target is not None and target in self.delayed:
                 converted = type(target)(original=source)
                 copy_module_state(target, converted, device)
                 self.delayed.pop(target)
-                self.offload_kwargs[source] = offload_kwargs.get(
-                    name
-                ) or get_cache_init_kwargs(source)
 
-    def restore(self, model, modules=None, *, offload_sources=True):
-        for source, kwargs in list(self.offload_kwargs.items()):
-            target = self.mapping[source]
+    def restore(self, model, modules=None):
+        for source, target in list(self.mapping.items()):
+            if target in self.delayed:
+                continue
             if modules is not None and target not in modules.values():
                 continue
             remove_module_offload(target, onload_tensors=True)
             remove_module_offload(source, onload_tensors=True)
             source.forward = source.forward.__func__.__get__(source)
             target.restore(source)
-            if offload_sources:
-                offload_module(source, **kwargs)
             model = replace_module(model, target, source)
             if modules is not None:
                 for name, module in modules.items():
                     if module is target:
                         modules[name] = source
             del self.mapping[source]
-            del self.offload_kwargs[source]
         return model
 
 

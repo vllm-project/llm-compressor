@@ -6,7 +6,11 @@ import pytest
 import torch
 from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import subgraph_stage_modules
+from compressed_tensors.offload.module import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+    subgraph_stage_modules,
+)
 from compressed_tensors.quantization import QuantizationArgs
 from transformers import AutoModelForCausalLM, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
@@ -210,13 +214,14 @@ def test_norm_restore_updates_same_mapping_before_offload(
     device = torch.device("cpu")
     handler.configure_onload(device)
     modules = {"norm": target}
-    handler.onload_and_restructure_modules(modules, device)
+    offload_kwargs = handler.onload_and_restructure_modules(modules, device)
     with torch.no_grad():
         target.weight.add_(2)
-    handler.restore_restructured_modules(modules, offload_sources=False)
+    handler.restore_restructured_modules(modules)
     assert model.norm is source
     assert model.alias is source
     assert modules["norm"] is source
+    assert not isinstance(source._parameters, OffloadCache)
     torch.testing.assert_close(source.weight, expected)
     assert source.forward.__self__ is source
     inputs = torch.ones(2, 4)
@@ -225,5 +230,38 @@ def test_norm_restore_updates_same_mapping_before_offload(
     if patched_forward:
         torch.testing.assert_close(outputs, inputs * (1 + expected))
     assert not handler.offset_norms.mapping
-    assert not handler.offset_norms.offload_kwargs
+    subgraph_offload_modules(modules, offload_kwargs)
+    assert isinstance(source._parameters, OffloadCache)
     handler.finish()
+
+
+@pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_device):
+    model = torch.nn.Module()
+    model.norm = Gemma2RMSNorm(4, eps=1e-6)
+    model.norm.weight = torch.nn.Parameter(torch.arange(4.0))
+    offload_module(
+        model.norm,
+        onload_device="cpu",
+        offload_device=offload_device,
+        **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
+    )
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
+    handler.materialize_all()
+    target = model.norm
+    modules = {"norm": target}
+    kwargs = subgraph_onload_modules(modules)
+    with torch.no_grad():
+        target.weight.add_(2)
+    subgraph_offload_modules(modules, kwargs)
+
+    handler.finish()
+
+    assert model.norm is not target
+    assert isinstance(model.norm._parameters, OffloadCache)
+    assert str(model.norm._parameters.offload_device) == offload_device
+    if offload_device == "disk":
+        assert model.norm._parameters.offload_dir == tmp_path
+    torch.testing.assert_close(model.norm.weight, torch.arange(4.0) + 2)

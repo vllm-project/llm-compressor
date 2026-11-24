@@ -147,10 +147,12 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            subgraph_onload_modules(persistent_modules)
-            restructure_handler.onload_and_restructure_modules(
-                persistent_modules,
-                onload_device,
+            persistent_offload_kwargs = subgraph_onload_modules(persistent_modules)
+            persistent_offload_kwargs.update(
+                restructure_handler.onload_and_restructure_modules(
+                    persistent_modules,
+                    onload_device,
+                )
             )
             # Persistent modules stay onloaded for the full calibration run.
 
@@ -355,10 +357,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(modules)
 
-                restructure_handler.restore_restructured_modules(
-                    subgraph_modules,
-                    offload_sources=False,
-                )
+                restructure_handler.restore_restructured_modules(subgraph_modules)
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
@@ -366,7 +365,9 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Restore temporary conversions that weren't part of a traced subgraph,
             # such as persistent modules.
-            restructure_handler.restore_restructured_modules()
+            if persistent_modules:
+                restructure_handler.restore_restructured_modules(persistent_modules)
+                subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

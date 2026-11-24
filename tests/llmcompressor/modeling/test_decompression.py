@@ -324,7 +324,7 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125)
     with torch.no_grad():
         target.weight.add_(2)
-    handler.restore_restructured_modules(modules, offload_sources=False)
+    handler.restore_restructured_modules(modules)
     assert model.norm is source
     assert modules["norm"] is source
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125 + 2)

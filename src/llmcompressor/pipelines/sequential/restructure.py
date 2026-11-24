@@ -138,15 +138,28 @@ class RestructureHandler:
         subgraph_offload_modules(modules, kwargs)
 
     def restore_restructured_modules(
-        self, modules: dict[str, Module] | None = None, *, offload_sources=True
+        self, modules: dict[str, Module] | None = None
     ) -> None:
-        self.model = self.offset_norms.restore(
-            self.model, modules, offload_sources=offload_sources
-        )
+        for restructure in reversed(self.restructures):
+            self.model = restructure.restore(self.model, modules)
 
     def finish(self) -> None:
         """Restore a complete usable model, including state outside traced graphs."""
         self.materialize_all()
-        self.restore_restructured_modules()
+        # Consumed permanent conversions have dropped their operation mappings;
+        # the remaining targets are retained for restoration.
+        restore_targets = {
+            target
+            for restructure in self.restructures
+            for target in restructure.mapping.values()
+        }
+        modules = {
+            name: module
+            for name, module in self.model.named_modules()
+            if module in restore_targets
+        }
+        kwargs = subgraph_onload_modules(modules)
+        self.restore_restructured_modules(modules)
+        subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()
         self.source_root = None

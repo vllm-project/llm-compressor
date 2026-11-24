@@ -36,6 +36,14 @@ class ModuleRestructure(ABC):
     ) -> None:
         """Convert this operation's sources among the modules just onloaded."""
 
+    def restore(
+        self,
+        model: Module,
+        modules: dict[str, Module] | None = None,
+    ) -> Module:
+        """Restore temporary conversions, leaving permanent restructures unchanged."""
+        return model
+
 
 def _map_tensors(value, function):
     if isinstance(value, torch.Tensor):
