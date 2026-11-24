@@ -575,7 +575,10 @@ class QuantizationMixin(HooksMixin):
         ):
             return {}
 
+        is_mse = observer in ("mse", "memoryless_mse", "nvfp4_expanded_mse")
         defaults: ObserverKwargs = {
+            "maxshrink": 0.20 if is_mse else 0.95,
+            "expand": 1.0,
             "grid_type": resolve_grid_type(None, scheme),
         }
         if is_nvfp4(scheme):
