@@ -4,9 +4,7 @@ from compressed_tensors.distributed import (
     greedy_bin_packing,
     is_distributed,
 )
-from compressed_tensors.quantization import (
-    enable_quantization,
-)
+from compressed_tensors.quantization import enable_quantization
 from compressed_tensors.quantization.utils import is_module_quantized
 
 from llmcompressor.core import Event, State

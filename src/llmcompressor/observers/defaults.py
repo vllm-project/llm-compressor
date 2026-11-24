@@ -16,15 +16,20 @@ def is_nvfp4(args: QuantizationArgs) -> bool:
     return args.num_bits == 4 and args.type == "float" and args.group_size == 16
 
 
+def is_mxfp4(args: QuantizationArgs) -> bool:
+    """Return whether quantization args use the MXFP4 weight format."""
+    return (
+        args.num_bits == 4 and args.type == "float" and should_generate_mx_scales(args)
+    )
+
+
 def is_mxfp4a8(scheme: QuantizationScheme) -> bool:
     """Return whether the scheme quantizes MXFP4 weights with 8-bit activations."""
     weights = scheme.weights
     activations = scheme.input_activations
     return (
         weights is not None
-        and weights.num_bits == 4
-        and weights.type == "float"
-        and should_generate_mx_scales(weights)
+        and is_mxfp4(weights)
         and activations is not None
         and activations.num_bits == 8
     )
@@ -37,9 +42,7 @@ def get_defaults(
     observer_defaults: ObserverDefaultOverrides | None = None,
 ) -> dict[str, int | float | bool | str | None]:
     """Return search defaults with format and modifier-specific adjustments."""
-    is_mx = (
-        args.num_bits == 4 and args.type == "float" and should_generate_mx_scales(args)
-    )
+    is_mx = is_mxfp4(args)
 
     is_nvfp4_format = is_nvfp4(args)
     # Expanded observer ranges become the regular defaults for microscaled

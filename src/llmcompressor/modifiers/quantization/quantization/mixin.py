@@ -50,6 +50,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.observers.defaults import (
     ObserverDefaultOverrides,
+    is_mxfp4,
     is_mxfp4a8,
 )
 from llmcompressor.utils import (
@@ -553,7 +554,11 @@ class QuantizationMixin(HooksMixin):
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Select the common default weight observer."""
-        if not has_calibration_data and is_mxfp4a8(scheme):
+        if (
+            not has_calibration_data
+            and scheme.weights is not None
+            and is_mxfp4(scheme.weights)
+        ):
             return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
