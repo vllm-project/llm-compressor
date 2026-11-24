@@ -49,7 +49,8 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
 from llmcompressor.observers.defaults import (
-    ObserverDefaultOverrides,
+    ObserverKwargs,
+    get_defaults,
     is_mxfp4,
     is_mxfp4a8,
 )
@@ -563,13 +564,16 @@ class QuantizationMixin(HooksMixin):
         self,
         args: QuantizationArgs,
         scheme: QuantizationScheme,
-    ) -> ObserverDefaultOverrides:
-        """Return common observer defaults; modifiers can override this hook."""
+    ) -> ObserverKwargs:
+        """Return the complete defaults for the selected weight observer."""
         observer = args.observer
+        if observer in ("mse", "memoryless_mse"):
+            return get_defaults(args, "mse")
         if observer == "imatrix_mse":
+            defaults = get_defaults(args, "imatrix")
             if is_mxfp4a8(scheme):
-                return {"norm": 2.6, "magnitude_normalization": False}
-            return {"norm": 3.0, "magnitude_normalization": True}
+                defaults.update(norm=2.6, magnitude_normalization=False)
+            return defaults
         return {}
 
     def _initialize_observers(self, module: torch.nn.Module):
@@ -598,13 +602,13 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            observer_defaults = self._get_weight_observer_defaults(
-                scheme.weights, scheme
-            )
+            observer_kwargs = self._get_weight_observer_defaults(scheme.weights, scheme)
+            # Explicit observer kwargs take precedence over modifier defaults.
+            observer_kwargs.update(scheme.weights.observer_kwargs or {})
             initialize_observer(
                 module,
                 base_name="weight",
-                observer_defaults=observer_defaults,
+                observer_kwargs=observer_kwargs,
             )
 
         # output activations

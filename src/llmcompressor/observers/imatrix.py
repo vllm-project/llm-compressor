@@ -76,11 +76,7 @@ class IMatrixMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs
-        defaults = get_defaults(
-            self.args,
-            "imatrix",
-            observer_defaults=self.observer_defaults,
-        )
+        defaults = get_defaults(self.args, "imatrix")
         self.maxshrink = kw.get("maxshrink", defaults["maxshrink"])
         self.patience = kw.get("patience", defaults["patience"])
         self.grid = kw.get("grid", defaults["grid"])

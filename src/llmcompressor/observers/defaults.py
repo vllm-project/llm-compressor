@@ -8,7 +8,7 @@ from compressed_tensors.quantization.utils.mxfp_utils import (
 )
 
 ObserverKind = Literal["imatrix", "mse"]
-ObserverDefaultOverrides = dict[str, int | float | bool | str | None]
+ObserverKwargs = dict[str, int | float | bool | str | None]
 
 
 def is_nvfp4(args: QuantizationArgs) -> bool:
@@ -38,10 +38,8 @@ def is_mxfp4a8(scheme: QuantizationScheme) -> bool:
 def get_defaults(
     args: QuantizationArgs,
     observer: ObserverKind,
-    *,
-    observer_defaults: ObserverDefaultOverrides | None = None,
 ) -> dict[str, int | float | bool | str | None]:
-    """Return search defaults with format and modifier-specific adjustments."""
+    """Return observer defaults for its quantization format."""
     is_mx = is_mxfp4(args)
 
     is_nvfp4_format = is_nvfp4(args)
@@ -88,7 +86,5 @@ def get_defaults(
         }
     else:
         raise ValueError(f"Unknown observer kind: {observer}")
-
-    defaults.update(observer_defaults or {})
 
     return defaults
