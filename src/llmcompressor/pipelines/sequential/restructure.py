@@ -7,21 +7,17 @@ import copy
 import torch
 from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import (
-    remove_module_offload,
-    subgraph_offload_modules,
-    subgraph_onload_modules,
-)
+from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module, Parameter
 
 from llmcompressor.modeling.decompression import DecompressionRestructure
-from llmcompressor.modeling.module_restructure import (
-    _map_tensors,
-    clear_module_state,
-    copy_module_state,
-)
+from llmcompressor.modeling.module_restructure import _map_tensors
 from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modeling.offset_norm import OffsetNormRestructure
+from llmcompressor.pipelines.sequential.offload import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+)
 from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["RestructureHandler"]
@@ -37,12 +33,10 @@ class RestructureHandler:
     def __init__(self, model: Module):
         self.model = model
         self.mapping: dict[Module, Module] = {}
-        self.linearization = MoELinearizationRestructure()
-        self.offset_norms = OffsetNormRestructure()
         self.restructures = (
             DecompressionRestructure(),
-            self.linearization,
-            self.offset_norms,
+            MoELinearizationRestructure(),
+            OffsetNormRestructure(),
         )
         self.source_root: Module | None = None
 
@@ -106,25 +100,6 @@ class RestructureHandler:
         if self.source_root is not None:
             set_onload_device(self.source_root, device)
 
-    def onload_and_restructure_modules(
-        self, modules: dict[str, Module], device: torch.device
-    ) -> dict[str, dict]:
-        pending = {
-            name: target for name, target in modules.items() if target in self.mapping
-        }
-        sources = {name: self.mapping[target] for name, target in pending.items()}
-        self.linearization.add_source_modules(sources)
-        kwargs = subgraph_onload_modules(sources)
-        for restructure in self.restructures:
-            restructure.materialize(self.model, sources, device, kwargs)
-        for target in pending.values():
-            # Replacements were copied by the restructure that owns them.
-            source = self.mapping.pop(target, None)
-            if source is not None:
-                copy_module_state(target, source, device, recurse=False)
-                clear_module_state(source)
-        return kwargs
-
     def materialize_all(self) -> None:
         device = get_main_device()
         self.configure_onload(device)
@@ -133,8 +108,7 @@ class RestructureHandler:
             for name, module in self.model.named_modules()
             if module in self.mapping
         }
-        kwargs = subgraph_onload_modules(modules)
-        kwargs.update(self.onload_and_restructure_modules(modules, device))
+        kwargs = subgraph_onload_modules(modules, self, device)
         subgraph_offload_modules(modules, kwargs)
 
     def restore_restructured_modules(
@@ -158,7 +132,7 @@ class RestructureHandler:
             for name, module in self.model.named_modules()
             if module in restore_targets
         }
-        kwargs = subgraph_onload_modules(modules)
+        kwargs = subgraph_onload_modules(modules, self, get_main_device())
         self.restore_restructured_modules(modules)
         subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()

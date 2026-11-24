@@ -6,11 +6,6 @@ import pytest
 import torch
 from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import (
-    subgraph_offload_modules,
-    subgraph_onload_modules,
-    subgraph_stage_modules,
-)
 from compressed_tensors.quantization import QuantizationArgs
 from transformers import AutoModelForCausalLM, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
@@ -18,6 +13,11 @@ from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 from llmcompressor.entrypoints.oneshot import Oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.observers.base import Observer
+from llmcompressor.pipelines.sequential.offload import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+    subgraph_stage_modules,
+)
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 
@@ -106,11 +106,11 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     assert handler.mapping[model.block]._modules is not model.block._modules
     device = torch.device("cpu")
     handler.configure_onload(device)
-    handler.onload_and_restructure_modules({"block.0": model.block[0]}, device)
+    subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
     torch.testing.assert_close(model.block[0].weight, initial)
     with torch.no_grad():
         model.block[0].weight.add_(1)
-    handler.onload_and_restructure_modules({"other": model.other}, device)
+    subgraph_onload_modules({"other": model.other}, handler, device)
     torch.testing.assert_close(model.other.weight, initial + 1)
     assert model.block[0].weight is model.other.weight
     handler.finish()
@@ -135,8 +135,6 @@ def test_source_caches_materialize_without_executing_source_forward(
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
     set_onload_device(model, torch.device("cpu"))
-    if staged:
-        subgraph_stage_modules(dict(model.named_modules()))
     cache = model[0]._parameters
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
@@ -150,11 +148,48 @@ def test_source_caches_materialize_without_executing_source_forward(
     model[0].register_forward_hook(lambda *args: calls.append("target"))
     assert source._forward_hooks is not model[0]._forward_hooks
     handler.configure_onload(torch.device("cpu"))
-    handler.onload_and_restructure_modules({"0": model[0]}, torch.device("cpu"))
+    if staged:
+        subgraph_stage_modules({"0": model[0]}, handler)
+        assert model[0].weight.is_meta
+        assert cache.is_staged
+    subgraph_onload_modules({"0": model[0]}, handler, torch.device("cpu"))
     torch.testing.assert_close(model[0](inputs), expected)
     assert calls == ["target"]
     assert not isinstance(model[0]._parameters, OffloadCache)
     assert not source._parameters  # Retained parents no longer keep the real tensors.
+    handler.finish()
+
+
+@pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+def test_staging_shared_sources_keeps_targets_on_meta(tmp_path, offload_device):
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4))
+    model[0].register_buffer("position", torch.arange(4.0), persistent=False)
+    expected = model[0].weight.detach().clone()
+    offload_module(
+        model[0],
+        onload_device="cpu",
+        offload_device=offload_device,
+        **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
+    )
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
+    handler.configure_onload(torch.device("cpu"))
+    target = model[0]
+    source = handler.mapping[target]
+    weight = target.weight
+
+    for _ in range(2):
+        subgraph_stage_modules({"0": target, "alias": target}, handler)
+        assert target.weight is weight
+        assert target.weight.is_meta and target.position.is_meta
+        assert handler.mapping[target] is source
+        assert source._parameters.is_staged and source._buffers.is_staged
+        assert source._parameters.offloaded_values["weight"].device.type == "cpu"
+
+    subgraph_onload_modules({"0": target}, handler, torch.device("cpu"))
+    torch.testing.assert_close(target.weight, expected, rtol=0, atol=0)
+    torch.testing.assert_close(target.position, torch.arange(4.0))
     handler.finish()
 
 
@@ -173,7 +208,7 @@ def test_new_observer_meta_buffers_materialize_with_ordinary_module():
     assert observer._imatrix_sum.is_meta
     device = torch.device("cpu")
     handler.configure_onload(device)
-    handler.onload_and_restructure_modules({"": model}, device)
+    subgraph_onload_modules({"": model}, handler, device)
     assert model.weight_observer is observer
     assert observer._imatrix_count.item() == 0
     model(torch.ones(3, 4))
@@ -200,9 +235,9 @@ def test_norm_restore_updates_same_mapping_before_offload(
     expected = model.norm.weight.detach().clone() + 2
     if offload_state != "none":
         offload_module(model.norm, onload_device="cpu", offload_device="cpu")
-    if offload_state == "staged":
-        subgraph_stage_modules(dict(model.named_modules()))
     handler = RestructureHandler(model)
+    if offload_state == "staged":
+        subgraph_stage_modules(dict(model.named_modules()), handler)
     original_norm = model.norm
     handler.convert_model_to_meta()
     assert model.norm is original_norm
@@ -214,7 +249,7 @@ def test_norm_restore_updates_same_mapping_before_offload(
     device = torch.device("cpu")
     handler.configure_onload(device)
     modules = {"norm": target}
-    offload_kwargs = handler.onload_and_restructure_modules(modules, device)
+    offload_kwargs = subgraph_onload_modules(modules, handler, device)
     with torch.no_grad():
         target.weight.add_(2)
     handler.restore_restructured_modules(modules)
@@ -229,7 +264,7 @@ def test_norm_restore_updates_same_mapping_before_offload(
     assert torch.isfinite(outputs).all()
     if patched_forward:
         torch.testing.assert_close(outputs, inputs * (1 + expected))
-    assert not handler.offset_norms.mapping
+    assert not handler.restructures[2].mapping
     subgraph_offload_modules(modules, offload_kwargs)
     assert isinstance(source._parameters, OffloadCache)
     handler.finish()
@@ -252,7 +287,7 @@ def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_d
     handler.materialize_all()
     target = model.norm
     modules = {"norm": target}
-    kwargs = subgraph_onload_modules(modules)
+    kwargs = subgraph_onload_modules(modules, handler, torch.device("cpu"))
     with torch.no_grad():
         target.weight.add_(2)
     subgraph_offload_modules(modules, kwargs)

@@ -2,16 +2,11 @@ from __future__ import annotations
 
 import contextlib
 import warnings
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
 from compressed_tensors.offload import set_onload_device
-from compressed_tensors.offload.module import (
-    subgraph_offload_modules,
-    subgraph_onload_modules,
-    subgraph_stage_modules,
-)
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -31,6 +26,12 @@ from llmcompressor.pipelines.sequential.helpers import (
     partition_subgraphs,
     trace_graph,
 )
+from llmcompressor.pipelines.sequential.offload import (
+    _submit_subgraph_staging,
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+    subgraph_stage_modules,
+)
 from llmcompressor.pipelines.sequential.restructure import (
     RestructureHandler,
 )
@@ -42,24 +43,6 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
-
-
-def _submit_subgraph_staging(
-    executor: ThreadPoolExecutor,
-    modules: dict[str, torch.nn.Module],
-    current_modules: dict[str, torch.nn.Module],
-    pin_memory: bool,
-) -> tuple[dict[str, torch.nn.Module], Future] | None:
-    """Stage disjoint next-subgraph modules in the background."""
-    if set(modules.values()) & set(current_modules.values()):
-        return None
-
-    future = executor.submit(
-        subgraph_stage_modules,
-        modules,
-        pin_memory=pin_memory,
-    )
-    return modules, future
 
 
 def _get_batches(
@@ -147,12 +130,8 @@ class SequentialPipeline(CalibrationPipeline):
                 FutureWarning,
                 stacklevel=2,
             )
-            persistent_offload_kwargs = subgraph_onload_modules(persistent_modules)
-            persistent_offload_kwargs.update(
-                restructure_handler.onload_and_restructure_modules(
-                    persistent_modules,
-                    onload_device,
-                )
+            persistent_offload_kwargs = subgraph_onload_modules(
+                persistent_modules, restructure_handler, onload_device
             )
             # Persistent modules stay onloaded for the full calibration run.
 
@@ -231,6 +210,7 @@ class SequentialPipeline(CalibrationPipeline):
                 stage_executor,
                 next_subgraph_modules,
                 {},
+                restructure_handler,
                 stage_weights_in_pinned_memory,
             )
 
@@ -239,6 +219,7 @@ class SequentialPipeline(CalibrationPipeline):
                 if prefetched_staging is None:
                     subgraph_stage_modules(
                         subgraph_modules,
+                        restructure_handler,
                         pin_memory=stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
@@ -274,19 +255,15 @@ class SequentialPipeline(CalibrationPipeline):
                         stage_executor,
                         next_subgraph_modules,
                         subgraph_modules,
+                        restructure_handler,
                         stage_weights_in_pinned_memory,
                     )
 
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                # Meta placeholders have no offload caches, so the regular onload
-                # skips them. Their original modules are loaded during restructuring.
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                offload_kwargs.update(
-                    restructure_handler.onload_and_restructure_modules(
-                        subgraph_modules, onload_device
-                    )
+                offload_kwargs = subgraph_onload_modules(
+                    subgraph_modules, restructure_handler, onload_device
                 )
                 modules = list(subgraph_modules.values())
 

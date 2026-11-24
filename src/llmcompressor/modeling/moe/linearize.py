@@ -184,11 +184,6 @@ class MoELinearizationRestructure(ModuleRestructure):
             model = replace_module(model, module, target)
         return model
 
-    def add_source_modules(self, sources: dict[str, torch.nn.Module]) -> None:
-        for name, source in list(sources.items()):
-            if source in self.mapping:
-                sources.update(source.named_modules(prefix=name))
-
     def materialize(self, model, sources, device, offload_kwargs):
         for source in sources.values():
             target = self.mapping.pop(source, None)

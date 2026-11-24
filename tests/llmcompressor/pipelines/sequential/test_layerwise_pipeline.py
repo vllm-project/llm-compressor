@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import torch
 
 import llmcompressor.pipelines.sequential.helpers as helpers_module
+import llmcompressor.pipelines.sequential.offload as offload_module
 import llmcompressor.pipelines.sequential.pipeline as pipeline_module
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
@@ -43,6 +44,9 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     monkeypatch,
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
     module = model[0]
     events = []
 
@@ -88,7 +92,8 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_onload_modules",
-        lambda modules: events.append("onload") or {},
+        lambda modules, handler, device: events.append("onload")
+        or offload_module.subgraph_onload_modules(modules, handler, device),
     )
     monkeypatch.setattr(
         pipeline_module,
@@ -120,14 +125,13 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
         "is_module_quantized",
         lambda candidate: candidate is module,
     )
-    monkeypatch.setattr(
-        pipeline_module.RestructureHandler,
-        "onload_and_restructure_modules",
-        lambda self, modules, device: events.append(
-            ("restructure", list(modules.values()))
-        )
-        or {},
-    )
+    copy_state = offload_module.copy_module_state
+
+    def materialize(target, source, device, **kwargs):
+        events.append(("restructure", [target]))
+        copy_state(target, source, device, **kwargs)
+
+    monkeypatch.setattr(offload_module, "copy_module_state", materialize)
     monkeypatch.setattr(
         helpers_module,
         "compress_module",
@@ -135,7 +139,7 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     )
     monkeypatch.setattr(helpers_module, "is_distributed", lambda: False)
 
-    SequentialPipeline.__call__(model, [{}], dataset_args, RestructureHandler(model))
+    SequentialPipeline.__call__(model, [{}], dataset_args, handler)
 
     assert events == [
         "calibration_start",

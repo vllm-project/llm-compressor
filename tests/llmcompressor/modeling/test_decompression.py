@@ -22,6 +22,10 @@ from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.modeling.offset_norm import NormCalibrationModule
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
+from llmcompressor.pipelines.sequential.offload import (
+    subgraph_onload_modules,
+    subgraph_stage_modules,
+)
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.helpers import DisableQuantization
 
@@ -91,7 +95,7 @@ def test_decompression_preserves_new_recipe_state(
     layer.register_forward_pre_hook(lambda *_: calls.append("target"))
 
     handler.configure_onload(torch.device("cpu"))
-    handler.onload_and_restructure_modules({"0": layer}, torch.device("cpu"))
+    subgraph_onload_modules({"0": layer}, handler, torch.device("cpu"))
     assert layer.quantization_scheme is scheme
     assert layer.weight_observer is observer
     assert layer.weight is weight
@@ -188,8 +192,9 @@ def test_automatic_decompression_keeps_unsupported_format_validation(tmp_path):
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+@pytest.mark.parametrize("stage", [False, True])
 def test_decompression_then_linearization_materializes_one_source_tree(
-    monkeypatch, tmp_path, offload_device
+    monkeypatch, tmp_path, offload_device, stage
 ):
     config = Qwen3MoeConfig(
         vocab_size=32,
@@ -253,7 +258,7 @@ def test_decompression_then_linearization_materializes_one_source_tree(
     assert isinstance(target, LinearExperts2D)
     assert all(child not in handler.mapping for child in old_children)
     source = handler.mapping[target]
-    assert handler.linearization.mapping == {source: target}
+    assert handler.restructures[1].mapping == {source: target}
     assert "weight_packed" in source.gate_up_storage._parameters
 
     modifier = QuantizationModifier(
@@ -273,7 +278,11 @@ def test_decompression_then_linearization_materializes_one_source_tree(
     calls = []
     projection.register_forward_hook(lambda *_: calls.append("target"))
     handler.configure_onload(torch.device("cpu"))
-    handler.onload_and_restructure_modules({"experts": target}, torch.device("cpu"))
+    if stage:
+        subgraph_stage_modules({"experts": target}, handler)
+        assert projection.weight.is_meta
+        assert source.gate_up_storage._parameters.is_staged
+    subgraph_onload_modules({"experts": target}, handler, torch.device("cpu"))
     assert target[0].gate_proj is projection
     assert projection.weight_observer is observer
     for name, weight in expected.named_parameters():
@@ -315,10 +324,10 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     target = model.norm
     assert isinstance(target, NormCalibrationModule)
     assert handler.restructures[0].mapping[source] is original
-    assert handler.offset_norms.mapping[source] is target
+    assert handler.restructures[2].mapping[source] is target
     modules = {"norm": target}
     handler.configure_onload(torch.device("cpu"))
-    handler.onload_and_restructure_modules(modules, torch.device("cpu"))
+    subgraph_onload_modules(modules, handler, torch.device("cpu"))
     assert not handler.restructures[0].mapping
     assert source._parameters  # Only the norm operation retains this source now.
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125)
