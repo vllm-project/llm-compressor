@@ -47,6 +47,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.quantization.helpers import (
+    is_fp8,
     is_mxfp4,
     is_mxfp4a8,
     is_nvfp4,
@@ -89,10 +90,11 @@ class QuantizationMixin(HooksMixin):
         `update_qparams(modules, base_name="weight")`.
         See QuantizationModifier.on_event method for example
 
-    NOTE: When no observer is specified, weight observers default to
-        `imatrix_mse` if calibration data is available and `memoryless_minmax`
-        otherwise, except MXFP4A8 weights without calibration data use
-        `memoryless_mse`. Activation observers default to `minmax`.
+    NOTE: When no observer is specified, FP8 weights default to
+        `memoryless_minmax`. Other weight observers default to `imatrix_mse` if
+        calibration data is available and `memoryless_minmax` otherwise, except
+        MXFP4 weights without calibration data use `memoryless_mse`. Activation
+        observers default to `minmax`.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -123,9 +125,10 @@ class QuantizationMixin(HooksMixin):
     :param weight_observer: optional observer name for weight quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax",
-        "memoryless_mse", and "imatrix_mse". Defaults to "imatrix_mse" when
-        calibration data is available and "memoryless_minmax" otherwise,
-        except MXFP4A8 defaults to "memoryless_mse" without calibration data.
+        "memoryless_mse", and "imatrix_mse". Defaults to "memoryless_minmax"
+        for FP8 weights, "imatrix_mse" for other weights when calibration data is
+        available, and "memoryless_minmax" otherwise, except MXFP4 weights use
+        "memoryless_mse" without calibration data.
     :param input_observer: optional observer name for input activation quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
@@ -552,6 +555,8 @@ class QuantizationMixin(HooksMixin):
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
         """Select the common default weight observer."""
+        if is_fp8(scheme):
+            return "memoryless_minmax"
         if not has_calibration_data and is_mxfp4(scheme):
             return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"

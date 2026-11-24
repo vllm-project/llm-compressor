@@ -15,6 +15,12 @@ def is_nvfp4(scheme: QuantizationScheme) -> bool:
     )
 
 
+def is_fp8(scheme: QuantizationScheme) -> bool:
+    """Return whether a scheme uses 8-bit floating-point weights."""
+    weights = scheme.weights
+    return weights is not None and weights.num_bits == 8 and weights.type == "float"
+
+
 def is_mxfp4(scheme: QuantizationScheme) -> bool:
     """Return whether a scheme uses the MXFP4 weight format."""
     weights = scheme.weights
