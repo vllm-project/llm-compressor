@@ -627,10 +627,11 @@ class QuantizationMixin(HooksMixin):
             observer_kwargs = self._get_weight_observer_defaults(scheme)
             # Explicit observer kwargs take precedence over modifier defaults.
             observer_kwargs.update(scheme.weights.observer_kwargs or {})
-            if "grid_type" in observer_kwargs:
-                observer_kwargs["grid_type"] = resolve_grid_type(
-                    observer_kwargs["grid_type"], scheme
-                )
+            grid_type = observer_kwargs.get("grid_type")
+            if grid_type is None:
+                observer_kwargs["grid_type"] = resolve_grid_type(None, scheme)
+            else:
+                resolve_grid_type(grid_type, scheme)
             initialize_observer(
                 module,
                 base_name="weight",
