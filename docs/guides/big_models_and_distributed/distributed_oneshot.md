@@ -200,7 +200,7 @@ Observers (used during activation calibration) expose a `sync_activation_stats()
 | `memoryless_minmax` | *(none — data-free)* | — |
 | `mse` (EMA) | `min_vals`, `max_vals` | AVG |
 | `memoryless_mse` | *(none — data-free)* | — |
-| `imatrix_mse` / `nvfp4_expanded_imatrix` | `_imatrix_sum`, `_imatrix_count` | SUM |
+| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM |
 
 Weight statistics are never synced: weights are identical across ranks (broadcast at load time), so only activation-derived statistics need synchronization.
 

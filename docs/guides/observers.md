@@ -135,13 +135,11 @@ Best used when:
 - 4-bit weight quantization accuracy is critical
 - You want to combine with GPTQ for further improvement
 
-#### [NVFP4 expanded IMatrix](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py) (`nvfp4_expanded_imatrix`)
+#### NVFP4 iMatrix search
 
-`nvfp4_expanded_imatrix` applies the expanded candidate range and grid while
-weighting quantization error by per-input-channel importance and using imatrix's
-default magnitude normalization. The regular `imatrix_mse` observer now uses
-these search settings automatically for NVFP4.
-This is an opt-in observer; the default NVFP4 observer is `imatrix_mse`.
+The `imatrix_mse` observer uses the NVFP4 candidate range and grid by default,
+while weighting quantization error by per-input-channel importance and using
+magnitude normalization.
 
 **Results** (W4A16, Llama-3.1-8B, group_size=128, WikiText-2 PPL):
 
@@ -187,7 +185,7 @@ Each observer subclass declares an `_act_sync_dict` mapping attribute names to D
 | `static_minmax` | `min_vals`, `max_vals` | MIN, MAX |
 | `minmax` / `mse` | `min_vals`, `max_vals` | AVG |
 | `memoryless_minmax` / `memoryless_mse` / `nvfp4_expanded_mse` | *(none)* | — |
-| `imatrix_mse` / `nvfp4_expanded_imatrix` | `_imatrix_sum`, `_imatrix_count` | SUM |
+| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM |
 
 ## Quantization Strategies
 
@@ -262,8 +260,7 @@ MSE and iMatrix grid searches run with `global_scale=None` — the shrink search
 
 The search options and objective are documented once in the
 [`IMatrixMSEObserver` docstring](https://github.com/vllm-project/llm-compressor/blob/main/src/llmcompressor/observers/imatrix.py).
-The expanded iMatrix observer remains available by name. Regular `imatrix_mse`
-now uses its NVFP4 and MX search ranges automatically.
+`imatrix_mse` uses format-specific NVFP4 and MX search ranges automatically.
 
 | Argument      | Default | Description |
 |---------------|---------|-------------|
@@ -301,7 +298,7 @@ Only **activation** statistics are synchronized. Weight statistics are never syn
 | `memoryless_minmax` | *(none)* | — | Stateless; each rank's data is independent |
 | `mse` (EMA) | `min_vals`, `max_vals` | AVG | Averages the per-rank MSE-optimal ranges |
 | `memoryless_mse` / `nvfp4_expanded_mse` | *(none)* | — | Stateless; each rank's data is independent |
-| `imatrix_mse` / `nvfp4_expanded_imatrix` | `_imatrix_sum`, `_imatrix_count` | SUM | Accumulates importance scores across ranks before normalization |
+| `imatrix_mse` | `_imatrix_sum`, `_imatrix_count` | SUM | Accumulates importance scores across ranks before normalization |
 
 For more information on the distributed oneshot workflow, see [Distributed Oneshot](./big_models_and_distributed/distributed_oneshot.md).
 

@@ -66,16 +66,16 @@ OBSERVER_SETTINGS = {
         "expand": 1.0,
     },
     "expanded": {
-        "observer": "nvfp4_expanded_imatrix",
+        "observer": "imatrix_mse",
         "grid": 200,
         "grid_type": "linear",
         "maxshrink": 1 - 0.8 / 1.8,
         "expand": 1.8,
     },
-    # Preserve the expanded observer's absolute 0.01 step while extending its
+    # Preserve the expanded search's absolute 0.01 step while extending its
     # lower endpoint to 0.05: scale_i = 1.8 * (1 - i / 180), i in [0, 176).
     "expanded_fullrange": {
-        "observer": "nvfp4_expanded_imatrix",
+        "observer": "imatrix_mse",
         "grid": 180,
         "grid_type": "linear",
         "maxshrink": 0.98,
@@ -84,7 +84,7 @@ OBSERVER_SETTINGS = {
     # Extend grid=200's 0.009 absolute spacing over the full range. The last
     # sampled scale is 0.045, the nearest grid point below the requested 0.05.
     "expanded_grid200_fullrange": {
-        "observer": "nvfp4_expanded_imatrix",
+        "observer": "imatrix_mse",
         "grid": 200,
         "grid_type": "linear",
         "maxshrink": 0.98,
@@ -324,7 +324,7 @@ def implementation_source_hash() -> str:
 
 def observer_variants(model_key: str) -> tuple[str, ...]:
     # Qwen3.8-27B has the most complete expanded-settings quantization arm,
-    # so use it for the default-vs-expanded observer comparison.
+    # so use it for the default-vs-expanded search comparison.
     return ("default", "expanded") if model_key == "qwen38_27b" else ("expanded",)
 
 

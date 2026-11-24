@@ -365,10 +365,7 @@ class QuantizationMixin(HooksMixin):
 
         for scheme in self.resolve_quantization_config().config_groups.values():
             if scheme.weights is not None:
-                if scheme.weights.observer in (
-                    "imatrix_mse",
-                    "nvfp4_expanded_imatrix",
-                ):
+                if scheme.weights.observer == "imatrix_mse":
                     self.requires_calibration_data = True
                     return self
             if scheme.input_activations is not None:
@@ -569,7 +566,7 @@ class QuantizationMixin(HooksMixin):
     ) -> ObserverDefaultOverrides:
         """Return common observer defaults; modifiers can override this hook."""
         observer = args.observer
-        if observer in ("imatrix_mse", "nvfp4_expanded_imatrix"):
+        if observer == "imatrix_mse":
             if is_mxfp4a8(scheme):
                 return {"norm": 2.6, "magnitude_normalization": False}
             return {"norm": 3.0, "magnitude_normalization": True}

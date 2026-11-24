@@ -2,9 +2,6 @@ import math
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.quantization.utils.mxfp_utils import (
-    should_generate_mx_scales,
-)
 from loguru import logger
 from torch import distributed as dist
 from torch.utils.hooks import RemovableHandle
@@ -295,34 +292,3 @@ class IMatrixMSEObserver(Observer):
             )
             return None
         return imp
-
-
-@Observer.register("nvfp4_expanded_imatrix")
-class NVFP4ExpandedIMatrixObserver(IMatrixMSEObserver):
-    """
-    IMatrix observer with candidate range and grid defaults tuned for NVFP4.
-
-    Covers 1.8x down to ~0.8x of the per-group range, matching the candidate
-    range of :class:`NVFP4ExpandedMSEObserver`. It retains imatrix's default
-    magnitude normalization.
-
-    Usage::
-
-        QuantizationArgs(
-            ...
-            observer="nvfp4_expanded_imatrix",
-        )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        kw = self.args.observer_kwargs
-        if should_generate_mx_scales(self.args):
-            self.expand = kw.get("expand", 1.0)
-            self.maxshrink = kw.get("maxshrink", 1.0 - 1.0 / 64.0)
-        else:
-            self.expand = kw.get("expand", 1.8)
-            self.maxshrink = kw.get("maxshrink", 1 - 0.8 / 1.8)
-        self.grid = kw.get("grid", 200)
-        self.norm = kw.get("norm", 2.4)
-        self.patience = kw.get("patience", 1000)

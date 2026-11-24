@@ -59,10 +59,10 @@ weight-only kernels (`MarlinMxFp4LinearKernel` for Linear layers and
   nominal `maxshrink` boundary. The actual last multipliers are 0.06 for the
   default grid, 0.81 for the expanded grid, 0.05 for grid 180 full-range, and
   0.045 for grid 200 full-range.
-- Observer settings: default is `imatrix_mse`, grid 100, expand 1.0,
-  maxshrink 0.95; expanded is `nvfp4_expanded_imatrix`, grid 200, expand 1.8,
-  maxshrink `1 - 0.8/1.8`. The Qwen3.8 comparison arms use grid 180 or 200,
-  expand 1.8, and maxshrink 0.98.
+- Observer settings: both variants use `imatrix_mse`. The default arm uses
+  grid 100, expand 1.0, and maxshrink 0.95; the expanded search arm uses grid
+  200, expand 1.8, and maxshrink `1 - 0.8/1.8`. The Qwen3.8 comparison arms
+  use grid 180 or 200, expand 1.8, and maxshrink 0.98.
 - Evaluations use the immutable eval-agent tasks `gsm8k_platinum_cot_llama`,
   `mmlu_cot_llama`, `math_500`, and `gpqa_diamond`. Smoke runs omit MMLU; the
   full run includes it. `eval-agent` and the skill registry define prompts,
@@ -72,7 +72,7 @@ weight-only kernels (`MarlinMxFp4LinearKernel` for Linear layers and
 
 The original three-model run covered Qwen3.8-27B, Qwen3-30B-A3B, and
 Nemotron 3.5 Lightning-30B-A3B for seeds 1234 and 2345. Qwen3.8 has both
-default and expanded observer settings; the other two use expanded settings.
+default and expanded search settings; the other two use expanded settings.
 Set separate roots for the original run and the Qwen2.5 replacement so their
 manifests and progress files remain independent.
 

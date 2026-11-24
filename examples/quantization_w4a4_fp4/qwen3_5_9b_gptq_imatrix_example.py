@@ -55,15 +55,12 @@ ds = ds.map(tokenize, remove_columns=ds.column_names)
 
 # Configure the quantization algorithm to run.
 #   * quantize the weights and activations to NVFP4 with GPTQ
-#   * use the nvfp4_expanded_imatrix weight observer, which weights
-#     quantization error by per-input-channel activation importance (E[x^2])
-#     collected during calibration and searches NVFP4 range expansions from
-#     1.8x down to ~0.8x of the per-group min/max range
+#   * use GPTQ's default imatrix observer, which weights quantization error by
+#     per-input-channel activation importance (E[x^2]) collected during calibration
 recipe = GPTQModifier(
     targets="Linear",
     scheme="NVFP4",
     ignore=["lm_head", "re:.*visual.*"],
-    weight_observer="nvfp4_expanded_imatrix",
 )
 
 # Apply quantization.
