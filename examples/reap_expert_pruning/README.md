@@ -24,6 +24,16 @@ REAP is useful for reducing the VRAM footprint of MoE models without sacrificing
 
 However, excess pruning can lead to a degradation in model quality, as shown in the results below. Additionally, the dataset choice for calibration is important. If calibration samples leave out certain features or topics, it is possible that experts normally relevant for these samples will be marked as irrelevant overall and removed. Exercise care and know your application before pruning.
 
+### Token masking
+
+When the calibration data provides a `loss_mask` field and is loaded with
+`use_loss_mask=True`, only tokens where the mask is nonzero contribute to the
+saliency statistics — e.g. only assistant responses, excluding user prompts
+and role headers (see `reap_moonlight_16b_with_masking.py`). Masked-out
+tokens still flow through the model; they are simply excluded from the
+accumulated statistics, exactly like the masking applied to the AWQ
+activation statistics and the GPTQ Hessian.
+
 ## Saliency reports and checkpoint-space pruning
 
 `REAPPruningModifier` can run in report-only mode with `sparsity=0.0`, writing
