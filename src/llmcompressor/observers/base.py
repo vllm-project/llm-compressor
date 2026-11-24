@@ -53,11 +53,14 @@ class Observer(InternalModule, RegistryMixin):
     ):
         super().__init__()
         self.base_name = base_name
-        self.args = args.model_copy(deep=True)
-        self.args.observer_kwargs = {
-            **(args.observer_kwargs or {}),
-            **observer_kwargs,
-        }
+        self.args = args.model_copy(
+            update={
+                "observer_kwargs": {
+                    **(args.observer_kwargs or {}),
+                    **observer_kwargs,
+                }
+            }
+        )
 
         self.fusion_handler = FusionHandler(self)
 
