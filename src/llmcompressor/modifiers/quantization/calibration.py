@@ -17,7 +17,7 @@ from loguru import logger
 from torch.nn import Module
 
 from llmcompressor.observers import Observer
-from llmcompressor.observers.defaults import ObserverKwargs
+from llmcompressor.observers.base import ObserverKwargs
 
 __all__ = [
     "initialize_observer",
@@ -86,12 +86,12 @@ def initialize_observer(
             log_once=True,
         )
 
+    if observer_kwargs is None:
+        observer_kwargs = {}
+
     if args is not None and args.dynamic is not True:
         observer = Observer.load_from_registry(
-            observer,
-            base_name=base_name,
-            args=args,
-            **(observer_kwargs or {}),
+            observer, base_name=base_name, args=args, **observer_kwargs
         )
         module.register_module(f"{base_name}_observer", observer)
         observer.attach(module)

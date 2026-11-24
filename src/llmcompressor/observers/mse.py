@@ -5,7 +5,6 @@ from compressed_tensors.quantization.utils.mxfp_utils import (
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.defaults import get_defaults
 from llmcompressor.observers.grid_search import (
     _grid_search_observer,
     _resolve_grid_type,
@@ -13,6 +12,17 @@ from llmcompressor.observers.grid_search import (
 from llmcompressor.observers.helpers import lerp
 
 __all__ = ["MovingAverageMSEObserver"]
+
+_MSE_DEFAULTS = {
+    "maxshrink": 0.20,
+    "patience": 5,
+    "grid": 100.0,
+    "expand": 1.0,
+    "grid_type": "linear",
+    "norm": 2.4,
+    "magnitude_normalization": True,
+    "averaging_constant": 0.01,
+}
 
 
 @Observer.register("memoryless_mse")
@@ -66,20 +76,19 @@ class MemorylessMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
-        defaults = get_defaults(self.args)
-        self.maxshrink = observer_kwargs.get("maxshrink", defaults["maxshrink"])
-        self.patience = observer_kwargs.get("patience", defaults["patience"])
+        self.maxshrink = observer_kwargs.get("maxshrink", _MSE_DEFAULTS["maxshrink"])
+        self.patience = observer_kwargs.get("patience", _MSE_DEFAULTS["patience"])
         if self.patience < 0:
             raise ValueError(f"patience must be >= 0, got {self.patience}")
-        self.grid = observer_kwargs.get("grid", defaults["grid"])
-        self.norm = observer_kwargs.get("norm", defaults["norm"])
+        self.grid = observer_kwargs.get("grid", _MSE_DEFAULTS["grid"])
+        self.norm = observer_kwargs.get("norm", _MSE_DEFAULTS["norm"])
         self.magnitude_normalization = observer_kwargs.get(
-            "magnitude_normalization", defaults["magnitude_normalization"]
+            "magnitude_normalization", _MSE_DEFAULTS["magnitude_normalization"]
         )
         self.grid_type = _resolve_grid_type(
-            observer_kwargs.get("grid_type", defaults["grid_type"]), self.args
+            observer_kwargs.get("grid_type", _MSE_DEFAULTS["grid_type"]), self.args
         )
-        self.expand = observer_kwargs.get("expand", defaults["expand"])
+        self.expand = observer_kwargs.get("expand", _MSE_DEFAULTS["expand"])
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
         if not isinstance(self.magnitude_normalization, bool):
@@ -117,21 +126,20 @@ class MovingAverageMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
-        defaults = get_defaults(self.args)
         self.avg_constant = observer_kwargs.get(
-            "averaging_constant", defaults["averaging_constant"]
+            "averaging_constant", _MSE_DEFAULTS["averaging_constant"]
         )
-        self.maxshrink = observer_kwargs.get("maxshrink", defaults["maxshrink"])
-        self.patience = observer_kwargs.get("patience", defaults["patience"])
-        self.grid = observer_kwargs.get("grid", defaults["grid"])
-        self.norm = observer_kwargs.get("norm", defaults["norm"])
+        self.maxshrink = observer_kwargs.get("maxshrink", _MSE_DEFAULTS["maxshrink"])
+        self.patience = observer_kwargs.get("patience", _MSE_DEFAULTS["patience"])
+        self.grid = observer_kwargs.get("grid", _MSE_DEFAULTS["grid"])
+        self.norm = observer_kwargs.get("norm", _MSE_DEFAULTS["norm"])
         self.magnitude_normalization = observer_kwargs.get(
-            "magnitude_normalization", defaults["magnitude_normalization"]
+            "magnitude_normalization", _MSE_DEFAULTS["magnitude_normalization"]
         )
         self.grid_type = _resolve_grid_type(
-            observer_kwargs.get("grid_type", defaults["grid_type"]), self.args
+            observer_kwargs.get("grid_type", _MSE_DEFAULTS["grid_type"]), self.args
         )
-        self.expand = observer_kwargs.get("expand", defaults["expand"])
+        self.expand = observer_kwargs.get("expand", _MSE_DEFAULTS["expand"])
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
         if not isinstance(self.magnitude_normalization, bool):

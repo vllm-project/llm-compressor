@@ -18,6 +18,8 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
 
+ObserverKwargs = dict[str, int | float | bool | str | None]
+
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 
 

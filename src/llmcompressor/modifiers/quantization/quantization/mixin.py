@@ -26,6 +26,9 @@ from compressed_tensors.quantization import (
 )
 from compressed_tensors.quantization.utils import KV_CACHE_TARGETS
 from compressed_tensors.quantization.utils.helpers import is_module_quantized
+from compressed_tensors.quantization.utils.mxfp_utils import (
+    should_generate_mx_scales,
+)
 from compressed_tensors.utils import match_named_modules
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -48,12 +51,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
-from llmcompressor.observers.defaults import (
-    ObserverKwargs,
-    get_defaults,
-    is_mxfp4,
-    is_mxfp4a8,
-)
+from llmcompressor.observers.base import ObserverKwargs
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -555,26 +553,70 @@ class QuantizationMixin(HooksMixin):
         if (
             not has_calibration_data
             and scheme.weights is not None
-            and is_mxfp4(scheme.weights)
+            and self._is_mxfp4(scheme.weights)
         ):
             return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
+
+    @staticmethod
+    def _is_nvfp4(args: QuantizationArgs) -> bool:
+        return args.num_bits == 4 and args.type == "float" and args.group_size == 16
+
+    @staticmethod
+    def _is_mxfp4(args: QuantizationArgs) -> bool:
+        return (
+            args.num_bits == 4
+            and args.type == "float"
+            and should_generate_mx_scales(args)
+        )
+
+    def _is_mxfp4a8(self, scheme: QuantizationScheme) -> bool:
+        weights = scheme.weights
+        activations = scheme.input_activations
+        return (
+            weights is not None
+            and self._is_mxfp4(weights)
+            and activations is not None
+            and activations.num_bits == 8
+        )
 
     def _get_weight_observer_defaults(
         self,
         args: QuantizationArgs,
         scheme: QuantizationScheme,
     ) -> ObserverKwargs:
-        """Return the complete defaults for the selected weight observer."""
+        """Return format-specific parameters for the selected weight observer."""
         observer = args.observer
-        if observer in ("mse", "memoryless_mse"):
-            return get_defaults(args)
-        if observer == "imatrix_mse":
-            defaults = get_defaults(args)
-            if is_mxfp4a8(scheme):
-                defaults.update(norm=2.6, magnitude_normalization=False)
-            return defaults
-        return {}
+        if observer not in (
+            "mse",
+            "memoryless_mse",
+            "nvfp4_expanded_mse",
+            "imatrix_mse",
+        ):
+            return {}
+
+        defaults: ObserverKwargs = {}
+        if self._is_nvfp4(args):
+            defaults.update(
+                maxshrink=1 - 0.8 / 1.8,
+                patience=1000,
+                grid=200,
+                expand=1.8,
+                grid_type="linear",
+            )
+        elif self._is_mxfp4(args):
+            defaults.update(
+                maxshrink=1 - 1.0 / 64.0,
+                patience=1000,
+                grid=200,
+                expand=1.0,
+                grid_type="exponential",
+            )
+
+        if observer == "imatrix_mse" and self._is_mxfp4a8(scheme):
+            defaults.update(norm=2.6, magnitude_normalization=False)
+
+        return defaults
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):

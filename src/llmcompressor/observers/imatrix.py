@@ -8,7 +8,6 @@ from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.defaults import get_defaults
 from llmcompressor.observers.grid_search import (
     _grid_search_observer,
     _resolve_grid_type,
@@ -20,6 +19,16 @@ __all__ = ["IMatrixMSEObserver"]
 _GROUP_STRATEGIES = (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
 
 IMATRIX_PRECISION = torch.float32
+_IMATRIX_DEFAULTS = {
+    "maxshrink": 0.95,
+    "patience": 5,
+    "grid": 100,
+    "expand": 1.0,
+    "grid_type": "linear",
+    "norm": 3.0,
+    "strict": False,
+    "magnitude_normalization": True,
+}
 
 
 @Observer.register("imatrix_mse")
@@ -76,18 +85,17 @@ class IMatrixMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs
-        defaults = get_defaults(self.args)
-        self.maxshrink = kw.get("maxshrink", defaults["maxshrink"])
-        self.patience = kw.get("patience", defaults["patience"])
-        self.grid = kw.get("grid", defaults["grid"])
-        self.norm = kw.get("norm", defaults["norm"])
-        self.strict = kw.get("strict", defaults["strict"])
-        self.expand = kw.get("expand", defaults["expand"])
+        self.maxshrink = kw.get("maxshrink", _IMATRIX_DEFAULTS["maxshrink"])
+        self.patience = kw.get("patience", _IMATRIX_DEFAULTS["patience"])
+        self.grid = kw.get("grid", _IMATRIX_DEFAULTS["grid"])
+        self.norm = kw.get("norm", _IMATRIX_DEFAULTS["norm"])
+        self.strict = kw.get("strict", _IMATRIX_DEFAULTS["strict"])
+        self.expand = kw.get("expand", _IMATRIX_DEFAULTS["expand"])
         self.magnitude_normalization = kw.get(
-            "magnitude_normalization", defaults["magnitude_normalization"]
+            "magnitude_normalization", _IMATRIX_DEFAULTS["magnitude_normalization"]
         )
         self.grid_type = _resolve_grid_type(
-            kw.get("grid_type", defaults["grid_type"]), self.args
+            kw.get("grid_type", _IMATRIX_DEFAULTS["grid_type"]), self.args
         )
 
         self._imatrix_sum: torch.Tensor | None = None
