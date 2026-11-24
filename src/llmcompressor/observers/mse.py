@@ -1,28 +1,11 @@
 import torch
-from compressed_tensors.quantization.utils.mxfp_utils import (
-    should_generate_mx_scales,
-)
 from torch import distributed as dist
 
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.grid_search import (
-    _grid_search_observer,
-    _resolve_grid_type,
-)
+from llmcompressor.observers.grid_search import _grid_search_observer
 from llmcompressor.observers.helpers import lerp
 
 __all__ = ["MovingAverageMSEObserver"]
-
-_MSE_DEFAULTS = {
-    "maxshrink": 0.20,
-    "patience": 5,
-    "grid": 100.0,
-    "expand": 1.0,
-    "grid_type": "linear",
-    "norm": 2.4,
-    "magnitude_normalization": True,
-    "averaging_constant": 0.01,
-}
 
 
 @Observer.register("memoryless_mse")
@@ -37,7 +20,8 @@ class MemorylessMSEObserver(Observer):
     candidate with the lowest error. This observer does not average statistics
     across calls; :class:`MovingAverageMSEObserver` smooths the selected ranges.
 
-    The options below are read from ``QuantizationArgs.observer_kwargs``.
+    The options below are read from ``QuantizationArgs.observer_kwargs``. The
+    expanded MSE observer inherits these options and overrides some defaults.
 
     Observer kwargs:
         maxshrink (float): Maximum fraction of the expanded range to shrink.
@@ -58,14 +42,14 @@ class MemorylessMSEObserver(Observer):
         expand (float): Multiplier applied to the observed min/max range before
             shrink candidates are searched. Must be at least ``1``. Defaults
             to ``1``.
-        grid_type (str or None): ``"linear"`` or ``"exponential"``. Defaults
-            to exponential spacing when MX scales are generated (E8M0) and
-            linear spacing otherwise. Exponential candidates are
-            ``1, 1/2, 1/4, ...`` times the expanded range.
+        grid_type (str or None): ``"linear"`` or ``"exponential"``. Modifier
+            defaults select exponential spacing for MX scales and linear
+            spacing otherwise. Exponential candidates are ``1, 1/2, 1/4, ...``
+            times the expanded range. Defaults to ``None``.
         magnitude_normalization (bool): If true, multiply each powered error
             by ``sqrt(w**2 + group_absmax**2)``, where ``group_absmax`` is the
             largest absolute observed value in that quantization group.
-            Defaults to ``True``.
+            Defaults to ``False``.
         averaging_constant (float): Additional option for the moving-average
             ``mse`` observer only. Controls how much each newly selected range
             contributes to the running range; defaults to ``0.01``.
@@ -76,19 +60,17 @@ class MemorylessMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         observer_kwargs = self.args.observer_kwargs
-        self.maxshrink = observer_kwargs.get("maxshrink", _MSE_DEFAULTS["maxshrink"])
-        self.patience = observer_kwargs.get("patience", _MSE_DEFAULTS["patience"])
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
+        self.patience = observer_kwargs.get("patience", 5)
         if self.patience < 0:
             raise ValueError(f"patience must be >= 0, got {self.patience}")
-        self.grid = observer_kwargs.get("grid", _MSE_DEFAULTS["grid"])
-        self.norm = observer_kwargs.get("norm", _MSE_DEFAULTS["norm"])
+        self.grid = observer_kwargs.get("grid", 100.0)
+        self.norm = observer_kwargs.get("norm", 2.4)
         self.magnitude_normalization = observer_kwargs.get(
-            "magnitude_normalization", _MSE_DEFAULTS["magnitude_normalization"]
+            "magnitude_normalization", False
         )
-        self.grid_type = _resolve_grid_type(
-            observer_kwargs.get("grid_type", _MSE_DEFAULTS["grid_type"]), self.args
-        )
-        self.expand = observer_kwargs.get("expand", _MSE_DEFAULTS["expand"])
+        self.grid_type = observer_kwargs.get("grid_type")
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
         if not isinstance(self.magnitude_normalization, bool):
@@ -125,21 +107,17 @@ class MovingAverageMSEObserver(Observer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.avg_constant = self.args.observer_kwargs.get("averaging_constant", 0.01)
         observer_kwargs = self.args.observer_kwargs
-        self.avg_constant = observer_kwargs.get(
-            "averaging_constant", _MSE_DEFAULTS["averaging_constant"]
-        )
-        self.maxshrink = observer_kwargs.get("maxshrink", _MSE_DEFAULTS["maxshrink"])
-        self.patience = observer_kwargs.get("patience", _MSE_DEFAULTS["patience"])
-        self.grid = observer_kwargs.get("grid", _MSE_DEFAULTS["grid"])
-        self.norm = observer_kwargs.get("norm", _MSE_DEFAULTS["norm"])
+        self.maxshrink = observer_kwargs.get("maxshrink", 0.20)
+        self.patience = observer_kwargs.get("patience", 5)
+        self.grid = observer_kwargs.get("grid", 100.0)
+        self.norm = observer_kwargs.get("norm", 2.4)
         self.magnitude_normalization = observer_kwargs.get(
-            "magnitude_normalization", _MSE_DEFAULTS["magnitude_normalization"]
+            "magnitude_normalization", False
         )
-        self.grid_type = _resolve_grid_type(
-            observer_kwargs.get("grid_type", _MSE_DEFAULTS["grid_type"]), self.args
-        )
-        self.expand = observer_kwargs.get("expand", _MSE_DEFAULTS["expand"])
+        self.grid_type = observer_kwargs.get("grid_type")
+        self.expand = observer_kwargs.get("expand", 1.0)
         if self.expand < 1.0:
             raise ValueError(f"expand value must be at least 1.0, got {self.expand}")
         if not isinstance(self.magnitude_normalization, bool):
@@ -167,34 +145,3 @@ class MovingAverageMSEObserver(Observer):
 
         self.min_vals = min_vals
         self.max_vals = max_vals
-
-
-@Observer.register("nvfp4_expanded_mse")
-class NVFP4ExpandedMSEObserver(MemorylessMSEObserver):
-    """
-    MSE observer with defaults tuned for NVFP4 range expansion.
-
-    Searches from ``expand`` times the observed range down to
-    ``(1 - maxshrink) * expand`` times the observed range.
-    With the defaults below, this covers 1.8x down to ~0.8x of
-    the original per-group range in 112 search steps.
-
-    Usage::
-
-        QuantizationArgs(
-            ...
-            observer="nvfp4_expanded_mse",
-        )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        observer_kwargs = self.args.observer_kwargs
-        if should_generate_mx_scales(self.args):
-            self.expand = observer_kwargs.get("expand", 1.0)
-            self.maxshrink = observer_kwargs.get("maxshrink", 1.0 - 1.0 / 64.0)
-        else:
-            self.expand = observer_kwargs.get("expand", 1.8)
-            self.maxshrink = observer_kwargs.get("maxshrink", 1 - 0.8 / 1.8)
-        self.grid = observer_kwargs.get("grid", 200.0)
-        self.patience = observer_kwargs.get("patience", 1000)

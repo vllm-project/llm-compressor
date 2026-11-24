@@ -50,6 +50,7 @@ from llmcompressor.modifiers.quantization.helpers import (
     is_mxfp4,
     is_mxfp4a8,
     is_nvfp4,
+    resolve_grid_type,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -574,14 +575,15 @@ class QuantizationMixin(HooksMixin):
         ):
             return {}
 
-        defaults: ObserverKwargs = {}
+        defaults: ObserverKwargs = {
+            "grid_type": resolve_grid_type(None, scheme),
+        }
         if is_nvfp4(scheme):
             defaults.update(
                 maxshrink=1 - 0.8 / 1.8,
                 patience=1000,
                 grid=200,
                 expand=1.8,
-                grid_type="linear",
             )
         elif is_mxfp4(scheme):
             defaults.update(
@@ -589,7 +591,6 @@ class QuantizationMixin(HooksMixin):
                 patience=1000,
                 grid=200,
                 expand=1.0,
-                grid_type="exponential",
             )
 
         if observer == "imatrix_mse" and is_mxfp4a8(scheme):
@@ -626,6 +627,10 @@ class QuantizationMixin(HooksMixin):
             observer_kwargs = self._get_weight_observer_defaults(scheme)
             # Explicit observer kwargs take precedence over modifier defaults.
             observer_kwargs.update(scheme.weights.observer_kwargs or {})
+            if "grid_type" in observer_kwargs:
+                observer_kwargs["grid_type"] = resolve_grid_type(
+                    observer_kwargs["grid_type"], scheme
+                )
             initialize_observer(
                 module,
                 base_name="weight",

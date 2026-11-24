@@ -8,10 +8,7 @@ from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.grid_search import (
-    _grid_search_observer,
-    _resolve_grid_type,
-)
+from llmcompressor.observers.grid_search import _grid_search_observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["IMatrixMSEObserver"]
@@ -19,16 +16,6 @@ __all__ = ["IMatrixMSEObserver"]
 _GROUP_STRATEGIES = (QuantizationStrategy.GROUP, QuantizationStrategy.TENSOR_GROUP)
 
 IMATRIX_PRECISION = torch.float32
-_IMATRIX_DEFAULTS = {
-    "maxshrink": 0.95,
-    "patience": 5,
-    "grid": 100,
-    "expand": 1.0,
-    "grid_type": "linear",
-    "norm": 3.0,
-    "strict": False,
-    "magnitude_normalization": True,
-}
 
 
 @Observer.register("imatrix_mse")
@@ -51,26 +38,24 @@ class IMatrixMSEObserver(Observer):
 
     Observer kwargs are read from ``QuantizationArgs.observer_kwargs``:
         maxshrink (float): Maximum fraction of range to shrink. Defaults to
-            ``0.95``; NVFP4 defaults to ``1 - 0.8 / 1.8`` and MX formats
-            default to ``1 - 1 / 64``.
+            ``0.95``.
         patience (int): Number of consecutive candidates without a strict
             improvement before early stopping in the eager implementation.
             Triton always evaluates the full grid. ``0`` runs the full eager
-            search. Defaults to ``5``; microscaled formats default to ``1000``.
+            search. Defaults to ``5``.
         grid (float): Linear grid resolution or exponential candidate budget.
-            Defaults to ``100``; microscaled formats default to ``200``.
+            Defaults to ``100``.
         norm (float): Power applied to absolute QDQ error before importance
-            weighting. Defaults to ``3.0``.
+            weighting. Defaults to ``2.8``.
         expand (float): Multiplier applied to observed min/max before the
-            shrink search; must be at least ``1``. Defaults to ``1.0``;
-            NVFP4 defaults to ``1.8``; MX formats default to ``1.0``.
+            shrink search; must be at least ``1``. Defaults to ``1.0``.
         strict (bool): Raise an error if importance is unavailable or has an
             unsupported shape. If false, warn and fall back to uniform MSE.
             Defaults to ``False``.
-        grid_type (str or None): ``"linear"`` or ``"exponential"``. Defaults
-            to exponential spacing when MX scales are generated (E8M0), and
-            linear spacing otherwise. Exponential candidates are powers of
-            two starting at 1.
+        grid_type (str or None): ``"linear"`` or ``"exponential"``. Modifier
+            defaults select exponential spacing for MX scales and linear
+            spacing otherwise. Exponential candidates are powers of two
+            starting at 1. Defaults to ``None``.
         magnitude_normalization (bool): Multiply each error by
             ``sqrt(w**2 + group_absmax**2)``. Defaults to ``True``.
     """
@@ -85,18 +70,14 @@ class IMatrixMSEObserver(Observer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs
-        self.maxshrink = kw.get("maxshrink", _IMATRIX_DEFAULTS["maxshrink"])
-        self.patience = kw.get("patience", _IMATRIX_DEFAULTS["patience"])
-        self.grid = kw.get("grid", _IMATRIX_DEFAULTS["grid"])
-        self.norm = kw.get("norm", _IMATRIX_DEFAULTS["norm"])
-        self.strict = kw.get("strict", _IMATRIX_DEFAULTS["strict"])
-        self.expand = kw.get("expand", _IMATRIX_DEFAULTS["expand"])
-        self.magnitude_normalization = kw.get(
-            "magnitude_normalization", _IMATRIX_DEFAULTS["magnitude_normalization"]
-        )
-        self.grid_type = _resolve_grid_type(
-            kw.get("grid_type", _IMATRIX_DEFAULTS["grid_type"]), self.args
-        )
+        self.maxshrink = kw.get("maxshrink", 0.95)
+        self.patience = kw.get("patience", 5)
+        self.grid = kw.get("grid", 100)
+        self.norm = kw.get("norm", 2.8)
+        self.strict = kw.get("strict", False)
+        self.expand = kw.get("expand", 1.0)
+        self.magnitude_normalization = kw.get("magnitude_normalization", True)
+        self.grid_type = kw.get("grid_type")
 
         self._imatrix_sum: torch.Tensor | None = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)

@@ -30,3 +30,14 @@ def is_mxfp4a8(scheme: QuantizationScheme) -> bool:
     """Return whether a scheme pairs MXFP4 weights with 8-bit activations."""
     activations = scheme.input_activations
     return is_mxfp4(scheme) and activations is not None and activations.num_bits == 8
+
+
+def resolve_grid_type(grid_type: str | None, scheme: QuantizationScheme) -> str:
+    """Resolve grid spacing from an explicit value or the quantization format."""
+    if grid_type is None:
+        return "exponential" if is_mxfp4(scheme) else "linear"
+    if grid_type not in ("linear", "exponential"):
+        raise ValueError(
+            "grid_type must be None, 'linear', or 'exponential', " f"got {grid_type!r}"
+        )
+    return grid_type

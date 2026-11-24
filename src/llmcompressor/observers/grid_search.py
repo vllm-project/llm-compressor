@@ -11,9 +11,6 @@ from compressed_tensors.quantization.lifecycle.forward_helpers import (
     _is_fp8_supported,
 )
 from compressed_tensors.quantization.utils import calculate_qparams, calculate_range
-from compressed_tensors.quantization.utils.mxfp_utils import (
-    should_generate_mx_scales,
-)
 from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import tl, triton
@@ -35,10 +32,10 @@ from llmcompressor.utils.triton_utils import (
 _GRID_SEARCH_TILE_SIZE = 512
 
 
-def _resolve_grid_type(grid_type: str | None, args: QuantizationArgs) -> str:
-    """Resolve automatic grid spacing from the quantized scale format."""
+def _validate_grid_type(grid_type: str | None) -> str:
+    """Validate grid spacing, using linear spacing when unspecified."""
     if grid_type is None:
-        return "exponential" if should_generate_mx_scales(args) else "linear"
+        return "linear"
     if grid_type not in ("linear", "exponential"):
         raise ValueError(
             f"grid_type must be None, 'linear', or 'exponential', got {grid_type!r}"
@@ -73,7 +70,7 @@ def _grid_search_observer(
     ):
         args = args.model_copy(update={"scale_dtype": None})
 
-    grid_type = _resolve_grid_type(grid_type, args)
+    grid_type = _validate_grid_type(grid_type)
 
     min_vals = torch.amin(observed, dim=(0, -1)) * expand
     max_vals = torch.amax(observed, dim=(0, -1)) * expand
@@ -245,7 +242,7 @@ def _grid_search_observer_triton(
     ):
         args = args.model_copy(update={"scale_dtype": None})
 
-    grid_type = _resolve_grid_type(grid_type, args)
+    grid_type = _validate_grid_type(grid_type)
 
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
