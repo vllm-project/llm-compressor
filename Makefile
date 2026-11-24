@@ -24,6 +24,7 @@ quality:
 	ruff check $(CHECKDIRS);
 	ruff format --check $(CHECKDIRS);
 	python tools/lint_cuda.py $(CHECKDIRS) --fail-on-issues;
+	python tools/lint_research.py
 
 # style the code according to accepted standards for the repo
 # Note: We run `ruff format` twice. Once to fix long lines before lint check

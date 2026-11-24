@@ -3,4 +3,5 @@
 
 # flake8: noqa
 
+from .aimer_expert_pruner import AIMERExpertPruner
 from .expert_pruner import ExpertPruner

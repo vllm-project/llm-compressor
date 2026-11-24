@@ -52,7 +52,7 @@ def test_sequential_epoch_end_only_observes_passed_modules():
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[0].modules()),
+            modules=dict(model[0].named_modules()),
         )
         mock0.assert_called_once()  # Only first module should be observed
         mock1.assert_not_called()  # Second module should NOT be observed
@@ -103,17 +103,17 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[0].modules()),
+            modules=dict(model[0].named_modules()),
         )
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[1].modules()),
+            modules=dict(model[1].named_modules()),
         )
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[2].modules()),
+            modules=dict(model[2].named_modules()),
         )
 
         # Each observer's methods should be called exactly once
@@ -153,7 +153,7 @@ def test_nested_parent_modules_produce_valid_global_scale():
     modifier.on_sequential_epoch_end(
         state,
         Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-        modules=list(model.modules()),
+        modules=dict(model.named_modules()),
     )
 
     for name, param in model.named_parameters():

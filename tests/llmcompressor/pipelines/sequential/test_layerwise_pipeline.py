@@ -29,9 +29,6 @@ class _FakeSubgraph:
         self.module = module
         self.events = events
 
-    def submodules(self, model):
-        return [self.module]
-
     def submodule_dict(self, model):
         return {"0": self.module}
 
@@ -146,7 +143,7 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
         "onload",
         ("restructure", [module]),
         "forward",
-        ("sequential_epoch_end", [module]),
+        ("sequential_epoch_end", {"0": module}),
         ("compress_module", module),
         "offload",
         "calibration_end",
