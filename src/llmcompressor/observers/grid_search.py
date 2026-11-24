@@ -32,13 +32,12 @@ from llmcompressor.utils.triton_utils import (
 _GRID_SEARCH_TILE_SIZE = 512
 
 
-def _validate_grid_type(grid_type: str) -> str:
+def _validate_grid_type(grid_type: str) -> None:
     """Validate the configured grid spacing."""
     if grid_type not in ("linear", "exponential"):
         raise ValueError(
             f"grid_type must be 'linear' or 'exponential', got {grid_type!r}"
         )
-    return grid_type
 
 
 # -----------------------------------------------------------------------------
@@ -68,7 +67,7 @@ def _grid_search_observer(
     ):
         args = args.model_copy(update={"scale_dtype": None})
 
-    grid_type = _validate_grid_type(grid_type)
+    _validate_grid_type(grid_type)
 
     min_vals = torch.amin(observed, dim=(0, -1)) * expand
     max_vals = torch.amax(observed, dim=(0, -1)) * expand
@@ -240,7 +239,7 @@ def _grid_search_observer_triton(
     ):
         args = args.model_copy(update={"scale_dtype": None})
 
-    grid_type = _validate_grid_type(grid_type)
+    _validate_grid_type(grid_type)
 
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
