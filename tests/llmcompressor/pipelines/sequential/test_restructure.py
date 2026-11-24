@@ -113,9 +113,12 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     subgraph_onload_modules({"other": model.other}, handler, device)
     torch.testing.assert_close(model.other.weight, initial + 1)
     assert model.block[0].weight is model.other.weight
-    handler.finish()
+    subgraph_onload_modules({"": model}, handler, device)
     assert model.position_alias is model.position
-    torch.testing.assert_close(model.position, torch.arange(4.0))
+    handler.finish()
+    # OffloadCache reads can create new tensors on the execution device.
+    torch.testing.assert_close(model.position_alias.cpu(), torch.arange(4.0))
+    torch.testing.assert_close(model.position.cpu(), torch.arange(4.0))
     assert not handler.mapping
     assert handler.source_root is None
 
@@ -190,6 +193,42 @@ def test_staging_shared_sources_keeps_targets_on_meta(tmp_path, offload_device):
     subgraph_onload_modules({"0": target}, handler, torch.device("cpu"))
     torch.testing.assert_close(target.weight, expected, rtol=0, atol=0)
     torch.testing.assert_close(target.position, torch.arange(4.0))
+    handler.finish()
+
+
+@pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+def test_persistent_container_leaves_future_subgraph_sources_offloaded(
+    tmp_path, offload_device
+):
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.SiLU())
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    expected = model(torch.ones(2, 4)).detach()
+    offload_module(
+        model[0],
+        onload_device=device,
+        offload_device=offload_device,
+        **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
+    )
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
+    handler.configure_onload(device)
+    source = handler.mapping[model[0]]
+    cache = source._parameters
+
+    # Tracing can inline a container, leaving it outside its children's graphs.
+    subgraph_stage_modules({"": model}, handler)
+    assert not cache.is_staged
+    subgraph_onload_modules({"": model}, handler, device)
+    assert source._parameters is cache
+    assert model[0].weight.is_meta
+
+    modules = {"0": model[0], "1": model[1]}
+    kwargs = subgraph_onload_modules(modules, handler, device)
+    assert str(kwargs["0"]["offload_device"]) == offload_device
+    assert kwargs["1"]["onload_device"] == device
+    subgraph_offload_modules(modules, kwargs)
+    torch.testing.assert_close(model(torch.ones(2, 4)).cpu(), expected)
     handler.finish()
 
 
@@ -335,11 +374,16 @@ def test_finish_offloads_materialized_expert_children(tmp_path, offload_device):
     assert experts in handler.mapping
     assert experts[0].gate_proj not in handler.mapping
 
+    # Pipelines dispatch the prepared meta tree before onloading real sources.
+    set_onload_device(model, torch.device("cpu"))
     handler.finish()
 
     for module in experts.modules():
         assert isinstance(module._parameters, OffloadCache)
         assert str(module._parameters.offload_device) == offload_device
     torch.testing.assert_close(
-        model.state_dict(), reference.state_dict(), rtol=0, atol=0
+        {name: value.cpu() for name, value in model.state_dict().items()},
+        {name: value.cpu() for name, value in reference.state_dict().items()},
+        rtol=0,
+        atol=0,
     )

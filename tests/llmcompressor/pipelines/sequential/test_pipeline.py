@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 import torch
 
 import llmcompressor.pipelines.sequential.offload as offload
@@ -57,11 +58,17 @@ def test_submit_subgraph_staging_skips_shared_modules(monkeypatch):
     assert calls == []
 
 
-def test_submit_subgraph_staging_skips_overlapping_source_trees(monkeypatch):
+@pytest.mark.parametrize("requires_restructure", [False, True])
+def test_submit_subgraph_staging_respects_source_tree_ownership(
+    monkeypatch, requires_restructure
+):
     model = torch.nn.Sequential(torch.nn.Linear(2, 2))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
+    if requires_restructure:
+        # Model a conversion that consumes the entire retained source tree.
+        handler.restructures[0].mapping[handler.source_root] = model
     calls = []
     monkeypatch.setattr(
         offload,
@@ -72,6 +79,12 @@ def test_submit_subgraph_staging_skips_overlapping_source_trees(monkeypatch):
         result = offload._submit_subgraph_staging(
             executor, {"0": model[0]}, {"": model}, handler, pin_memory=False
         )
+        if result is not None:
+            result[1].result()
 
-    assert result is None
-    assert calls == []
+    if requires_restructure:
+        assert result is None
+        assert calls == []
+    else:
+        assert result is not None
+        assert calls == [(({"0": model[0]}, handler), {"pin_memory": False})]

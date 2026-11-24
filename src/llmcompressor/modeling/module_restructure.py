@@ -89,7 +89,8 @@ def transfer_module_state(
 ) -> None:
     """Adopt source storage while preserving target tensor identities and new state."""
     # Dispatch also attaches caches to parameterless target containers.
-    remove_module_offload(target, onload_tensors=True)
+    for module in target.modules() if recurse else (target,):
+        remove_module_offload(module, onload_tensors=True)
     source_state = _named_state(source, recurse=recurse)
     target_state = _named_state(target, recurse=recurse)
     missing_source_names = set(source_state) - set(target_state)

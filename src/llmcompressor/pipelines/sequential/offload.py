@@ -36,14 +36,18 @@ __all__ = [
 def _source_modules(
     modules: dict[str, Module], restructure_handler: RestructureHandler
 ) -> dict[str, Module]:
-    """Resolve delayed targets to their real source trees; keep live modules direct."""
-    sources = {}
-    for name, module in modules.items():
-        source = restructure_handler.mapping.get(module)
-        if source is None:
-            sources[name] = module
-        else:
-            sources.update(source.named_modules(prefix=name))
+    """Resolve direct sources, expanding only trees owned by a restructure."""
+    sources = {
+        name: restructure_handler.mapping.get(module, module)
+        for name, module in modules.items()
+    }
+    # Ordinary containers may be persistent while their children belong to later
+    # subgraphs. Only a restructure (such as MoE linearization) consumes a full
+    # source tree whose descendants differ from those in the live module dict.
+    for restructure in restructure_handler.restructures:
+        for name, source in list(sources.items()):
+            if source in restructure.mapping:
+                sources.update(source.named_modules(prefix=name))
     return sources
 
 
