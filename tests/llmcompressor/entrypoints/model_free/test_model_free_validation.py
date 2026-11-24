@@ -54,9 +54,9 @@ def test_validate_does_not_raise_for_block_incompatible_shape(tmp_path, mfptq):
     mfptq.validate(tensors)
 
 
-def test_validate_does_not_calibrate_expanded_mse_observer():
+def test_validate_does_not_calibrate_memoryless_mse_observer():
     scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
-    scheme.weights.observer = "nvfp4_expanded_mse"
+    scheme.weights.observer = "memoryless_mse"
     config = QuantizationConfig(config_groups={"group_0": scheme}, ignore=[])
     converter = ModelFreePtqConverter(config=config)
 
