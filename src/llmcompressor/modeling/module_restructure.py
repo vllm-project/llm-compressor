@@ -6,10 +6,6 @@ import torch
 from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module
 
-from llmcompressor.utils.pytorch.meta import (
-    materialize_meta_module,
-)
-
 
 class ModuleRestructure(ABC):
     """Track the real sources affected by one model-wide restructuring operation."""
@@ -83,87 +79,84 @@ def replace_module(model: Module, source: Module, target: Module) -> Module:
     return model
 
 
-def copy_module_state(
+@torch.no_grad()
+def transfer_module_state(
     target: Module,
     source: Module,
     device: torch.device,
     *,
     recurse: bool = True,
 ) -> None:
+    """Adopt source storage while preserving target tensor identities and new state."""
+    # Dispatch also attaches caches to parameterless target containers.
     remove_module_offload(target, onload_tensors=True)
     source_state = _named_state(source, recurse=recurse)
-    target_meta_state = _named_state(target, recurse=recurse)
-    missing_source_names = set(source_state) - set(target_meta_state)
+    target_state = _named_state(target, recurse=recurse)
+    missing_source_names = set(source_state) - set(target_state)
     if missing_source_names:
         raise ValueError(
             "Restructured target is missing source state entries: "
             f"{sorted(missing_source_names)}"
         )
-    meta_names = {
-        name
-        for name, tensor in target_meta_state.items()
-        if tensor.device.type == "meta"
-    }
-
-    def initialize(module: Module) -> None:
-        target_state = _named_state(module, recurse=recurse)
-        for name, target_tensor in target_state.items():
-            # Shared parameters may already have been materialized and calibrated
-            # through another module. Never overwrite them with stale source data.
-            if name not in meta_names:
-                continue
-            source_tensor = source_state.get(name)
-            if source_tensor is None:
-                if name in meta_names:
-                    target_tensor.fill_(1 if name.endswith("_scale") else 0)
-                continue
-            if source_tensor.device.type == "meta":
-                raise ValueError(f"Source state {name} is still on the meta device")
-            if target_tensor.shape != source_tensor.shape:
-                raise ValueError(
-                    f"Cannot materialize {name}: target shape "
-                    f"{tuple(target_tensor.shape)} differs from source shape "
-                    f"{tuple(source_tensor.shape)}"
-                )
-            target_tensor.copy_(
-                source_tensor.to(device=target_tensor.device, dtype=target_tensor.dtype)
+    for name, target_tensor in target_state.items():
+        if not target_tensor.is_meta:
+            # Shared state may already have been materialized and calibrated.
+            # Preserve its values instead of replacing them with stale source data.
+            if target_tensor.device != device:
+                _adopt_tensor(target_tensor, target_tensor, device)
+            continue
+        source_tensor = source_state.get(name)
+        if source_tensor is None:
+            # New quantization parameters and observer buffers have no source.
+            source_tensor = torch.full_like(
+                target_tensor, 1 if name.endswith("_scale") else 0, device=device
             )
-        for name, source_module in (
-            source.named_modules() if recurse else [("", source)]
-        ):
-            target_module = module.get_submodule(name)
-            for attr, value in vars(source_module).items():
-                if attr not in {"_parameters", "_buffers", "_modules"}:
-                    _materialize_attribute(
-                        getattr(target_module, attr, None), value, device
-                    )
+        elif target_tensor.shape != source_tensor.shape:
+            raise ValueError(
+                f"Cannot materialize {name}: target shape "
+                f"{tuple(target_tensor.shape)} differs from source shape "
+                f"{tuple(source_tensor.shape)}"
+            )
+        _adopt_tensor(target_tensor, source_tensor, device)
 
-    materialize_meta_module(
-        target, device=device, initializer=initialize, recurse=recurse
-    )
+    for name, source_module in source.named_modules() if recurse else [("", source)]:
+        target_module = target.get_submodule(name)
+        for attr, value in vars(source_module).items():
+            if attr not in {"_parameters", "_buffers", "_modules"}:
+                _transfer_attribute(getattr(target_module, attr, None), value, device)
+
     if not recurse:
         # Modifier initialization can add observers with meta buffers. Existing
         # structural children are materialized through their own source mappings.
         for name, child in target.named_children():
             if source._modules.get(name) is None:
-                copy_module_state(child, Module(), device)
+                transfer_module_state(child, Module(), device)
 
 
-def _materialize_attribute(target, source, device):
-    """Fill tensor-valued attributes while preserving aliases to registered state."""
-    if isinstance(target, torch.Tensor) and target.device.type == "meta":
-        if not isinstance(source, torch.Tensor) or source.device.type == "meta":
-            raise ValueError("Cannot materialize tensor attribute without real state")
-        value = source.detach().to(device=device, dtype=target.dtype).clone()
-        if isinstance(target, torch.nn.Parameter):
-            value = torch.nn.Parameter(value, requires_grad=target.requires_grad)
-        torch.utils.swap_tensors(target, value)
+def _adopt_tensor(target, source, device):
+    # detach/to and Parameter wrapping share storage when device and dtype match.
+    value = source.detach().to(device=device, dtype=target.dtype)
+    if value.is_inference() and not torch.is_inference_mode_enabled():
+        # Keep the storage while allowing normal Parameter initialization.
+        value = torch.empty(0, device=value.device, dtype=value.dtype).set_(value)
+    if isinstance(target, torch.nn.Parameter):
+        value = torch.nn.Parameter(value, requires_grad=target.requires_grad)
+    else:
+        value.requires_grad_(target.requires_grad)
+    value.__dict__.update(target.__dict__)
+    torch.utils.swap_tensors(target, value)
+
+
+def _transfer_attribute(target, source, device):
+    """Adopt tensor-valued attributes while preserving aliases to registered state."""
+    if isinstance(target, torch.Tensor) and target.is_meta:
+        _adopt_tensor(target, source, device)
     elif isinstance(target, dict) and isinstance(source, dict):
         for key in target.keys() & source.keys():
-            _materialize_attribute(target[key], source[key], device)
+            _transfer_attribute(target[key], source[key], device)
     elif isinstance(target, (list, tuple)) and isinstance(source, (list, tuple)):
         for left, right in zip(target, source):
-            _materialize_attribute(left, right, device)
+            _transfer_attribute(left, right, device)
 
 
 def _named_state(module: Module, *, recurse: bool = True) -> dict[str, torch.Tensor]:

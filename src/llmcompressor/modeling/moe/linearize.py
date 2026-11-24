@@ -21,8 +21,8 @@ from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
     clear_module_state,
-    copy_module_state,
     replace_module,
+    transfer_module_state,
 )
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
@@ -189,7 +189,7 @@ class MoELinearizationRestructure(ModuleRestructure):
             target = self.mapping.pop(source, None)
             if target is not None:
                 converted = self._linearize(source, model)
-                copy_module_state(target, converted, device)
+                transfer_module_state(target, converted, device)
                 self.delayed.pop(target)
                 for child in source.modules():
                     clear_module_state(child)

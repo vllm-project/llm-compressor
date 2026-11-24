@@ -20,7 +20,7 @@ from torch.nn import Module
 
 from llmcompressor.modeling.module_restructure import (
     clear_module_state,
-    copy_module_state,
+    transfer_module_state,
 )
 
 if TYPE_CHECKING:
@@ -112,10 +112,10 @@ def subgraph_onload_modules(
             restructure_handler.model, sources, device, offload_kwargs
         )
     for target in pending.values():
-        # Replacements were copied by the restructure that owns them.
+        # Replacements were transferred by the restructure that owns them.
         source = restructure_handler.mapping.pop(target, None)
         if source is not None:
-            copy_module_state(target, source, device, recurse=False)
+            transfer_module_state(target, source, device, recurse=False)
             clear_module_state(source)
     return offload_kwargs
 

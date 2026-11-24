@@ -27,8 +27,8 @@ from transformers import PreTrainedModel
 
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
-    copy_module_state,
     replace_module,
+    transfer_module_state,
 )
 
 __all__ = [
@@ -137,7 +137,7 @@ class OffsetNormRestructure(ModuleRestructure):
             target = self.mapping.get(source)
             if target is not None and target in self.delayed:
                 converted = type(target)(original=source)
-                copy_module_state(target, converted, device)
+                transfer_module_state(target, converted, device)
                 self.delayed.pop(target)
 
     def restore(self, model, modules=None):

@@ -122,13 +122,13 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
         "is_module_quantized",
         lambda candidate: candidate is module,
     )
-    copy_state = offload_module.copy_module_state
+    transfer_state = offload_module.transfer_module_state
 
     def materialize(target, source, device, **kwargs):
         events.append(("restructure", [target]))
-        copy_state(target, source, device, **kwargs)
+        transfer_state(target, source, device, **kwargs)
 
-    monkeypatch.setattr(offload_module, "copy_module_state", materialize)
+    monkeypatch.setattr(offload_module, "transfer_module_state", materialize)
     monkeypatch.setattr(
         helpers_module,
         "compress_module",

@@ -13,7 +13,7 @@ from compressed_tensors.utils.impl_backend import ImplBackend
 from compressed_tensors.utils.triton import triton
 
 import llmcompressor.observers.grid_search as grid_search_module
-from llmcompressor.modeling.module_restructure import copy_module_state
+from llmcompressor.modeling.module_restructure import transfer_module_state
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.grid_search import _make_grid_points
@@ -99,7 +99,7 @@ class TestActivationCollection:
         observer = _make_observer(module, strategy="channel")
         module.register_module("weight_observer", observer)
 
-        copy_module_state(module, original, torch.device("cpu"))
+        transfer_module_state(module, original, torch.device("cpu"))
 
         assert module.weight_observer is observer
         assert observer._imatrix_sum.device.type == "cpu"
