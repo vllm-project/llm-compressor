@@ -40,7 +40,6 @@ from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
-from llmcompressor.pipelines.sequential import SequentialPipeline
 from llmcompressor.pipelines.sequential.restructure import (
     RestructureHandler,
 )
@@ -333,11 +332,6 @@ class Oneshot:
                 session.lifecycle.recipe.modifiers, user=user_pipeline
             )
 
-            # Modifiers always initialize against the restructured modules.
-            # Sequential calibration can fill targets by subgraph; other pipelines
-            # need all targets ready before their first pass.
-            if not isinstance(pipeline, SequentialPipeline):
-                restructure_handler.materialize_all()
             pipeline(
                 self.model,
                 calibration_dataloader,

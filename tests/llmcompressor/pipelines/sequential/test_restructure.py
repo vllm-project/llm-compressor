@@ -284,9 +284,9 @@ def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_d
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
-    handler.materialize_all()
+    handler.configure_onload(torch.device("cpu"))
     target = model.norm
-    modules = {"norm": target}
+    modules = dict(model.named_modules())
     kwargs = subgraph_onload_modules(modules, handler, torch.device("cpu"))
     with torch.no_grad():
         target.weight.add_(2)

@@ -100,17 +100,6 @@ class RestructureHandler:
         if self.source_root is not None:
             set_onload_device(self.source_root, device)
 
-    def materialize_all(self) -> None:
-        device = get_main_device()
-        self.configure_onload(device)
-        modules = {
-            name: module
-            for name, module in self.model.named_modules()
-            if module in self.mapping
-        }
-        kwargs = subgraph_onload_modules(modules, self, device)
-        subgraph_offload_modules(modules, kwargs)
-
     def restore_restructured_modules(
         self, modules: dict[str, Module] | None = None
     ) -> None:
@@ -119,9 +108,8 @@ class RestructureHandler:
 
     def finish(self) -> None:
         """Restore a complete usable model, including state outside traced graphs."""
-        self.materialize_all()
-        # Consumed permanent conversions have dropped their operation mappings;
-        # the remaining targets are retained for restoration.
+        device = get_main_device()
+        self.configure_onload(device)
         restore_targets = {
             target
             for restructure in self.restructures
@@ -130,9 +118,9 @@ class RestructureHandler:
         modules = {
             name: module
             for name, module in self.model.named_modules()
-            if module in restore_targets
+            if module in self.mapping or module in restore_targets
         }
-        kwargs = subgraph_onload_modules(modules, self, get_main_device())
+        kwargs = subgraph_onload_modules(modules, self, device)
         self.restore_restructured_modules(modules)
         subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()

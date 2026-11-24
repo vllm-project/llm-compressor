@@ -6,6 +6,10 @@ from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
 from llmcompressor.pipelines.registry import CalibrationPipeline
+from llmcompressor.pipelines.sequential.offload import (
+    subgraph_offload_modules,
+    subgraph_onload_modules,
+)
 from llmcompressor.utils.dev import get_main_device
 
 if TYPE_CHECKING:
@@ -36,6 +40,15 @@ class DataFreePipeline(CalibrationPipeline):
         # we want those ops to occur on the GPU
         onload_device = get_main_device()
         set_onload_device(model, onload_device)
+        restructure_handler.configure_onload(onload_device)
+
+        # Materialize through the regular onload path. Callbacks can then stream
+        # real weights from their offload caches instead of holding them all on GPU.
+        modules = dict(model.named_modules())
+        offload_kwargs = subgraph_onload_modules(
+            modules, restructure_handler, onload_device
+        )
+        subgraph_offload_modules(modules, offload_kwargs)
 
         LifecycleCallbacks.calibration_start()
         LifecycleCallbacks.sequential_epoch_end(dict(model.named_modules()))
