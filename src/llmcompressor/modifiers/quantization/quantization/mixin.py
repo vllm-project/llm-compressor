@@ -568,9 +568,9 @@ class QuantizationMixin(HooksMixin):
         """Return the complete defaults for the selected weight observer."""
         observer = args.observer
         if observer in ("mse", "memoryless_mse"):
-            return get_defaults(args, "mse")
+            return get_defaults(args)
         if observer == "imatrix_mse":
-            defaults = get_defaults(args, "imatrix")
+            defaults = get_defaults(args)
             if is_mxfp4a8(scheme):
                 defaults.update(norm=2.6, magnitude_normalization=False)
             return defaults

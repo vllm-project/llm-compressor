@@ -1,13 +1,10 @@
 """Default search parameters for MSE and iMatrix observers."""
 
-from typing import Literal
-
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from compressed_tensors.quantization.utils.mxfp_utils import (
     should_generate_mx_scales,
 )
 
-ObserverKind = Literal["imatrix", "mse"]
 ObserverKwargs = dict[str, int | float | bool | str | None]
 
 
@@ -37,9 +34,15 @@ def is_mxfp4a8(scheme: QuantizationScheme) -> bool:
 
 def get_defaults(
     args: QuantizationArgs,
-    observer: ObserverKind,
 ) -> dict[str, int | float | bool | str | None]:
     """Return observer defaults for its quantization format."""
+    if args.observer in ("mse", "memoryless_mse", "nvfp4_expanded_mse"):
+        observer = "mse"
+    elif args.observer == "imatrix_mse":
+        observer = "imatrix"
+    else:
+        raise ValueError(f"Unknown observer: {args.observer}")
+
     is_mx = is_mxfp4(args)
 
     is_nvfp4_format = is_nvfp4(args)
