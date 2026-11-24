@@ -143,13 +143,6 @@ class GPTQModifier(Modifier, QuantizationMixin):
         scheme: QuantizationScheme,
     ) -> ObserverDefaultOverrides:
         observer = args.observer
-        if observer in (
-            "mse",
-            "memoryless_mse",
-            "nvfp4_expanded_mse",
-            "fouroversix",
-        ):
-            return {"norm": 2.4, "magnitude_normalization": True}
         if observer in ("imatrix_mse", "nvfp4_expanded_imatrix"):
             if is_nvfp4(args):
                 return {"norm": 2, "magnitude_normalization": False}

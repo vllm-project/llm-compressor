@@ -564,13 +564,6 @@ class QuantizationMixin(HooksMixin):
     ) -> ObserverDefaultOverrides:
         """Return common observer defaults; modifiers can override this hook."""
         observer = args.observer
-        if observer in (
-            "mse",
-            "memoryless_mse",
-            "nvfp4_expanded_mse",
-            "fouroversix",
-        ):
-            return {"norm": 2.4, "magnitude_normalization": True}
         if observer in ("imatrix_mse", "nvfp4_expanded_imatrix"):
             if is_mxfp4a8(scheme):
                 return {"norm": 2.6, "magnitude_normalization": False}
