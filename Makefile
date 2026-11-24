@@ -17,6 +17,21 @@ ifneq ($(findstring examples,$(TARGETS)),examples)
     PYTEST_ARGS := $(PYTEST_ARGS) --ignore tests/examples
 endif
 
+# Test cadence: commit (default) skips tests marked nightly/weekly, nightly
+# runs nightly-marked tests, weekly runs weekly-marked tests, and release runs
+# everything. Matches the requires_cadence decorator in tests/testing_utils.py
+# and the cadence field used by the e2e and lm-eval YAML test configs.
+CADENCE ?= commit
+ifeq ($(CADENCE),release)
+    CADENCE_MARKS :=
+else ifeq ($(CADENCE),nightly)
+    CADENCE_MARKS := not weekly
+else ifeq ($(CADENCE),weekly)
+    CADENCE_MARKS := not nightly
+else
+    CADENCE_MARKS := not nightly and not weekly
+endif
+
 # run checks on all files for the repo
 # leaving out mypy src for now
 quality:
@@ -39,12 +54,12 @@ style:
 # run tests for the repo
 test:
 	@echo "Running python tests";
-	pytest -ra tests $(PYTEST_ARGS) --ignore tests/lmeval --ignore tests/tools
+	pytest -ra tests $(PYTEST_ARGS) $(if $(CADENCE_MARKS),-m "$(CADENCE_MARKS)") --ignore tests/lmeval --ignore tests/tools
 
 # run xpu tests for the repo
 test-xpu: 
 	@echo "Running xpu tests"
-	pytest -c pytest-xpu.ini;
+	pytest -c pytest-xpu.ini $(if $(CADENCE_MARKS),-m "$(CADENCE_MARKS)");
 
 # creates wheel file
 .PHONY: build

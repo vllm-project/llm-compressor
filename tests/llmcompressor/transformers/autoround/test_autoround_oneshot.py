@@ -85,37 +85,13 @@ w8a8_static_recipe_modifier = AutoRoundModifier(
 )
 
 
-@requires_gpu(1)
-@pytest.mark.parametrize(
-    ("recipe", "expected_bits"),
-    [
-        (recipe_str, 4),
-        (recipe_modifier_full, 4),
-        (recipe_modifier_nvfp4, 4),
-        (recipe_modifier_mxfp4, 4),
-        (recipe_modifier_w2a16, 2),
-    ],
-)
-def test_oneshot_application(recipe, expected_bits, tmp_path):
-    output = tmp_path / "oneshot_output"
-    model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    tokenizer = AutoTokenizer.from_pretrained(model)
-    dataset = get_dataset(
-        tokenizer=tokenizer,
-        seqlen=1024,
-        nsamples=32,
-    )
+TINY_LLAMA = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 
-    device = 0 if torch.accelerator.is_available() else "cpu"
 
-    oneshot(
-        model=model,
-        dataset=dataset,
-        output_dir=output,
-        recipe=recipe,
-    )
-    model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
-
+def _assert_quantized_oneshot_output(model_loaded, expected_bits):
+    """Assert a model loaded from an oneshot output directory is quantized
+    with the expected weight bits, lm_head ignored, and layer 2's q_proj
+    quantized."""
     # Check that the model is quantized
     # decompress() will attach a quantization_config to the model
     # as we decompress right away
@@ -141,11 +117,43 @@ def test_oneshot_application(recipe, expected_bits, tmp_path):
     assert not hasattr(not_targetted, "quantization_scheme")
 
 
+@requires_gpu(1)
+@pytest.mark.nightly
+@pytest.mark.parametrize(
+    ("recipe", "expected_bits"),
+    [
+        (recipe_str, 4),
+        (recipe_modifier_full, 4),
+        (recipe_modifier_nvfp4, 4),
+        (recipe_modifier_mxfp4, 4),
+        (recipe_modifier_w2a16, 2),
+    ],
+)
+def test_oneshot_application(recipe, expected_bits, tmp_path):
+    output = tmp_path / "oneshot_output"
+    tokenizer = AutoTokenizer.from_pretrained(TINY_LLAMA)
+    dataset = get_dataset(
+        tokenizer=tokenizer,
+        seqlen=1024,
+        nsamples=32,
+    )
+
+    device = 0 if torch.accelerator.is_available() else "cpu"
+
+    oneshot(
+        model=TINY_LLAMA,
+        dataset=dataset,
+        output_dir=output,
+        recipe=recipe,
+    )
+    model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
+    _assert_quantized_oneshot_output(model_loaded, expected_bits)
+
+
 @requires_gpu(2)
 def test_oneshot_with_device_ids(tmp_path):
     output = tmp_path / "oneshot_output"
-    model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    tokenizer = AutoTokenizer.from_pretrained(model)
+    tokenizer = AutoTokenizer.from_pretrained(TINY_LLAMA)
     dataset = get_dataset(
         tokenizer=tokenizer,
         seqlen=512,
@@ -167,36 +175,13 @@ def test_oneshot_with_device_ids(tmp_path):
     )
 
     oneshot(
-        model=model,
+        model=TINY_LLAMA,
         dataset=dataset,
         output_dir=output,
         recipe=recipe,
     )
     model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
-
-    # Check that the model is quantized
-    # decompress() will attach a quantization_config to the model
-    # as we decompress right away
-    quantization_config = model_loaded.config.quantization_config.quantization_config
-    assert quantization_config is not None
-
-    # check config is set properly
-    assert "lm_head" in quantization_config.ignore
-    assert len(quantization_config.config_groups) == 1
-    quant_scheme = quantization_config.config_groups["group_0"]
-    assert isinstance(quant_scheme, QuantizationScheme)
-
-    weight_args = quantization_config.config_groups["group_0"].weights
-    assert isinstance(weight_args, QuantizationArgs)
-    assert weight_args.num_bits == 4
-
-    # Check a specific layer is quantized
-    targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
-    assert hasattr(targetted_linear_layer, "quantization_scheme")
-
-    # Check lm-head is not quantized
-    not_targetted = model_loaded.lm_head
-    assert not hasattr(not_targetted, "quantization_scheme")
+    _assert_quantized_oneshot_output(model_loaded, 4)
 
 
 @requires_gpu(1)
@@ -206,8 +191,7 @@ def test_oneshot_with_device_ids(tmp_path):
 )
 def test_rtn_oneshot(recipe, tmp_path):
     output = tmp_path / "oneshot_output"
-    model = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
-    tokenizer = AutoTokenizer.from_pretrained(model)
+    tokenizer = AutoTokenizer.from_pretrained(TINY_LLAMA)
     dataset = get_dataset(
         tokenizer=tokenizer,
         seqlen=1024,
@@ -217,26 +201,21 @@ def test_rtn_oneshot(recipe, tmp_path):
     device = 0 if torch.accelerator.is_available() else "cpu"
 
     oneshot(
-        model=model,
+        model=TINY_LLAMA,
         dataset=dataset,
         output_dir=output,
         recipe=recipe,
     )
     model_loaded = AutoModelForCausalLM.from_pretrained(output, device_map=device)
 
+    _assert_quantized_oneshot_output(
+        model_loaded, recipe.config_groups["group_0"].weights.num_bits
+    )
+
+    # the applied scheme matches the recipe's weights and activations args
     quantization_config = model_loaded.config.quantization_config.quantization_config
-    assert quantization_config is not None
-
-    # check config is set properly
-    assert "lm_head" in quantization_config.ignore
-    assert len(quantization_config.config_groups) == 1
-    quant_scheme = quantization_config.config_groups["group_0"]
-    assert isinstance(quant_scheme, QuantizationScheme)
-
     weight_args = quantization_config.config_groups["group_0"].weights
     act_args = quantization_config.config_groups["group_0"].input_activations
-    assert isinstance(weight_args, QuantizationArgs)
-    assert weight_args.num_bits == recipe.config_groups["group_0"].weights.num_bits
     assert weight_args.strategy == recipe.config_groups["group_0"].weights.strategy
     if act_args is not None:
         assert (
@@ -247,11 +226,3 @@ def test_rtn_oneshot(recipe, tmp_path):
             act_args.strategy
             == recipe.config_groups["group_0"].input_activations.strategy
         )
-
-    # Check a specific layer is quantized
-    targetted_linear_layer = model_loaded.model.layers[2].self_attn.q_proj
-    assert hasattr(targetted_linear_layer, "quantization_scheme")
-
-    # Check lm-head is not quantized
-    not_targetted = model_loaded.lm_head
-    assert not hasattr(not_targetted, "quantization_scheme")
