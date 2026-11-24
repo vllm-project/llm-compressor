@@ -47,7 +47,6 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.quantization.helpers import (
-    default_grid_type,
     is_mxfp4,
     is_mxfp4a8,
     is_nvfp4,
@@ -578,7 +577,7 @@ class QuantizationMixin(HooksMixin):
         defaults: ObserverKwargs = {
             "maxshrink": 0.20 if is_mse else 0.95,
             "expand": 1.0,
-            "grid_type": default_grid_type(scheme),
+            "grid_type": "exponential" if is_mxfp4(scheme) else "linear",
         }
         if is_nvfp4(scheme):
             defaults.update(
@@ -629,8 +628,6 @@ class QuantizationMixin(HooksMixin):
             observer_kwargs = self._get_weight_observer_defaults(scheme)
             # Explicit observer kwargs take precedence over modifier defaults.
             observer_kwargs.update(scheme.weights.observer_kwargs or {})
-            if observer_kwargs.get("grid_type") is None:
-                observer_kwargs["grid_type"] = default_grid_type(scheme)
             initialize_observer(
                 module,
                 base_name="weight",
