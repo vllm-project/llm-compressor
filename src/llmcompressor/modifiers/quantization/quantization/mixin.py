@@ -49,7 +49,7 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
 from llmcompressor.modifiers.quantization.helpers import (
     is_fp8,
     is_mxfp4,
-    is_mxfp4a8,
+    is_mxfp4aN,
     is_nvfp4,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
@@ -470,10 +470,11 @@ class QuantizationMixin(HooksMixin):
         Apply observer overrides from weight_observer, input_observer, output_observer,
         or observer dict to the quantization scheme.
 
-        Weight observers default to ``imatrix_mse`` when calibration data is
-        available (so that activation importance can be accumulated) and to
-        ``memoryless_minmax`` otherwise. Activation observers default to
-        ``minmax``.
+        FP8 weight observers default to ``memoryless_minmax``. Other weight
+        observers default to ``imatrix_mse`` when calibration data is available
+        and ``memoryless_minmax`` otherwise, except MXFP4 weights without
+        calibration data use ``memoryless_mse``. Activation observers default
+        to ``minmax``.
 
         :param scheme: QuantizationScheme to modify
         :param has_calibration_data: whether calibration data will be available
@@ -540,24 +541,14 @@ class QuantizationMixin(HooksMixin):
     def _default_weight_observer(
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
-        """Delegate weight-observer choice to the modifier-specific policy hook."""
-        if has_calibration_data:
-            modifiers = active_session().lifecycle.recipe.modifiers
-            if any(modifier is self for modifier in modifiers):
-                from llmcompressor.modifiers.transform.awq import AWQModifier
-
-                # AWQ uses its own observers, so leave weight quantization on RTN.
-                if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
-                    return "memoryless_minmax"
-        return self._get_default_weight_observer(has_calibration_data, scheme)
-
-    def _get_default_weight_observer(
-        self, has_calibration_data: bool, scheme: QuantizationScheme
-    ) -> str:
         """Select the common default weight observer."""
         if is_fp8(scheme):
+            # fp8 doesn't benefit from shrinkage so
+            # imat/mse are unnecessary
             return "memoryless_minmax"
         if not has_calibration_data and is_mxfp4(scheme):
+            # the exponential search seems to make a difference
+            # for mxfp4 even when there's no calibration data
             return "memoryless_mse"
         return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
 
@@ -578,29 +569,40 @@ class QuantizationMixin(HooksMixin):
         ):
             return {}
 
-        is_mse = observer in ("mse", "memoryless_mse")
+        # SEARCH DEFAULTS
         defaults: ObserverKwargs = {
-            "maxshrink": 0.20 if is_mse else 0.95,
+            "maxshrink": 0.95,
             "expand": 1.0,
-            "grid_type": "exponential" if is_mxfp4(scheme) else "linear",
+            "grid": 200,
+            "grid_type": "linear",
+            "patience": 0,
+
         }
         if is_nvfp4(scheme):
+            # we want to take advantage of fouroversix range
+            # benefits at 1.5,1 so we go from 1.8 to .8 to cover that
             defaults.update(
                 maxshrink=1 - 0.8 / 1.8,
-                patience=1000,
-                grid=200,
                 expand=1.8,
             )
         elif is_mxfp4(scheme):
+            # since mxfp4 scale is a power of 2, all expansions
+            # will be powers of two so we use exponential grid
+            # and search from 2^0 to 2^(-6)
             defaults.update(
                 maxshrink=1 - 1.0 / 64.0,
-                patience=1000,
-                grid=200,
-                expand=1.0,
+                grid_type="exponential"
             )
 
-        if observer == "imatrix_mse" and is_mxfp4a8(scheme):
-            defaults.update(norm=2.6, magnitude_normalization=False)
+        # OBJECTIVE FUNCTION DEFAULTS
+        if is_nvfp4(scheme):
+            defaults.update(norm=3.0, magnitude_normalization=True)
+
+        elif observer == "imatrix_mse" and is_mxfp4aN(scheme):
+            defaults.update(norm=2, magnitude_normalization=False)
+
+        else: # w4a16, mxfp4a16, mxfp4a8 MSE
+            defaults.update(norm=2.8, magnitude_normalization=True)
 
         return defaults
 

@@ -32,7 +32,7 @@ def is_mxfp4(scheme: QuantizationScheme) -> bool:
     )
 
 
-def is_mxfp4a8(scheme: QuantizationScheme) -> bool:
-    """Return whether a scheme pairs MXFP4 weights with 8-bit activations."""
+def is_mxfp4aN(scheme: QuantizationScheme) -> bool:
+    """Return whether a scheme pairs MXFP4 weights with up to 8-bit activations."""
     activations = scheme.input_activations
-    return is_mxfp4(scheme) and activations is not None and activations.num_bits == 8
+    return is_mxfp4(scheme) and activations is not None and activations.num_bits <= 8

@@ -42,9 +42,9 @@ class IMatrixMSEObserver(Observer):
         patience (int): Number of consecutive candidates without a strict
             improvement before early stopping in the eager implementation.
             Triton always evaluates the full grid. ``0`` runs the full eager
-            search. Defaults to ``5``.
+            search. Defaults to ``0``.
         grid (float): Linear grid resolution or exponential candidate budget.
-            Defaults to ``100``.
+            Defaults to ``200``.
         norm (float): Power applied to absolute QDQ error before importance
             weighting. Defaults to ``2.8``.
         expand (float): Multiplier applied to observed min/max before the
@@ -70,8 +70,8 @@ class IMatrixMSEObserver(Observer):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs
         self.maxshrink = kw.get("maxshrink", 0.95)
-        self.patience = kw.get("patience", 5)
-        self.grid = kw.get("grid", 100)
+        self.patience = kw.get("patience", 0)
+        self.grid = kw.get("grid", 200)
         self.norm = kw.get("norm", 2.8)
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)

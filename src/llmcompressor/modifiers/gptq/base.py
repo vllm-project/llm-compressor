@@ -38,7 +38,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
-from llmcompressor.modifiers.quantization.helpers import is_mxfp4a8, is_nvfp4
+from llmcompressor.modifiers.quantization.helpers import is_mxfp4aN, is_nvfp4
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
@@ -139,10 +139,10 @@ class GPTQModifier(Modifier, QuantizationMixin):
         scheme: QuantizationScheme,
     ) -> ObserverKwargs:
         defaults = super()._get_weight_observer_defaults(scheme)
-        if scheme.weights is not None and scheme.weights.observer == "imatrix_mse":
+        if scheme.weights is not None and "mse" in scheme.weights.observer:
             if is_nvfp4(scheme):
                 defaults.update(norm=2, magnitude_normalization=False)
-            elif is_mxfp4a8(scheme):
+            elif is_mxfp4aN(scheme):
                 defaults.update(norm=3, magnitude_normalization=True)
         return defaults
 
