@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import pytest
 import torch
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from torch.utils.data import DataLoader
 from transformers import LlamaConfig, LlamaForCausalLM
@@ -60,6 +61,7 @@ def test_basic_pipeline_preserves_untraced_calibration():
         ),
         create_session() as session,
     ):
+        set_onload_device(model, get_main_device())
         handler = RestructureHandler(model)
         handler.convert_model_to_meta()
         handler.apply_restructuring()
@@ -92,6 +94,7 @@ def test_run_calibration_without_dataset_arguments(num_batches):
         ),
         create_session() as session,
     ):
+        set_onload_device(model, get_main_device())
         handler = RestructureHandler(model)
         handler.convert_model_to_meta()
         handler.apply_restructuring()
@@ -139,6 +142,7 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
     for candidate in (reference, model):
         with create_session() as session:
             if candidate is model:
+                set_onload_device(candidate, device)
                 handler = RestructureHandler(candidate)
                 handler.convert_model_to_meta()
                 handler.apply_restructuring()

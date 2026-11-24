@@ -74,9 +74,15 @@ def test_lazy_linearization_option_and_split_target_fallback(
     )
     assert oneshot.dataset_args.lazy_linearization is expected_lazy
     assert all(not tensor.is_meta for tensor in model.parameters())
-    with patch(
-        "llmcompressor.entrypoints.oneshot.linearize_moe", wraps=linearize_moe
-    ) as upfront_linearize:
+    with (
+        patch(
+            "llmcompressor.entrypoints.oneshot.get_main_device",
+            return_value=torch.device("cpu"),
+        ),
+        patch(
+            "llmcompressor.entrypoints.oneshot.linearize_moe", wraps=linearize_moe
+        ) as upfront_linearize,
+    ):
         oneshot.apply_recipe_modifiers(None)
         assert upfront_linearize.call_count == (0 if expected_lazy else 1)
     for index, layer in enumerate(model.model.layers):
@@ -95,6 +101,8 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     model.register_buffer("position", torch.arange(4.0), persistent=False)
     model.position_alias = model.position
     initial = model.block[0].weight.detach().clone()
+    device = torch.device("cpu")
+    set_onload_device(model, device)
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
@@ -102,10 +110,9 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     assert model.block[0].weight is model.other.weight
     assert model.position_alias is model.position
     assert model.position.is_meta
-    assert handler.source_root.block is handler.source_root.alias
+    source_root = handler.mapping[model]
+    assert source_root.block is source_root.alias
     assert handler.mapping[model.block]._modules is not model.block._modules
-    device = torch.device("cpu")
-    handler.configure_onload(device)
     subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
     torch.testing.assert_close(model.block[0].weight, initial)
     with torch.no_grad():
@@ -120,13 +127,24 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     torch.testing.assert_close(model.position_alias.cpu(), torch.arange(4.0))
     torch.testing.assert_close(model.position.cpu(), torch.arange(4.0))
     assert not handler.mapping
-    assert handler.source_root is None
 
 
 @pytest.mark.parametrize("staged", [False, True])
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
+@pytest.mark.parametrize(
+    "onload_device",
+    [
+        "cpu",
+        pytest.param(
+            "cuda:0",
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="GPU required"
+            ),
+        ),
+    ],
+)
 def test_source_caches_materialize_without_executing_source_forward(
-    staged, offload_device, tmp_path
+    staged, offload_device, onload_device, tmp_path
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
     inputs = torch.ones(2, 4)
@@ -137,26 +155,29 @@ def test_source_caches_materialize_without_executing_source_forward(
         offload_device=offload_device,
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
-    set_onload_device(model, torch.device("cpu"))
+    device = torch.device(onload_device)
+    set_onload_device(model, device)
     cache = model[0]._parameters
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
     source = handler.mapping[model[0]]
     assert source._parameters is cache
+    assert cache.onload_device == device
+    assert str(cache.offload_device) == offload_device
+    assert not isinstance(model[0]._parameters, OffloadCache)
     source.register_forward_pre_hook(
         lambda *_: pytest.fail("Retained sources should only supply tensor state")
     )
     calls = []
     model[0].register_forward_hook(lambda *args: calls.append("target"))
     assert source._forward_hooks is not model[0]._forward_hooks
-    handler.configure_onload(torch.device("cpu"))
     if staged:
         subgraph_stage_modules({"0": model[0]}, handler)
         assert model[0].weight.is_meta
         assert cache.is_staged
-    subgraph_onload_modules({"0": model[0]}, handler, torch.device("cpu"))
-    torch.testing.assert_close(model[0](inputs), expected)
+    subgraph_onload_modules({"0": model[0]}, handler, device)
+    torch.testing.assert_close(model[0](inputs.to(device)).cpu(), expected)
     assert calls == ["target"]
     assert not isinstance(model[0]._parameters, OffloadCache)
     assert not source._parameters  # Retained parents no longer keep the real tensors.
@@ -174,10 +195,10 @@ def test_staging_shared_sources_keeps_targets_on_meta(tmp_path, offload_device):
         offload_device=offload_device,
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
-    handler.configure_onload(torch.device("cpu"))
     target = model[0]
     source = handler.mapping[target]
     weight = target.weight
@@ -209,10 +230,10 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
         offload_device=offload_device,
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
+    set_onload_device(model, device)
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
-    handler.configure_onload(device)
     source = handler.mapping[model[0]]
     cache = source._parameters
 
@@ -234,6 +255,8 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
 
 def test_new_observer_meta_buffers_materialize_with_ordinary_module():
     model = torch.nn.Linear(4, 4)
+    device = torch.device("cpu")
+    set_onload_device(model, device)
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
@@ -245,8 +268,6 @@ def test_new_observer_meta_buffers_materialize_with_ordinary_module():
     model.register_module("weight_observer", observer)
     observer.attach(model)
     assert observer._imatrix_sum.is_meta
-    device = torch.device("cpu")
-    handler.configure_onload(device)
     subgraph_onload_modules({"": model}, handler, device)
     assert model.weight_observer is observer
     assert observer._imatrix_count.item() == 0
@@ -274,6 +295,8 @@ def test_norm_restore_updates_same_mapping_before_offload(
     expected = model.norm.weight.detach().clone() + 2
     if offload_state != "none":
         offload_module(model.norm, onload_device="cpu", offload_device="cpu")
+    device = torch.device("cpu")
+    set_onload_device(model, device)
     handler = RestructureHandler(model)
     if offload_state == "staged":
         subgraph_stage_modules(dict(model.named_modules()), handler)
@@ -285,8 +308,6 @@ def test_norm_restore_updates_same_mapping_before_offload(
     target = model.norm
     assert model.alias is target
     source = handler.mapping[target]
-    device = torch.device("cpu")
-    handler.configure_onload(device)
     modules = {"norm": target}
     offload_kwargs = subgraph_onload_modules(modules, handler, device)
     with torch.no_grad():
@@ -320,10 +341,10 @@ def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_d
         offload_device=offload_device,
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
-    handler.configure_onload(torch.device("cpu"))
     target = model.norm
     modules = dict(model.named_modules())
     kwargs = subgraph_onload_modules(modules, handler, torch.device("cpu"))
@@ -367,6 +388,7 @@ def test_finish_offloads_materialized_expert_children(tmp_path, offload_device):
             offload_device=offload_device,
             **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
         )
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
@@ -374,8 +396,9 @@ def test_finish_offloads_materialized_expert_children(tmp_path, offload_device):
     assert experts in handler.mapping
     assert experts[0].gate_proj not in handler.mapping
 
-    # Pipelines dispatch the prepared meta tree before onloading real sources.
-    set_onload_device(model, torch.device("cpu"))
+    assert all(
+        not isinstance(module._parameters, OffloadCache) for module in model.modules()
+    )
     handler.finish()
 
     for module in experts.modules():

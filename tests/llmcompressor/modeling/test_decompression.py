@@ -3,7 +3,7 @@ import copy
 import pytest
 import torch
 from compressed_tensors.compressors import compress_module, decompress_module
-from compressed_tensors.offload import offload_module
+from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.quantization import (
     QuantizationArgs,
     QuantizationScheme,
@@ -115,6 +115,7 @@ def test_decompression_preserves_new_recipe_state(
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
     model = torch.nn.Sequential(layer)
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model, layerwise_decompression=True)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
@@ -142,7 +143,6 @@ def test_decompression_preserves_new_recipe_state(
     calls = []
     layer.register_forward_pre_hook(lambda *_: calls.append("target"))
 
-    handler.configure_onload(torch.device("cpu"))
     subgraph_onload_modules({"0": layer}, handler, torch.device("cpu"))
     assert layer.quantization_scheme is scheme
     assert layer.weight_observer is observer
@@ -307,6 +307,7 @@ def test_linearization_decompresses_its_source_tree(
             **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
         )
 
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     old_children = list(packed.children())
@@ -335,7 +336,6 @@ def test_linearization_decompresses_its_source_tree(
     observer = projection.weight_observer
     calls = []
     projection.register_forward_hook(lambda *_: calls.append("target"))
-    handler.configure_onload(torch.device("cpu"))
     if stage:
         subgraph_stage_modules({"experts": target}, handler)
         assert projection.weight.is_meta
@@ -374,6 +374,7 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
         weights=QuantizationArgs(num_bits=8, strategy="tensor"),
     )
     model.norm.quantization_status = QuantizationStatus.COMPRESSED
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model, layerwise_decompression=True)
     handler.convert_model_to_meta()
     original = model.norm
@@ -384,7 +385,6 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     assert handler.restructures[1].mapping[source] is original
     assert handler.restructures[2].mapping[source] is target
     modules = {"norm": target}
-    handler.configure_onload(torch.device("cpu"))
     subgraph_onload_modules(modules, handler, torch.device("cpu"))
     assert not handler.restructures[1].mapping
     assert source._parameters  # Only the norm operation retains this source now.

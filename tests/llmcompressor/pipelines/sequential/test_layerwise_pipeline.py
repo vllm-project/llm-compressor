@@ -2,6 +2,7 @@ import contextlib
 from types import SimpleNamespace
 
 import torch
+from compressed_tensors.offload import set_onload_device
 
 import llmcompressor.pipelines.sequential.helpers as helpers_module
 import llmcompressor.pipelines.sequential.offload as offload_module
@@ -41,6 +42,7 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     monkeypatch,
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
+    set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
@@ -64,7 +66,6 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
 
     monkeypatch.setattr(pipeline_module, "active_session", lambda: session)
     monkeypatch.setattr(pipeline_module, "get_main_device", lambda: torch.device("cpu"))
-    monkeypatch.setattr(pipeline_module, "set_onload_device", lambda *args: None)
     monkeypatch.setattr(
         pipeline_module,
         "calibration_forward_context",

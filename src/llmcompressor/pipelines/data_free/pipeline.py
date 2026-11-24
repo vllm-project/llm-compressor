@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 
 import torch
-from compressed_tensors.offload import set_onload_device
 from torch.utils.data.dataloader import DataLoader
 
 from llmcompressor.core.session_functions import LifecycleCallbacks
@@ -39,8 +38,6 @@ class DataFreePipeline(CalibrationPipeline):
         # some ops are still performed on the model by modifiers
         # we want those ops to occur on the GPU
         onload_device = get_main_device()
-        set_onload_device(model, onload_device)
-        restructure_handler.configure_onload(onload_device)
 
         # Materialize through the regular onload path. Callbacks can then stream
         # real weights from their offload caches instead of holding them all on GPU.

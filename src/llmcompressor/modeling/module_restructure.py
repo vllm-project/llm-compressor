@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
-from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module
 
 
@@ -87,10 +86,10 @@ def transfer_module_state(
     *,
     recurse: bool = True,
 ) -> None:
-    """Adopt source storage while preserving target tensor identities and new state."""
-    # Dispatch also attaches caches to parameterless target containers.
-    for module in target.modules() if recurse else (target,):
-        remove_module_offload(module, onload_tensors=True)
+    """Adopt onloaded source storage into undispatched targets.
+
+    Preserve target tensor identities and materialize newly initialized state.
+    """
     source_state = _named_state(source, recurse=recurse)
     target_state = _named_state(target, recurse=recurse)
     missing_source_names = set(source_state) - set(target_state)

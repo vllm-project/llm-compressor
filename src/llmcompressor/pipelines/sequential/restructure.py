@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 
 import torch
-from compressed_tensors.offload import set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module, Parameter
@@ -38,7 +37,6 @@ class RestructureHandler:
             DecompressionRestructure(enabled=layerwise_decompression),
             OffsetNormRestructure(),
         )
-        self.source_root: Module | None = None
 
     def delay_loading(self, module: Module, memo: dict[int, torch.Tensor]) -> Module:
         """Move direct tensor ownership to a copied holder, leaving meta tensors."""
@@ -79,7 +77,7 @@ class RestructureHandler:
         return module
 
     def convert_model_to_meta(self) -> None:
-        """Retain a real source tree and replace the live model's tensors with meta."""
+        """Retain dispatched sources and replace the live model's tensors with meta."""
         nodes = list(self.model.modules())
         memo: dict[int, torch.Tensor] = {}
         for module in nodes:
@@ -89,16 +87,11 @@ class RestructureHandler:
                 name: self.mapping[child] if child is not None else None
                 for name, child in module._modules.items()
             }
-        self.source_root = self.mapping[self.model]
 
     def apply_restructuring(self) -> None:
         """Restructure the meta model and associate replacements with real sources."""
         for restructure in self.restructures:
             self.model = restructure.apply(self.model, self.mapping)
-
-    def configure_onload(self, device: torch.device) -> None:
-        if self.source_root is not None:
-            set_onload_device(self.source_root, device)
 
     def restore_restructured_modules(
         self, modules: dict[str, Module] | None = None
@@ -109,7 +102,6 @@ class RestructureHandler:
     def finish(self) -> None:
         """Restore a complete usable model, including state outside traced graphs."""
         device = get_main_device()
-        self.configure_onload(device)
         restore_targets = {
             target
             for restructure in self.restructures
@@ -130,4 +122,3 @@ class RestructureHandler:
         }
         subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()
-        self.source_root = None

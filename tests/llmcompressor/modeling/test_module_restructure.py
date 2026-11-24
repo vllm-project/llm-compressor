@@ -1,4 +1,9 @@
 import torch
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationScheme,
+    initialize_module_for_quantization,
+)
 
 from llmcompressor.modeling.module_restructure import (
     clear_module_state,
@@ -18,14 +23,20 @@ def test_transfer_adopts_storage_and_preserves_initialized_targets():
     marker = object()
     weight.marker = marker
     weight.requires_grad_(False)
-    target.weight_scale = torch.nn.Parameter(torch.tensor([7.0]), requires_grad=False)
-    target.input_scale = torch.nn.Parameter(
-        torch.empty(1, device="meta"), requires_grad=False
+    initialize_module_for_quantization(
+        target,
+        QuantizationScheme(
+            targets=["Linear"],
+            weights=QuantizationArgs(num_bits=4, strategy="channel"),
+            input_activations=QuantizationArgs(num_bits=8, strategy="tensor"),
+        ),
     )
-    target.register_buffer(
-        "weight_zero_point", torch.empty(1, device="meta", dtype=torch.int32)
-    )
-    scale_pointer = target.weight_scale.data_ptr()
+    qparams = {
+        name: tensor
+        for name, tensor in target.named_parameters()
+        if name not in {"weight", "bias"}
+    }
+    assert all(tensor.is_meta for tensor in qparams.values())
     calls = []
     target.register_forward_pre_hook(lambda *_: calls.append("target"))
 
@@ -42,10 +53,12 @@ def test_transfer_adopts_storage_and_preserves_initialized_targets():
     assert position.data_ptr() == source.position.data_ptr()
     assert target.constant is constant
     assert constant.data_ptr() == source.constant.data_ptr()
-    assert target.weight_scale.data_ptr() == scale_pointer
-    torch.testing.assert_close(target.weight_scale, torch.tensor([7.0]))
-    torch.testing.assert_close(target.input_scale, torch.ones(1))
-    assert target.weight_zero_point.count_nonzero() == 0
+    for name, tensor in qparams.items():
+        assert target.get_parameter(name) is tensor
+        assert tensor.device.type == "cpu"
+        torch.testing.assert_close(
+            tensor, torch.full_like(tensor, 1 if name.endswith("_scale") else 0)
+        )
 
     clear_module_state(source)
     torch.testing.assert_close(target.weight, expected, rtol=0, atol=0)

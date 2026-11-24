@@ -22,6 +22,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -48,6 +49,7 @@ from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
 )
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
@@ -300,6 +302,8 @@ class Oneshot:
             )
             linearize_moe(self.model)
 
+        # Dispatch real weights once; meta conversion retains these caches on sources.
+        set_onload_device(self.model, get_main_device())
         restructure_handler = RestructureHandler(
             self.model,
             layerwise_decompression=self.dataset_args.layerwise_decompression,

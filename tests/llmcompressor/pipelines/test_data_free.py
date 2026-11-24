@@ -1,6 +1,6 @@
 import pytest
 import torch
-from compressed_tensors.offload import offload_module
+from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 
 from llmcompressor.args.dataset_arguments import DatasetArguments
@@ -8,6 +8,7 @@ from llmcompressor.core import LifecycleCallbacks, create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.pipelines.data_free import DataFreePipeline
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
+from llmcompressor.utils.dev import get_main_device
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
@@ -22,6 +23,7 @@ def test_datafree_materializes_before_calibration_start(
         offload_device=offload_device,
         **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
     )
+    set_onload_device(model, get_main_device())
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
