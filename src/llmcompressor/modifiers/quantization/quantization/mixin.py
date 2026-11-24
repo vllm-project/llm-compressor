@@ -47,10 +47,10 @@ from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
 from llmcompressor.modifiers.quantization.helpers import (
+    default_grid_type,
     is_mxfp4,
     is_mxfp4a8,
     is_nvfp4,
-    resolve_grid_type,
 )
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
@@ -570,16 +570,15 @@ class QuantizationMixin(HooksMixin):
         if observer not in (
             "mse",
             "memoryless_mse",
-            "nvfp4_expanded_mse",
             "imatrix_mse",
         ):
             return {}
 
-        is_mse = observer in ("mse", "memoryless_mse", "nvfp4_expanded_mse")
+        is_mse = observer in ("mse", "memoryless_mse")
         defaults: ObserverKwargs = {
             "maxshrink": 0.20 if is_mse else 0.95,
             "expand": 1.0,
-            "grid_type": resolve_grid_type(None, scheme),
+            "grid_type": default_grid_type(scheme),
         }
         if is_nvfp4(scheme):
             defaults.update(
@@ -630,11 +629,8 @@ class QuantizationMixin(HooksMixin):
             observer_kwargs = self._get_weight_observer_defaults(scheme)
             # Explicit observer kwargs take precedence over modifier defaults.
             observer_kwargs.update(scheme.weights.observer_kwargs or {})
-            grid_type = observer_kwargs.get("grid_type")
-            if grid_type is None:
-                observer_kwargs["grid_type"] = resolve_grid_type(None, scheme)
-            else:
-                resolve_grid_type(grid_type, scheme)
+            if observer_kwargs.get("grid_type") is None:
+                observer_kwargs["grid_type"] = default_grid_type(scheme)
             initialize_observer(
                 module,
                 base_name="weight",
