@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from copy import copy
 
 import torch
 from torch.nn import Module
@@ -57,10 +58,11 @@ def transfer_module_state(
     target: Module,
     source: Module,
     device: torch.device,
-    *,
-    aliases: dict[torch.Tensor, list[tuple[dict, str]]] | None = None,
 ) -> None:
-    """Move direct state; sources must already have the target device/dtype."""
+    """Adopt direct source storage while preserving target tensors and their aliases.
+
+    Sources must already have the target device/dtype.
+    """
     for state_name in ("_parameters", "_buffers"):
         source_state = getattr(source, state_name)
         target_state = getattr(target, state_name)
@@ -70,16 +72,12 @@ def transfer_module_state(
                 continue
             if value is None:
                 # Recipe initialization adds qparams only to the target.
-                value = torch.full_like(
-                    placeholder,
-                    1 if name.endswith("_scale") else 0,
-                    device=device,
+                value = torch.nn.Parameter(
+                    torch.full_like(
+                        placeholder, 1 if name.endswith("_scale") else 0, device=device
+                    ),
                     requires_grad=placeholder.requires_grad,
                 )
-                if state_name == "_parameters":
-                    value = torch.nn.Parameter(
-                        value, requires_grad=placeholder.requires_grad
-                    )
             elif placeholder.shape != value.shape:
                 raise ValueError(
                     f"Cannot materialize {name}: target shape "
@@ -87,10 +85,10 @@ def transfer_module_state(
                     f"{tuple(value.shape)}"
                 )
             else:
+                # Other source holders may still reference this tensor. Share its
+                # storage without swapping the original source object to meta.
+                value = copy(value)
                 value.requires_grad_(placeholder.requires_grad)
-            target_state[name] = value
-            if aliases is not None:
-                for state, alias_name in aliases.pop(placeholder, ()):
-                    if state.get(alias_name) is placeholder:
-                        state[alias_name] = value
+            value.__dict__ = placeholder.__dict__.copy()
+            torch.utils.swap_tensors(placeholder, value)
         source_state.clear()

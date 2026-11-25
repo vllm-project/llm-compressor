@@ -31,7 +31,6 @@ class RestructureHandler:
     def __init__(self, model: Module, *, layerwise_decompression: bool = False):
         self.model = model
         self.mapping: dict[Module, Module] = {}
-        self.tensor_aliases: dict[torch.Tensor, list[tuple[dict, str]]] = {}
         self.restructures = (
             MoELinearizationRestructure(),
             DecompressionRestructure(enabled=layerwise_decompression),
@@ -93,16 +92,6 @@ class RestructureHandler:
         """Restructure the meta model and associate replacements with real sources."""
         for restructure in self.restructures:
             self.model = restructure.apply(self.model, self.mapping)
-        # Replacing a placeholder must reconnect shared registered state as well.
-        aliases = {}
-        for module in self.model.modules():
-            for state in (module._parameters, module._buffers):
-                for name, tensor in state.items():
-                    if tensor is not None:
-                        aliases.setdefault(tensor, []).append((state, name))
-        self.tensor_aliases = {
-            tensor: entries for tensor, entries in aliases.items() if len(entries) > 1
-        }
 
     def restore_restructured_modules(
         self, modules: dict[str, Module] | None = None
@@ -133,4 +122,3 @@ class RestructureHandler:
         }
         subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()
-        self.tensor_aliases.clear()

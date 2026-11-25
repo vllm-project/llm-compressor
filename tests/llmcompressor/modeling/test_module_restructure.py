@@ -23,6 +23,9 @@ def test_transfer_moves_direct_storage_and_preserves_initialized_module():
     target.constant = torch.full((8,), 7.0)
     constant = target.constant
     weight = target.weight
+    bias, position = target.bias, target.position
+    weight.calibration_tag = object()
+    calibration_tag = weight.calibration_tag
     weight.requires_grad_(False)
     initialize_module_for_quantization(
         target,
@@ -43,9 +46,13 @@ def test_transfer_moves_direct_storage_and_preserves_initialized_module():
 
     transfer_module_state(target, source, torch.device("cpu"))
 
-    assert target.weight is source_weight
-    assert target.bias is source_bias
-    assert target.position is source_position
+    assert target.weight is weight
+    assert target.bias is bias
+    assert target.position is position
+    assert target.weight.calibration_tag is calibration_tag
+    assert not source_weight.is_meta
+    assert not source_bias.is_meta
+    assert not source_position.is_meta
     assert target.weight.data_ptr() == source_weight.data_ptr()
     assert target.bias.data_ptr() == source_bias.data_ptr()
     assert not target.weight.requires_grad
@@ -54,7 +61,7 @@ def test_transfer_moves_direct_storage_and_preserves_initialized_module():
     torch.testing.assert_close(target.constant, torch.full((8,), 7.0))
     for name, placeholder in qparams.items():
         tensor = target.get_parameter(name)
-        assert tensor is not placeholder
+        assert tensor is placeholder
         assert isinstance(tensor, torch.nn.Parameter)
         assert tensor.device.type == "cpu"
         torch.testing.assert_close(

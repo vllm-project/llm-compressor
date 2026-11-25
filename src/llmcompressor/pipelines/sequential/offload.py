@@ -116,9 +116,7 @@ def subgraph_onload_modules(
         # Replacements were transferred by the restructure that owns them.
         source = restructure_handler.mapping.pop(target, None)
         if source is not None:
-            transfer_module_state(
-                target, source, device, aliases=restructure_handler.tensor_aliases
-            )
+            transfer_module_state(target, source, device)
     return offload_kwargs
 
 

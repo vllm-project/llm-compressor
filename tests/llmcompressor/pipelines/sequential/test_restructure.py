@@ -120,9 +120,12 @@ def test_delay_preserves_shared_registered_state_and_live_attributes(onload_devi
     assert model.constant is constant
     assert not model.constant.is_meta
     source_root = handler.mapping[model]
+    weight = model.block[0].weight
+    position = model.position
     assert source_root.block is source_root.alias
     assert handler.mapping[model.block]._modules is not model.block._modules
     subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
+    assert model.block[0].weight is model.other.weight is weight
     torch.testing.assert_close(model.block[0].weight.cpu(), initial)
     with torch.no_grad():
         model.block[0].weight.add_(1)
@@ -130,14 +133,13 @@ def test_delay_preserves_shared_registered_state_and_live_attributes(onload_devi
     torch.testing.assert_close(model.other.weight.cpu(), initial + 1)
     assert model.block[0].weight is model.other.weight
     subgraph_onload_modules({"": model}, handler, device)
-    assert model.position_alias is model.position
+    assert model.position_alias is model.position is position
     assert model.constant is constant
     handler.finish()
     # OffloadCache reads can create new tensors on the execution device.
     torch.testing.assert_close(model.position_alias.cpu(), torch.arange(4.0))
     torch.testing.assert_close(model.position.cpu(), torch.arange(4.0))
     assert not handler.mapping
-    assert not handler.tensor_aliases
 
 
 def test_plain_tensor_attributes_remain_real_through_tracing(tmp_path):
