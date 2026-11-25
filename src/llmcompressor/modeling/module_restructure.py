@@ -92,12 +92,6 @@ def transfer_module_state(
     """
     source_state = _named_state(source, recurse=recurse)
     target_state = _named_state(target, recurse=recurse)
-    missing_source_names = set(source_state) - set(target_state)
-    if missing_source_names:
-        raise ValueError(
-            "Restructured target is missing source state entries: "
-            f"{sorted(missing_source_names)}"
-        )
     for name, target_tensor in target_state.items():
         if not target_tensor.is_meta:
             # Shared state may already have been materialized and calibrated.
