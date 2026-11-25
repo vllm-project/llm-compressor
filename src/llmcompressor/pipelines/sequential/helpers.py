@@ -137,12 +137,15 @@ def collect_subgraph_modules(
 def find_modules_outside_subgraphs(
     model: Module, subgraphs: list[Subgraph], recurse: bool = True
 ) -> dict[str, Module]:
-    """Return modules that were traced but do not belong to any subgraph."""
+    """Return unowned modules, including the root when its forward is traced through.
+
+    These modules need their direct state materialized outside the subgraph loop.
+    """
     subgraph_modules = collect_subgraph_modules(model, subgraphs, recurse=recurse)
     return {
         name: module
         for name, module in model.named_modules()
-        if name and name not in subgraph_modules
+        if name not in subgraph_modules
     }
 
 

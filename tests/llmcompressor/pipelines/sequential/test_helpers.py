@@ -600,6 +600,19 @@ def test_subgraph_module_names_fail_loud_on_unknown_name():
         subgraph.submodules(model)
 
 
+def test_unowned_root_is_collected_without_claiming_subgraph_children():
+    model = DummyModel()
+    subgraphs = [_subgraph_with_invoked_meta(model, ["seq", "fc"])]
+
+    assert find_modules_outside_subgraphs(model, subgraphs) == {"": model}
+    assert set(collect_subgraph_modules(model, subgraphs)) == {
+        "seq",
+        "seq.0",
+        "seq.1",
+        "fc",
+    }
+
+
 @pytest.mark.parametrize("targets_per_subgraph", [1, 2])
 def test_trace_subgraphs_wrap_hidden_ownership(llama_meta_model, targets_per_subgraph):
     # `embed_tokens` runs inside the autowrapped `LlamaModel.forward`, so it is never a

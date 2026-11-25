@@ -120,7 +120,7 @@ class SequentialPipeline(CalibrationPipeline):
         sample_input = next(iter(dataloader))
         graph, targets = trace_graph(model, sample_input, sequential_targets, ignore)
         persistent_modules = find_modules_outside_graph(model, graph)
-        if persistent_modules:
+        if any(name != "" for name in persistent_modules):
             warnings.warn(
                 "Found persistent modules outside of subgraphs. "
                 "This feature will be deprecated in a future release.",
@@ -128,9 +128,6 @@ class SequentialPipeline(CalibrationPipeline):
                 stacklevel=2,
             )
 
-        # Tracing child targets leaves the root's direct state outside subgraphs.
-        if model not in targets:
-            persistent_modules[""] = model
         if persistent_modules:
             persistent_offload_kwargs = materialize_modules(
                 persistent_modules, restructure_handler, onload_device

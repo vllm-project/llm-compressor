@@ -81,7 +81,9 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
         "partition_subgraphs",
         lambda *args: [_FakeSubgraph(module, events)],
     )
-    monkeypatch.setattr(pipeline_module, "find_modules_outside_graph", lambda *args: {})
+    monkeypatch.setattr(
+        pipeline_module, "find_modules_outside_graph", lambda *args: {"": model}
+    )
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_stage_modules",
