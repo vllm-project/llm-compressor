@@ -757,12 +757,13 @@ def partition_graph(model: Module, partitions: list[list[Node]]) -> list[Subgrap
         # save the subgraph for this partition
         graph.lint()
         input_names = set(node.name for node in graph.nodes if node.op == "placeholder")
-        subgraph = Subgraph(
-            graph=graph,
-            input_names=input_names,
-            consumed_names=set(),  # populated later
+        subgraphs.append(
+            Subgraph(
+                graph=graph,
+                input_names=input_names,
+                consumed_names=set(),  # populated later
+            )
         )
-        subgraphs.append(subgraph)
 
         assert graph_is_well_formed(graph)
 
