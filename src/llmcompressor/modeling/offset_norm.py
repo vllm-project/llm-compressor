@@ -118,17 +118,16 @@ class OffsetNormRestructure(ModuleRestructure):
     def apply(
         self,
         model: torch.nn.Module,
-        mapping: dict[torch.nn.Module, dict] | None = None,
+        mapping: dict[torch.nn.Module, dict],
     ) -> torch.nn.Module:
         targets = get_norm_calibration_targets(model)
         for name, source, class_name in targets:
             target = NormCalibrationModule.load_from_registry(
                 class_name, original=source
             )
-            if mapping is not None:
-                entry = mapping.pop(source)
-                entry["restructures"].append(self)
-                mapping[target] = entry
+            entry = mapping.pop(source)
+            entry["restructures"].append(self)
+            mapping[target] = entry
             model = replace_module(model, source, target)
         return model
 

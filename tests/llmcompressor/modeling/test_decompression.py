@@ -136,7 +136,7 @@ def test_decompression_preserves_new_recipe_state(
     modifier.on_initialize(state)
     modifier.on_calibration_start(state, None)
     scheme = layer.quantization_scheme
-    assert DecompressionRestructure().apply(model) is model
+    assert DecompressionRestructure().apply(model, handler.mapping) is model
     assert layer.quantization_scheme is scheme
     observer = layer.weight_observer
     weight = layer.weight
@@ -184,7 +184,7 @@ def test_oneshot_recalibrates_packed_inputs_with_decompression_enabled(
         if isinstance(layer, torch.nn.Linear):
             _compress(layer)
     reference = copy.deepcopy(model)
-    DecompressionRestructure(enabled=True).apply(reference)
+    reference.apply(DecompressionRestructure._decompress)
     batches = [
         {"input_ids": torch.tensor([[1, 2, 3, 4]])},
         {"input_ids": torch.tensor([[5, 6, 7, 8]])},
@@ -249,8 +249,8 @@ def test_decompression_flag_does_not_skip_model_validation(
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
 @pytest.mark.parametrize("stage", [False, True])
-def test_linearization_decompresses_its_source_tree(
-    monkeypatch, tmp_path, offload_device, stage
+def test_linearization_clears_decompressed_source_state(
+    tmp_path, offload_device, stage
 ):
     config = Qwen3MoeConfig(
         vocab_size=32,
@@ -267,58 +267,30 @@ def test_linearization_decompresses_its_source_tree(
     )
     model = AutoModelForCausalLM.from_config(config, attn_implementation="eager")
     original = model.model.layers[0].mlp.experts
-    experts_class = LinearExperts2D.get_linear_experts_cls(type(original))
-
-    class PackedExperts(torch.nn.Module):
-        is_transposed = False
-        has_bias = False
-
-        def __init__(self):
-            super().__init__()
-            self.gate_up_storage = torch.nn.Linear(16, 64, bias=False)
-            self.down_storage = torch.nn.Linear(16, 32, bias=False)
-            with torch.no_grad():
-                self.gate_up_storage.weight.copy_(original.gate_up_proj.flatten(0, 1))
-                self.down_storage.weight.copy_(original.down_proj.flatten(0, 1))
-
-        @property
-        def gate_up_proj(self):
-            return self.gate_up_storage.weight.view(2, 32, 16)
-
-        @property
-        def down_proj(self):
-            return self.down_storage.weight.view(2, 16, 16)
-
-    monkeypatch.setitem(LinearExperts2D._registry, PackedExperts, experts_class)
-    packed = PackedExperts()
-    for module in packed.children():
-        _compress(module)
-    model.model.layers[0].mlp.experts = packed
+    original.quantization_status = QuantizationStatus.DECOMPRESSED
     reference = copy.deepcopy(model)
-    DecompressionRestructure(enabled=True).apply(reference)
     linearize_moe(reference)
     expected = reference.model.layers[0].mlp.experts
-    for module in packed.children():
-        offload_module(
-            module,
-            onload_device="cpu",
-            offload_device=offload_device,
-            **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
-        )
+    offload_module(
+        original,
+        onload_device="cpu",
+        offload_device=offload_device,
+        **({"offload_dir": tmp_path} if offload_device == "disk" else {}),
+    )
 
     set_onload_device(model, torch.device("cpu"))
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
-    old_children = list(packed.children())
     handler.apply_restructuring()
     target = model.model.layers[0].mlp.experts
     assert isinstance(target, LinearExperts2D)
-    assert all(child not in handler.mapping for child in old_children)
+    assert original not in handler.mapping
     entry = handler.mapping[target]
     source = entry["source"]
     assert entry["restructures"] == [handler.restructures[0]]
     assert not entry["materialized"]
-    assert "weight_packed" in source.gate_up_storage._parameters
+    assert "gate_up_proj" in source._parameters
+    assert source.quantization_status == QuantizationStatus.DECOMPRESSED
 
     modifier = QuantizationModifier(
         config_groups={
@@ -339,7 +311,7 @@ def test_linearization_decompresses_its_source_tree(
     if stage:
         subgraph_stage_modules({"experts": target}, handler)
         assert projection.weight.is_meta
-        assert source.gate_up_storage._parameters.is_staged
+        assert source._parameters.is_staged
     subgraph_onload_modules({"experts": target}, handler, torch.device("cpu"))
     assert target[0].gate_proj is projection
     assert projection.weight_observer is observer
@@ -355,7 +327,8 @@ def test_linearization_decompresses_its_source_tree(
         atol=0,
     )
     assert calls
-    assert not source.gate_up_storage._parameters
+    assert not source._parameters
+    assert not hasattr(source, "quantization_status")
     assert target not in handler.mapping
 
 

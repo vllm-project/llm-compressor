@@ -81,11 +81,6 @@ class RestructureHandler:
         memo: dict[int, torch.Tensor] = {}
         for module in nodes:
             self.delay_loading(module, memo)
-        for module in nodes:
-            self.mapping[module]["source"]._modules = {
-                name: self.mapping[child]["source"] if child is not None else None
-                for name, child in module._modules.items()
-            }
 
     def apply_restructuring(self) -> None:
         """Restructure the meta model and associate replacements with real sources."""

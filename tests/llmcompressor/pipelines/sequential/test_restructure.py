@@ -118,11 +118,8 @@ def test_delay_preserves_shared_registered_state_and_live_attributes(onload_devi
     assert model.position.is_meta
     assert model.constant is constant
     assert not model.constant.is_meta
-    source_root = handler.mapping[model]["source"]
     weight = model.block[0].weight
     position = model.position
-    assert source_root.block is source_root.alias
-    assert handler.mapping[model.block]["source"]._modules is not model.block._modules
     subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
     assert model.block[0].weight is model.other.weight is weight
     torch.testing.assert_close(model.block[0].weight.cpu(), initial)

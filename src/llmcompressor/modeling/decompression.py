@@ -19,7 +19,7 @@ class DecompressionRestructure(ModuleRestructure):
     def apply(
         self,
         model: Module,
-        mapping: dict[Module, dict] | None = None,
+        mapping: dict[Module, dict],
     ) -> Module:
         for name, module in model.named_modules():
             if getattr(module, "quantization_status", None) not in (
@@ -32,8 +32,7 @@ class DecompressionRestructure(ModuleRestructure):
                     f"Module {name or '<root>'!r} requires decompression. "
                     "Set layerwise_decompression=True to allow it."
                 )
-            if mapping is not None:
-                mapping[module]["restructures"].append(self)
+            mapping[module]["restructures"].append(self)
             self._decompress(module)
         return model
 
@@ -43,7 +42,8 @@ class DecompressionRestructure(ModuleRestructure):
 
     @staticmethod
     def _decompress(module: Module) -> None:
-        if module.quantization_status == QuantizationStatus.COMPRESSED:
+        status = getattr(module, "quantization_status", None)
+        if status == QuantizationStatus.COMPRESSED:
             decompress_module(module, leave_decompressed=False)
             # Packed meta tensors can only approximate unpadded dimensions.
             # Linear/embedding modules retain their exact logical shape.
@@ -58,7 +58,7 @@ class DecompressionRestructure(ModuleRestructure):
                     torch.empty(shape, device="meta", dtype=weight.dtype),
                     requires_grad=weight.requires_grad,
                 )
-        else:
+        elif status == QuantizationStatus.DECOMPRESSED:
             # Loaders may have already unpacked the weights.
             QuantizationMetadata.clear_quantization(module)
             del module.quantization_status

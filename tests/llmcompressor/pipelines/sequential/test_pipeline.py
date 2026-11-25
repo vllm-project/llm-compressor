@@ -69,6 +69,9 @@ def test_submit_subgraph_staging_respects_source_tree_ownership(
     if requires_restructure:
         # Model a conversion that consumes the entire retained source tree.
         handler.mapping[model]["restructures"].append(handler.restructures[0])
+        handler.mapping[model]["source"]._modules = {
+            "0": handler.mapping[model[0]]["source"]
+        }
     calls = []
     monkeypatch.setattr(
         offload,

@@ -179,17 +179,16 @@ class MoELinearizationRestructure(ModuleRestructure):
     def apply(
         self,
         model: torch.nn.Module,
-        mapping: dict[torch.nn.Module, dict] | None = None,
+        mapping: dict[torch.nn.Module, dict],
     ) -> torch.nn.Module:
         for _, module in get_non_linearized_moes(model):
             target = self._linearize(module, model)
-            if mapping is not None:
-                entry = mapping[module]
-                entry["restructures"].append(self)
-                # Linearization consumes the entire original experts tree.
-                for old in module.modules():
-                    mapping.pop(old, None)
-                mapping[target] = entry
+            entry = mapping[module]
+            entry["restructures"].append(self)
+            # Linearization consumes the entire original experts tree.
+            for old in module.modules():
+                mapping.pop(old, None)
+            mapping[target] = entry
             model = replace_module(model, module, target)
         return model
 
@@ -206,7 +205,7 @@ class MoELinearizationRestructure(ModuleRestructure):
 
     @staticmethod
     def _linearize(source, model):
-        DecompressionRestructure(enabled=True).apply(source)
+        source.apply(DecompressionRestructure._decompress)
         config = _experts_config(source, getattr(model, "config", None))
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(type(source))
         return linear_experts_cls.from_experts_module(source, config)

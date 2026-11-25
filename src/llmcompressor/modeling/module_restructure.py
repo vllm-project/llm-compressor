@@ -16,9 +16,9 @@ class ModuleRestructure(ABC):
     def apply(
         self,
         model: Module,
-        mapping: dict[Module, dict] | None = None,
+        mapping: dict[Module, dict],
     ) -> Module:
-        """Restructure the model and remember sources when loading is delayed."""
+        """Restructure the meta model and record operations on retained sources."""
 
     @abstractmethod
     def restructure_sources(
