@@ -34,17 +34,18 @@ def _source_modules(
     modules: dict[str, Module], restructure_handler: RestructureHandler
 ) -> dict[str, Module]:
     """Resolve direct sources, expanding only trees owned by a restructure."""
-    sources = {
-        name: restructure_handler.mapping.get(module, module)
-        for name, module in modules.items()
-    }
+    sources = {}
     # Ordinary containers may be persistent while their children belong to later
     # subgraphs. Only a restructure (such as MoE linearization) consumes a full
     # source tree whose descendants differ from those in the live module dict.
-    for restructure in restructure_handler.restructures:
-        for name, source in list(sources.items()):
-            if source in restructure.mapping:
-                sources.update(source.named_modules(prefix=name))
+    for name, module in modules.items():
+        entry = restructure_handler.mapping.get(module)
+        if entry is None or entry["materialized"]:
+            sources[name] = module
+        elif entry["restructures"]:
+            sources.update(entry["source"].named_modules(prefix=name))
+        else:
+            sources[name] = entry["source"]
     return sources
 
 
@@ -96,9 +97,10 @@ def subgraph_onload_modules(
     ``Subgraph.submodule_dict``. Retained source trees can have a different structure.
     """
     pending = {
-        name: module
-        for name, module in modules.items()
+        module: restructure_handler.mapping[module]
+        for module in modules.values()
         if module in restructure_handler.mapping
+        and not restructure_handler.mapping[module]["materialized"]
     }
     sources = _source_modules(modules, restructure_handler)
     offload_kwargs = {}
@@ -109,14 +111,23 @@ def subgraph_onload_modules(
                 remove_module_offload(source, onload_tensors=True)
 
     for restructure in restructure_handler.restructures:
+        selected = {
+            target: entry
+            for target, entry in pending.items()
+            if restructure in entry["restructures"]
+        }
         restructure.restructure_sources(
-            restructure_handler.model, sources, device, offload_kwargs
+            restructure_handler.model, selected, device, offload_kwargs
         )
-    for target in pending.values():
+    for target, entry in pending.items():
         # Replacements were transferred by the restructure that owns them.
-        source = restructure_handler.mapping.pop(target, None)
-        if source is not None:
-            transfer_module_state(target, source, device)
+        if not entry["materialized"]:
+            transfer_module_state(target, entry["source"], device)
+            entry["materialized"] = True
+        if not any(
+            restructure.requires_restore for restructure in entry["restructures"]
+        ):
+            del restructure_handler.mapping[target]
     return offload_kwargs
 
 

@@ -8,17 +8,15 @@ from torch.nn import Module
 
 
 class ModuleRestructure(ABC):
-    """Track the real sources affected by one model-wide restructuring operation."""
+    """Apply one model-wide restructure and repeat it on selected real sources."""
 
-    def __init__(self):
-        self.mapping: dict[Module, Module] = {}  # real source -> live target
-        self.delayed: dict[Module, Module] = {}  # handler's live target -> source
+    requires_restore: bool = False
 
     @abstractmethod
     def apply(
         self,
         model: Module,
-        mapping: dict[Module, Module] | None = None,
+        mapping: dict[Module, dict] | None = None,
     ) -> Module:
         """Restructure the model and remember sources when loading is delayed."""
 
@@ -26,7 +24,7 @@ class ModuleRestructure(ABC):
     def restructure_sources(
         self,
         model: Module,
-        sources: dict[str, Module],
+        targets: dict[Module, dict],
         device: torch.device,
         offload_kwargs: dict[str, dict],
     ) -> None:
@@ -35,6 +33,7 @@ class ModuleRestructure(ABC):
     def restore(
         self,
         model: Module,
+        targets: dict[Module, dict],
         modules: dict[str, Module] | None = None,
     ) -> Module:
         """Restore temporary conversions, leaving permanent restructures unchanged."""

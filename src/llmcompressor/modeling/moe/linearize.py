@@ -179,33 +179,30 @@ class MoELinearizationRestructure(ModuleRestructure):
     def apply(
         self,
         model: torch.nn.Module,
-        mapping: dict[torch.nn.Module, torch.nn.Module] | None = None,
+        mapping: dict[torch.nn.Module, dict] | None = None,
     ) -> torch.nn.Module:
-        if mapping is not None:
-            self.delayed = mapping
         for _, module in get_non_linearized_moes(model):
             target = self._linearize(module, model)
             if mapping is not None:
-                source = mapping[module]
-                self.mapping[source] = target
+                entry = mapping[module]
+                entry["restructures"].append(self)
                 # Linearization consumes the entire original experts tree.
                 for old in module.modules():
                     mapping.pop(old, None)
-                mapping[target] = source
+                mapping[target] = entry
             model = replace_module(model, module, target)
         return model
 
-    def restructure_sources(self, model, sources, device, offload_kwargs):
-        for source in sources.values():
-            target = self.mapping.pop(source, None)
-            if target is not None:
-                converted = self._linearize(source, model)
-                for name, module in converted.named_modules():
-                    transfer_module_state(target.get_submodule(name), module, device)
-                self.delayed.pop(target)
-                for child in source.modules():
-                    child._parameters.clear()
-                    child._buffers.clear()
+    def restructure_sources(self, model, targets, device, offload_kwargs):
+        for target, entry in targets.items():
+            source = entry["source"]
+            converted = self._linearize(source, model)
+            for name, module in converted.named_modules():
+                transfer_module_state(target.get_submodule(name), module, device)
+            entry["materialized"] = True
+            for child in source.modules():
+                child._parameters.clear()
+                child._buffers.clear()
 
     @staticmethod
     def _linearize(source, model):

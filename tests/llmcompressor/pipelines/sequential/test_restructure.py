@@ -119,11 +119,11 @@ def test_delay_preserves_shared_registered_state_and_live_attributes(onload_devi
     assert model.position.is_meta
     assert model.constant is constant
     assert not model.constant.is_meta
-    source_root = handler.mapping[model]
+    source_root = handler.mapping[model]["source"]
     weight = model.block[0].weight
     position = model.position
     assert source_root.block is source_root.alias
-    assert handler.mapping[model.block]._modules is not model.block._modules
+    assert handler.mapping[model.block]["source"]._modules is not model.block._modules
     subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
     assert model.block[0].weight is model.other.weight is weight
     torch.testing.assert_close(model.block[0].weight.cpu(), initial)
@@ -219,7 +219,7 @@ def test_source_caches_materialize_without_executing_source_forward(
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
-    source = handler.mapping[model[0]]
+    source = handler.mapping[model[0]]["source"]
     assert source._parameters is cache
     assert cache.onload_device == device
     assert str(cache.offload_device) == offload_device
@@ -258,18 +258,19 @@ def test_staging_shared_sources_keeps_targets_on_meta(tmp_path, offload_device):
     handler.convert_model_to_meta()
     handler.apply_restructuring()
     target = model[0]
-    source = handler.mapping[target]
+    source = handler.mapping[target]["source"]
     weight = target.weight
 
     for _ in range(2):
         subgraph_stage_modules({"0": target, "alias": target}, handler)
         assert target.weight is weight
         assert target.weight.is_meta and target.position.is_meta
-        assert handler.mapping[target] is source
+        assert handler.mapping[target]["source"] is source
         assert source._parameters.is_staged and source._buffers.is_staged
         assert source._parameters.offloaded_values["weight"].device.type == "cpu"
 
     subgraph_onload_modules({"0": target}, handler, torch.device("cpu"))
+    assert target not in handler.mapping
     torch.testing.assert_close(target.weight, expected, rtol=0, atol=0)
     torch.testing.assert_close(target.position, torch.arange(4.0))
     handler.finish()
@@ -292,7 +293,7 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     handler.apply_restructuring()
-    source = handler.mapping[model[0]]
+    source = handler.mapping[model[0]]["source"]
     cache = source._parameters
 
     # Tracing can inline a container, leaving it outside its children's graphs.
@@ -374,7 +375,7 @@ def test_norm_restore_updates_same_mapping_before_offload(
     handler.apply_restructuring()
     target = model.norm
     assert model.alias is target
-    source = handler.mapping[target]
+    source = handler.mapping[target]["source"]
     modules = {"norm": target}
     offload_kwargs = subgraph_onload_modules(modules, handler, device)
     with torch.no_grad():
@@ -391,7 +392,7 @@ def test_norm_restore_updates_same_mapping_before_offload(
     assert torch.isfinite(outputs).all()
     if patched_forward:
         torch.testing.assert_close(outputs, inputs * (1 + expected))
-    assert not handler.restructures[2].mapping
+    assert target not in handler.mapping
     subgraph_offload_modules(modules, offload_kwargs)
     assert isinstance(source._parameters, OffloadCache)
     handler.finish()

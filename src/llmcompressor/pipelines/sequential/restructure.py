@@ -24,13 +24,13 @@ __all__ = ["RestructureHandler"]
 class RestructureHandler:
     """Retain real sources while the live model initializes and traces on meta.
 
-    ``mapping`` maps current model modules to their temporary source holders.
-    Each restructure owns its affected modules and any replacement-specific work.
+    ``mapping`` maps live targets to their source, ordered restructures, and
+    materialization status. Temporary restructures retain entries until restoration.
     """
 
     def __init__(self, model: Module, *, layerwise_decompression: bool = False):
         self.model = model
-        self.mapping: dict[Module, Module] = {}
+        self.mapping: dict[Module, dict] = {}
         self.restructures = (
             MoELinearizationRestructure(),
             DecompressionRestructure(enabled=layerwise_decompression),
@@ -73,7 +73,11 @@ class RestructureHandler:
                     for key, tensor in state.items()
                 },
             )
-        self.mapping[module] = source
+        self.mapping[module] = {
+            "source": source,
+            "restructures": [],
+            "materialized": False,
+        }
         return module
 
     def convert_model_to_meta(self) -> None:
@@ -83,8 +87,8 @@ class RestructureHandler:
         for module in nodes:
             self.delay_loading(module, memo)
         for module in nodes:
-            self.mapping[module]._modules = {
-                name: self.mapping[child] if child is not None else None
+            self.mapping[module]["source"]._modules = {
+                name: self.mapping[child]["source"] if child is not None else None
                 for name, child in module._modules.items()
             }
 
@@ -96,21 +100,35 @@ class RestructureHandler:
     def restore_restructured_modules(
         self, modules: dict[str, Module] | None = None
     ) -> None:
+        targets = (
+            self.mapping
+            if modules is None
+            else {
+                target: self.mapping[target]
+                for target in modules.values()
+                if target in self.mapping
+            }
+        )
+        targets = {
+            target: entry for target, entry in targets.items() if entry["materialized"]
+        }
         for restructure in reversed(self.restructures):
-            self.model = restructure.restore(self.model, modules)
+            selected = {
+                target: entry
+                for target, entry in targets.items()
+                if restructure in entry["restructures"]
+            }
+            self.model = restructure.restore(self.model, selected, modules)
+        for target in targets:
+            del self.mapping[target]
 
     def finish(self) -> None:
         """Restore a complete usable model, including state outside traced graphs."""
         device = get_main_device()
-        restore_targets = {
-            target
-            for restructure in self.restructures
-            for target in restructure.mapping.values()
-        }
         modules = {
             name: module
             for name, module in self.model.named_modules()
-            if module in self.mapping or module in restore_targets
+            if module in self.mapping
         }
         kwargs = subgraph_onload_modules(modules, self, device)
         self.restore_restructured_modules(modules)

@@ -14,13 +14,12 @@ class DecompressionRestructure(ModuleRestructure):
     """Decompress input weights on meta, then repeat on their retained real sources."""
 
     def __init__(self, *, enabled: bool = False):
-        super().__init__()
         self.enabled = enabled
 
     def apply(
         self,
         model: Module,
-        mapping: dict[Module, Module] | None = None,
+        mapping: dict[Module, dict] | None = None,
     ) -> Module:
         for name, module in model.named_modules():
             if getattr(module, "quantization_status", None) not in (
@@ -34,14 +33,13 @@ class DecompressionRestructure(ModuleRestructure):
                     "Set layerwise_decompression=True to allow it."
                 )
             if mapping is not None:
-                self.mapping[mapping[module]] = module
+                mapping[module]["restructures"].append(self)
             self._decompress(module)
         return model
 
-    def restructure_sources(self, model, sources, device, offload_kwargs):
-        for source in sources.values():
-            if self.mapping.pop(source, None) is not None:
-                self._decompress(source)
+    def restructure_sources(self, model, targets, device, offload_kwargs):
+        for entry in targets.values():
+            self._decompress(entry["source"])
 
     @staticmethod
     def _decompress(module: Module) -> None:

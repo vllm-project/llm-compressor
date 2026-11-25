@@ -113,39 +113,34 @@ class CalibrationOffsetNorm(NormCalibrationModule):
 class OffsetNormRestructure(ModuleRestructure):
     """Own offset-norm conversion, materialization, and restoration."""
 
+    requires_restore = True
+
     def apply(
         self,
         model: torch.nn.Module,
-        mapping: dict[torch.nn.Module, torch.nn.Module] | None = None,
+        mapping: dict[torch.nn.Module, dict] | None = None,
     ) -> torch.nn.Module:
-        if mapping is not None:
-            self.delayed = mapping
         targets = get_norm_calibration_targets(model)
         for name, source, class_name in targets:
             target = NormCalibrationModule.load_from_registry(
                 class_name, original=source
             )
             if mapping is not None:
-                original = mapping.pop(source)
-                self.mapping[original] = target
-                mapping[target] = original
+                entry = mapping.pop(source)
+                entry["restructures"].append(self)
+                mapping[target] = entry
             model = replace_module(model, source, target)
         return model
 
-    def restructure_sources(self, model, sources, device, offload_kwargs):
-        for source in sources.values():
-            target = self.mapping.get(source)
-            if target is not None and target in self.delayed:
-                converted = type(target)(original=source)
-                transfer_module_state(target, converted, device)
-                self.delayed.pop(target)
+    def restructure_sources(self, model, targets, device, offload_kwargs):
+        for target, entry in targets.items():
+            converted = type(target)(original=entry["source"])
+            transfer_module_state(target, converted, device)
+            entry["materialized"] = True
 
-    def restore(self, model, modules=None):
-        for source, target in list(self.mapping.items()):
-            if target in self.delayed:
-                continue
-            if modules is not None and target not in modules.values():
-                continue
+    def restore(self, model, targets, modules=None):
+        for target, entry in targets.items():
+            source = entry["source"]
             remove_module_offload(target, onload_tensors=True)
             remove_module_offload(source, onload_tensors=True)
             source.forward = source.forward.__func__.__get__(source)
@@ -155,7 +150,6 @@ class OffsetNormRestructure(ModuleRestructure):
                 for name, module in modules.items():
                     if module is target:
                         modules[name] = source
-            del self.mapping[source]
         return model
 
 

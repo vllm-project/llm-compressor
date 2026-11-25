@@ -56,7 +56,7 @@ def test_restructuring_requires_decompression_opt_in(already_decompressed):
         decompress_module(model[1], leave_decompressed=True)
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
-    source = handler.mapping[model[1]]
+    source = handler.mapping[model[1]]["source"]
 
     with pytest.raises(ValueError, match="Module '1'.*layerwise_decompression=True"):
         handler.apply_restructuring()
@@ -315,9 +315,10 @@ def test_linearization_decompresses_its_source_tree(
     target = model.model.layers[0].mlp.experts
     assert isinstance(target, LinearExperts2D)
     assert all(child not in handler.mapping for child in old_children)
-    source = handler.mapping[target]
-    assert handler.restructures[0].mapping == {source: target}
-    assert not handler.restructures[1].mapping
+    entry = handler.mapping[target]
+    source = entry["source"]
+    assert entry["restructures"] == [handler.restructures[0]]
+    assert not entry["materialized"]
     assert "weight_packed" in source.gate_up_storage._parameters
 
     modifier = QuantizationModifier(
@@ -356,6 +357,7 @@ def test_linearization_decompresses_its_source_tree(
     )
     assert calls
     assert not source.gate_up_storage._parameters
+    assert target not in handler.mapping
     handler.finish()
 
 
@@ -378,21 +380,29 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     handler = RestructureHandler(model, layerwise_decompression=True)
     handler.convert_model_to_meta()
     original = model.norm
-    source = handler.mapping[original]
+    entry = handler.mapping[original]
+    source = entry["source"]
     handler.apply_restructuring()
     target = model.norm
     assert isinstance(target, NormCalibrationModule)
-    assert handler.restructures[1].mapping[source] is original
-    assert handler.restructures[2].mapping[source] is target
+    assert original not in handler.mapping
+    assert handler.mapping[target] is entry
+    assert entry["restructures"] == list(handler.restructures[1:])
+    assert not entry["materialized"]
     modules = {"norm": target}
     subgraph_onload_modules(modules, handler, torch.device("cpu"))
-    assert not handler.restructures[1].mapping
+    assert handler.mapping[target] is entry
+    assert entry["materialized"]
     assert source._parameters  # Only the norm operation retains this source now.
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125)
     with torch.no_grad():
         target.weight.add_(2)
+    # A retained restoration entry must not replay decompression or norm conversion.
+    subgraph_onload_modules(modules, handler, torch.device("cpu"))
+    torch.testing.assert_close(target.weight, torch.arange(16) * 0.125 + 3)
     handler.restore_restructured_modules(modules)
     assert model.norm is source
     assert modules["norm"] is source
+    assert target not in handler.mapping
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125 + 2)
     handler.finish()
