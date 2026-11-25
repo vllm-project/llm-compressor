@@ -19,7 +19,6 @@ from llmcompressor.observers.base import Observer
 from llmcompressor.observers.grid_search import _make_grid_points
 from llmcompressor.observers.helpers import flatten_for_calibration
 from llmcompressor.utils.dev import get_main_device
-from llmcompressor.utils.pytorch.meta import copy_module_to_meta
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -116,7 +115,7 @@ class TestActivationCollection:
 
     def test_meta_module_materialization_leaves_importance_unchanged(self):
         original = _make_linear(in_features=8, out_features=4)
-        module = copy_module_to_meta(original)
+        module = torch.nn.Linear(8, 4, device="meta")
         observer = _make_observer(module, strategy="channel")
         module.register_module("weight_observer", observer)
         importance_sum, count = observer._imatrix_sum, observer._imatrix_count

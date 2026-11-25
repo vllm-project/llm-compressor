@@ -27,22 +27,23 @@ from llmcompressor.utils.dev import get_main_device
 
 
 @pytest.mark.parametrize(
-    "targets,lazy_linearization,expected_lazy",
+    "targets,lazy_linearization,split_targets",
     [
-        (None, None, True),
-        (["ExpertMLP"], True, False),
-        (["Linear"], True, False),
-        (["model.layers.0.mlp.experts.0"], True, False),
-        ([r"re:model\.layers\.0\.mlp\.experts\.0\..*_proj$"], True, False),
-        (["Qwen3MoeDecoderLayer"], True, True),
-        (["LinearExperts2D"], True, True),
-        (["Qwen3MoeDecoderLayer", "ExpertMLP"], True, True),
-        ([""], True, True),
+        (None, None, False),
+        (["ExpertMLP"], True, True),
+        (["Linear"], True, True),
+        (["model.layers.0.mlp.experts.0"], True, True),
+        ([r"re:model\.layers\.0\.mlp\.experts\.0\..*_proj$"], True, True),
+        (["Qwen3MoeDecoderLayer"], True, False),
+        (["LinearExperts2D"], True, False),
+        (["Qwen3MoeDecoderLayer", "ExpertMLP"], True, False),
+        ([""], True, False),
         (["Qwen3MoeDecoderLayer"], False, False),
+        (["ExpertMLP"], False, False),
     ],
 )
-def test_lazy_linearization_option_and_split_target_fallback(
-    tmp_path, targets, lazy_linearization, expected_lazy
+def test_lazy_linearization_option_and_split_target_validation(
+    tmp_path, targets, lazy_linearization, split_targets
 ):
     config = Qwen3MoeConfig(
         vocab_size=32,
@@ -73,6 +74,7 @@ def test_lazy_linearization_option_and_split_target_fallback(
             else {}
         ),
     )
+    expected_lazy = True if lazy_linearization is None else lazy_linearization
     assert oneshot.dataset_args.lazy_linearization is expected_lazy
     assert all(not tensor.is_meta for tensor in model.parameters())
     with (
@@ -84,6 +86,12 @@ def test_lazy_linearization_option_and_split_target_fallback(
             "llmcompressor.entrypoints.oneshot.linearize_moe", wraps=linearize_moe
         ) as upfront_linearize,
     ):
+        if split_targets:
+            with pytest.raises(ValueError, match="lazy_linearization=False"):
+                oneshot.apply_recipe_modifiers(None)
+            assert upfront_linearize.call_count == 0
+            assert oneshot.dataset_args.lazy_linearization is expected_lazy
+            return
         oneshot.apply_recipe_modifiers(None)
         assert upfront_linearize.call_count == (0 if expected_lazy else 1)
     for index, layer in enumerate(model.model.layers):

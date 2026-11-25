@@ -36,7 +36,11 @@ from transformers import (
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
-from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.entrypoints.utils import (
+    has_sequential_targets_across_moes,
+    post_process,
+    pre_process,
+)
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
@@ -311,6 +315,17 @@ class Oneshot:
         restructure_handler.convert_model_to_meta()
         restructure_handler.apply_restructuring()
 
+        if has_sequential_targets_across_moes(
+            self.model,
+            self.dataset_args.sequential_targets,
+            restructure_handler.mapping,
+        ):
+            raise ValueError(
+                "Sequential targets split a lazily linearized experts block. "
+                "Set lazy_linearization=False to linearize upfront, or select "
+                "the entire experts block or an enclosing layer."
+            )
+
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
@@ -554,8 +569,9 @@ def oneshot(
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
     :param lazy_linearization: Whether to linearize MoE experts when their subgraph
-        is onloaded. Automatically disabled when sequential targets split an experts
-        block. Set False to linearize upfront. Default is True.
+        is onloaded. Sequential targets must keep each lazily linearized experts block
+        intact. Set False to linearize upfront and allow expert-level targets.
+        Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
         ['basic', 'datafree', 'sequential', 'independent']
     :param use_eager_attention: Whether to force eager attention during tracing and

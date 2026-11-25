@@ -227,8 +227,9 @@ class DatasetArguments(CustomDatasetArguments):
         default=True,
         metadata={
             "help": "Linearize MoE experts when their subgraph is onloaded. "
-            "Automatically disabled when sequential targets split an experts "
-            "block. Set False to linearize upfront. Default True."
+            "Sequential targets must keep each experts block intact. "
+            "Set False to linearize upfront and allow expert-level targets. "
+            "Default True."
         },
     )
     # --- pipeline arguments --- #
