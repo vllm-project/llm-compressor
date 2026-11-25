@@ -7,10 +7,11 @@ import torch
 from compressed_tensors.offload import offload_module, set_onload_device
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.quantization import QuantizationArgs
-from transformers import AutoModelForCausalLM, Qwen3MoeConfig
+from torch.utils.data import DataLoader
+from transformers import AutoModelForCausalLM, LlamaConfig, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 
-from llmcompressor.entrypoints.oneshot import Oneshot
+from llmcompressor.entrypoints.oneshot import Oneshot, oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.sequential.offload import (
@@ -93,16 +94,21 @@ def test_lazy_linearization_option_and_split_target_fallback(
         )
 
 
-def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
+@pytest.mark.parametrize("onload_device", ["cpu", "cuda:0"])
+def test_delay_preserves_shared_registered_state_and_live_attributes(onload_device):
+    if onload_device == "cuda:0" and not torch.cuda.is_available():
+        pytest.skip("GPU required")
     model = torch.nn.Module()
     model.block = torch.nn.Sequential(torch.nn.Linear(4, 4, bias=False))
     model.alias = model.block
     model.other = torch.nn.Linear(4, 4, bias=False)
     model.other.weight = model.block[0].weight
     model.register_buffer("position", torch.arange(4.0), persistent=False)
-    model.position_alias = model.position
+    model.register_buffer("position_alias", model.position, persistent=False)
+    model.constant = torch.arange(8.0)
+    constant = model.constant
     initial = model.block[0].weight.detach().clone()
-    device = torch.device("cpu")
+    device = torch.device(onload_device)
     set_onload_device(model, device)
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
@@ -111,23 +117,72 @@ def test_delay_preserves_shared_modules_parameters_and_tensor_attributes():
     assert model.block[0].weight is model.other.weight
     assert model.position_alias is model.position
     assert model.position.is_meta
+    assert model.constant is constant
+    assert not model.constant.is_meta
     source_root = handler.mapping[model]
     assert source_root.block is source_root.alias
     assert handler.mapping[model.block]._modules is not model.block._modules
     subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
-    torch.testing.assert_close(model.block[0].weight, initial)
+    torch.testing.assert_close(model.block[0].weight.cpu(), initial)
     with torch.no_grad():
         model.block[0].weight.add_(1)
     subgraph_onload_modules({"other": model.other}, handler, device)
-    torch.testing.assert_close(model.other.weight, initial + 1)
+    torch.testing.assert_close(model.other.weight.cpu(), initial + 1)
     assert model.block[0].weight is model.other.weight
     subgraph_onload_modules({"": model}, handler, device)
     assert model.position_alias is model.position
+    assert model.constant is constant
     handler.finish()
     # OffloadCache reads can create new tensors on the execution device.
     torch.testing.assert_close(model.position_alias.cpu(), torch.arange(4.0))
     torch.testing.assert_close(model.position.cpu(), torch.arange(4.0))
     assert not handler.mapping
+    assert not handler.tensor_aliases
+
+
+def test_plain_tensor_attributes_remain_real_through_tracing(tmp_path):
+    class OffsetLinear(torch.nn.Linear):
+        def __init__(self, in_features, out_features):
+            super().__init__(in_features, out_features, bias=False)
+            self.offset = torch.randn(out_features)
+
+        def forward(self, inputs):
+            return super().forward(inputs) + self.offset.to(inputs.device)
+
+    config = LlamaConfig(
+        vocab_size=32,
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        head_dim=8,
+    )
+    config.save_pretrained(tmp_path)
+    model = AutoModelForCausalLM.from_config(config, attn_implementation="eager").eval()
+    model.config.name_or_path = str(tmp_path)
+    projection = OffsetLinear(32, 16)
+    model.model.layers[0].mlp.down_proj = projection
+    offset = projection.offset
+    inputs = {"input_ids": torch.tensor([[1, 2, 3, 4]])}
+    with torch.no_grad():
+        expected = model(**inputs).logits
+
+    oneshot(
+        model=model,
+        processor=object(),
+        recipe=[],
+        pipeline="sequential",
+        sequential_targets=["LlamaDecoderLayer"],
+        dataset=DataLoader([inputs], batch_size=None),
+        use_eager_attention=True,
+    )
+
+    assert projection.offset is offset
+    assert not projection.offset.is_meta
+    set_onload_device(model, torch.device("cpu"))
+    with torch.no_grad():
+        torch.testing.assert_close(model(**inputs).logits, expected, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("staged", [False, True])

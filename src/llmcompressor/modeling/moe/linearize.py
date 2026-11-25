@@ -21,7 +21,6 @@ from transformers.monkey_patching import clear_patch_mapping, register_patch_map
 from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.module_restructure import (
     ModuleRestructure,
-    clear_module_state,
     replace_module,
     transfer_module_state,
 )
@@ -201,10 +200,12 @@ class MoELinearizationRestructure(ModuleRestructure):
             target = self.mapping.pop(source, None)
             if target is not None:
                 converted = self._linearize(source, model)
-                transfer_module_state(target, converted, device)
+                for name, module in converted.named_modules():
+                    transfer_module_state(target.get_submodule(name), module, device)
                 self.delayed.pop(target)
                 for child in source.modules():
-                    clear_module_state(child)
+                    child._parameters.clear()
+                    child._buffers.clear()
 
     @staticmethod
     def _linearize(source, model):

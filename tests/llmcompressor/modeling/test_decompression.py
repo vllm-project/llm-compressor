@@ -146,7 +146,7 @@ def test_decompression_preserves_new_recipe_state(
     subgraph_onload_modules({"0": layer}, handler, torch.device("cpu"))
     assert layer.quantization_scheme is scheme
     assert layer.weight_observer is observer
-    assert layer.weight is weight
+    assert layer.weight is not weight
     torch.testing.assert_close(layer.weight, reference.weight, rtol=0, atol=0)
     torch.testing.assert_close(layer.bias, reference.bias, rtol=0, atol=0)
     inputs = torch.randn(2, 13)

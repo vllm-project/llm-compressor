@@ -10,7 +10,6 @@ from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module, Parameter
 
 from llmcompressor.modeling.decompression import DecompressionRestructure
-from llmcompressor.modeling.module_restructure import _map_tensors
 from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modeling.offset_norm import OffsetNormRestructure
 from llmcompressor.pipelines.sequential.offload import (
@@ -32,6 +31,7 @@ class RestructureHandler:
     def __init__(self, model: Module, *, layerwise_decompression: bool = False):
         self.model = model
         self.mapping: dict[Module, Module] = {}
+        self.tensor_aliases: dict[torch.Tensor, list[tuple[dict, str]]] = {}
         self.restructures = (
             MoELinearizationRestructure(),
             DecompressionRestructure(enabled=layerwise_decompression),
@@ -53,6 +53,10 @@ class RestructureHandler:
             return memo[id(tensor)]
 
         source = copy.copy(module)
+        # Source holders must not share mutable hook registries with live targets.
+        for name, value in vars(source).items():
+            if "hook" in name and isinstance(value, dict):
+                source.__dict__[name] = value.copy()
         # Retain the source caches and remove dispatch from the live meta module.
         if isinstance(source._parameters, OffloadCache):
             remove_module_offload(module, onload_tensors=False)
@@ -70,14 +74,11 @@ class RestructureHandler:
                     for key, tensor in state.items()
                 },
             )
-        for name, value in list(vars(module).items()):
-            if name not in {"_parameters", "_buffers", "_modules"}:
-                module.__dict__[name] = _map_tensors(value, to_meta)
         self.mapping[module] = source
         return module
 
     def convert_model_to_meta(self) -> None:
-        """Retain dispatched sources and replace the live model's tensors with meta."""
+        """Delay registered parameters/buffers, leaving live module attributes alone."""
         nodes = list(self.model.modules())
         memo: dict[int, torch.Tensor] = {}
         for module in nodes:
@@ -92,6 +93,16 @@ class RestructureHandler:
         """Restructure the meta model and associate replacements with real sources."""
         for restructure in self.restructures:
             self.model = restructure.apply(self.model, self.mapping)
+        # Replacing a placeholder must reconnect shared registered state as well.
+        aliases = {}
+        for module in self.model.modules():
+            for state in (module._parameters, module._buffers):
+                for name, tensor in state.items():
+                    if tensor is not None:
+                        aliases.setdefault(tensor, []).append((state, name))
+        self.tensor_aliases = {
+            tensor: entries for tensor, entries in aliases.items() if len(entries) > 1
+        }
 
     def restore_restructured_modules(
         self, modules: dict[str, Module] | None = None
@@ -122,3 +133,4 @@ class RestructureHandler:
         }
         subgraph_offload_modules(modules, kwargs)
         self.mapping.clear()
+        self.tensor_aliases.clear()

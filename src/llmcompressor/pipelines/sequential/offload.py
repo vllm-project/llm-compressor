@@ -18,10 +18,7 @@ from compressed_tensors.offload.module import (
 )
 from torch.nn import Module
 
-from llmcompressor.modeling.module_restructure import (
-    clear_module_state,
-    transfer_module_state,
-)
+from llmcompressor.modeling.module_restructure import transfer_module_state
 
 if TYPE_CHECKING:
     from llmcompressor.pipelines.sequential.restructure import RestructureHandler
@@ -119,8 +116,9 @@ def subgraph_onload_modules(
         # Replacements were transferred by the restructure that owns them.
         source = restructure_handler.mapping.pop(target, None)
         if source is not None:
-            transfer_module_state(target, source, device, recurse=False)
-            clear_module_state(source)
+            transfer_module_state(
+                target, source, device, aliases=restructure_handler.tensor_aliases
+            )
     return offload_kwargs
 
 

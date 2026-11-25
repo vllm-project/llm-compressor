@@ -40,32 +40,6 @@ class ModuleRestructure(ABC):
         return model
 
 
-def _map_tensors(value, function):
-    if isinstance(value, torch.Tensor):
-        return function(value)
-    if isinstance(value, dict):
-        mapped = value.copy()
-        for key, item in value.items():
-            mapped[key] = _map_tensors(item, function)
-        return mapped
-    if isinstance(value, tuple):
-        return tuple(_map_tensors(item, function) for item in value)
-    if isinstance(value, list):
-        return [_map_tensors(item, function) for item in value]
-    if isinstance(value, set):
-        return {_map_tensors(item, function) for item in value}
-    return value
-
-
-def clear_module_state(module: Module) -> None:
-    """Release a consumed source's direct tensors, leaving its children alone."""
-    module._parameters = {}
-    module._buffers = {}
-    for name, value in list(vars(module).items()):
-        if name not in {"_parameters", "_buffers", "_modules"}:
-            module.__dict__[name] = _map_tensors(value, lambda tensor: None)
-
-
 def replace_module(model: Module, source: Module, target: Module) -> Module:
     """Replace a module, including every shared alias and the root itself."""
     if model is source:
@@ -84,67 +58,39 @@ def transfer_module_state(
     source: Module,
     device: torch.device,
     *,
-    recurse: bool = True,
+    aliases: dict[torch.Tensor, list[tuple[dict, str]]] | None = None,
 ) -> None:
-    """Adopt onloaded source storage into undispatched targets.
-
-    Preserve target tensor identities and materialize newly initialized state.
-    """
-    source_state = _named_state(source, recurse=recurse)
-    target_state = _named_state(target, recurse=recurse)
-    for name, target_tensor in target_state.items():
-        if not target_tensor.is_meta:
-            # Shared state may already have been materialized and calibrated.
-            # Preserve its values instead of replacing them with stale source data.
-            continue
-        source_tensor = source_state.get(name)
-        if source_tensor is None:
-            # New quantization parameters have no source.
-            source_tensor = torch.full_like(
-                target_tensor, 1 if name.endswith("_scale") else 0, device=device
-            )
-        elif target_tensor.shape != source_tensor.shape:
-            raise ValueError(
-                f"Cannot materialize {name}: target shape "
-                f"{tuple(target_tensor.shape)} differs from source shape "
-                f"{tuple(source_tensor.shape)}"
-            )
-        _adopt_tensor(target_tensor, source_tensor, device)
-
-    for name, source_module in source.named_modules() if recurse else [("", source)]:
-        target_module = target.get_submodule(name)
-        for attr, value in vars(source_module).items():
-            if attr not in {"_parameters", "_buffers", "_modules"}:
-                _transfer_attribute(getattr(target_module, attr, None), value, device)
-
-
-def _adopt_tensor(target, source, device):
-    # detach/to and Parameter wrapping share storage when device and dtype match.
-    value = source.detach().to(device=device, dtype=target.dtype)
-    if value.is_inference() and not torch.is_inference_mode_enabled():
-        # Keep the storage while allowing normal Parameter initialization.
-        value = torch.empty(0, device=value.device, dtype=value.dtype).set_(value)
-    if isinstance(target, torch.nn.Parameter):
-        value = torch.nn.Parameter(value, requires_grad=target.requires_grad)
-    else:
-        value.requires_grad_(target.requires_grad)
-    value.__dict__.update(target.__dict__)
-    torch.utils.swap_tensors(target, value)
-
-
-def _transfer_attribute(target, source, device):
-    """Adopt tensor-valued attributes while preserving aliases to registered state."""
-    if isinstance(target, torch.Tensor) and target.is_meta:
-        _adopt_tensor(target, source, device)
-    elif isinstance(target, dict) and isinstance(source, dict):
-        for key in target.keys() & source.keys():
-            _transfer_attribute(target[key], source[key], device)
-    elif isinstance(target, (list, tuple)) and isinstance(source, (list, tuple)):
-        for left, right in zip(target, source):
-            _transfer_attribute(left, right, device)
-
-
-def _named_state(module: Module, *, recurse: bool = True) -> dict[str, torch.Tensor]:
-    state = dict(module.named_parameters(recurse=recurse, remove_duplicate=False))
-    state.update(dict(module.named_buffers(recurse=recurse, remove_duplicate=False)))
-    return state
+    """Move direct state; sources must already have the target device/dtype."""
+    for state_name in ("_parameters", "_buffers"):
+        source_state = getattr(source, state_name)
+        target_state = getattr(target, state_name)
+        for name, placeholder in target_state.items():
+            value = source_state.pop(name, None)
+            if placeholder is None or not placeholder.is_meta:
+                continue
+            if value is None:
+                # Recipe initialization adds qparams only to the target.
+                value = torch.full_like(
+                    placeholder,
+                    1 if name.endswith("_scale") else 0,
+                    device=device,
+                    requires_grad=placeholder.requires_grad,
+                )
+                if state_name == "_parameters":
+                    value = torch.nn.Parameter(
+                        value, requires_grad=placeholder.requires_grad
+                    )
+            elif placeholder.shape != value.shape:
+                raise ValueError(
+                    f"Cannot materialize {name}: target shape "
+                    f"{tuple(placeholder.shape)} differs from source shape "
+                    f"{tuple(value.shape)}"
+                )
+            else:
+                value.requires_grad_(placeholder.requires_grad)
+            target_state[name] = value
+            if aliases is not None:
+                for state, alias_name in aliases.pop(placeholder, ()):
+                    if state.get(alias_name) is placeholder:
+                        state[alias_name] = value
+        source_state.clear()
