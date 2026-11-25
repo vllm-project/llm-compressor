@@ -154,7 +154,6 @@ def test_decompression_preserves_new_recipe_state(
         torch.testing.assert_close(model(inputs), reference(inputs), rtol=0, atol=0)
     assert calls == ["target"]
     modifier.on_calibration_end(state, None)
-    handler.finish()
 
 
 @pytest.mark.parametrize(
@@ -358,7 +357,6 @@ def test_linearization_decompresses_its_source_tree(
     assert calls
     assert not source.gate_up_storage._parameters
     assert target not in handler.mapping
-    handler.finish()
 
 
 def test_decompression_then_offset_norm_reuses_the_same_source():
@@ -405,4 +403,3 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     assert modules["norm"] is source
     assert target not in handler.mapping
     torch.testing.assert_close(source.weight, torch.arange(16) * 0.125 + 2)
-    handler.finish()

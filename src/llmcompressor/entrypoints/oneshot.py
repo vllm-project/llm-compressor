@@ -345,7 +345,6 @@ class Oneshot:
                 self.dataset_args,
                 restructure_handler=restructure_handler,
             )
-            restructure_handler.finish()
 
         session.finalize()
 

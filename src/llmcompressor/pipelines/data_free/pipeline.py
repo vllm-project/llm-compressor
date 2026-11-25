@@ -50,3 +50,12 @@ class DataFreePipeline(CalibrationPipeline):
         LifecycleCallbacks.calibration_start()
         LifecycleCallbacks.sequential_epoch_end(dict(model.named_modules()))
         LifecycleCallbacks.calibration_end()
+
+        # Restoration can onload retained sources; offload the restored modules again.
+        modules = {
+            name: module
+            for name, module in model.named_modules()
+            if module in restructure_handler.mapping
+        }
+        restructure_handler.restore_restructured_modules(modules)
+        subgraph_offload_modules(modules, offload_kwargs)

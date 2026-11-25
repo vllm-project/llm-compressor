@@ -75,7 +75,7 @@ def test_basic_pipeline_preserves_untraced_calibration():
         assert torch.count_nonzero(outputs[2]) == 0
         for received, index in zip(session.state.loss_masks, order):
             torch.testing.assert_close(received.cpu(), samples[index]["loss_mask"])
-        handler.finish()
+        assert not handler.mapping
         session.finalize()
 
     assert args == original_args
@@ -101,7 +101,7 @@ def test_run_calibration_without_dataset_arguments(num_batches):
         session.initialize(model=model, start=-1)
         run_calibration(model, dataloader, handler)
         assert len(outputs) == num_batches
-        handler.finish()
+        assert not handler.mapping
         session.finalize()
 
 
@@ -164,7 +164,7 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                 LifecycleCallbacks.calibration_end()
             else:
                 BasicPipeline()(candidate, dataloader, DatasetArguments(), handler)
-                handler.finish()
+                assert not handler.mapping
             session.finalize()
 
     expected = reference.state_dict()

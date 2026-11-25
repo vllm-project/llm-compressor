@@ -11,9 +11,12 @@ from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, LlamaConfig, Qwen3MoeConfig
 from transformers.models.gemma2.modeling_gemma2 import Gemma2RMSNorm
 
+from llmcompressor.args.dataset_arguments import DatasetArguments
+from llmcompressor.core import create_session
 from llmcompressor.entrypoints.oneshot import Oneshot, oneshot
 from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.observers.base import Observer
+from llmcompressor.pipelines.data_free import DataFreePipeline
 from llmcompressor.pipelines.sequential.offload import (
     subgraph_offload_modules,
     subgraph_onload_modules,
@@ -39,12 +42,8 @@ from llmcompressor.utils.dev import get_main_device
     ],
 )
 def test_lazy_linearization_option_and_split_target_fallback(
-    monkeypatch, tmp_path, targets, lazy_linearization, expected_lazy
+    tmp_path, targets, lazy_linearization, expected_lazy
 ):
-    monkeypatch.setattr(
-        "llmcompressor.pipelines.sequential.restructure.get_main_device",
-        lambda: torch.device("cpu"),
-    )
     config = Qwen3MoeConfig(
         vocab_size=32,
         hidden_size=16,
@@ -132,11 +131,9 @@ def test_delay_preserves_shared_registered_state_and_live_attributes(onload_devi
     subgraph_onload_modules({"other": model.other}, handler, device)
     torch.testing.assert_close(model.other.weight.cpu(), initial + 1)
     assert model.block[0].weight is model.other.weight
-    subgraph_onload_modules({"": model}, handler, device)
+    subgraph_onload_modules({"": model, "block": model.block}, handler, device)
     assert model.position_alias is model.position is position
     assert model.constant is constant
-    handler.finish()
-    # OffloadCache reads can create new tensors on the execution device.
     torch.testing.assert_close(model.position_alias.cpu(), torch.arange(4.0))
     torch.testing.assert_close(model.position.cpu(), torch.arange(4.0))
     assert not handler.mapping
@@ -185,6 +182,42 @@ def test_plain_tensor_attributes_remain_real_through_tracing(tmp_path):
     set_onload_device(model, torch.device("cpu"))
     with torch.no_grad():
         torch.testing.assert_close(model(**inputs).logits, expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("pipeline", ["sequential", "basic", "datafree", "independent"])
+def test_pipeline_preserves_root_registered_state(tmp_path, pipeline):
+    config = LlamaConfig(
+        vocab_size=32,
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        head_dim=8,
+    )
+    config.save_pretrained(tmp_path)
+    model = AutoModelForCausalLM.from_config(config, attn_implementation="eager")
+    model.config.name_or_path = str(tmp_path)
+    model.register_parameter("root_weight", torch.nn.Parameter(torch.arange(4.0)))
+    model.register_buffer("root_buffer", torch.arange(4, dtype=torch.int64))
+    inputs = {"input_ids": torch.tensor([[1, 2, 3, 4]])}
+
+    oneshot(
+        model=model,
+        processor=object(),
+        recipe=[],
+        pipeline=pipeline,
+        sequential_targets=["LlamaDecoderLayer"],
+        dataset=None
+        if pipeline == "datafree"
+        else DataLoader([inputs], batch_size=None),
+    )
+
+    assert all(not tensor.is_meta for tensor in model.state_dict().values())
+    torch.testing.assert_close(model.root_weight.cpu(), torch.arange(4.0))
+    torch.testing.assert_close(
+        model.root_buffer.cpu(), torch.arange(4, dtype=torch.int64)
+    )
 
 
 @pytest.mark.parametrize("staged", [False, True])
@@ -239,7 +272,6 @@ def test_source_caches_materialize_without_executing_source_forward(
     assert calls == ["target"]
     assert not isinstance(model[0]._parameters, OffloadCache)
     assert not source._parameters  # Retained parents no longer keep the real tensors.
-    handler.finish()
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
@@ -273,7 +305,6 @@ def test_staging_shared_sources_keeps_targets_on_meta(tmp_path, offload_device):
     assert target not in handler.mapping
     torch.testing.assert_close(target.weight, expected, rtol=0, atol=0)
     torch.testing.assert_close(target.position, torch.arange(4.0))
-    handler.finish()
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
@@ -309,7 +340,6 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
     assert kwargs["1"]["onload_device"] == device
     subgraph_offload_modules(modules, kwargs)
     torch.testing.assert_close(model(torch.ones(2, 4)).cpu(), expected)
-    handler.finish()
 
 
 def test_imatrix_statistics_stay_real_during_materialization_and_offload():
@@ -342,7 +372,6 @@ def test_imatrix_statistics_stay_real_during_materialization_and_offload():
     assert observer._imatrix_sum is importance_sum
     assert observer._imatrix_count is count
     assert not dict(observer.named_buffers())
-    handler.finish()
 
 
 @pytest.mark.parametrize("patched_forward", [False, True])
@@ -395,11 +424,10 @@ def test_norm_restore_updates_same_mapping_before_offload(
     assert target not in handler.mapping
     subgraph_offload_modules(modules, offload_kwargs)
     assert isinstance(source._parameters, OffloadCache)
-    handler.finish()
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
-def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_device):
+def test_restored_norm_offloads_using_target_settings(tmp_path, offload_device):
     model = torch.nn.Module()
     model.norm = Gemma2RMSNorm(4, eps=1e-6)
     model.norm.weight = torch.nn.Parameter(torch.arange(4.0))
@@ -418,9 +446,8 @@ def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_d
     kwargs = subgraph_onload_modules(modules, handler, torch.device("cpu"))
     with torch.no_grad():
         target.weight.add_(2)
+    handler.restore_restructured_modules(modules)
     subgraph_offload_modules(modules, kwargs)
-
-    handler.finish()
 
     assert model.norm is not target
     assert isinstance(model.norm._parameters, OffloadCache)
@@ -431,7 +458,7 @@ def test_finish_offloads_restored_norm_using_target_settings(tmp_path, offload_d
 
 
 @pytest.mark.parametrize("offload_device", ["cpu", "disk"])
-def test_finish_offloads_materialized_expert_children(tmp_path, offload_device):
+def test_datafree_offloads_materialized_expert_children(tmp_path, offload_device):
     model = AutoModelForCausalLM.from_config(
         Qwen3MoeConfig(
             vocab_size=32,
@@ -467,7 +494,11 @@ def test_finish_offloads_materialized_expert_children(tmp_path, offload_device):
     assert all(
         not isinstance(module._parameters, OffloadCache) for module in model.modules()
     )
-    handler.finish()
+    with create_session() as session:
+        session.initialize(model=model, start=-1)
+        DataFreePipeline()(model, None, DatasetArguments(), handler)
+        assert not handler.mapping
+        session.finalize()
 
     for module in experts.modules():
         assert isinstance(module._parameters, OffloadCache)

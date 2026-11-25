@@ -12,11 +12,6 @@ from torch.nn import Module, Parameter
 from llmcompressor.modeling.decompression import DecompressionRestructure
 from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
 from llmcompressor.modeling.offset_norm import OffsetNormRestructure
-from llmcompressor.pipelines.sequential.offload import (
-    subgraph_offload_modules,
-    subgraph_onload_modules,
-)
-from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["RestructureHandler"]
 
@@ -121,22 +116,3 @@ class RestructureHandler:
             self.model = restructure.restore(self.model, selected, modules)
         for target in targets:
             del self.mapping[target]
-
-    def finish(self) -> None:
-        """Restore a complete usable model, including state outside traced graphs."""
-        device = get_main_device()
-        modules = {
-            name: module
-            for name, module in self.model.named_modules()
-            if module in self.mapping
-        }
-        kwargs = subgraph_onload_modules(modules, self, device)
-        self.restore_restructured_modules(modules)
-        # Include materialized descendants while leaving existing caches untouched.
-        modules = {
-            name: module
-            for name, module in self.model.named_modules()
-            if not isinstance(module._parameters, OffloadCache)
-        }
-        subgraph_offload_modules(modules, kwargs)
-        self.mapping.clear()

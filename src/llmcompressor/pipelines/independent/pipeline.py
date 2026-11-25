@@ -37,6 +37,9 @@ class IndependentPipeline(CalibrationPipeline):
 
         session = active_session()
         modifiers = session.lifecycle.recipe.modifiers
+        if not modifiers:
+            pipeline = CalibrationPipeline.from_modifiers(modifiers)
+            return pipeline(model, dataloader, dataset_args, restructure_handler)
         with patch_attr(session.lifecycle.recipe, "modifiers", None):
             for modifier in modifiers:
                 mod_type = type(modifier).__name__
