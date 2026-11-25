@@ -23,7 +23,6 @@ class ModuleRestructure(ABC):
     @abstractmethod
     def restructure_sources(
         self,
-        model: Module,
         targets: dict[Module, dict],
         device: torch.device,
         offload_kwargs: dict[str, dict],

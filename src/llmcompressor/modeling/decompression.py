@@ -28,7 +28,7 @@ class DecompressionRestructure(ModuleRestructure):
             self._decompress(module)
         return model
 
-    def restructure_sources(self, model, targets, device, offload_kwargs):
+    def restructure_sources(self, targets, device, offload_kwargs):
         for entry in targets.values():
             self._decompress(entry["source"])
 

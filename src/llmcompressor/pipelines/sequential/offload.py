@@ -121,9 +121,7 @@ def materialize_modules(
             for target, entry in pending.items()
             if restructure in entry["restructures"]
         }
-        restructure.restructure_sources(
-            restructure_handler.model, selected, device, offload_kwargs
-        )
+        restructure.restructure_sources(selected, device, offload_kwargs)
 
     # 3. Move the weights from the restructured source to the
     # target module on the model. Delete metadata if no restore needed.

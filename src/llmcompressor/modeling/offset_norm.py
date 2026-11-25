@@ -131,7 +131,7 @@ class OffsetNormRestructure(ModuleRestructure):
             model = replace_module(model, source, target)
         return model
 
-    def restructure_sources(self, model, targets, device, offload_kwargs):
+    def restructure_sources(self, targets, device, offload_kwargs):
         for target, entry in targets.items():
             converted = type(target)(original=entry["source"])
             transfer_module_state(target, converted, device)

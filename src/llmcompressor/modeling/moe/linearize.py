@@ -162,7 +162,9 @@ def linearize_moe(model: PreTrainedModel):
     for _, module in non_linearized_moes:
         offload_kwargs = get_cache_init_kwargs(module)
         with disable_offloading():
-            target = MoELinearizationRestructure._linearize(module, model)
+            target = MoELinearizationRestructure._linearize(
+                module, getattr(model, "config", None)
+            )
         if str(offload_kwargs["offload_device"]) != "meta":
             subgraph_offload_modules(dict(target.named_modules()), {"": offload_kwargs})
         model = replace_module(model, module, target)
@@ -181,8 +183,9 @@ class MoELinearizationRestructure(ModuleRestructure):
         model: torch.nn.Module,
         mapping: dict[torch.nn.Module, dict],
     ) -> torch.nn.Module:
+        self.config = getattr(model, "config", None)
         for _, module in get_non_linearized_moes(model):
-            target = self._linearize(module, model)
+            target = self._linearize(module, self.config)
             entry = mapping[module]
             entry["restructures"].append(self)
             # Linearization consumes the entire original experts tree.
@@ -192,10 +195,10 @@ class MoELinearizationRestructure(ModuleRestructure):
             model = replace_module(model, module, target)
         return model
 
-    def restructure_sources(self, model, targets, device, offload_kwargs):
+    def restructure_sources(self, targets, device, offload_kwargs):
         for target, entry in targets.items():
             source = entry["source"]
-            converted = self._linearize(source, model)
+            converted = self._linearize(source, self.config)
             for name, module in converted.named_modules():
                 transfer_module_state(target.get_submodule(name), module, device)
             entry["materialized"] = True
@@ -204,9 +207,9 @@ class MoELinearizationRestructure(ModuleRestructure):
                 child._buffers.clear()
 
     @staticmethod
-    def _linearize(source, model):
+    def _linearize(source, config):
         source.apply(DecompressionRestructure._decompress)
-        config = _experts_config(source, getattr(model, "config", None))
+        config = _experts_config(source, config)
         linear_experts_cls = LinearExperts2D.get_linear_experts_cls(type(source))
         return linear_experts_cls.from_experts_module(source, config)
 
