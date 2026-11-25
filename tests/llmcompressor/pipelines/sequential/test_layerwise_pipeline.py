@@ -140,12 +140,15 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     SequentialPipeline.__call__(model, [{}], dataset_args, handler)
 
     assert events == [
+        "onload",
+        ("restructure", [model]),
         "calibration_start",
         "onload",
         ("restructure", [module]),
         "forward",
         ("sequential_epoch_end", {"0": module}),
         ("compress_module", module),
+        "offload",
         "offload",
         "calibration_end",
     ]

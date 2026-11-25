@@ -142,7 +142,7 @@ def find_modules_outside_subgraphs(
     return {
         name: module
         for name, module in model.named_modules()
-        if name not in subgraph_modules
+        if name and name not in subgraph_modules
     }
 
 
