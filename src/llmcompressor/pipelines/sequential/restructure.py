@@ -26,11 +26,10 @@ class RestructureHandler:
     def __init__(self, model: Module, *, layerwise_decompression: bool = False):
         self.model = model
         self.mapping: dict[Module, dict] = {}
-        self.restructures = (
-            MoELinearizationRestructure(),
-            DecompressionRestructure(enabled=layerwise_decompression),
-            OffsetNormRestructure(),
-        )
+        self.restructures = [MoELinearizationRestructure()]
+        if layerwise_decompression:
+            self.restructures.append(DecompressionRestructure())
+        self.restructures.append(OffsetNormRestructure())
 
     def delay_loading(self, module: Module, memo: dict[int, torch.Tensor]) -> Module:
         """Move direct tensor ownership to a copied holder, leaving meta tensors."""

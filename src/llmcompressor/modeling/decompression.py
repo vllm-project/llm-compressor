@@ -13,25 +13,17 @@ from llmcompressor.modeling.module_restructure import (
 class DecompressionRestructure(ModuleRestructure):
     """Decompress input weights on meta, then repeat on their retained real sources."""
 
-    def __init__(self, *, enabled: bool = False):
-        self.enabled = enabled
-
     def apply(
         self,
         model: Module,
         mapping: dict[Module, dict],
     ) -> Module:
-        for name, module in model.named_modules():
+        for module in model.modules():
             if getattr(module, "quantization_status", None) not in (
                 QuantizationStatus.COMPRESSED,
                 QuantizationStatus.DECOMPRESSED,
             ):
                 continue
-            if not self.enabled:
-                raise ValueError(
-                    f"Module {name or '<root>'!r} requires decompression. "
-                    "Set layerwise_decompression=True to allow it."
-                )
             mapping[module]["restructures"].append(self)
             self._decompress(module)
         return model

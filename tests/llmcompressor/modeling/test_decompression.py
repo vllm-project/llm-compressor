@@ -49,7 +49,7 @@ def _compress(layer, compression_format="pack-quantized"):
 
 
 @pytest.mark.parametrize("already_decompressed", [False, True])
-def test_restructuring_requires_decompression_opt_in(already_decompressed):
+def test_disabled_decompression_preserves_checkpoint_state(already_decompressed):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.Linear(4, 4))
     _compress(model[1])
     if already_decompressed:
@@ -57,17 +57,22 @@ def test_restructuring_requires_decompression_opt_in(already_decompressed):
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
     source = handler.mapping[model[1]]["source"]
+    scheme = model[1].quantization_scheme
+    parameters = dict(model[1].named_parameters())
 
-    with pytest.raises(ValueError, match="Module '1'.*layerwise_decompression=True"):
-        handler.apply_restructuring()
+    handler.apply_restructuring()
 
     assert all(parameter.is_meta for parameter in model.parameters())
     assert all(not parameter.is_meta for parameter in source.parameters())
     assert model[1].quantization_status == source.quantization_status
+    assert model[1].quantization_scheme is scheme
+    assert all(
+        model[1].get_parameter(name) is tensor for name, tensor in parameters.items()
+    )
 
 
 @pytest.mark.parametrize("remaining_compressed_module", [False, True])
-def test_restructuring_checks_model_after_upfront_linearization(
+def test_upfront_linearization_decompression_is_independent_of_flag(
     remaining_compressed_module,
 ):
     model = torch.nn.Module()
@@ -87,12 +92,11 @@ def test_restructuring_checks_model_after_upfront_linearization(
     assert not hasattr(model.experts, "quantization_status")
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
+    handler.apply_restructuring()
+    assert all(parameter.is_meta for parameter in model.parameters())
     if remaining_compressed_module:
-        with pytest.raises(ValueError, match="Module 'other'.*layerwise_decompression"):
-            handler.apply_restructuring()
-    else:
-        handler.apply_restructuring()
-        assert all(parameter.is_meta for parameter in model.parameters())
+        assert model.other.quantization_status == QuantizationStatus.COMPRESSED
+        assert hasattr(model.other, "weight_packed")
 
 
 @pytest.mark.parametrize("compression_format", ["pack-quantized", "int-quantized"])
