@@ -5,8 +5,6 @@ from __future__ import annotations
 import copy
 
 import torch
-from compressed_tensors.offload.cache import OffloadCache
-from compressed_tensors.offload.module import remove_module_offload
 from torch.nn import Module, Parameter
 
 from llmcompressor.modeling.decompression import DecompressionRestructure
@@ -51,8 +49,9 @@ class RestructureHandler:
             if "hook" in name and isinstance(value, dict):
                 source.__dict__[name] = value.copy()
         # Retain the source caches and remove dispatch from the live meta module.
-        if isinstance(source._parameters, OffloadCache):
-            remove_module_offload(module, onload_tensors=False)
+        if hasattr(module, "_original_forward_func"):
+            module.forward = module._original_forward_func.__get__(module)
+            del module._original_forward_func
 
         for name in ("_parameters", "_buffers"):
             state = getattr(source, name)
