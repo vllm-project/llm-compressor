@@ -249,8 +249,14 @@ def _grid_search_observer_triton(
 
     min_val = torch.amin(observed, dim=(0, -1)) * expand
     max_val = torch.amax(observed, dim=(0, -1)) * expand
-    zp_base = None
-    if not args.symmetric:
+    min_base = torch.minimum(min_val, torch.zeros_like(min_val))
+    min_base = min_base.reshape(-1).contiguous()
+    max_base = torch.maximum(max_val, torch.zeros_like(max_val))
+    max_base = max_base.reshape(-1).contiguous()
+    if args.symmetric:
+        # HAS_ZP guards the kernel load, so reuse an existing tensor pointer.
+        zp_base = min_base
+    else:
         qparam_args = (
             args.model_copy(update={"scale_dtype": None})
             if args.scale_dtype is not None
@@ -258,10 +264,6 @@ def _grid_search_observer_triton(
         )
         _, zp_base = calculate_qparams(min_val, max_val, qparam_args, None)
         zp_base = zp_base.reshape(-1).to(torch.float32).contiguous()
-    min_base = torch.minimum(min_val, torch.zeros_like(min_val))
-    min_base = min_base.reshape(-1).contiguous()
-    max_base = torch.maximum(max_val, torch.zeros_like(max_val))
-    max_base = max_base.reshape(-1).contiguous()
 
     observed = observed.contiguous().reshape(observed.shape[0], -1, observed.shape[-1])
     num_observations, num_qparams, group_size = observed.shape
