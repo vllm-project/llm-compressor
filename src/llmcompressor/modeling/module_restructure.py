@@ -102,12 +102,10 @@ def transfer_module_state(
         if not target_tensor.is_meta:
             # Shared state may already have been materialized and calibrated.
             # Preserve its values instead of replacing them with stale source data.
-            if target_tensor.device != device:
-                _adopt_tensor(target_tensor, target_tensor, device)
             continue
         source_tensor = source_state.get(name)
         if source_tensor is None:
-            # New quantization parameters and observer buffers have no source.
+            # New quantization parameters have no source.
             source_tensor = torch.full_like(
                 target_tensor, 1 if name.endswith("_scale") else 0, device=device
             )
@@ -124,13 +122,6 @@ def transfer_module_state(
         for attr, value in vars(source_module).items():
             if attr not in {"_parameters", "_buffers", "_modules"}:
                 _transfer_attribute(getattr(target_module, attr, None), value, device)
-
-    if not recurse:
-        # Modifier initialization can add observers with meta buffers. Existing
-        # structural children are materialized through their own source mappings.
-        for name, child in target.named_children():
-            if source._modules.get(name) is None:
-                transfer_module_state(child, Module(), device)
 
 
 def _adopt_tensor(target, source, device):

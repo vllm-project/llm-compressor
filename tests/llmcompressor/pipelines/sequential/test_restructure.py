@@ -19,6 +19,7 @@ from llmcompressor.pipelines.sequential.offload import (
     subgraph_stage_modules,
 )
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
+from llmcompressor.utils.dev import get_main_device
 
 
 @pytest.mark.parametrize(
@@ -253,9 +254,9 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
     handler.finish()
 
 
-def test_new_observer_meta_buffers_materialize_with_ordinary_module():
+def test_imatrix_statistics_stay_real_during_materialization_and_offload():
     model = torch.nn.Linear(4, 4)
-    device = torch.device("cpu")
+    device = get_main_device()
     set_onload_device(model, device)
     handler = RestructureHandler(model)
     handler.convert_model_to_meta()
@@ -267,13 +268,22 @@ def test_new_observer_meta_buffers_materialize_with_ordinary_module():
     )
     model.register_module("weight_observer", observer)
     observer.attach(model)
-    assert observer._imatrix_sum.is_meta
-    subgraph_onload_modules({"": model}, handler, device)
+    importance_sum, count = observer._imatrix_sum, observer._imatrix_count
+    assert importance_sum.device == count.device == device
+    kwargs = subgraph_onload_modules({"": model}, handler, device)
     assert model.weight_observer is observer
+    assert observer._imatrix_sum is importance_sum
+    assert observer._imatrix_count is count
     assert observer._imatrix_count.item() == 0
-    model(torch.ones(3, 4))
+    model(torch.ones(3, 4, device=device))
     assert observer._imatrix_count.item() == 3
-    torch.testing.assert_close(observer._imatrix_sum, torch.full((4,), 3.0))
+    torch.testing.assert_close(
+        observer._imatrix_sum, torch.full((4,), 3.0, device=device)
+    )
+    subgraph_offload_modules(dict(model.named_modules()), kwargs)
+    assert observer._imatrix_sum is importance_sum
+    assert observer._imatrix_count is count
+    assert not dict(observer.named_buffers())
     handler.finish()
 
 

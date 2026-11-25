@@ -16,6 +16,7 @@ from llmcompressor.observers.grid_search import (
     _resolve_grid_type,
 )
 from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["IMatrixMSEObserver"]
 
@@ -33,8 +34,8 @@ class IMatrixMSEObserver(Observer):
     Supports CHANNEL, GROUP, and TENSOR_GROUP for weight-only Linear modules.
     Falls back to uniform MSE when importance data is unavailable.
 
-    Importance is accumulated in the observer's nonpersistent ``_imatrix_sum`` /
-    ``_imatrix_count`` buffers and synced across DDP ranks via ``_act_sync_dict``
+    Importance is accumulated on the observer as raw ``_imatrix_sum`` /
+    ``_imatrix_count`` and synced across DDP ranks via ``_act_sync_dict``
     before observation.
 
     The base objective is ``importance * abs(QDQ(w) - w) ** norm``, summed over
@@ -85,10 +86,8 @@ class IMatrixMSEObserver(Observer):
         self.magnitude_normalization = kw.get("magnitude_normalization", True)
         self.grid_type = _resolve_grid_type(kw.get("grid_type"), self.args)
 
-        self.register_buffer("_imatrix_sum", None, persistent=False)
-        self.register_buffer(
-            "_imatrix_count", torch.tensor(0, dtype=torch.int64), persistent=False
-        )
+        self._imatrix_sum: torch.Tensor | None = None
+        self._imatrix_count = torch.tensor(0, dtype=torch.int64, device="cpu")
         self._imatrix_hook: RemovableHandle | None = None
 
         if self.grid <= 0:
@@ -124,18 +123,16 @@ class IMatrixMSEObserver(Observer):
 
         in_features = module.in_features
         param = next(module.parameters(), None)
-        device = param.device if param is not None else None
-        # Re-register on attachment because statistics cleanup deletes the buffers.
-        self.register_buffer(
-            "_imatrix_sum",
-            torch.zeros(in_features, dtype=IMATRIX_PRECISION, device=device),
-            persistent=False,
+        device = (
+            param.device
+            if param is not None and not param.is_meta
+            else get_main_device()
         )
-        self.register_buffer(
-            "_imatrix_count",
-            torch.tensor(0, dtype=torch.int64, device=device),
-            persistent=False,
+        # Statistics stay real even when the owning module initializes on meta.
+        self._imatrix_sum = torch.zeros(
+            in_features, dtype=IMATRIX_PRECISION, device=device
         )
+        self._imatrix_count = torch.tensor(0, dtype=torch.int64, device=device)
 
         def _hook(mod, args):
             if (

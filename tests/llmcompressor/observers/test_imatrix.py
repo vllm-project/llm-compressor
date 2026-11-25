@@ -18,6 +18,7 @@ from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
 from llmcompressor.observers.grid_search import _make_grid_points
 from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.pytorch.meta import copy_module_to_meta
 
 # ---------------------------------------------------------------------------
@@ -86,26 +87,49 @@ class TestActivationCollection:
         assert not hasattr(module, "_imatrix_count")
         assert not hasattr(module, "_imatrix_hook")
 
-    def test_attach_initializes_importance_on_module_device(self):
-        module = torch.nn.Linear(8, 4, device="meta")
+    @pytest.mark.parametrize(
+        "weight_device",
+        [
+            "cpu",
+            "meta",
+            pytest.param(
+                "cuda:0",
+                marks=pytest.mark.skipif(
+                    not torch.cuda.is_available(), reason="GPU required"
+                ),
+            ),
+        ],
+    )
+    def test_attach_initializes_importance_on_real_device(self, weight_device):
+        module = torch.nn.Linear(8, 4, device=weight_device)
         observer = _make_observer(module, strategy="channel")
 
-        assert observer._imatrix_sum.device == module.weight.device
-        assert observer._imatrix_count.device == module.weight.device
+        expected_device = (
+            get_main_device() if module.weight.is_meta else module.weight.device
+        )
+        assert observer._imatrix_sum.device == expected_device
+        assert observer._imatrix_count.device == expected_device
+        assert observer._imatrix_sum.count_nonzero().item() == 0
+        assert observer._imatrix_count.item() == 0
+        assert not dict(observer.named_buffers())
+        assert not dict(observer.named_parameters())
 
-    def test_meta_observer_materializes_and_collects_importance(self):
+    def test_meta_module_materialization_leaves_importance_unchanged(self):
         original = _make_linear(in_features=8, out_features=4)
         module = copy_module_to_meta(original)
         observer = _make_observer(module, strategy="channel")
         module.register_module("weight_observer", observer)
+        importance_sum, count = observer._imatrix_sum, observer._imatrix_count
 
         transfer_module_state(module, original, torch.device("cpu"))
 
         assert module.weight_observer is observer
-        assert observer._imatrix_sum.device.type == "cpu"
+        assert observer._imatrix_sum is importance_sum
+        assert observer._imatrix_count is count
+        assert not observer._imatrix_sum.is_meta
         assert observer._imatrix_sum.dtype == torch.float32
         assert observer._imatrix_sum.count_nonzero().item() == 0
-        assert observer._imatrix_count.device.type == "cpu"
+        assert not observer._imatrix_count.is_meta
         assert observer._imatrix_count.dtype == torch.int64
         assert observer._imatrix_count.item() == 0
 
@@ -118,10 +142,10 @@ class TestActivationCollection:
             observer._imatrix_sum,
             torch.tensor([24.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0]),
         )
-        assert set(dict(observer.named_buffers())) == {"_imatrix_sum", "_imatrix_count"}
+        assert not dict(observer.named_buffers())
         assert set(module.state_dict()) == {"weight", "bias"}
 
-    def test_reattach_after_cleanup_keeps_counters_nonpersistent(self):
+    def test_reattach_after_cleanup_keeps_counters_unregistered(self):
         module = _make_linear(in_features=8, out_features=4)
         observer = _make_observer(module, strategy="channel")
         module(torch.ones(2, 8))
@@ -132,7 +156,7 @@ class TestActivationCollection:
 
         assert observer._imatrix_count.item() == 3
         torch.testing.assert_close(observer._imatrix_sum, torch.full((8,), 3.0))
-        assert set(dict(observer.named_buffers())) == {"_imatrix_sum", "_imatrix_count"}
+        assert not dict(observer.named_buffers())
         assert not observer.state_dict()
 
     def test_attach_to_unsupported_module_removes_existing_hook(self):
