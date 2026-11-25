@@ -128,11 +128,12 @@ class SequentialPipeline(CalibrationPipeline):
                 stacklevel=2,
             )
 
-        if persistent_modules:
-            persistent_offload_kwargs = materialize_modules(
-                persistent_modules, restructure_handler, onload_device
-            )
-            # Persistent modules stay onloaded for the full calibration run.
+        # Layerwise meta tracing leaves at least the root outside subgraphs; keep
+        # its direct state and other persistent modules onloaded across calibration.
+        # A whole-model subgraph already owns the root; empty mappings are a no-op.
+        persistent_offload_kwargs = materialize_modules(
+            persistent_modules, restructure_handler, onload_device
+        )
 
         LifecycleCallbacks.calibration_start()
 
@@ -340,9 +341,8 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Restore temporary conversions that weren't part of a traced subgraph,
             # such as persistent modules.
-            if persistent_modules:
-                restructure_handler.restore_restructured_modules(persistent_modules)
-                subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
+            restructure_handler.restore_restructured_modules(persistent_modules)
+            subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()
