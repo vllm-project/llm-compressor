@@ -94,7 +94,7 @@ class TestActivationCollection:
             pytest.param(
                 "cuda:0",
                 marks=pytest.mark.skipif(
-                    not torch.cuda.is_available(), reason="GPU required"
+                    not torch.accelerator.is_available(), reason="GPU required"
                 ),
             ),
         ],

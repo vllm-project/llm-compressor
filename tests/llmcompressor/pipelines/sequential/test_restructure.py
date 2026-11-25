@@ -18,8 +18,8 @@ from llmcompressor.modeling.moe.linearize import linearize_moe
 from llmcompressor.observers.base import Observer
 from llmcompressor.pipelines.data_free import DataFreePipeline
 from llmcompressor.pipelines.sequential.offload import (
+    materialize_modules,
     subgraph_offload_modules,
-    subgraph_onload_modules,
     subgraph_stage_modules,
 )
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
@@ -103,7 +103,7 @@ def test_lazy_linearization_option_and_split_target_validation(
 
 @pytest.mark.parametrize("onload_device", ["cpu", "cuda:0"])
 def test_delay_preserves_shared_registered_state_and_live_attributes(onload_device):
-    if onload_device == "cuda:0" and not torch.cuda.is_available():
+    if onload_device == "cuda:0" and not torch.accelerator.is_available():
         pytest.skip("GPU required")
     model = torch.nn.Module()
     model.block = torch.nn.Sequential(torch.nn.Linear(4, 4, bias=False))
@@ -128,15 +128,15 @@ def test_delay_preserves_shared_registered_state_and_live_attributes(onload_devi
     assert not model.constant.is_meta
     weight = model.block[0].weight
     position = model.position
-    subgraph_onload_modules({"block.0": model.block[0]}, handler, device)
+    materialize_modules({"block.0": model.block[0]}, handler, device)
     assert model.block[0].weight is model.other.weight is weight
     torch.testing.assert_close(model.block[0].weight.cpu(), initial)
     with torch.no_grad():
         model.block[0].weight.add_(1)
-    subgraph_onload_modules({"other": model.other}, handler, device)
+    materialize_modules({"other": model.other}, handler, device)
     torch.testing.assert_close(model.other.weight.cpu(), initial + 1)
     assert model.block[0].weight is model.other.weight
-    subgraph_onload_modules({"": model, "block": model.block}, handler, device)
+    materialize_modules({"": model, "block": model.block}, handler, device)
     assert model.position_alias is model.position is position
     assert model.constant is constant
     torch.testing.assert_close(model.position_alias.cpu(), torch.arange(4.0))
@@ -234,7 +234,7 @@ def test_pipeline_preserves_root_registered_state(tmp_path, pipeline):
         pytest.param(
             "cuda:0",
             marks=pytest.mark.skipif(
-                not torch.cuda.is_available(), reason="GPU required"
+                not torch.accelerator.is_available(), reason="GPU required"
             ),
         ),
     ],
@@ -272,7 +272,7 @@ def test_source_caches_materialize_without_executing_source_forward(
         subgraph_stage_modules({"0": model[0]}, handler)
         assert model[0].weight.is_meta
         assert cache.is_staged
-    subgraph_onload_modules({"0": model[0]}, handler, device)
+    materialize_modules({"0": model[0]}, handler, device)
     torch.testing.assert_close(model[0](inputs.to(device)).cpu(), expected)
     assert calls == ["target"]
     assert not isinstance(model[0]._parameters, OffloadCache)
@@ -306,7 +306,7 @@ def test_staging_shared_sources_keeps_targets_on_meta(tmp_path, offload_device):
         assert source._parameters.is_staged and source._buffers.is_staged
         assert source._parameters.offloaded_values["weight"].device.type == "cpu"
 
-    subgraph_onload_modules({"0": target}, handler, torch.device("cpu"))
+    materialize_modules({"0": target}, handler, torch.device("cpu"))
     assert target not in handler.mapping
     torch.testing.assert_close(target.weight, expected, rtol=0, atol=0)
     torch.testing.assert_close(target.position, torch.arange(4.0))
@@ -317,7 +317,7 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
     tmp_path, offload_device
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4), torch.nn.SiLU())
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.accelerator.is_available() else "cpu")
     expected = model(torch.ones(2, 4)).detach()
     offload_module(
         model[0],
@@ -335,12 +335,12 @@ def test_persistent_container_leaves_future_subgraph_sources_offloaded(
     # Tracing can inline a container, leaving it outside its children's graphs.
     subgraph_stage_modules({"": model}, handler)
     assert not cache.is_staged
-    subgraph_onload_modules({"": model}, handler, device)
+    materialize_modules({"": model}, handler, device)
     assert source._parameters is cache
     assert model[0].weight.is_meta
 
     modules = {"0": model[0], "1": model[1]}
-    kwargs = subgraph_onload_modules(modules, handler, device)
+    kwargs = materialize_modules(modules, handler, device)
     assert str(kwargs["0"]["offload_device"]) == offload_device
     assert kwargs["1"]["onload_device"] == device
     subgraph_offload_modules(modules, kwargs)
@@ -363,7 +363,7 @@ def test_imatrix_statistics_stay_real_during_materialization_and_offload():
     observer.attach(model)
     importance_sum, count = observer._imatrix_sum, observer._imatrix_count
     assert importance_sum.device == count.device == device
-    kwargs = subgraph_onload_modules({"": model}, handler, device)
+    kwargs = materialize_modules({"": model}, handler, device)
     assert model.weight_observer is observer
     assert observer._imatrix_sum is importance_sum
     assert observer._imatrix_count is count
@@ -411,7 +411,7 @@ def test_norm_restore_updates_same_mapping_before_offload(
     assert model.alias is target
     source = handler.mapping[target]["source"]
     modules = {"norm": target}
-    offload_kwargs = subgraph_onload_modules(modules, handler, device)
+    offload_kwargs = materialize_modules(modules, handler, device)
     with torch.no_grad():
         target.weight.add_(2)
     handler.restore_restructured_modules(modules)
@@ -448,7 +448,7 @@ def test_restored_norm_offloads_using_target_settings(tmp_path, offload_device):
     handler.apply_restructuring()
     target = model.norm
     modules = dict(model.named_modules())
-    kwargs = subgraph_onload_modules(modules, handler, torch.device("cpu"))
+    kwargs = materialize_modules(modules, handler, torch.device("cpu"))
     with torch.no_grad():
         target.weight.add_(2)
     handler.restore_restructured_modules(modules)

@@ -89,9 +89,9 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     )
     monkeypatch.setattr(
         pipeline_module,
-        "subgraph_onload_modules",
+        "materialize_modules",
         lambda modules, handler, device: events.append("onload")
-        or offload_module.subgraph_onload_modules(modules, handler, device),
+        or offload_module.materialize_modules(modules, handler, device),
     )
     monkeypatch.setattr(
         pipeline_module,

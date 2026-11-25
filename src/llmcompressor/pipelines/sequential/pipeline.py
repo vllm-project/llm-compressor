@@ -27,8 +27,8 @@ from llmcompressor.pipelines.sequential.helpers import (
 )
 from llmcompressor.pipelines.sequential.offload import (
     _submit_subgraph_staging,
+    materialize_modules,
     subgraph_offload_modules,
-    subgraph_onload_modules,
     subgraph_stage_modules,
 )
 from llmcompressor.pipelines.sequential.restructure import (
@@ -129,7 +129,7 @@ class SequentialPipeline(CalibrationPipeline):
                     FutureWarning,
                     stacklevel=2,
                 )
-            persistent_offload_kwargs = subgraph_onload_modules(
+            persistent_offload_kwargs = materialize_modules(
                 persistent_modules, restructure_handler, onload_device
             )
             # Persistent modules stay onloaded for the full calibration run.
@@ -261,7 +261,7 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(
+                offload_kwargs = materialize_modules(
                     subgraph_modules, restructure_handler, onload_device
                 )
 

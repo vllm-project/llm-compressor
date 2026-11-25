@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "subgraph_stage_modules",
-    "subgraph_onload_modules",
+    "materialize_modules",
     "subgraph_offload_modules",
 ]
 
@@ -86,7 +86,7 @@ def _submit_subgraph_staging(
     return modules, future
 
 
-def subgraph_onload_modules(
+def materialize_modules(
     modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     device: torch.device,
@@ -96,12 +96,15 @@ def subgraph_onload_modules(
     ``modules`` includes the live descendants owned by the subgraph, as returned by
     ``Subgraph.submodule_dict``. Retained source trees can have a different structure.
     """
+    # get metadata for non materialized modules on current subgraph
     pending = {
         module: restructure_handler.mapping[module]
         for module in modules.values()
         if module in restructure_handler.mapping
         and not restructure_handler.mapping[module]["materialized"]
     }
+
+    # 1. Onload the source modules
     sources = _source_modules(modules, restructure_handler)
     offload_kwargs = {}
     with disk_load_context():
@@ -110,6 +113,8 @@ def subgraph_onload_modules(
                 offload_kwargs[name] = get_cache_init_kwargs(source)
                 remove_module_offload(source, onload_tensors=True)
 
+    # 2. Restructure the source modules (same as what we did with
+    # target modules before init). These ones are real weights.
     for restructure in restructure_handler.restructures:
         selected = {
             target: entry
@@ -119,6 +124,9 @@ def subgraph_onload_modules(
         restructure.restructure_sources(
             restructure_handler.model, selected, device, offload_kwargs
         )
+
+    # 3. Move the weights from the restructured source to the
+    # target module on the model. Delete metadata if no restore needed.
     for target, entry in pending.items():
         # Replacements were transferred by the restructure that owns them.
         if not entry["materialized"]:

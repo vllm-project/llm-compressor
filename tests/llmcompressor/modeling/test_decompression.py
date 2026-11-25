@@ -24,7 +24,7 @@ from llmcompressor.modeling.offset_norm import NormCalibrationModule
 from llmcompressor.modifiers.gptq import GPTQModifier
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.pipelines.sequential.offload import (
-    subgraph_onload_modules,
+    materialize_modules,
     subgraph_stage_modules,
 )
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
@@ -147,7 +147,7 @@ def test_decompression_preserves_new_recipe_state(
     calls = []
     layer.register_forward_pre_hook(lambda *_: calls.append("target"))
 
-    subgraph_onload_modules({"0": layer}, handler, torch.device("cpu"))
+    materialize_modules({"0": layer}, handler, torch.device("cpu"))
     assert layer.quantization_scheme is scheme
     assert layer.weight_observer is observer
     assert layer.weight is weight
@@ -316,7 +316,7 @@ def test_linearization_clears_decompressed_source_state(
         subgraph_stage_modules({"experts": target}, handler)
         assert projection.weight.is_meta
         assert source._parameters.is_staged
-    subgraph_onload_modules({"experts": target}, handler, torch.device("cpu"))
+    materialize_modules({"experts": target}, handler, torch.device("cpu"))
     assert target[0].gate_proj is projection
     assert projection.weight_observer is observer
     for name, weight in expected.named_parameters():
@@ -365,7 +365,7 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     assert entry["restructures"] == list(handler.restructures[1:])
     assert not entry["materialized"]
     modules = {"norm": target}
-    subgraph_onload_modules(modules, handler, torch.device("cpu"))
+    materialize_modules(modules, handler, torch.device("cpu"))
     assert handler.mapping[target] is entry
     assert entry["materialized"]
     assert source._parameters  # Only the norm operation retains this source now.
@@ -373,7 +373,7 @@ def test_decompression_then_offset_norm_reuses_the_same_source():
     with torch.no_grad():
         target.weight.add_(2)
     # A retained restoration entry must not replay decompression or norm conversion.
-    subgraph_onload_modules(modules, handler, torch.device("cpu"))
+    materialize_modules(modules, handler, torch.device("cpu"))
     torch.testing.assert_close(target.weight, torch.arange(16) * 0.125 + 3)
     handler.restore_restructured_modules(modules)
     assert model.norm is source

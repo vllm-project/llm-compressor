@@ -8,8 +8,8 @@ from transformers import (
 )
 
 from llmcompressor.pipelines.sequential.offload import (
+    materialize_modules,
     subgraph_offload_modules,
-    subgraph_onload_modules,
     subgraph_stage_modules,
 )
 from llmcompressor.pipelines.sequential.restructure import RestructureHandler
@@ -157,7 +157,7 @@ def test_disable_lm_head_survives_subgraph_onload(stage):
     with disable_lm_head(model):
         if stage:
             subgraph_stage_modules(modules, handler)
-        offload_kwargs = subgraph_onload_modules(modules, handler, torch.device("cpu"))
+        offload_kwargs = materialize_modules(modules, handler, torch.device("cpu"))
         assert model.lm_head(hidden_states).device == torch.device("meta")
 
         subgraph_offload_modules(modules, offload_kwargs)
