@@ -21,10 +21,11 @@ model_free_ptq(
     model_stub="meta-llama/Meta-Llama-3-8B-Instruct",
     save_directory="Meta-Llama-3-8B-Instruct-FP8-BLOCK",
     scheme="FP8_BLOCK",
-    ignore=["lm_head"],
     device="cuda:0",
 )
 ```
+
+Note that the `lm_head`, embeddings, and any MoE router layers are ignored automatically (see [Default Ignores](#default-ignores)).
 
 ## QuantizationConfig
 
@@ -56,7 +57,7 @@ model_free_ptq(
             ),
         }
     ),
-    ignore=["lm_head", r"re:.*router.*"],
+    device="cuda:0",
 )
 ```
 
@@ -71,7 +72,6 @@ model_free_ptq(
     model_stub="meta-llama/Meta-Llama-3-8B-Instruct",
     save_directory="Meta-Llama-3-8B-Instruct-FP8-BLOCK",
     scheme="FP8_BLOCK",
-    ignore=["lm_head"],
     device=["cuda:0", "cuda:1", "cuda:2", "cuda:3"],
 )
 ```
@@ -101,7 +101,7 @@ Multiple files are processed in parallel. By default (`max_workers="auto"`), the
 | `save_directory` | `str \| PathLike` | — | Directory to save the quantized checkpoint |
 | `scheme` | `QuantizationScheme \| str \| None` | `None` | One quantization scheme to apply. Mutually exclusive with `config` |
 | `config` | `QuantizationConfig \| None` | `None` | One or more data-free config groups, optionally including `kv_cache_scheme`; mutually exclusive with `scheme` |
-| `ignore` | `Iterable[str]` | `()` | Module names or regex patterns to skip. Modules ending in `"norm"` are always ignored automatically |
+| `ignore` | `Iterable[str]` | `()` | Module names or regex patterns to skip, in addition to the default ignores. Modules ending in `"norm"`, MoE router layers, `lm_head` and embedding layers are always ignored automatically |
 | `max_workers` | `int \| "auto"` | `"auto"` | Upper bound on concurrent worker threads for processing safetensors shards. `"auto"` chooses it from the number of shards, their estimated memory, free device memory, and available CPUs. Effective concurrency may be lower when GPU memory is tight |
 | `device` | `str \| torch.device \| list[str \| torch.device] \| None` | `None` | Device or devices to use. A list enables multi-GPU shard scheduling; `None` automatically selects all visible CUDA devices, or CPU when no accelerator is available |
 | `converter` | `Converter \| None` | `None` | Optional `compressed-tensors` converter to apply before quantization, e.g. to convert modelopt-format checkpoints to compressed-tensors format |
@@ -118,11 +118,8 @@ model_free_ptq(
     save_directory="Kimi-K2-Thinking-FP8-BLOCK",
     scheme="FP8_BLOCK",
     ignore=[
-        "re:.*gate$",
-        "lm_head",
         "re:.*kv_a_proj_with_mqa$",
         "re:.*q_a_proj$",
-        "model.embed_tokens",
     ],
     device="cuda:0",
 )
@@ -149,11 +146,8 @@ model_free_ptq(
     save_directory="Kimi-K2-Thinking-NVFP4A16",
     scheme=nvfp4_scheme, # "NVFP4A16"
     ignore=[
-        "re:.*gate$",
-        "lm_head",
         "re:.*kv_a_proj_with_mqa$",
         "re:.*q_a_proj$",
-        "model.embed_tokens",
     ],
     device="cuda:0",
 )
@@ -167,11 +161,29 @@ The `ignore` argument accepts module name strings or regex patterns prefixed wit
 
 ```python
 ignore=[
-    "lm_head",            # exact name match
-    "re:.*gate$",         # regex: any module ending in "gate"
-    "model.embed_tokens", # exact name match
+    "model.layers.0.mlp.down_proj",  # exact name match
+    r"re:.*visual.*",                # regex: vision modules of a multimodal model
+    r"re:.*mlp\.experts\.[0-3]\.",   # regex: the first four experts
 ]
 ```
+
+### Default Ignores
+
+MoE router layers, the `lm_head`, and embedding layers are ignored by default, even when targeted by a scheme (including the default `"Linear"` target). All are sensitive to quantization: routers are small (`num_experts x hidden_size`) and quantizing the routing logits degrades expert selection, while `lm_head` and `embed_tokens` are vocabulary-shaped and lose accuracy when quantized.
+
+Model-based quantization already excludes routers and embeddings implicitly (they are not `nn.Linear` modules), and `lm_head` is conventionally ignored by hand. Because `model_free_ptq` matches tensor names without a model definition, these layers are ignored explicitly here instead. The default patterns cover common naming conventions:
+
+| Pattern | Layers | Architectures |
+|---------|--------|---------------|
+| `re:.*mlp\.gate$` | MoE routers | Qwen, DeepSeek, GLM, Kimi, Cohere, OLMoE, ... |
+| `re:.*block_sparse_moe\.gate$` | MoE routers | Mixtral, Kimi K3, dbrx, Phi, ... |
+| `re:.*moe\.gate$` | MoE routers | Step3.5, Grok |
+| `re:.*mixer\.gate$` | MoE routers | Nemotron |
+| `re:.*router$` | MoE routers | Llama 4, gpt-oss, Trinity |
+| `re:.*lm_head$` | lm_head | most architectures, at any depth |
+| `re:.*embed_tokens$` | token embeddings | most architectures, including MTP layers |
+
+The router patterns only match a bare `gate`/`router` submodule, so gate projections (`gate_proj`, `gate_up_proj`), shared expert gates (`shared_expert_gate`), and attention gates (`forget_gate`) remain quantizable. All patterns are merged into the config's ignore list (entries you pass yourself are kept and not duplicated), so they are also recorded in the saved `quantization_config` and respected when the checkpoint is loaded. They are defined in `DEFAULT_IGNORE` (`llmcompressor.entrypoints.model_free.converter`).
 
 ## Supported Schemes
 
