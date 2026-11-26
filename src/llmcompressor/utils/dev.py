@@ -3,7 +3,6 @@ import logging
 import os
 import tempfile
 from functools import wraps
-from typing import Type
 
 import torch
 from compressed_tensors.offload import dispatch_model, load_offloaded_model
@@ -34,7 +33,7 @@ __all__ = [
 
 @contextlib.contextmanager
 def load_context(
-    model_cls: Type[PreTrainedModel] = AutoModelForCausalLM,
+    model_cls: type[PreTrainedModel] = AutoModelForCausalLM,
     *,
     load_mtp: bool = True,
 ):
@@ -68,7 +67,7 @@ def load_context(
 
 
 @contextlib.contextmanager
-def skip_weights_download(model_class: Type[PreTrainedModel] = AutoModelForCausalLM):
+def skip_weights_download(model_class: type[PreTrainedModel] = AutoModelForCausalLM):
     """
     Context manager under which models are initialized without having to download
     the model weight files. This differs from `init_empty_weights` in that weights are

@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Dict, List, Optional, Tuple, TypedDict
+from typing import List, Optional, TypedDict
 
 import torch
 from compressed_tensors import InternalModule
@@ -15,7 +15,7 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
 
-MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
+MinMaxTuple = tuple[torch.Tensor, torch.Tensor]
 
 
 class QParamsDict(TypedDict, total=False):
@@ -37,7 +37,7 @@ class Observer(InternalModule, RegistryMixin):
     """
 
     # Dict of statistic attribute names to reduce operations for DDP synchronization
-    _act_sync_dict: Dict[str, dist.ReduceOp] = {}
+    _act_sync_dict: dict[str, dist.ReduceOp] = {}
 
     # Attribute names that constitute this observer's statistics
     _stats_attrs: List[str] = ["min_vals", "max_vals"]
@@ -144,7 +144,7 @@ class Observer(InternalModule, RegistryMixin):
 
         return self
 
-    def sync_activation_stats(self) -> List[dist.Work]:
+    def sync_activation_stats(self) -> list[dist.Work]:
         """All-reduce accumulated activation statistics across DDP ranks.
 
             note: weight statistics don't need to be synced since weights

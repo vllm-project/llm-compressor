@@ -5,7 +5,7 @@
 
 import math
 import os
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.distributed as dist
@@ -603,7 +603,7 @@ class Gate(nn.Module):
     def bias(self):
         return self.e_score_correction_bias
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass for the gating mechanism.
 

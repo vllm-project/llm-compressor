@@ -1,7 +1,7 @@
 """Image processor class for Kimi-K3."""
 
 import json
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import torch
@@ -178,7 +178,7 @@ class KimiK3VisionProcessor(BaseImageProcessor):
     def __repr__(self):
         return f"KimiK3VisionProcessor(media_proc_cfg={self.media_proc_cfg})"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         output = super().to_dict()
         output["media_proc_cfg"] = self.media_proc_cfg
         if "media_processor" in output:
@@ -186,7 +186,7 @@ class KimiK3VisionProcessor(BaseImageProcessor):
         return output
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[str, Any], **kwargs):
+    def from_dict(cls, config_dict: dict[str, Any], **kwargs):
         config = config_dict.copy()
         media_proc_cfg = config.pop("media_proc_cfg", {})
         return cls(media_proc_cfg=media_proc_cfg, **config, **kwargs)

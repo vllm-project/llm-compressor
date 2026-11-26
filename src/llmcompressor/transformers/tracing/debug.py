@@ -1,4 +1,4 @@
-from typing import Type, Tuple, Any
+from typing import Any
 
 import argparse
 from contextlib import nullcontext
@@ -33,7 +33,7 @@ def parse_args():
 
 def trace(
     model_id: str,
-    model_class: Type[PreTrainedModel],
+    model_class: type[PreTrainedModel],
     sequential_targets: list[str] | str | None = None,
     ignore: list[str] | str = DatasetArguments().tracing_ignore,
     modality: str = "text",
@@ -41,7 +41,7 @@ def trace(
     skip_weights: bool = True,
     device_map: str | dict = "cpu",
     targets_per_subgraph: int = 1
-) -> Tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
+) -> tuple[PreTrainedModel, list[Subgraph], dict[str, torch.Tensor]]:
     """
     Debug traceability by tracing a pre-trained model into subgraphs
 

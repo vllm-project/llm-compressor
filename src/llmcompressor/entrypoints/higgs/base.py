@@ -6,7 +6,7 @@ MSE collection and high-level API for ILP-based mixed-precision quantization.
 
 import os
 import time
-from typing import Dict, List, Optional, Union
+from typing import List, Optional, Union
 
 import torch
 from compressed_tensors.compressors.format import _flatten_formats
@@ -64,9 +64,9 @@ class HiggsMSECollectorConverter(Converter):
 
     def __init__(
         self,
-        candidate_schemes: List[Union[str, QuantizationScheme]],
+        candidate_schemes: list[Union[str, QuantizationScheme]],
         targets: Union[str, List[str]] = "Linear",
-        ignore: List[str] = None,
+        ignore: list[str] = None,
         device: Union[str, torch.device] = None,
         target_avg_bitwidth: Optional[float] = None,
         target_avg_act_bitwidth: Optional[float] = None,
@@ -81,15 +81,15 @@ class HiggsMSECollectorConverter(Converter):
 
         self.candidate_schemes = self._resolve_schemes(candidate_schemes)
 
-        self.mse_matrix: Dict[str, Dict[str, float]] = {}
-        self.layer_sizes: Dict[str, int] = {}
-        self.ilp_solution: Dict[str, str] = {}
+        self.mse_matrix: dict[str, dict[str, float]] = {}
+        self.layer_sizes: dict[str, int] = {}
+        self.ilp_solution: dict[str, str] = {}
         self.optimal_config: Optional[QuantizationConfig] = None
-        self._fused_partners: Optional[Dict[str, set[str]]] = None
+        self._fused_partners: Optional[dict[str, set[str]]] = None
 
     def _resolve_schemes(
-        self, schemes: List[Union[str, QuantizationScheme]]
-    ) -> Dict[str, QuantizationScheme]:
+        self, schemes: list[Union[str, QuantizationScheme]]
+    ) -> dict[str, QuantizationScheme]:
         resolved = {}
         for scheme in schemes:
             if isinstance(scheme, str):
@@ -109,7 +109,7 @@ class HiggsMSECollectorConverter(Converter):
                 raise ValueError(f"Invalid scheme type: {type(scheme)}")
         return resolved
 
-    def validate(self, tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def validate(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Validate HIGGS inputs without materializing checkpoint tensors."""
         tensors = split_fused_moe_experts(tensors)
         quantizable_tensors = list(
@@ -126,8 +126,8 @@ class HiggsMSECollectorConverter(Converter):
 
     def _validate_tensor_shapes(
         self,
-        tensors: Dict[str, torch.Tensor],
-        quantizable_tensors: List[tuple[str, str]],
+        tensors: dict[str, torch.Tensor],
+        quantizable_tensors: list[tuple[str, str]],
     ) -> None:
         unsupported_tensors = [
             (tensor_name, tuple(tensors[tensor_name].shape))
@@ -148,7 +148,7 @@ class HiggsMSECollectorConverter(Converter):
                 "2-D expert weights."
             )
 
-    def process(self, tensors: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def process(self, tensors: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Compute MSE for each candidate scheme; return tensors unchanged."""
         tensors = split_fused_moe_experts(tensors)
         logger.info(f"Collecting MSE data from shard with {len(tensors)} tensors")
@@ -304,9 +304,9 @@ class HiggsMSECollectorConverter(Converter):
 
 def get_higgs_config(
     model_stub: Union[str, os.PathLike],
-    candidate_schemes: List[Union[str, QuantizationScheme]],
+    candidate_schemes: list[Union[str, QuantizationScheme]],
     targets: Union[str, List[str]] = "Linear",
-    ignore: List[str] = None,
+    ignore: list[str] = None,
     target_avg_bitwidth: Optional[float] = None,
     target_avg_act_bitwidth: Optional[float] = None,
     device: Optional[Union[str, torch.device]] = None,
