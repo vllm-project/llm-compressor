@@ -10,11 +10,16 @@ from llmcompressor.modifiers.qad import QADModifier
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.pipelines.cache import IntermediatesCache
 from llmcompressor.pipelines.sequential import SequentialPipeline
-from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
-from .test_base import _calibrate, _prepare, _quantizer, _tiny_llama
+from .test_base import (
+    _calibrate,
+    _prepare,
+    _prepare_restructure_handler,
+    _quantizer,
+    _tiny_llama,
+)
 
 
 @pytest.mark.parametrize("kind", ["rtn", "gptq"])
@@ -80,11 +85,17 @@ def test_local_teacher_uses_final_upstream_outputs(kind, per_subgraph):
     try:
         with patch.object(QADModifier, "_apply_distillation", optimize):
             with create_session() as session:
-                session.initialize(
-                    model=model, recipe=[_quantizer(kind), qad], start=-1
-                )
                 args = DatasetArguments(sequential_targets_per_subgraph=per_subgraph)
-                SequentialPipeline()(model, data, args, RestructureHandler(model))
+                handler = _prepare_restructure_handler(model)
+                session.initialize(
+                    model=model,
+                    recipe=[_quantizer(kind), qad],
+                    start=-1,
+                    calib_data=data,
+                    sequential_targets=args.sequential_targets,
+                    pipeline="sequential",
+                )
+                SequentialPipeline()(model, data, args, handler)
                 session.finalize()
     finally:
         handle.remove()
