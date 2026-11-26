@@ -221,7 +221,7 @@ def get_model_compressor(
     Obtain the compressor based on the config and the quantization_format
 
     :param model: torch model
-    :param sparsify_config: Sparsity Compression config
+    :param sparsity_config: Sparsity Compression config
     :param quantization_format: Format that the model was quantized to.
         if not provivided, will be extrapolated from `infer_quantization_format`
     :param save_compressed: boolean representing to save in a compressed
