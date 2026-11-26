@@ -427,7 +427,7 @@ def oneshot(
     dataset_config_name: str | None = None,
     dataset_path: str | None = None,
     splits: str | list[str] | dict[str, str] | None = None,
-    batch_size: int = 1,
+    batch_size: int | str = 1,
     data_collator: str | Callable = "truncation",
     num_calibration_samples: int = 512,
     shuffle_calibration_samples: bool = True,
@@ -513,10 +513,12 @@ def oneshot(
     :param batch_size: calibration dataset batch size. During calibration,
         LLM Compressor disables lm_head output computations to reduce memory
         usage from large calibration batch sizes. Large batch sizes may result
-        excess padding or truncation, depending on the data_collator
+        excess padding or truncation, depending on the data_collator. Use "auto"
+        to size batches by tokens to fit within `gpu_memory_utilization`
     :param data_collator: The function to use to form a batch from the dataset. Can
         also specify 'truncation' or 'padding' to truncate or pad non-uniform sequence
-        lengths in a batch. Defaults to 'truncation'.
+        lengths in a batch, or 'flatten' to pack a batch's samples into one row (best
+        with flex or flash attention). Defaults to 'truncation'.
     :param num_calibration_samples: Number of samples to use for one-shot
         calibration.
     :param shuffle_calibration_samples: Whether to shuffle the dataset before

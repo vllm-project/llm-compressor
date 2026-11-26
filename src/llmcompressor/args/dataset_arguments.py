@@ -70,14 +70,17 @@ class CustomDatasetArguments(DVCDatasetArguments):
         },
     )
 
-    batch_size: int = field(
+    batch_size: int | str = field(
         default=1,
         metadata={
             "help": (
                 "Calibration batch size. During calibration, LLM Compressor disables "
                 "lm_head output computations to reduce memory usage from large "
                 "batch sizes. Large batch sizes may result in excess padding or "
-                "truncation, depending on the data_collator"
+                "truncation, depending on the data_collator. Use 'auto' to size "
+                "batches by tokens to fit within `gpu_memory_utilization`, grouping "
+                "calibration samples of similar length. Falls back to 1 where memory "
+                "cannot be estimated. Default is 1."
             )
         },
     )
@@ -88,7 +91,12 @@ class CustomDatasetArguments(DVCDatasetArguments):
             "help": (
                 "The function to use to form a batch from the dataset. Can also "
                 "specify 'truncation' or 'padding' to truncate or pad non-uniform "
-                "sequence lengths in a batch. Defaults to 'truncation'."
+                "sequence lengths in a batch, or 'flatten' to concatenate a batch's "
+                "samples into one row with `position_ids` restarting per sample. "
+                "'flatten' is for text models which build attention masks from "
+                "`position_ids` (others are refused) and is best used with flex or "
+                "flash attention. "
+                "Defaults to 'truncation'."
             )
         },
     )
@@ -282,7 +290,8 @@ class DatasetArguments(CustomDatasetArguments):
     gpu_memory_utilization: float = field(
         default=0.9,
         metadata={
-            "help": "Only used when sequential_targets_per_subgraph='auto'. Fraction "
+            "help": "Only used when sequential_targets_per_subgraph='auto' or "
+            "batch_size='auto'. Fraction "
             "of the GPU's total memory that sequential calibration may use. Memory "
             "already in use, by other processes or by modules kept onloaded for the "
             "whole calibration, counts against it. Lower it if calibration runs out "
@@ -360,6 +369,16 @@ class DatasetArguments(CustomDatasetArguments):
 
     def validate(self):
         super().validate()
+
+        if self.batch_size != "auto" and (
+            not isinstance(self.batch_size, int)
+            or isinstance(self.batch_size, bool)
+            or self.batch_size < 1
+        ):
+            raise ValueError(
+                'batch_size must be a positive integer or "auto", got '
+                f"{self.batch_size!r}"
+            )
 
         targets_per_subgraph = self.sequential_targets_per_subgraph
         if targets_per_subgraph != "auto" and (
