@@ -1,3 +1,5 @@
+import contextlib
+
 import pytest
 import torch
 import transformers
@@ -5,6 +7,7 @@ from compressed_tensors.utils import patch_attr
 from compressed_tensors.utils.match import match_named_modules
 
 from llmcompressor.modeling.kimi_k3 import KimiK3ForConditionalGeneration
+from llmcompressor.modeling.patch.llama4_patch import patch_llama4_image_outputs
 from llmcompressor.pipelines.sequential.helpers import (
     _resolve_sequential_targets,
     find_modules_outside_subgraphs,
@@ -21,6 +24,12 @@ KNOWN_UNOWNED_MODULES = {
     "inference-optimization/Llama-4-Scout-1.7B-0.4B-Instruct": {
         "multi_modal_projector.linear_1",  # wrapped fn mutates an immutable_dict
     },
+}
+
+# Model-specific context managers that patch upstream bugs which otherwise break
+# tracing/calibration (see the referenced modules for details)
+EXTRA_MODEL_CONTEXTS = {
+    "inference-optimization/Llama-4-Scout-1.7B-0.4B-Instruct": patch_llama4_image_outputs,  # noqa: E501
 }
 
 
@@ -214,22 +223,25 @@ def test_model_trace(model_id, model_class, targets, modality, backends):
         model_class = getattr(transformers, model_class)
         trust_remote_code = False
 
-    model, subgraphs, sample_input = trace(
-        model_id,
-        model_class,
-        targets,
-        modality=modality,
-        trust_remote_code=trust_remote_code,
-        device_map="meta",
-        skip_weights=True,
-    )
+    extra_context = EXTRA_MODEL_CONTEXTS.get(model_id, contextlib.nullcontext)
+    with extra_context():
+        model, subgraphs, sample_input = trace(
+            model_id,
+            model_class,
+            targets,
+            modality=modality,
+            trust_remote_code=trust_remote_code,
+            device_map="meta",
+            skip_weights=True,
+        )
 
-    target_modules = get_target_modules(model, targets)
-    assert len(subgraphs) == len(target_modules) + 1
+        target_modules = get_target_modules(model, targets)
+        assert len(subgraphs) == len(target_modules) + 1
 
-    # every parameterized module which executes and is not inlined as an ancestor
-    # must be owned by a subgraph, including modules called inside wrapped functions
-    executed = run_model_with_hooks(model, sample_input)
+        # every parameterized module which executes and is not inlined as an
+        # ancestor must be owned by a subgraph, including modules called inside
+        # wrapped functions
+        executed = run_model_with_hooks(model, sample_input)
     resolved = _resolve_sequential_targets(
         model, get_sequential_targets(model, targets)
     )

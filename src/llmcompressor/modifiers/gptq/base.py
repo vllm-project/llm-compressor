@@ -39,6 +39,7 @@ from llmcompressor.modifiers.quantization.calibration import (
     update_qparams,
 )
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
+from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
@@ -239,12 +240,12 @@ class GPTQModifier(Modifier, QuantizationMixin):
             )
 
     def on_sequential_epoch_end(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+        self, state: State, event: Event, modules: dict[str, torch.nn.Module], **kwargs
     ):
-        modules = [module for module in modules if is_module_quantized(module)]
-        observe(modules, base_name="weight")
+        modules = [module for module in modules.values() if is_module_quantized(module)]
         self.sync_obs_act_stats(modules)
         update_qparams(modules, ACTIVATION_OBS, only_update_onload=not is_src())
+        observe(modules, base_name="weight")
         self.compress_modules()
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
@@ -326,6 +327,7 @@ class GPTQModifier(Modifier, QuantizationMixin):
             module,
             self._hessians[module],
             self._num_samples[module],
+            mask=get_current_loss_mask(),
         )
 
     def compress_modules(self):

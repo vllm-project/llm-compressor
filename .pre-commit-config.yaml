@@ -31,6 +31,11 @@ repos:
         types: [python]
         files: ^(src|tests|examples)/|^setup\.py$
         require_serial: true
+      - id: lint-research
+        name: lint Research Hub entries
+        entry: python tools/lint_research.py
+        language: system
+        files: ^docs/research/.*\.md$
       # Append a DCO Signed-off-by trailer if the commit message lacks one,
       # matching the `git commit -s` requirement for vllm-project repos.
       - id: signoff-commit

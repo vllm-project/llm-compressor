@@ -53,7 +53,7 @@ def test_sequential_epoch_end_only_observes_passed_modules():
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[0].modules()),
+            modules=dict(model[0].named_modules()),
         )
         mock0.assert_called_once()  # Only first module should be observed
         mock1.assert_not_called()  # Second module should NOT be observed
@@ -104,17 +104,17 @@ def test_sequential_activation_qparams_only_updated_once_per_module():
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[0].modules()),
+            modules=dict(model[0].named_modules()),
         )
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[1].modules()),
+            modules=dict(model[1].named_modules()),
         )
         modifier.on_sequential_epoch_end(
             state,
             Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-            modules=list(model[2].modules()),
+            modules=dict(model[2].named_modules()),
         )
 
         # Each observer's methods should be called exactly once
@@ -154,7 +154,7 @@ def test_nested_parent_modules_produce_valid_global_scale():
     modifier.on_sequential_epoch_end(
         state,
         Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-        modules=list(model.modules()),
+        modules=dict(model.named_modules()),
     )
 
     for name, param in model.named_parameters():
@@ -176,13 +176,13 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     assert not hasattr(model[0], "quantization_scheme")
     assert not hasattr(model[1], "quantization_scheme")
 
-    modules = list(model[0].modules())
+    modules = dict(model[0].named_modules())
     with patch(
         "llmcompressor.modifiers.quantization.quantization.mixin.fuse_weight_observers"
     ) as fuse_weight_observers:
         modifier.start_layerwise_calibration(state, model, modules)
 
-    fuse_weight_observers.assert_called_once_with(model, modules)
+    fuse_weight_observers.assert_called_once_with(model, list(modules.values()))
 
     assert model[0].quantization_status == QuantizationStatus.CALIBRATION
     assert hasattr(model[0], "weight_observer")
@@ -191,7 +191,7 @@ def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     modifier.on_sequential_epoch_end(
         state,
         Event(type_=EventType.SEQUENTIAL_EPOCH_END),
-        modules=list(model[0].modules()),
+        modules=dict(model[0].named_modules()),
     )
 
     assert model[0].quantization_status == QuantizationStatus.FROZEN
@@ -203,7 +203,7 @@ def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
     model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
     modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
     state = State(model=model)
-    modules = list(model[0].modules())
+    modules = dict(model[0].named_modules())
 
     from compressed_tensors.quantization import apply_quantization_config
 
@@ -214,7 +214,9 @@ def test_layerwise_quantization_scopes_apply_config_to_passed_modules():
         modifier.start_layerwise_calibration(state, model, modules)
 
     apply_config.assert_called_once_with(
-        model, modifier.resolve_quantization_config(), allowed_modules=modules
+        model,
+        modifier.resolve_quantization_config(),
+        allowed_modules=list(modules.values()),
     )
     assert model[0].quantization_status == QuantizationStatus.CALIBRATION
     assert not hasattr(model[1], "quantization_scheme")

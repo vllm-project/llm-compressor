@@ -40,7 +40,6 @@ from llmcompressor.utils.helpers import (
     numeric_sorted_names,
     values_by_decoder_layer,
 )
-from llmcompressor.utils.pytorch.module import get_module_to_name_dict
 
 __all__ = ["ExpertPruningModifierBase"]
 
@@ -252,14 +251,14 @@ class ExpertPruningModifierBase(Modifier):
                 self.register_hook(expert, _expert_hook, "forward")
 
             # add hook to experts
-            _experts_block_hook = partial(self.experts_block_hook, moe_name)
+            _experts_block_hook = partial(self.experts_block_hook, moe_name, moe)
             self.register_hook(experts, _experts_block_hook, "forward")
 
     def on_sequential_epoch_end(
         self,
         state: State,
         event: Event,
-        modules: list[torch.nn.Module] | None = None,
+        modules: dict[str, torch.nn.Module] | None = None,
         **kwargs,
     ):
         """
@@ -276,9 +275,13 @@ class ExpertPruningModifierBase(Modifier):
         if modules is None:
             moe_names = list(self._moe_stats)
         else:
-            # TODO: refactor `modules` to be a dict
-            m_to_n = get_module_to_name_dict(model)
-            moe_names = [m_to_n[m] for m in modules if m_to_n[m] in self._moe_stats]
+            # compare by identity: a shared module can be listed under another alias
+            subgraph_modules = set(modules.values())
+            moe_names = [
+                name
+                for name in self._moe_stats
+                if model.get_submodule(name) in subgraph_modules
+            ]
 
         # sort by layer name to keep the sequence of distributed collectives identical
         pruned_layers = 0
@@ -430,6 +433,7 @@ class ExpertPruningModifierBase(Modifier):
     def experts_block_hook(
         self,
         layer_name: str,
+        moe: torch.nn.Module,
         module: torch.nn.Module,
         args: tuple,
         output: Any,
@@ -443,6 +447,9 @@ class ExpertPruningModifierBase(Modifier):
         statistics, then reset that data for the next batch.
 
         :param layer_name: Name of the MoE layer the block belongs to
+        :param moe: The MoE layer the hooked experts block belongs to, from
+            which the layer's experts and router are reachable (e.g. via
+            :func:`~llmcompressor.modifiers.pruning.expert_sparsity.utils.get_experts_router`)
         :param module: The experts block the hook is attached to
         :param args: The block's forward arguments, including the router's
             top-k indices and weights

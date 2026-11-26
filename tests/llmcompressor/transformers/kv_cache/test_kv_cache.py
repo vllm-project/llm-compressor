@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from compressed_tensors.quantization import is_cached_attention_module
 from transformers import AutoConfig, AutoModelForCausalLM
-from transformers.utils.quantization_config import CompressedTensorsConfig
 
 from llmcompressor import oneshot
 from llmcompressor.core import reset_session
@@ -206,10 +205,11 @@ def test_kv_cache_gptq_model_state_dict_attr(kv_cache_fixture, tmp_path):
 
     output_dir, _ = next(kv_cache_fixture(recipe, tmp_path))
 
-    model = AutoModelForCausalLM.from_pretrained(
-        output_dir,
-        quantization_config=CompressedTensorsConfig(dequantize=True),
-    )
+    # load without dequantizing so that the kv cache scales are kept as module
+    # attributes. note: transformers>=5.23 loads a plain dense model (dropping
+    # the kv cache scales) when `CompressedTensorsConfig(dequantize=True)` is
+    # used, since dequantize now implies a fully dense model
+    model = AutoModelForCausalLM.from_pretrained(output_dir)
 
     counts = 0
     for name, submodule in model.named_modules():

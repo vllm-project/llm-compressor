@@ -15,6 +15,8 @@ from compressed_tensors.utils import (
     update_offload_parameter,
 )
 
+from llmcompressor.modifiers.utils.pytorch_helpers import apply_loss_mask
+
 GPTQ_PRECISION = torch.float32
 MIN_BATCHED_CHOLESKY_SIZE = 16
 
@@ -42,6 +44,7 @@ def accumulate_hessian(
     module: torch.nn.Module,
     hessian: torch.Tensor,
     num_samples: torch.Tensor,
+    mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Accumulate one module-input batch into its GPTQ Hessian statistics.
 
@@ -49,6 +52,9 @@ def accumulate_hessian(
     hook caller to retain. Linear, Conv1D, and Conv2d inputs are reshaped into
     the common ``[input_features, observations]`` representation first.
     """
+    if mask is not None and isinstance(module, torch.nn.Conv2d):
+        raise ValueError("Token masking is not supported for Conv2d modules")
+
     inp = inp.to(device=hessian.device)
     if len(inp.shape) == 2:
         inp = inp.unsqueeze(0)
@@ -58,9 +64,8 @@ def accumulate_hessian(
     num_added = inp.shape[0]
     match module:
         case torch.nn.Linear() | transformers.Conv1D():
-            if len(inp.shape) == 3:
-                inp = inp.reshape((-1, inp.shape[-1]))
-            inp = inp.t()
+            # [batch, seq_len, in_features] -> [kept_tokens, in_features]
+            inp = apply_loss_mask(inp, mask).t()
         case torch.nn.Conv2d():
             unfold = torch.nn.Unfold(
                 module.kernel_size,

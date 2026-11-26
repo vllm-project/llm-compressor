@@ -71,7 +71,7 @@ def test_on_sequential_epoch_end_passes_all_modules():
     )
     state = MagicMock(spec=State)
     event = Event(type_=EventType.SEQUENTIAL_EPOCH_END)
-    modules = [_FakeDecoderLayer(), nn.Linear(64, 64)]
+    modules = {"layer": _FakeDecoderLayer(), "linear": nn.Linear(64, 64)}
 
     with patch.object(AutoRoundModifier, "apply_autoround") as mock_apply, patch.object(
         AutoRoundModifier, "post_autoround_cleanup"
@@ -412,7 +412,7 @@ def test_apply_autoround_passes_moved_inputs_to_quantize_block():
             "llmcompressor.modifiers.autoround.base.AutoRound", return_value=autoround
         ),
     ):
-        modifier.apply_autoround(state, [layer])
+        modifier.apply_autoround(state, {"layer": layer})
 
     quantize_inputs = autoround.quantize_block.call_args.kwargs["inputs"]
     assert quantize_inputs[0][0][0][0].device.type == "cpu"

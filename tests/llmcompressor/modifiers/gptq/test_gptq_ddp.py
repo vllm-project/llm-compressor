@@ -72,7 +72,7 @@ def test_gptq_distributed_global_scale_writeback():
     modifier.on_calibration_start(state, None)
 
     torch.manual_seed(100 + dist.get_rank())  # different calibration data per rank
-    modules = [m for m in model.modules() if isinstance(m, nn.Linear)]
+    modules = {name: m for name, m in model.named_modules() if isinstance(m, nn.Linear)}
     for _ in range(4):
         model(torch.randn(2, 8, HIDDEN, device=device))
 
@@ -80,7 +80,7 @@ def test_gptq_distributed_global_scale_writeback():
 
     # weight_global_scale must be consistently shaped across ranks, asserted
     # before any collective so a regression fails fast rather than deadlocking
-    for module in modules:
+    for module in modules.values():
         assert torch.all(module.weight_scale > 0), "weight_scale must be positive"
         assert module.weight_global_scale.shape == torch.Size([1])
         assert module.weight_global_scale.dtype == torch.float32
@@ -94,7 +94,7 @@ def test_gptq_distributed_global_scale_writeback():
     if "weight_global_scale" not in qparam_names:
         # Keep this regression check independent of the production broadcast list.
         qparam_names.append("weight_global_scale")
-    for module in modules:
+    for module in modules.values():
         for qparam_name in qparam_names:
             qparam = getattr(module, qparam_name).detach().to(device=device)
             gathered_qparams = [torch.empty_like(qparam) for _ in range(world_size)]
