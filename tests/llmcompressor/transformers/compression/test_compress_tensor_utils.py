@@ -15,15 +15,42 @@ from compressed_tensors.quantization import (
     quantize,
 )
 from torch import nn
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, PretrainedConfig
 
 from llmcompressor import oneshot
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
+    _retie_embeddings,
     modify_save_pretrained,
     suspend_distributed_timeout,
 )
 from llmcompressor.utils import untie_word_embeddings
 from tests.testing_utils import requires_gpu, torchrun
+
+
+def test_retie_embeddings_updates_nested_and_top_level_config():
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = PretrainedConfig(tie_word_embeddings=False)
+            self.config.text_config = PretrainedConfig(tie_word_embeddings=False)
+            self.embed_tokens = nn.Embedding(4, 3)
+            self.lm_head = nn.Linear(3, 4, bias=False)
+            self.lm_head.weight = nn.Parameter(
+                self.embed_tokens.weight.detach().clone()
+            )
+
+        def get_input_embeddings(self):
+            return self.embed_tokens
+
+        def get_output_embeddings(self):
+            return self.lm_head
+
+    model = TinyModel()
+    _retie_embeddings(model)
+
+    assert model.lm_head.weight is model.embed_tokens.weight
+    assert model.config.tie_word_embeddings is True
+    assert model.config.text_config.tie_word_embeddings is True
 
 
 @requires_gpu
