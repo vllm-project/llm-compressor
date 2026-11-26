@@ -11,6 +11,7 @@ from compressed_tensors.utils.safetensors_load import (
 )
 
 from llmcompressor.entrypoints.model_free.converter import ModelFreePtqConverter
+from llmcompressor.entrypoints.model_free.overthink import OverthinkPenalizer
 from llmcompressor.entrypoints.model_free.spinquant import (
     SpinQuantConverter,
     SpinQuantConverterMapping,
@@ -20,7 +21,12 @@ from llmcompressor.entrypoints.model_free.validate import (
     validate_safetensors_index,
 )
 
-__all__ = ["model_free_ptq", "SpinQuantConverter", "SpinQuantConverterMapping"]
+__all__ = [
+    "model_free_ptq",
+    "OverthinkPenalizer",
+    "SpinQuantConverter",
+    "SpinQuantConverterMapping",
+]
 
 
 def model_free_ptq(
