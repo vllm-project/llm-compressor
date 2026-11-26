@@ -357,11 +357,13 @@ def _is_token_aligned(value: Any, seq_len: int) -> bool:
     i.e. it should be truncated together with `input_ids`. Nested values such as
     `pixel_values` or `image_grid_thw` are never considered token-aligned.
     """
-    if isinstance(value, torch.Tensor):
-        return value.dim() == 1 and value.shape[0] == seq_len
+    # duck-type on `ndim`/`shape` so numpy arrays are handled like torch tensors
+    if hasattr(value, "ndim") and hasattr(value, "shape"):
+        return value.ndim == 1 and value.shape[0] == seq_len
     if isinstance(value, (list, tuple)):
         return len(value) == seq_len and not any(
-            isinstance(item, (list, tuple, torch.Tensor)) for item in value
+            isinstance(item, (list, tuple)) or getattr(item, "ndim", 0) > 0
+            for item in value
         )
     return False
 

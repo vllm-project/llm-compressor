@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 import torch
 
@@ -99,3 +100,18 @@ class TestDataCollatorWithTruncation:
         result = DataCollatorWithTruncation(max_seq_length=4)(features)
 
         assert result["labels"].shape == (2, 4)
+
+    @pytest.mark.unit
+    def test_truncates_numpy_token_aligned_features(self):
+        features = _make_features([6, 9])
+        for feature in features:
+            length = len(feature["input_ids"])
+            feature["token_type_ids"] = np.zeros(length, dtype=np.int64)
+            feature["position_ids"] = list(np.arange(length))
+            feature["pixel_values"] = np.ones((3, 2, 2), dtype=np.float32)
+
+        result = DataCollatorWithTruncation()(features)
+
+        assert result["token_type_ids"].shape == (2, 6)
+        assert result["position_ids"].shape == (2, 6)
+        assert result["pixel_values"].shape == (2, 3, 2, 2)
