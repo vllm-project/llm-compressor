@@ -20,6 +20,7 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 from llmcompressor.entrypoints.converter.expert_pruner import (
+    REPORT_METRICS,
     ExpertPruner,
     _compute_retained_experts,
     _compute_retained_experts_nonuniform,
@@ -496,6 +497,64 @@ def test_convert_checkpoint(tmp_path, layout):
         assert out[f"model.layers.{layer}.mlp.gate.weight"].shape[0] == 6
     if layout == "2d":
         assert max(extract_expert_index(n) for n in out if ".experts." in n) == 5
+
+
+# ---------------------------------------------------------------------------
+# Saving the saliency report
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("metric", REPORT_METRICS)
+def test_get_extra_files_returns_report(tmp_path, metric):
+    _write_checkpoint(tmp_path, n_layers=2, n_experts=8)
+    report = tmp_path / "r.json"
+    _descending_report(report, 2, 8)
+
+    pruner = _pruner(
+        tmp_path, sparsity=0.25, metric=metric, saliency_report_path=report
+    )
+    assert pruner.get_extra_files() == [report]
+
+
+def test_get_extra_files_empty_for_magnitude(tmp_path):
+    _write_checkpoint(tmp_path, n_layers=2, n_experts=8)
+
+    # magnitude scores from the router weights, so there is no report to save
+    pruner = _pruner(tmp_path, sparsity=0.25, metric="magnitude")
+    assert pruner.get_extra_files() == []
+
+    # a report path passed alongside metric="magnitude" is never read, so it
+    # is not saved either
+    report = tmp_path / "r.json"
+    _descending_report(report, 2, 8)
+    pruner = _pruner(
+        tmp_path, sparsity=0.25, metric="magnitude", saliency_report_path=report
+    )
+    assert pruner.get_extra_files() == []
+
+
+@pytest.mark.parametrize("uniform", [True, False])
+def test_convert_checkpoint_saves_report(tmp_path, uniform):
+    # the report lives outside the checkpoint, so only the pruner's
+    # extra-files hook can carry it into the save directory
+    src = tmp_path / "src"
+    src.mkdir()
+    _write_checkpoint(src, n_layers=3, n_experts=8)
+    report = tmp_path / "saliency_report.json"
+    _descending_report(report, 3, 8)
+
+    pruner = _pruner(
+        src,
+        sparsity=0.25,
+        metric="saliency",
+        uniform=uniform,
+        saliency_report_path=report,
+    )
+    save_dir = tmp_path / "pruned"
+    convert_checkpoint(model_stub=src, save_directory=save_dir, converter=pruner)
+
+    # the report is saved alongside the pruned checkpoint, verbatim
+    assert (save_dir / "saliency_report.json").read_bytes() == report.read_bytes()
 
 
 # ---------------------------------------------------------------------------
@@ -984,6 +1043,9 @@ def test_smoke_convert_checkpoint(model_stub, expert_pattern, expected_is_3d, tm
     if updated is None:
         updated = config.get("text_config", {}).get(key)
     assert updated == expected_kept
+
+    # the saliency report is saved alongside the pruned checkpoint
+    assert (save_dir / "report.json").read_bytes() == report_path.read_bytes()
 
     # every router weight in the output is sliced to the retained expert count
     out_routers, out_map, out_files = _checkpoint_meta(save_dir)

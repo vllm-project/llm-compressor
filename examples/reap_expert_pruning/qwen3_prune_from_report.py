@@ -39,6 +39,8 @@ SAVE_DIR = (
     + MODEL_ID.rstrip("/").split("/")[-1]
     + f"-REAP-{int(SPARSITY * 100)}-nonuniform"
 )
+# The saliency report is saved to SAVE_DIR alongside the pruned checkpoint,
+# recording the per-expert statistics the pruning was based on.
 convert_checkpoint(
     model_stub=MODEL_ID,
     save_directory=SAVE_DIR,
