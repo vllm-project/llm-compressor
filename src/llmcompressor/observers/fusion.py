@@ -40,17 +40,15 @@ class FusionHandler:
             return None
         return self._module_ref()
 
-    @property
-    def fused_modules(self) -> list[Module]:
-        """Weight modules whose statistics are shared by this fusion group."""
-        if not self.is_fused:
-            return []
-        modules = []
-        for handler in [self] + self._group:
-            module = handler.module
-            assert module is not None, _msg
-            modules.append(module)
-        return modules
+    def validate_subgraph(self, modules: set[Module], module_name: str) -> None:
+        """Require every fused sibling to belong to the current subgraph."""
+        if any(handler.module not in modules for handler in self._group):
+            raise ValueError(
+                f"Fused weight observers for {module_name!r} span multiple sequential "
+                "subgraphs. All modules in a fused group must be in the same "
+                "subgraph. Select a common parent in sequential_targets or increase "
+                "sequential_targets_per_subgraph."
+            )
 
     @classmethod
     def fuse(cls, observers_and_modules: Iterable[tuple["Observer", Module]]) -> None:

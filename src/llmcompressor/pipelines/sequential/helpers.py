@@ -431,6 +431,16 @@ def partition_subgraphs(
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
 
+    # Fused observers read their siblings' weights, so the entire group must be
+    # materialized together before any member is calibrated.
+    for subgraph in subgraphs:
+        modules = subgraph.submodule_dict(model)
+        module_set = set(modules.values())
+        for name, module in modules.items():
+            observer = getattr(module, "weight_observer", None)
+            if observer is not None:
+                observer.fusion_handler.validate_subgraph(module_set, name)
+
     return subgraphs
 
 
