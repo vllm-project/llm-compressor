@@ -75,7 +75,8 @@ class CalibrationOffsetNorm(NormCalibrationModule):
     equivalents (``output * weight``) during calibration.
 
     On enter: ``self.weight = 1 + original.weight``
-    On restore: ``original.weight = self.weight - 1``
+    On restore: unchanged entries recover the exact original offset bytes;
+    changed entries use ``original.weight = self.weight - 1``.
     """
 
     is_permanent = False
@@ -84,8 +85,14 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         super().__init__()
         self.eps = original.eps
         self._orig_dtype = original.weight.dtype
-        self.weight = torch.nn.Parameter(
-            (1.0 + original.weight.data.float()).to(original.weight.dtype)
+        orig_offset = original.weight.data.detach().clone()
+        effective = (1.0 + orig_offset.float()).to(orig_offset.dtype)
+        self.weight = torch.nn.Parameter(effective)
+        # Keep exact originals so a no-op calibration does not rewrite BF16/FP16
+        # offsets via the lossy float round-trip on restore.
+        self.register_buffer("_orig_offset", orig_offset, persistent=False)
+        self.register_buffer(
+            "_init_effective", effective.detach().clone(), persistent=False
         )
 
     def _norm(self, x: torch.Tensor) -> torch.Tensor:
@@ -97,7 +104,13 @@ class CalibrationOffsetNorm(NormCalibrationModule):
         return output.type_as(x)
 
     def restore(self, original: torch.nn.Module) -> torch.nn.Module:
-        original.weight.data = (self.weight.data.float() - 1.0).to(self._orig_dtype)
+        current = self.weight.data
+        restored = (current.float() - 1.0).to(self._orig_dtype)
+        unchanged = current == self._init_effective
+        restored = torch.where(
+            unchanged, self._orig_offset.to(restored.device), restored
+        )
+        original.weight = torch.nn.Parameter(restored)
         return original
 
 
