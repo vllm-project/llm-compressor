@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import functools
 import inspect
 from types import FunctionType
+from typing import TYPE_CHECKING
 
 import pytest
 import torch
@@ -10,6 +13,10 @@ from llmcompressor.pipelines.sequential.ast_helpers import (
     autowrap_forward,
     get_unwrapped_forward,
 )
+
+if TYPE_CHECKING:
+
+    class TypeOnlyAnnotation: ...
 
 
 def _no_wraps_decorator(fn):
@@ -50,6 +57,11 @@ class _PlainForwardModule(torch.nn.Module):
 
     def forward(self, x):
         return self.linear(x)
+
+
+class _UnresolvedAnnotationModule(torch.nn.Module):
+    def forward(self, x: TypeOnlyAnnotation):
+        return x
 
 
 @pytest.mark.regression
@@ -93,6 +105,20 @@ def test_autowrap_forward_plain_module_unchanged():
     with torch.no_grad():
         out = module(x)
     assert torch.allclose(out, expected)
+
+
+@pytest.mark.regression
+def test_autowrap_forward_postpones_unavailable_annotations():
+    """Autowrapping should not evaluate annotations imported only for typing."""
+    module = _UnresolvedAnnotationModule()
+
+    with autowrap_forward(module, ignore=[]):
+        pass
+
+    x = torch.randn(2, 4)
+    with torch.no_grad():
+        out = module(x)
+    assert torch.equal(out, x)
 
 
 @pytest.mark.unit

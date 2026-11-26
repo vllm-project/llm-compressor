@@ -1,0 +1,55 @@
+{
+  "experiment": "w4a16-imatrix-ablation-2026-10-02",
+  "format": "W4A16",
+  "group_size": 64,
+  "observer": "imatrix_mse",
+  "backend": "triton",
+  "patience": 0,
+  "grid": 100,
+  "maxshrink": 0.95,
+  "calibration_dataset": "perfectblend",
+  "calibration_split": "train[:512]",
+  "calibration_samples": 512,
+  "calibration_seed": 42,
+  "max_seq_length": 2048,
+  "powers": [2.0, 2.2, 2.4, 2.6, 2.8, 3.0],
+  "objectives": [
+    {
+      "id": "importance-error-power",
+      "use_groupabsmax_weighting": false,
+      "description": "importance * abs(w - q(w))^p"
+    },
+    {
+      "id": "importance-error-power-groupabsmax",
+      "use_groupabsmax_weighting": true,
+      "description": "importance * abs(w - q(w))^p * sqrt(w^2 + group_absmax^2)"
+    }
+  ],
+  "models": [
+    {
+      "id": "llama3.1-8b-instruct",
+      "hf_id": "meta-llama/Llama-3.1-8B-Instruct",
+      "profile": "instruct",
+      "generation_params": {"temperature": 0.6, "top_p": 0.9}
+    },
+    {
+      "id": "qwen3.8-27b",
+      "hf_id": "Qwen/Qwen3.8-27B",
+      "profile": "reasoning",
+      "generation_params": {"temperature": 1.0, "top_p": 0.95, "top_k": 20},
+      "reasoning_parser": "qwen3"
+    },
+    {
+      "id": "qwen3-30b-a3b-instruct-2507",
+      "hf_id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      "profile": "instruct",
+      "generation_params": {"temperature": 0.7, "top_p": 0.8, "top_k": 20}
+    },
+    {
+      "id": "nemotron3.5-lightning-30b-a3b-bf16",
+      "hf_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+      "profile": "instruct",
+      "generation_params": {"temperature": 1.0, "top_p": 0.95}
+    }
+  ]
+}

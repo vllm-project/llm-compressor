@@ -100,6 +100,23 @@ def autowrap_forward(module: torch.nn.Module, ignore: list[str]):
     source = inspect.getsource(forward_fn)
     source = textwrap.dedent(source)
     tree = ast.parse(source)
+    # Recompiled methods can refer to type-only imports (for example
+    # transformers.cache_utils.MtpCache) that are unavailable in the defining
+    # module's runtime globals. Tracing does not use annotations, so remove them
+    # before recompilation rather than evaluating those names.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            node.returns = None
+            for arg in (
+                *node.args.posonlyargs,
+                *node.args.args,
+                *node.args.kwonlyargs,
+            ):
+                arg.annotation = None
+            if node.args.vararg is not None:
+                node.args.vararg.annotation = None
+            if node.args.kwarg is not None:
+                node.args.kwarg.annotation = None
 
     # construct namespace for our new code
     namespace = getattr(forward_fn, "__globals__", None)
