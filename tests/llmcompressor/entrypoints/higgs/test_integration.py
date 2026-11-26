@@ -100,6 +100,33 @@ def test_mse_collector_uses_heuristic(
     assert len(config.config_groups) > 0
 
 
+def test_mse_collector_keeps_candidates_with_same_bitwidths():
+    """Distinct candidate schemes with the same bitwidths are all kept."""
+    group_128 = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=4, type="int", symmetric=True, strategy="group", group_size=128
+        ),
+    )
+    group_32 = QuantizationScheme(
+        targets=["Linear"],
+        weights=QuantizationArgs(
+            num_bits=4, type="int", symmetric=True, strategy="group", group_size=32
+        ),
+    )
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=["W4A16", group_128, group_32],
+        targets="Linear",
+        ignore=[],
+    )
+
+    candidates = list(collector.candidate_schemes.values())
+    assert len(candidates) == 3
+    assert candidates[0] == preset_name_to_scheme("W4A16", ["Linear"])
+    assert candidates[1] is group_128
+    assert candidates[2] is group_32
+
+
 def test_mse_collector_validation_rejects_unsupported_tensor_shapes(candidate_schemes):
     collector = HiggsMSECollectorConverter(
         candidate_schemes=list(candidate_schemes.values()),
