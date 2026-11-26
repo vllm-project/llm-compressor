@@ -46,6 +46,14 @@ def load_context(
     contexts to provide a unified interface for loading models that may require
     either or both capabilities.
 
+    Loading is also guarded against a Transformers issue (present as of v5.22.1)
+    where pre-quantized compressed-tensors checkpoints rewrite conversion
+    mappings in ways which detach them from unquantized modules: e.g. the
+    `{q,k,v}_conv1d.weight -> conv1d.weight` fusion of glm5_next checkpoints
+    whose experts (but not attention convs) are quantized, such as
+    RedHatAI/GLM-5.3-Flash-NVFP4. See
+    `llmcompressor.transformers.compression.quantized_loading`.
+
     :param model_cls: The model class to patch, defaults to AutoModelForCausalLM
     :param load_mtp: Load Transformers-supported MTP layers before MoE conversion
         and distributed offloading. Defaults to True. MTP calibration is not yet
