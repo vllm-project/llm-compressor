@@ -71,8 +71,8 @@ def configure_logger(logger_config: LoggerConfig = LOGGER_CONFIG):
 
     **Note**: Environment variables take precedence over function parameters.
 
-    :param config: The configuration for the logger to use.
-    :type config: LoggerConfig
+    :param logger_config: The configuration for the logger to use.
+    :type logger_config: LoggerConfig
     """
 
     # env vars get priority

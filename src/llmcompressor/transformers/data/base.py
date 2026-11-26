@@ -217,7 +217,6 @@ class TextGenerationDataset(RegistryMixin):
         """
         Load the raw dataset from Hugging Face, using cached copy if available
 
-        :param cache_dir: disk location to search for cached dataset
         :return: the requested dataset
         """
         if self.dataset_args.dataset_path is not None:
