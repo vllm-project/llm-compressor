@@ -27,6 +27,7 @@ from llmcompressor.pipelines.sequential.helpers import (
 )
 from llmcompressor.pipelines.sequential.offload import (
     _submit_subgraph_staging,
+    get_fused_weight_dependencies,
     materialize_modules,
     subgraph_offload_modules,
     subgraph_stage_modules,
@@ -136,6 +137,7 @@ class SequentialPipeline(CalibrationPipeline):
         )
 
         LifecycleCallbacks.calibration_start()
+        module_names = {module: name for name, module in model.named_modules()}
 
         # partitioned once modifiers have started, so that "auto" can estimate the
         # memory they need
@@ -235,6 +237,13 @@ class SequentialPipeline(CalibrationPipeline):
                     stage_future.result()
                 prefetched_staging = None
 
+                # Fused observers can read weights owned by a later subgraph.
+                # Keep these dependencies separate from calibration targets.
+                weight_dependencies = get_fused_weight_dependencies(
+                    subgraph_modules, restructure_handler, module_names
+                )
+                modules_to_materialize = subgraph_modules | weight_dependencies
+
                 # prepare tqdm description texts
                 calib_desc = f"({subgraph_index + 1}/{num_subgraphs}): Calibrating"
                 prop_desc = f"({subgraph_index + 1}/{num_subgraphs}): Propagating"
@@ -254,7 +263,7 @@ class SequentialPipeline(CalibrationPipeline):
                     prefetched_staging = _submit_subgraph_staging(
                         stage_executor,
                         next_subgraph_modules,
-                        subgraph_modules,
+                        modules_to_materialize,
                         restructure_handler,
                         stage_weights_in_pinned_memory,
                     )
@@ -263,7 +272,7 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = materialize_modules(
-                    subgraph_modules, restructure_handler, onload_device
+                    modules_to_materialize, restructure_handler, onload_device
                 )
 
                 # do a preliminary pass to trigger modifier hooks
@@ -294,6 +303,7 @@ class SequentialPipeline(CalibrationPipeline):
                     session.state.sequential_activations = None
 
                 LifecycleCallbacks.sequential_epoch_end(subgraph_modules)
+                subgraph_offload_modules(weight_dependencies, offload_kwargs)
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures

@@ -27,7 +27,35 @@ __all__ = [
     "subgraph_stage_modules",
     "materialize_modules",
     "subgraph_offload_modules",
+    "get_fused_weight_dependencies",
 ]
+
+
+def get_fused_weight_dependencies(
+    modules: dict[str, Module],
+    restructure_handler: RestructureHandler,
+    module_names: dict[Module, str],
+) -> dict[str, Module]:
+    """Pending fused siblings needed for observation outside this subgraph.
+
+    Pending materialization is identical across ranks, even when observation is
+    assigned to a subset of ranks and their observer statistics differ.
+    """
+    current_modules = set(modules.values())
+    dependencies = {}
+    for module in modules.values():
+        observer = getattr(module, "weight_observer", None)
+        if observer is None:
+            continue
+        for sibling in observer.fusion_handler.fused_modules:
+            entry = restructure_handler.mapping.get(sibling)
+            if (
+                sibling not in current_modules
+                and entry is not None
+                and not entry["materialized"]
+            ):
+                dependencies[module_names[sibling]] = sibling
+    return dependencies
 
 
 def _source_modules(

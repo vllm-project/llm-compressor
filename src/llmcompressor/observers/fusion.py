@@ -40,6 +40,18 @@ class FusionHandler:
             return None
         return self._module_ref()
 
+    @property
+    def fused_modules(self) -> list[Module]:
+        """Weight modules whose statistics are shared by this fusion group."""
+        if not self.is_fused:
+            return []
+        modules = []
+        for handler in [self] + self._group:
+            module = handler.module
+            assert module is not None, _msg
+            modules.append(module)
+        return modules
+
     @classmethod
     def fuse(cls, observers_and_modules: Iterable[tuple["Observer", Module]]) -> None:
         """

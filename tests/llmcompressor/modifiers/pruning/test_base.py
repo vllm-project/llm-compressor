@@ -215,6 +215,36 @@ def test_mone_initialize_accepts_aggressive_sparsity():
     assert modifier._n_experts_to_drop == 6
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "modifier_cls",
+    [
+        REAPPruningModifier,
+        MoNePruningModifier,
+        HOPEPruningModifier,
+        RazorPruningModifier,
+    ],
+)
+def test_meta_experts_allocate_real_pruning_statistics(modifier_cls, monkeypatch):
+    model = _model().to("meta")
+    modifier = modifier_cls(sparsity=0.5)
+    state = make_state(model)
+    modifier.initialize(state)
+    monkeypatch.setattr(
+        "llmcompressor.modifiers.pruning.expert_sparsity.base.get_main_device",
+        lambda: torch.device("cpu"),
+    )
+
+    modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+    assert set(modifier._moe_stats) == {"layers.0", "layers.1"}
+    for stats in modifier._moe_stats.values():
+        for value in stats.values():
+            assert value.device == torch.device("cpu")
+            assert value.count_nonzero().item() == 0
+    assert all(parameter.is_meta for parameter in model.parameters())
+
+
 # ---------------------------------------------------------------------------
 # Tests: retained-expert selection
 # ---------------------------------------------------------------------------
