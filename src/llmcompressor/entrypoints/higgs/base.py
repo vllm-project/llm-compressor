@@ -6,7 +6,7 @@ MSE collection and high-level API for ILP-based mixed-precision quantization.
 
 import os
 import time
-from typing import List, Optional, Union
+from typing import Optional, Union
 
 import torch
 from compressed_tensors.compressors.format import _flatten_formats
@@ -65,7 +65,7 @@ class HiggsMSECollectorConverter(Converter):
     def __init__(
         self,
         candidate_schemes: list[Union[str, QuantizationScheme]],
-        targets: Union[str, List[str]] = "Linear",
+        targets: Union[str, list[str]] = "Linear",
         ignore: list[str] = None,
         device: Union[str, torch.device] = None,
         target_avg_bitwidth: Optional[float] = None,
@@ -305,7 +305,7 @@ class HiggsMSECollectorConverter(Converter):
 def get_higgs_config(
     model_stub: Union[str, os.PathLike],
     candidate_schemes: list[Union[str, QuantizationScheme]],
-    targets: Union[str, List[str]] = "Linear",
+    targets: Union[str, list[str]] = "Linear",
     ignore: list[str] = None,
     target_avg_bitwidth: Optional[float] = None,
     target_avg_act_bitwidth: Optional[float] = None,

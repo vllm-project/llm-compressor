@@ -82,7 +82,7 @@ class CompressionLifecycle:
 
         :param kwargs: Additional arguments to update the state with
         :return: List of data returned from initialization of modifiers
-        :rtype: List[Any]
+        :rtype: list[Any]
         """
 
         self.state.update(**kwargs)
@@ -120,7 +120,7 @@ class CompressionLifecycle:
 
         :param kwargs: Additional arguments to update the state with
         :return: List of data returned from finalizing modifiers
-        :rtype: List[Any]
+        :rtype: list[Any]
         :raises ValueError: If called before initialization or more than once
         """
         if not self.initialized_:
@@ -158,7 +158,7 @@ class CompressionLifecycle:
         :type event_type: EventType
         :param kwargs: Additional arguments to pass to the event handlers
         :return: List of data returned from handling the event by modifiers
-        :rtype: List[Any]
+        :rtype: list[Any]
         :raises ValueError: If called before initialization, after finalization,
             or for an invalid event type
         """

@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import List, Optional, TypedDict
+from typing import Optional, TypedDict
 
 import torch
 from compressed_tensors import InternalModule
@@ -40,7 +40,7 @@ class Observer(InternalModule, RegistryMixin):
     _act_sync_dict: dict[str, dist.ReduceOp] = {}
 
     # Attribute names that constitute this observer's statistics
-    _stats_attrs: List[str] = ["min_vals", "max_vals"]
+    _stats_attrs: list[str] = ["min_vals", "max_vals"]
 
     def __init__(
         self,

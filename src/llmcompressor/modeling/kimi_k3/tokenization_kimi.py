@@ -222,7 +222,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
         Decodes a list of token IDs into a string.
 
         Args:
-            token_ids (List[int]): The list of token IDs to be decoded.
+            token_ids (list[int]): The list of token IDs to be decoded.
 
         Returns:
             str: The decoded string.
