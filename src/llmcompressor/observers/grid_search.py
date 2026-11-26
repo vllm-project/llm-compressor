@@ -65,8 +65,15 @@ def _grid_search_observer(
     importance_weights: torch.Tensor | None = None,
     magnitude_normalization: bool = False,
     grid_type: str | None = None,
+    base_range: MinMaxTuple | None = None,
 ) -> MinMaxTuple:
-    """Search candidate ranges using linear or exponential shrinkage."""
+    """Search candidate ranges using linear or exponential shrinkage.
+
+    When ``base_range`` is supplied, the search starts from that range
+    instead of the observed min/max; the first grid point (multiplier 1)
+    reproduces the base range itself, so the search result is never worse
+    than the base range under the configured error norm.
+    """
     if (
         args.strategy == QuantizationStrategy.TENSOR_GROUP
         and args.scale_dtype is not None
@@ -75,8 +82,12 @@ def _grid_search_observer(
 
     grid_type = _resolve_grid_type(grid_type, args)
 
-    min_vals = torch.amin(observed, dim=(0, -1)) * expand
-    max_vals = torch.amax(observed, dim=(0, -1)) * expand
+    if base_range is not None:
+        min_vals = base_range[0] * expand
+        max_vals = base_range[1] * expand
+    else:
+        min_vals = torch.amin(observed, dim=(0, -1)) * expand
+        max_vals = torch.amax(observed, dim=(0, -1)) * expand
 
     # Round QDQ differences in the observed dtype, then compute powers and
     # accumulate scores in FP32. Packed and split paths differ only in reduction.
@@ -235,6 +246,7 @@ def _grid_search_observer_triton(
     importance_weights: torch.Tensor | None = None,
     magnitude_normalization: bool = False,
     grid_type: str | None = None,
+    base_range: MinMaxTuple | None = None,
 ) -> MinMaxTuple:
     """Shared Triton implementation of MSE and iMatrix grid search."""
     # Triton always evaluates every candidate; patience controls eager search.
@@ -247,8 +259,12 @@ def _grid_search_observer_triton(
 
     grid_type = _resolve_grid_type(grid_type, args)
 
-    min_val = torch.amin(observed, dim=(0, -1)) * expand
-    max_val = torch.amax(observed, dim=(0, -1)) * expand
+    if base_range is not None:
+        min_val = base_range[0] * expand
+        max_val = base_range[1] * expand
+    else:
+        min_val = torch.amin(observed, dim=(0, -1)) * expand
+        max_val = torch.amax(observed, dim=(0, -1)) * expand
     qparam_args = (
         args.model_copy(update={"scale_dtype": None})
         if args.scale_dtype is not None
