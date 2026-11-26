@@ -1,4 +1,6 @@
+import numpy as np
 import pytest
+import torch
 
 from llmcompressor.args import DatasetArguments
 from llmcompressor.datasets.utils import DataCollatorWithTruncation
@@ -59,3 +61,57 @@ class TestDataCollatorWithTruncation:
         assert result["input_ids"].shape[1] == 10
         assert result["attention_mask"].shape[1] == 10
         assert result["mm_token_type_ids"].shape[1] == 10
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("max_seq_length", [None, 4])
+    def test_truncates_other_token_aligned_features(self, max_seq_length):
+        # e.g. `token_type_ids` from a multimodal processor, or `position_ids`
+        # in a pre-tokenized dataset
+        features = _make_features([6, 9])
+        for feature in features:
+            length = len(feature["input_ids"])
+            feature["token_type_ids"] = [0] * length
+            feature["position_ids"] = torch.arange(length)
+
+        result = DataCollatorWithTruncation(max_seq_length)(features)
+
+        expected_len = 6 if max_seq_length is None else max_seq_length
+        for key in ("input_ids", "attention_mask", "token_type_ids", "position_ids"):
+            assert result[key].shape == (2, expected_len), key
+        assert result["position_ids"][1].tolist() == list(range(expected_len))
+
+    @pytest.mark.unit
+    def test_does_not_truncate_non_token_features(self):
+        features = _make_features([6, 9])
+        for feature in features:
+            feature["pixel_values"] = torch.ones(3, 2, 2)
+            feature["image_grid_thw"] = [[1, 2, 2]]
+
+        result = DataCollatorWithTruncation()(features)
+
+        assert result["input_ids"].shape == (2, 6)
+        assert result["pixel_values"].shape == (2, 3, 2, 2)
+        assert result["image_grid_thw"].shape == (2, 1, 3)
+
+    @pytest.mark.unit
+    def test_truncates_known_keys_without_input_ids(self):
+        features = [{"labels": [1] * 6}, {"labels": [1] * 9}]
+
+        result = DataCollatorWithTruncation(max_seq_length=4)(features)
+
+        assert result["labels"].shape == (2, 4)
+
+    @pytest.mark.unit
+    def test_truncates_numpy_token_aligned_features(self):
+        features = _make_features([6, 9])
+        for feature in features:
+            length = len(feature["input_ids"])
+            feature["token_type_ids"] = np.zeros(length, dtype=np.int64)
+            feature["position_ids"] = list(np.arange(length))
+            feature["pixel_values"] = np.ones((3, 2, 2), dtype=np.float32)
+
+        result = DataCollatorWithTruncation()(features)
+
+        assert result["token_type_ids"].shape == (2, 6)
+        assert result["position_ids"].shape == (2, 6)
+        assert result["pixel_values"].shape == (2, 3, 2, 2)

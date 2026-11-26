@@ -297,29 +297,75 @@ def _make_sampler(args: DatasetArguments, dataset: Dataset) -> Sampler:
 
 
 class DataCollatorWithTruncation:
+    """
+    Collate a batch by truncating every per-token sequence to the length of the
+    shortest sample in the batch (and to `max_seq_length`, if set).
+
+    Besides `input_ids`, `labels`, `attention_mask`, `loss_mask` and
+    `mm_token_type_ids`, any other one-dimensional feature with one entry per token
+    of its sample's `input_ids` (e.g. `token_type_ids` from Gemma 3's processor, or
+    `position_ids` in a pre-tokenized dataset) is truncated to the same length, so
+    that batches stay rectangular and aligned with `input_ids`.
+    """
+
+    SEQUENCE_KEYS = (
+        "input_ids",
+        "labels",
+        "attention_mask",
+        "loss_mask",
+        "mm_token_type_ids",
+    )
+
     def __init__(self, max_seq_length: int | None = None):
         self.max_seq_length = max_seq_length
 
     def __call__(
         self, features: list[dict[str, Any]], return_tensors: str = "pt"
     ) -> dict[str, Any]:
-        for key in (
-            "input_ids",
-            "labels",
-            "attention_mask",
-            "loss_mask",
-            "mm_token_type_ids",
-        ):
-            if any(key not in feature for feature in features):
-                continue
-
-            min_len = min(len(feature[key]) for feature in features)
-            if self.max_seq_length is not None:
-                min_len = min(min_len, self.max_seq_length)
+        if all("input_ids" in feature for feature in features):
+            min_len = self._truncated_length(
+                [len(feature["input_ids"]) for feature in features]
+            )
             for feature in features:
-                feature[key] = feature[key][:min_len]
+                seq_len = len(feature["input_ids"])
+                for key, value in feature.items():
+                    if key in self.SEQUENCE_KEYS or _is_token_aligned(value, seq_len):
+                        feature[key] = value[:min_len]
+        else:
+            for key in self.SEQUENCE_KEYS:
+                if any(key not in feature for feature in features):
+                    continue
+
+                min_len = self._truncated_length(
+                    [len(feature[key]) for feature in features]
+                )
+                for feature in features:
+                    feature[key] = feature[key][:min_len]
 
         return default_data_collator(features, return_tensors)
+
+    def _truncated_length(self, lengths: list[int]) -> int:
+        min_len = min(lengths)
+        if self.max_seq_length is not None:
+            min_len = min(min_len, self.max_seq_length)
+        return min_len
+
+
+def _is_token_aligned(value: Any, seq_len: int) -> bool:
+    """
+    Whether `value` is a flat (one-dimensional) sequence with one entry per token,
+    i.e. it should be truncated together with `input_ids`. Nested values such as
+    `pixel_values` or `image_grid_thw` are never considered token-aligned.
+    """
+    # duck-type on `ndim`/`shape` so numpy arrays are handled like torch tensors
+    if hasattr(value, "ndim") and hasattr(value, "shape"):
+        return value.ndim == 1 and value.shape[0] == seq_len
+    if isinstance(value, (list, tuple)):
+        return len(value) == seq_len and not any(
+            isinstance(item, (list, tuple)) or getattr(item, "ndim", 0) > 0
+            for item in value
+        )
+    return False
 
 
 class LengthAwareSampler(Sampler[int]):
