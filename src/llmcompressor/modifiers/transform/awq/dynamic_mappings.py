@@ -224,17 +224,21 @@ def build_step3p5_mappings(model: Module) -> list[AWQMapping] | None:
 
 def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
     """
-    Build AWQ mappings for Gemma4ForConditionalGeneration and
-    Gemma4UnifiedForConditionalGeneration.
+    Build AWQ mappings for Gemma4ForCausalLM, Gemma4ForConditionalGeneration,
+    and Gemma4UnifiedForConditionalGeneration.
 
-    Gemma4 has hybrid attention with two types of layers:
-    - sliding_attention layers: have separate k_proj and v_proj (GQA)
-    - full_attention layers: share k=v projection (no separate v_proj)
+    Gemma4 has hybrid attention and optional KV-cache sharing across the final
+    ``num_kv_shared_layers`` decoder layers:
+    - non-KV-shared sliding_attention layers: have q_proj, k_proj, and v_proj
+    - non-KV-shared full_attention layers: share k=v when ``attention_k_eq_v``
+      is True (q_proj and k_proj only; no separate v_proj)
+    - KV-shared layers: reuse an earlier layer's KV states and only define
+      q_proj (no k_proj or v_proj)
 
-    For sliding_attention layers with GQA, the v_proj -> o_proj mapping is
-    skipped since it would hit a GQA dimension mismatch. For full_attention
-    layers, k and v are shared, so the k_proj -> o_proj mapping is also
-    skipped since altering k_proj would change the attention behavior.
+    v_proj -> o_proj is not mapped. Sliding layers use GQA, so the smooth and
+    balance widths differ, and full-attention layers with ``attention_k_eq_v``
+    reuse ``k_proj`` as ``v`` (changing ``k_proj`` would change attention).
+    KV-shared layers map ``input_layernorm`` to ``q_proj`` only.
     """
     config = model.config
     text_config = config.get_text_config()
@@ -244,51 +248,74 @@ def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
     if layer_types is None or num_layers is None:
         return None
 
-    # Find sliding and full attention layer indices
-    sliding_indices = [
-        i for i, t in enumerate(layer_types[:num_layers]) if t == "sliding_attention"
-    ]
-    full_indices = [
-        i for i, t in enumerate(layer_types[:num_layers]) if t == "full_attention"
-    ]
+    num_kv_shared = getattr(text_config, "num_kv_shared_layers", 0) or 0
+    first_kv_shared = max(0, num_layers - num_kv_shared)
+    attention_k_eq_v = bool(getattr(text_config, "attention_k_eq_v", True))
 
-    if not sliding_indices and not full_indices:
+    active_types = layer_types[:num_layers]
+    qkv_indices = [
+        i
+        for i, t in enumerate(active_types[:first_kv_shared])
+        if t == "sliding_attention" or (t == "full_attention" and not attention_k_eq_v)
+    ]
+    qk_indices = [
+        i
+        for i, t in enumerate(active_types[:first_kv_shared])
+        if t == "full_attention" and attention_k_eq_v
+    ]
+    kv_shared_indices = list(range(first_kv_shared, min(num_layers, len(active_types))))
+
+    if not qkv_indices and not qk_indices and not kv_shared_indices:
         return None
+
+    has_language_model = any(
+        name == "language_model" or name.endswith(".language_model")
+        for name, _ in model.named_modules()
+    )
+    prefix = r"re:.*language_model\." if has_language_model else "re:.*"
 
     mappings = []
 
-    # Sliding attention layers: input_layernorm -> q/k/v_proj
-    # Balance layers must also be scoped to sliding layers only to avoid
-    # matching full attention layers which don't have v_proj
-    if sliding_indices:
-        sliding_re = "|".join(str(i) for i in sliding_indices)
+    # Non-KV-shared layers with separate q/k/v projections
+    if qkv_indices:
+        qkv_re = "|".join(str(i) for i in qkv_indices)
         mappings.append(
             AWQMapping(
-                f"re:.*layers\\.({sliding_re})\\.input_layernorm$",
+                f"{prefix}layers\\.({qkv_re})\\.input_layernorm$",
                 [
-                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.q_proj$",
-                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.k_proj$",
-                    f"re:.*layers\\.({sliding_re})\\.self_attn\\.v_proj$",
+                    f"{prefix}layers\\.({qkv_re})\\.self_attn\\.q_proj$",
+                    f"{prefix}layers\\.({qkv_re})\\.self_attn\\.k_proj$",
+                    f"{prefix}layers\\.({qkv_re})\\.self_attn\\.v_proj$",
                 ],
             )
         )
-        # No v_proj -> o_proj mapping due to GQA dimension mismatch is unsupported
+        # Skip v_proj -> o_proj: GQA makes the smooth and balance widths differ.
 
-    # Full attention layers: input_layernorm -> q/k_proj (k=v, no separate v_proj)
-    # Balance layers scoped to full attention layers only
-    # Note: can't do k_proj -> o_proj mapping since that would alter the attention
-    if full_indices:
-        full_re = "|".join(str(i) for i in full_indices)
+    # Non-KV-shared full-attention layers with k=v (no separate v_proj)
+    if qk_indices:
+        qk_re = "|".join(str(i) for i in qk_indices)
         mappings.append(
             AWQMapping(
-                f"re:.*layers\\.({full_re})\\.input_layernorm$",
+                f"{prefix}layers\\.({qk_re})\\.input_layernorm$",
                 [
-                    f"re:.*layers\\.({full_re})\\.self_attn\\.q_proj$",
-                    f"re:.*layers\\.({full_re})\\.self_attn\\.k_proj$",
+                    f"{prefix}layers\\.({qk_re})\\.self_attn\\.q_proj$",
+                    f"{prefix}layers\\.({qk_re})\\.self_attn\\.k_proj$",
                 ],
             )
         )
         # No k_proj -> o_proj mapping, altering k_proj would change attention behavior
+
+    # KV-shared layers only have q_proj (no k_proj or v_proj)
+    if kv_shared_indices:
+        kv_shared_re = "|".join(str(i) for i in kv_shared_indices)
+        mappings.append(
+            AWQMapping(
+                f"{prefix}layers\\.({kv_shared_re})\\.input_layernorm$",
+                [
+                    f"{prefix}layers\\.({kv_shared_re})\\.self_attn\\.q_proj$",
+                ],
+            )
+        )
 
     all_re = "|".join(str(i) for i in range(num_layers))
     is_moe = bool(getattr(text_config, "enable_moe_block", False))
@@ -296,10 +323,10 @@ def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
     # Dense MLP: pre_feedforward_layernorm -> mlp gate/up_proj
     mappings.append(
         AWQMapping(
-            f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm$",
+            f"{prefix}layers\\.({all_re})\\.pre_feedforward_layernorm$",
             [
-                f"re:.*layers\\.({all_re})\\.mlp\\.gate_proj$",
-                f"re:.*layers\\.({all_re})\\.mlp\\.up_proj$",
+                f"{prefix}layers\\.({all_re})\\.mlp\\.gate_proj$",
+                f"{prefix}layers\\.({all_re})\\.mlp\\.up_proj$",
             ],
         )
     )
@@ -308,20 +335,26 @@ def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
     if is_moe:
         mappings.append(
             AWQMapping(
-                f"re:.*layers\\.({all_re})\\.pre_feedforward_layernorm_2$",
+                f"{prefix}layers\\.({all_re})\\.pre_feedforward_layernorm_2$",
                 [
-                    f"re:.*layers\\.({all_re})\\.experts\\..*\\.gate_proj$",
-                    f"re:.*layers\\.({all_re})\\.experts\\..*\\.up_proj$",
+                    f"{prefix}layers\\.({all_re})\\.experts\\..*\\.gate_proj$",
+                    f"{prefix}layers\\.({all_re})\\.experts\\..*\\.up_proj$",
                 ],
             )
         )
 
-    mappings.append(AWQMapping("re:.*up_proj$", ["re:.*down_proj$"]))
+    mappings.append(
+        AWQMapping(
+            f"{prefix}layers\\..*up_proj$",
+            [f"{prefix}layers\\..*down_proj$"],
+        )
+    )
 
     logger.info(
         f"Built dynamic Gemma4 AWQ mappings: "
-        f"{len(sliding_indices)} sliding-attention layers, "
-        f"{len(full_indices)} full-attention layers (k=v), MoE: {is_moe}"
+        f"{len(qkv_indices)} q/k/v layers, "
+        f"{len(qk_indices)} q/k (k=v) layers, "
+        f"{len(kv_shared_indices)} kv-shared (q-only) layers, MoE: {is_moe}"
     )
 
     return mappings
@@ -330,6 +363,7 @@ def build_gemma4_mappings(model: PreTrainedModel) -> list[AWQMapping] | None:
 # Builders may require a `PreTrainedModel` even though the public entrypoint
 # accepts any `Module`, so the value type is relaxed to `Callable[...]`
 AWQ_DYNAMIC_MAPPING_REGISTRY: dict[str, Callable[..., list[AWQMapping] | None]] = {
+    "Gemma4ForCausalLM": build_gemma4_mappings,
     "Gemma4ForConditionalGeneration": build_gemma4_mappings,
     "Gemma4UnifiedForConditionalGeneration": build_gemma4_mappings,
     "Qwen3NextForCausalLM": build_hybrid_attention_mappings,
