@@ -20,10 +20,9 @@ with load_context():
     )
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
-# Start from the NVFP4A16 preset (FP4 weights with group size 16), then use
-# the expanded imatrix observer to choose ranges with activation importance.
+# Start from the NVFP4A16 preset (FP4 weights with group size 16). With
+# calibration data, the modifier uses imatrix_mse and its NVFP4 search defaults.
 scheme = preset_name_to_scheme("NVFP4A16", ["Linear"])
-scheme.weights.observer = "nvfp4_expanded_imatrix"
 
 recipe = [
     QuantizationModifier(
@@ -52,6 +51,6 @@ output = model.generate(**sample, max_new_tokens=100)
 print(tokenizer.decode(output[0]))
 print("==========================================\n\n")
 
-save_dir = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16-expanded-imatrix"
+save_dir = MODEL_ID.rstrip("/").split("/")[-1] + "-NVFP4A16-imatrix"
 model.save_pretrained(save_dir, save_compressed=True)
 tokenizer.save_pretrained(save_dir)

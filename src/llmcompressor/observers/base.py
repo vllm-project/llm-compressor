@@ -4,7 +4,10 @@ from typing import Dict, List, Optional, Tuple, TypedDict
 import torch
 from compressed_tensors import InternalModule
 from compressed_tensors.offload.dist_utils import as_broadcastable
-from compressed_tensors.quantization import QuantizationArgs, QuantizationStrategy
+from compressed_tensors.quantization import (
+    QuantizationArgs,
+    QuantizationStrategy,
+)
 from compressed_tensors.quantization.utils import calculate_qparams, generate_gparam
 from compressed_tensors.registry.registry import RegistryMixin
 from torch import distributed as dist
@@ -14,6 +17,8 @@ from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["Observer", "MinMaxTuple", "QParamsDict"]
 
+
+ObserverKwargs = dict[str, int | float | bool | str | None]
 
 MinMaxTuple = Tuple[torch.Tensor, torch.Tensor]
 
@@ -50,10 +55,14 @@ class Observer(InternalModule, RegistryMixin):
     ):
         super().__init__()
         self.base_name = base_name
-        self.args = args
-
-        self.args.observer_kwargs = self.args.observer_kwargs or {}
-        self.args.observer_kwargs.update(observer_kwargs)
+        self.args = args.model_copy(
+            update={
+                "observer_kwargs": {
+                    **(args.observer_kwargs or {}),
+                    **observer_kwargs,
+                }
+            }
+        )
 
         self.fusion_handler = FusionHandler(self)
 

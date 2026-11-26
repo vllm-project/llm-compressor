@@ -3,7 +3,6 @@ from copy import deepcopy
 from typing import Any
 
 import torch
-from compressed_tensors.compressors import NVFP4PackedCompressor
 from compressed_tensors.distributed import wait_for_comms
 from compressed_tensors.modeling import (
     IMPL_ATTR,
@@ -47,8 +46,13 @@ from llmcompressor.modifiers.quantization.calibration import (
 from llmcompressor.modifiers.quantization.group_size_validation import (
     validate_group_size_divisibility,
 )
+from llmcompressor.modifiers.quantization.helpers import (
+    get_default_weight_observer,
+    get_weight_observer_defaults,
+)
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers import ACTIVATION_OBS, fuse_weight_observers
+from llmcompressor.observers.base import ObserverKwargs
 from llmcompressor.utils import (
     targets_embeddings,
     untie_word_embeddings,
@@ -84,10 +88,11 @@ class QuantizationMixin(HooksMixin):
         `update_qparams(modules, base_name="weight")`.
         See QuantizationModifier.on_event method for example
 
-    NOTE: When no observer is specified, weight observers default to
-        `imatrix_mse` if calibration data is available to the session and
-        `memoryless_minmax` otherwise. Activation observers default to
-        `minmax`.
+    NOTE: When no observer is specified, FP8 weights default to
+        `memoryless_minmax`. Other weight observers default to `imatrix_mse` if
+        calibration data is available and `memoryless_minmax` otherwise, except
+        MXFP4 weights without calibration data use `memoryless_mse`. Activation
+        observers default to `minmax`.
 
     :param config_groups: dictionary specifying quantization schemes to apply to target
         modules. Modules not matching a scheme target will NOT be quantized.
@@ -118,8 +123,10 @@ class QuantizationMixin(HooksMixin):
     :param weight_observer: optional observer name for weight quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax",
-        "memoryless_mse", and "imatrix_mse". Defaults to "imatrix_mse" when
-        calibration data is available and "memoryless_minmax" otherwise.
+        "memoryless_mse", and "imatrix_mse". Defaults to "memoryless_minmax"
+        for FP8 weights, "imatrix_mse" for other weights when calibration data is
+        available, and "memoryless_minmax" otherwise, except MXFP4 weights use
+        "memoryless_mse" without calibration data.
     :param input_observer: optional observer name for input activation quantization.
         Overrides the default observer specified in the scheme. Valid values
         include "minmax", "mse", "static_minmax", "memoryless_minmax", "memoryless_mse".
@@ -360,10 +367,7 @@ class QuantizationMixin(HooksMixin):
 
         for scheme in self.resolve_quantization_config().config_groups.values():
             if scheme.weights is not None:
-                if scheme.weights.observer in (
-                    "imatrix_mse",
-                    "nvfp4_expanded_imatrix",
-                ):
+                if scheme.weights.observer == "imatrix_mse":
                     self.requires_calibration_data = True
                     return self
             if scheme.input_activations is not None:
@@ -464,10 +468,11 @@ class QuantizationMixin(HooksMixin):
         Apply observer overrides from weight_observer, input_observer, output_observer,
         or observer dict to the quantization scheme.
 
-        Weight observers default to ``imatrix_mse`` when calibration data is
-        available (so that activation importance can be accumulated) and to
-        ``memoryless_minmax`` otherwise. Activation observers default to
-        ``minmax``.
+        FP8 weight observers default to ``memoryless_minmax``. Other weight
+        observers default to ``imatrix_mse`` when calibration data is available
+        and ``memoryless_minmax`` otherwise, except MXFP4 weights without
+        calibration data use ``memoryless_mse``. Activation observers default
+        to ``minmax``.
 
         :param scheme: QuantizationScheme to modify
         :param has_calibration_data: whether calibration data will be available
@@ -534,26 +539,15 @@ class QuantizationMixin(HooksMixin):
     def _default_weight_observer(
         self, has_calibration_data: bool, scheme: QuantizationScheme
     ) -> str:
-        """Select the default observer based on calibration data and weight format."""
-        if has_calibration_data:
-            modifiers = active_session().lifecycle.recipe.modifiers
-            if any(modifier is self for modifier in modifiers):
-                from llmcompressor.modifiers.transform.awq import AWQModifier
+        """Select the common default weight observer."""
+        return get_default_weight_observer(scheme, has_calibration_data)
 
-                # AWQ spins up its own observers so the quantizations shouldn't
-                # default to imat unless AWQ is updated to use real observers
-                if any(isinstance(modifier, AWQModifier) for modifier in modifiers):
-                    return "memoryless_minmax"
-
-            # Use the compressor's scheme predicate to keep NVFP4 detection in
-            # sync with the packed format. Linear is a supported module type.
-            if NVFP4PackedCompressor.can_compress(torch.nn.Linear, scheme):
-                return "nvfp4_expanded_imatrix"
-
-        # The imatrix observer weights quantization error by per-channel
-        # activation importance, which can only be accumulated when
-        # calibration data is available.
-        return "imatrix_mse" if has_calibration_data else "memoryless_minmax"
+    def _get_weight_observer_defaults(
+        self,
+        scheme: QuantizationScheme,
+    ) -> ObserverKwargs:
+        """Return format-specific parameters for the selected weight observer."""
+        return get_weight_observer_defaults(scheme)
 
     def _initialize_observers(self, module: torch.nn.Module):
         if not hasattr(module, "quantization_scheme"):
@@ -581,7 +575,14 @@ class QuantizationMixin(HooksMixin):
 
         # weight observers (used by child modifier or `observe` and `update_qparams`)
         if weight:
-            initialize_observer(module, base_name="weight")
+            observer_kwargs = self._get_weight_observer_defaults(scheme)
+            # Explicit observer kwargs take precedence over modifier defaults.
+            observer_kwargs.update(scheme.weights.observer_kwargs or {})
+            initialize_observer(
+                module,
+                base_name="weight",
+                observer_kwargs=observer_kwargs,
+            )
 
         # output activations
         if output:

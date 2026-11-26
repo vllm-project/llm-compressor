@@ -142,7 +142,7 @@ from llmcompressor import model_free_ptq
 from compressed_tensors.quantization import preset_name_to_scheme
 
 nvfp4_scheme = preset_name_to_scheme("NVFP4A16", targets=["Linear"])
-nvfp4_scheme.weights.observer = "nvfp4_expanded_mse"
+nvfp4_scheme.weights.observer = "memoryless_mse"
 
 model_free_ptq(
     model_stub="unsloth/Kimi-K2-Thinking-BF16",
@@ -159,7 +159,11 @@ model_free_ptq(
 )
 ```
 
-Note: The above setup changes the observer to our recommended NVFP4/NVFP4A16 observer though you can use the default observer if desired
+`model_free_ptq` uses the no-calibration observer policy and format-specific
+MSE kwargs shared with quantization modifiers. This example explicitly selects
+`memoryless_mse` to request an MSE search; model-free PTQ supplies the NVFP4
+range and objective settings. If the observer is omitted, NVFP4 uses
+`memoryless_minmax`.
 
 ## Ignoring Layers
 

@@ -67,6 +67,12 @@ def model_free_ptq(
         they run in the given order and model-free PTQ is applied last. A
         single converter behaves as before. For example, pass an fp8
         dequantizer followed by a SpinQuantConverter
+
+    Weight observer defaults match quantization modifiers when calibration data
+    is unavailable: FP8 and most weight formats use ``memoryless_minmax``, while
+    MXFP4 uses ``memoryless_mse``. MSE observers receive the same format-specific
+    search kwargs as quantization modifiers. Explicit ``observer`` and
+    ``observer_kwargs`` values on the scheme are preserved.
     """
     model_files = get_checkpoint_files(model_stub)
     config = validate_config(config, scheme, ignore)

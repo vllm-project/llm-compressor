@@ -33,7 +33,7 @@ _LOSS_SCALE_ATTEMPTS = 32
 # observer. QAD re-observes weight qparams after their statistics are
 # consumed, which the imatrix observers do not support
 _RTN_OBSERVER = "memoryless_minmax"
-_IMATRIX_OBSERVERS = ("imatrix_mse", "nvfp4_expanded_imatrix")
+_IMATRIX_OBSERVERS = ("imatrix_mse",)
 
 
 class QADModifier(Modifier):

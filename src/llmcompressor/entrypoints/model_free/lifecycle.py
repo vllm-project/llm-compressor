@@ -11,6 +11,10 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
+from llmcompressor.modifiers.quantization.helpers import (
+    get_default_weight_observer,
+    get_weight_observer_defaults,
+)
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = [
@@ -49,8 +53,27 @@ def initialize_quantized_linear(
 
 
 def calibrate_weight(module: torch.nn.Linear):
-    initialize_observer(module, "weight")
+    initialize_weight_observer(module)
     apply_calibration_status(module)
     observe(module, base_name="weight")
     update_qparams(module, base_name="weight")
     freeze_module_quantization(module)
+
+
+def initialize_weight_observer(module: torch.nn.Linear):
+    """Initialize a weight observer with model-free, no-calibration defaults."""
+    scheme: QuantizationScheme = module.quantization_scheme
+    args = scheme.weights
+    if args is None:
+        return
+
+    if args.dynamic is not True and (
+        args.observer is None or "observer" not in args.model_fields_set
+    ):
+        args.observer = get_default_weight_observer(
+            scheme, has_calibration_data=False
+        )
+
+    observer_kwargs = get_weight_observer_defaults(scheme)
+    observer_kwargs.update(args.observer_kwargs or {})
+    initialize_observer(module, "weight", observer_kwargs=observer_kwargs)

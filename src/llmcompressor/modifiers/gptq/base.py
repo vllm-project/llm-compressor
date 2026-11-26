@@ -38,9 +38,11 @@ from llmcompressor.modifiers.quantization.calibration import (
     observe,
     update_qparams,
 )
+from llmcompressor.modifiers.quantization.helpers import is_mxfp4aN, is_nvfp4
 from llmcompressor.modifiers.quantization.quantization import QuantizationMixin
 from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 from llmcompressor.observers import ACTIVATION_OBS
+from llmcompressor.observers.base import ObserverKwargs
 from llmcompressor.sentinel import Sentinel
 from llmcompressor.utils.dist import broadcast_qparams_and_cleanup
 from llmcompressor.utils.metric_logging import CompressionLogger
@@ -131,6 +133,18 @@ class GPTQModifier(Modifier, QuantizationMixin):
         `k_proj` and `v_proj` in their names. If this is not the case
         and kv_cache_scheme != None, the quantization of kv cache will fail
     """
+
+    def _get_weight_observer_defaults(
+        self,
+        scheme: QuantizationScheme,
+    ) -> ObserverKwargs:
+        defaults = super()._get_weight_observer_defaults(scheme)
+        if scheme.weights is not None and "mse" in scheme.weights.observer:
+            if is_nvfp4(scheme):
+                defaults.update(norm=2, magnitude_normalization=False)
+            elif is_mxfp4aN(scheme):
+                defaults.update(norm=3, magnitude_normalization=True)
+        return defaults
 
     requires_calibration_data: bool = True
 

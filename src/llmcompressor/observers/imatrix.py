@@ -2,19 +2,13 @@ import math
 
 import torch
 from compressed_tensors.quantization import QuantizationStrategy
-from compressed_tensors.quantization.utils.mxfp_utils import (
-    should_generate_mx_scales,
-)
 from loguru import logger
 from torch import distributed as dist
 from torch.utils.hooks import RemovableHandle
 
 from llmcompressor.modifiers.utils.hooks import HooksMixin
 from llmcompressor.observers.base import Observer
-from llmcompressor.observers.grid_search import (
-    _grid_search_observer,
-    _resolve_grid_type,
-)
+from llmcompressor.observers.grid_search import _grid_search_observer
 from llmcompressor.observers.helpers import flatten_for_calibration
 
 __all__ = ["IMatrixMSEObserver"]
@@ -48,9 +42,9 @@ class IMatrixMSEObserver(Observer):
         patience (int): Number of consecutive candidates without a strict
             improvement before early stopping in the eager implementation.
             Triton always evaluates the full grid. ``0`` runs the full eager
-            search. Defaults to ``5``.
+            search. Defaults to ``0``.
         grid (float): Linear grid resolution or exponential candidate budget.
-            Defaults to ``100``.
+            Defaults to ``200``.
         norm (float): Power applied to absolute QDQ error before importance
             weighting. Defaults to ``2.8``.
         expand (float): Multiplier applied to observed min/max before the
@@ -58,10 +52,9 @@ class IMatrixMSEObserver(Observer):
         strict (bool): Raise an error if importance is unavailable or has an
             unsupported shape. If false, warn and fall back to uniform MSE.
             Defaults to ``False``.
-        grid_type (str or None): ``"linear"`` or ``"exponential"``. ``None``
-            selects exponential spacing when MX scales are generated (E8M0),
-            and linear spacing otherwise. Exponential candidates are powers
-            of two starting at 1. Defaults to ``None``.
+        grid_type (str): ``"linear"`` or ``"exponential"``. Defaults to
+            ``"linear"``; modifier defaults select exponential spacing for MX
+            scales. Exponential candidates are powers of two starting at 1.
         magnitude_normalization (bool): Multiply each error by
             ``sqrt(w**2 + group_absmax**2)``. Defaults to ``True``.
     """
@@ -77,13 +70,13 @@ class IMatrixMSEObserver(Observer):
         super().__init__(*args, **kwargs)
         kw = self.args.observer_kwargs
         self.maxshrink = kw.get("maxshrink", 0.95)
-        self.patience = kw.get("patience", 5)
-        self.grid = kw.get("grid", 100)
+        self.patience = kw.get("patience", 0)
+        self.grid = kw.get("grid", 200)
         self.norm = kw.get("norm", 2.8)
         self.strict = kw.get("strict", False)
         self.expand = kw.get("expand", 1.0)
         self.magnitude_normalization = kw.get("magnitude_normalization", True)
-        self.grid_type = _resolve_grid_type(kw.get("grid_type"), self.args)
+        self.grid_type = kw.get("grid_type", "linear")
 
         self._imatrix_sum: torch.Tensor | None = None
         self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
@@ -283,34 +276,3 @@ class IMatrixMSEObserver(Observer):
             )
             return None
         return imp
-
-
-@Observer.register("nvfp4_expanded_imatrix")
-class NVFP4ExpandedIMatrixObserver(IMatrixMSEObserver):
-    """
-    IMatrix observer with candidate range and grid defaults tuned for NVFP4.
-
-    Covers 1.8x down to ~0.8x of the per-group range, matching the candidate
-    range of :class:`NVFP4ExpandedMSEObserver`. It retains imatrix's default
-    magnitude normalization.
-
-    Usage::
-
-        QuantizationArgs(
-            ...
-            observer="nvfp4_expanded_imatrix",
-        )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        kw = self.args.observer_kwargs
-        if should_generate_mx_scales(self.args):
-            self.expand = kw.get("expand", 1.0)
-            self.maxshrink = kw.get("maxshrink", 1.0 - 1.0 / 64.0)
-        else:
-            self.expand = kw.get("expand", 1.8)
-            self.maxshrink = kw.get("maxshrink", 1 - 0.8 / 1.8)
-        self.grid = kw.get("grid", 200)
-        self.norm = kw.get("norm", 2.4)
-        self.patience = kw.get("patience", 1000)
