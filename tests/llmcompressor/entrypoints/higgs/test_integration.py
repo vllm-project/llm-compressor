@@ -10,6 +10,7 @@ from compressed_tensors.quantization import (
     preset_name_to_scheme,
 )
 
+import llmcompressor.entrypoints.higgs.base as higgs_base
 from llmcompressor.entrypoints.higgs import (
     HiggsMSECollectorConverter,
     compute_fused_layer_mse,
@@ -240,3 +241,122 @@ def test_alpha_heuristic_layer_types():
     attn_alpha = alphas["model.layers.0.self_attn.q_proj"]
     # Embedding should be highest
     assert embed_alpha > attn_alpha
+
+
+OLMO_ATTN = "model.layers.0.linear_attn"
+OLMO_GROUP = [f"{OLMO_ATTN}.{n}" for n in ("q_proj", "k_proj", "v_proj", "g_proj")]
+OLMO_CONTEXT = [f"{OLMO_ATTN}.a_proj", f"{OLMO_ATTN}.b_proj"]
+
+
+def _decreasing_tensors(names):
+    """Weights whose scale decreases by 10x per name, so the first name of a
+    fused group sets its global scale"""
+    generator = torch.Generator().manual_seed(0)
+    return {
+        f"{name}.weight": torch.randn(32, 32, generator=generator) * 10**-index
+        for index, name in enumerate(names)
+    }
+
+
+@pytest.fixture
+def solved_groups(monkeypatch):
+    """The fused groups that create_config passes to the ILP"""
+    groups = []
+
+    def solve_ilp(mse_matrix, fused_groups, **kwargs):
+        groups.extend(fused_groups)
+        return {name: "NVFP4A16" for name in mse_matrix}
+
+    monkeypatch.setattr(higgs_base, "solve_ilp_mixed_precision", solve_ilp)
+    return groups
+
+
+def test_mse_collector_sees_fused_context_in_other_shards():
+    """
+    OLMo-Hybrid q/k/v/g_proj are fused only next to a_proj and b_proj, which
+    can be stored in another shard
+    """
+    collector = HiggsMSECollectorConverter(candidate_schemes=["NVFP4A16"], ignore=[])
+    collector.set_weight_names({f"{name}.weight" for name in OLMO_GROUP + OLMO_CONTEXT})
+
+    tensors = _decreasing_tensors(OLMO_GROUP)
+    collector.process(tensors)
+
+    g_proj = OLMO_GROUP[-1]
+    scheme = collector.candidate_schemes["NVFP4A16"]
+    independent_mse = compute_layer_mse(tensors[f"{g_proj}.weight"], scheme)
+    # the much larger q_proj sets the global scale shared with g_proj
+    assert collector.mse_matrix[g_proj]["NVFP4A16"] != pytest.approx(independent_mse)
+
+
+def test_mse_collector_sees_ignored_fused_context_in_the_shard(solved_groups):
+    """
+    Without set_weight_names, ignored layers of the shard are context too, in
+    process() and in the ILP groups of create_config()
+    """
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=["NVFP4A16"], ignore=OLMO_CONTEXT
+    )
+    tensors = _decreasing_tensors(OLMO_GROUP + OLMO_CONTEXT)
+    collector.process(tensors)
+    collector.create_config()
+
+    g_proj = OLMO_GROUP[-1]
+    scheme = collector.candidate_schemes["NVFP4A16"]
+    independent_mse = compute_layer_mse(tensors[f"{g_proj}.weight"], scheme)
+    assert collector.mse_matrix[g_proj]["NVFP4A16"] != pytest.approx(independent_mse)
+    assert solved_groups == [OLMO_GROUP]
+
+
+def test_mse_collector_sees_ignored_fused_context(solved_groups):
+    """The ILP keeps a fused group whose context layers are ignored"""
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=["NVFP4A16"], ignore=OLMO_CONTEXT
+    )
+    tensors = _decreasing_tensors(OLMO_GROUP + OLMO_CONTEXT)
+    collector.set_weight_names(set(tensors))
+    collector.process(tensors)
+    collector.create_config()
+
+    assert solved_groups == [OLMO_GROUP]
+
+
+MLA = "model.layers.0.attention"
+MLA_LAYERS = [f"{MLA}.{n}" for n in ("q_a_proj", "kv_a_proj_with_mqa", "g_proj")]
+KDA = "model.layers.1.attention"
+KDA_LAYERS = [f"{KDA}.{n}" for n in ("q_proj", "k_proj", "v_proj", "b_proj")]
+KDA_QKV = KDA_LAYERS[:3]
+
+
+@pytest.mark.parametrize(
+    "layers, ignore, expected",
+    [
+        # an ignored optional layer leaves the required ones fused
+        (MLA_LAYERS, [MLA_LAYERS[2]], [MLA_LAYERS[:2]]),
+        (MLA_LAYERS, [MLA_LAYERS[0]], []),
+        # Bailing MoE V3 delta attention with b_proj ignored and Kimi delta
+        # attention with f_a_proj ignored give q/k/v, as on main. vLLM rejects
+        # a partly ignored packed NVFP4 layer either way
+        (KDA_LAYERS + [f"{KDA}.g_proj", f"{KDA}.f_proj"], [KDA_LAYERS[3]], [KDA_QKV]),
+        (KDA_LAYERS + [f"{KDA}.f_a_proj"], [f"{KDA}.f_a_proj"], [KDA_QKV]),
+    ],
+)
+def test_mse_collector_ignored_fused_member(solved_groups, layers, ignore, expected):
+    """Ignored layers can decide which mapping applies, but never join a group"""
+    collector = HiggsMSECollectorConverter(
+        candidate_schemes=["NVFP4A16"], ignore=ignore
+    )
+    tensors = _decreasing_tensors(layers)
+    collector.set_weight_names(set(tensors))
+    collector.process(tensors)
+    collector.create_config()
+    assert solved_groups == expected
+
+    # in each group, the first layer sets the global scale of the others
+    scheme = collector.candidate_schemes["NVFP4A16"]
+    sharing = {name for group in expected for name in group[1:]}
+    for name, mse in collector.mse_matrix.items():
+        independent_mse = compute_layer_mse(tensors[f"{name}.weight"], scheme)
+        assert (mse["NVFP4A16"] != pytest.approx(independent_mse)) == (
+            name in sharing
+        ), name
