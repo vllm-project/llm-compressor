@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEST_TYPE="${1:?Usage: run-tests.sh <unit-integration|e2e>}"
+TEST_TYPE="${1:?Usage: run-tests.sh <unit-integration|e2e|lmeval>}"
 
 echo "~~~ System info"
 cat /etc/issue
@@ -76,16 +76,19 @@ if [ -n "${TRANSFORMERS_VERSION:-}" ] && [ "${TRANSFORMERS_VERSION}" != "skip" ]
   fi
 fi
 
-echo "--- Installing compressed-tensors (nightly)"
-git clone --quiet https://github.com/vllm-project/compressed-tensors.git
-uv pip uninstall compressed-tensors
-export GIT_CEILING_DIRECTORIES="$(pwd)"
-cd compressed-tensors
-BUILD_TYPE=nightly uv pip install .
-cd ..
-rm -rf compressed-tensors/
+if [ "${CT_GITREF:-skip}" != "skip" ]; then
+  echo "--- Installing compressed-tensors from source (${CT_GITREF})"
+  git clone --quiet https://github.com/vllm-project/compressed-tensors.git
+  uv pip uninstall compressed-tensors
+  export GIT_CEILING_DIRECTORIES="$(pwd)"
+  cd compressed-tensors
+  git checkout "${CT_GITREF}"
+  BUILD_TYPE=nightly uv pip install .
+  cd ..
+  rm -rf compressed-tensors/
+fi
 
-if [[ "${TEST_TYPE}" == "e2e" ]]; then
+if [[ "${TEST_TYPE}" == "e2e" ]] || [[ "${TEST_TYPE}" == "lmeval" ]]; then
   echo "--- Setting up vLLM environment"
   uv venv vllm_venv --python "${PYTHON_VERSION}"
   VLLM_VENV_PYTHON="$PWD/vllm_venv/bin/python"
@@ -99,6 +102,11 @@ if [[ "${TEST_TYPE}" == "e2e" ]]; then
   else
     UV_TORCH_BACKEND=cu130 uv pip install --python "${VLLM_VENV_PYTHON}" vllm \
       --extra-index-url https://wheels.vllm.ai/nightly/cu130
+  fi
+
+  if [[ "${TEST_TYPE}" == "lmeval" ]]; then
+    echo "--- Installing lm-eval dependencies"
+    uv pip install --python "${VLLM_VENV_PYTHON}" "lm-eval[api]>=0.4.11" "ray[cgraph,default]>=2.48.0"
   fi
 
   export VLLM_PYTHON="${VLLM_VENV_PYTHON}"
@@ -120,7 +128,8 @@ if [ "${TEST_TYPE}" = "unit-integration" ]; then
     --ignore tests/llmcompressor/transformers \
     --ignore tests/lmeval \
     --ignore tests/tools \
-    --ignore tests/examples || TEST_EXIT_CODE=$?
+    --ignore tests/examples \
+    --ignore tests/e2e || TEST_EXIT_CODE=$?
 
   echo "+++ Running transformers tests"
   for test_file in $(find tests/llmcompressor/transformers -name "test_*.py" | sort); do
@@ -136,9 +145,17 @@ elif [ "${TEST_TYPE}" = "e2e" ]; then
     -c "tests/e2e/${E2E_CONFIGS}" \
     -t tests/e2e/test_vllm.py || TEST_EXIT_CODE=$?
 
+elif [ "${TEST_TYPE}" = "lmeval" ]; then
+  echo "+++ Running LM Eval tests (${LMEVAL_CONFIGS})"
+  VLLM_BIN_DIR="$(dirname "${VLLM_PYTHON}")"
+  export PATH="$PATH:${VLLM_BIN_DIR}"
+  bash tests/e2e/run_tests_in_python.sh \
+    -c "tests/lmeval/${LMEVAL_CONFIGS}" \
+    -t tests/lmeval/test_lmeval.py || TEST_EXIT_CODE=$?
+
 else
   echo "Unknown test type: ${TEST_TYPE}"
-  echo "Usage: run-tests.sh <unit-integration|e2e>"
+  echo "Usage: run-tests.sh <unit-integration|e2e|lmeval>"
   exit 1
 fi
 

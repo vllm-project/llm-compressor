@@ -50,6 +50,8 @@ steps:
                         value: "nightly"
                       - name: DEP_BOUND
                         value: "lower"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: HF_TOKEN
                         valueFrom:
                           secretKeyRef:
@@ -112,6 +114,8 @@ steps:
                         value: "3.11"
                       - name: CADENCE
                         value: "nightly"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: HF_TOKEN
                         valueFrom:
                           secretKeyRef:
@@ -174,6 +178,8 @@ steps:
                         value: "3.13"
                       - name: CADENCE
                         value: "nightly"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: HF_TOKEN
                         valueFrom:
                           secretKeyRef:
@@ -236,6 +242,8 @@ steps:
                         value: "3.12"
                       - name: CADENCE
                         value: "nightly"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: HF_TOKEN
                         valueFrom:
                           secretKeyRef:
@@ -300,6 +308,8 @@ steps:
                         value: "nightly"
                       - name: TRANSFORMERS_VERSION
                         value: "latest"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: HF_TOKEN
                         valueFrom:
                           secretKeyRef:
@@ -364,6 +374,8 @@ steps:
                         value: "nightly"
                       - name: DEP_BOUND
                         value: "upper"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: HF_TOKEN
                         valueFrom:
                           secretKeyRef:
@@ -430,6 +442,8 @@ steps:
                         value: "nightly"
                       - name: VLLM_VERSION
                         value: "nightly"
+                      - name: CT_GITREF
+                        value: "main"
                       - name: E2E_CONFIGS
                         value: "{{matrix.configs}}"
                       - name: HF_TOKEN
@@ -450,3 +464,85 @@ steps:
         matrix:
           setup:
             configs: ["configs", "moe_configs", "distributed_configs"]
+
+  - group: ":brain: Nightly LM Eval Tests (H100)"
+    steps:
+      - label: ":python: LM Eval / {{matrix.configs}} / H100 {{matrix.gpus}}GPU"
+        agents:
+          queue: RedHat-H100-WDC
+
+        retry:
+          automatic:
+            - exit_status: -1
+              limit: 3
+            - exit_status: 255
+              limit: 3
+            - signal_reason: agent_stop
+              limit: 3
+
+        plugins:
+          - kubernetes:
+              podSpec:
+                serviceAccountName: buildkite-anyuid
+                securityContext:
+                  fsGroup: 0
+                  runAsUser: 0
+                  runAsGroup: 0
+                nodeSelector:
+                  vllm.ci/gpu-pool: upstream-ci-h100
+
+                containers:
+                  - name: tests
+                    image: buildkite/agent:3-ubuntu
+                    command:
+                      - chmod +x .buildkite/scripts/run-tests.sh
+                      - .buildkite/scripts/run-tests.sh lmeval
+
+                    resources:
+                      limits:
+                        nvidia.com/gpu: "{{matrix.gpus}}"
+
+                    volumeMounts:
+                      - name: ci-cache
+                        mountPath: /model-cache
+                        readOnly: false
+                      - name: devshm
+                        mountPath: /dev/shm
+
+                    env:
+                      - name: PYTHON_VERSION
+                        value: "3.12"
+                      - name: CADENCE
+                        value: "nightly"
+                      - name: VLLM_VERSION
+                        value: "nightly"
+                      - name: CT_GITREF
+                        value: "main"
+                      - name: LMEVAL_CONFIGS
+                        value: "{{matrix.configs}}"
+                      - name: HF_TOKEN
+                        valueFrom:
+                          secretKeyRef:
+                            name: hf-token-secret
+                            key: token
+
+                volumes:
+                  - name: ci-cache
+                    hostPath:
+                      path: /var/mnt/ci-cache
+                      type: DirectoryOrCreate
+                  - name: devshm
+                    emptyDir:
+                      medium: Memory
+
+        matrix:
+          setup:
+            configs: ["configs"]
+            gpus: ["1"]
+          adjustments:
+            - with:
+                configs: "vl_configs"
+                gpus: "1"
+            - with:
+                configs: "distributed_configs"
+                gpus: "2"
