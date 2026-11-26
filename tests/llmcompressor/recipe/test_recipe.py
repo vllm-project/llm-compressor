@@ -1,4 +1,3 @@
-import tempfile
 import warnings
 
 import pytest
@@ -30,12 +29,15 @@ def test_recipe_create_instance_accepts_valid_recipe_string(recipe_str):
 
 
 @pytest.mark.parametrize("recipe_str", valid_recipe_strings())
-def test_recipe_create_instance_accepts_valid_recipe_file(recipe_str):
+def test_recipe_create_instance_accepts_valid_recipe_file(recipe_str, tmp_path):
     content = yaml.safe_load(recipe_str)
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as f:
-        yaml.dump(content, f)
-        recipe = Recipe.create_instance(f.name)
-        assert recipe is not None, "Recipe could not be created from file"
+    # Written through tmp_path rather than `NamedTemporaryFile`: on Windows the open
+    # handle denies the reopen that `Recipe.create_instance` does, so the test raised
+    # PermissionError there. Dumping to a closed path is also what a user does.
+    recipe_path = tmp_path / "recipe.yaml"
+    recipe_path.write_text(yaml.safe_dump(content), encoding="utf-8")
+    recipe = Recipe.create_instance(str(recipe_path))
+    assert recipe is not None, "Recipe could not be created from file"
 
 
 @pytest.mark.parametrize("recipe_str", valid_recipe_strings())
