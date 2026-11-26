@@ -6,7 +6,7 @@ to select the optimal quantization scheme for each layer, minimizing
 the weighted sum of MSE values.
 """
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 from loguru import logger
 
@@ -20,16 +20,16 @@ __all__ = ["solve_ilp_mixed_precision"]
 
 
 def solve_ilp_mixed_precision(
-    mse_matrix: Dict[str, Dict[str, float]],
-    alphas: Dict[str, float],
-    candidate_schemes: List[str],
-    fused_groups: List[List[str]] = None,
+    mse_matrix: dict[str, dict[str, float]],
+    alphas: dict[str, float],
+    candidate_schemes: list[str],
+    fused_groups: list[list[str]] = None,
     target_avg_bitwidth: Optional[float] = None,
-    layer_param_counts: Optional[Dict[str, int]] = None,
-    scheme_bitwidths: Optional[Dict[str, float]] = None,
+    layer_param_counts: Optional[dict[str, int]] = None,
+    scheme_bitwidths: Optional[dict[str, float]] = None,
     target_avg_act_bitwidth: Optional[float] = None,
-    scheme_act_bitwidths: Optional[Dict[str, float]] = None,
-) -> Dict[str, str]:
+    scheme_act_bitwidths: Optional[dict[str, float]] = None,
+) -> dict[str, str]:
     """
     Solve ILP to select optimal quantization scheme for each layer.
 

@@ -2,7 +2,7 @@ import os
 from logging import getLogger
 from pathlib import Path
 from shutil import copyfile
-from typing import Dict, Iterator, List, Optional, Tuple, Union, cast
+from typing import Iterator, Optional, Union, cast
 
 import tiktoken
 from tiktoken.load import load_tiktoken_bpe
@@ -47,7 +47,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
 
     model_input_names = ["input_ids", "attention_mask"]
 
-    special_tokens: Dict[str, int]
+    special_tokens: dict[str, int]
 
     num_reserved_special_tokens = 256
 
@@ -71,7 +71,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
         eos_token: Union[str, AddedToken] = "[EOS]",
         unk_token: Union[str, AddedToken, None] = None,
         pad_token: Union[str, AddedToken, None] = None,
-        additional_special_tokens: List[str] = None,
+        additional_special_tokens: list[str] = None,
         added_tokens_decoder: Optional[dict] = None,
         **kwargs,
     ):
@@ -159,7 +159,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
 
     def _encode_text_piece(
         self, text: str, allow_special_tokens: bool = True
-    ) -> List[int]:
+    ) -> list[int]:
         # The tiktoken tokenizer can handle <=400k chars without
         # pyo3_runtime.PanicException.
         TIKTOKEN_MAX_ENCODE_CHARS = 400_000
@@ -169,7 +169,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
         # of max consecutive non-whitespace or whitespace characters.
         MAX_NO_WHITESPACES_CHARS = 25_000
 
-        t: List[int] = []
+        t: list[int] = []
         for i in range(0, len(text), TIKTOKEN_MAX_ENCODE_CHARS):
             for substr in self._split_whitespaces_or_nonwhitespaces(
                 text[i : i + TIKTOKEN_MAX_ENCODE_CHARS],
@@ -196,7 +196,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
 
     def encode(
         self, text: str, allow_special_tokens: bool = True, **kwargs
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Encodes a string into a list of token IDs.
 
@@ -217,12 +217,12 @@ class TikTokenTokenizer(PreTrainedTokenizer):
         assert type(text) is str
         return self._encode_text_piece(text, allow_special_tokens=allow_special_tokens)
 
-    def decode(self, token_ids: Union[int, List[int]], **kwargs) -> str:
+    def decode(self, token_ids: Union[int, list[int]], **kwargs) -> str:
         """
         Decodes a list of token IDs into a string.
 
         Args:
-            token_ids (List[int]): The list of token IDs to be decoded.
+            token_ids (list[int]): The list of token IDs to be decoded.
 
         Returns:
             str: The decoded string.
@@ -235,7 +235,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
         if type(token_ids) is int:
             token_ids = [token_ids]
 
-        return self.model.decode(cast(List[int], token_ids))
+        return self.model.decode(cast(list[int], token_ids))
 
     @staticmethod
     def _split_whitespaces_or_nonwhitespaces(
@@ -263,8 +263,8 @@ class TikTokenTokenizer(PreTrainedTokenizer):
                     current_slice_len = 1
         yield s[slice_start:]
 
-    def _encode_chat_segments(self, segments) -> List[int]:
-        token_ids: List[int] = []
+    def _encode_chat_segments(self, segments) -> list[int]:
+        token_ids: list[int] = []
         for segment in segments:
             token_ids.extend(
                 self._encode_text_piece(
@@ -276,15 +276,15 @@ class TikTokenTokenizer(PreTrainedTokenizer):
 
     @staticmethod
     def _truncate(
-        ids: List[int], truncation: bool = False, max_length: Optional[int] = None
-    ) -> List[int]:
+        ids: list[int], truncation: bool = False, max_length: Optional[int] = None
+    ) -> list[int]:
         if truncation and max_length is not None:
             return ids[:max_length]
         return ids
 
     def _format_chat_token_output(
         self,
-        encoded_inputs: List[List[int]],
+        encoded_inputs: list[list[int]],
         *,
         is_batched: bool,
         padding=False,
@@ -328,10 +328,10 @@ class TikTokenTokenizer(PreTrainedTokenizer):
     def vocab_size(self) -> int:
         return self.n_words
 
-    def get_vocab(self) -> Dict[str, int]:
+    def get_vocab(self) -> dict[str, int]:
         return self.encoder
 
-    def _tokenize(self, text: str, **kwargs) -> List[str]:
+    def _tokenize(self, text: str, **kwargs) -> list[str]:
         return [self.decoder[t] for t in self.encode(text)]
 
     def _convert_token_to_id(self, token: str) -> int:
@@ -344,7 +344,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
     def clean_up_tokenization(out_string: str) -> str:
         return out_string
 
-    def convert_tokens_to_string(self, tokens: List[str]) -> str:
+    def convert_tokens_to_string(self, tokens: list[str]) -> str:
         text = "".join(tokens)
         text = bytearray([self.byte_decoder[c] for c in text]).decode(
             "utf-8", "replace"
@@ -353,7 +353,7 @@ class TikTokenTokenizer(PreTrainedTokenizer):
 
     def save_vocabulary(
         self, save_directory: str, filename_prefix: Optional[str] = None
-    ) -> Tuple[str]:
+    ) -> tuple[str]:
         if not os.path.isdir(save_directory):
             raise ValueError(
                 f"vocabulary path ({save_directory}) should be a directory"

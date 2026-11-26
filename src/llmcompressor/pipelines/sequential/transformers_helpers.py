@@ -832,7 +832,7 @@ class HFProxyableCacheMeta(type):
                 "before creating the class with this meta"
             )
 
-        instance = super().__new__(cls, name, bases, attrs)  # "instance" of Type[Cache]
+        instance = super().__new__(cls, name, bases, attrs)  # "instance" of type[Cache]
         for attr_name in dir(instance):
             attr = getattr(instance, attr_name, None)
             if attr is None:
@@ -1694,7 +1694,7 @@ def symbolic_trace(
             The names of the inputs of the traced model. If unset, model.dummy_inputs.keys() are used instead.
         disable_check (`bool`, *optional*, defaults to `False`):
             If `True`, no check is done before trying to trace the model, this is mostly usesul for debugging purposes.
-        tracer_cls (`Type[HFTracer]`, *optional*, defaults to `HFTracer`):
+        tracer_cls (`type[HFTracer]`, *optional*, defaults to `HFTracer`):
             The tracer class to use for instantiating the tracer. If unset, `HFTracer` is used instead.
 
     Returns:

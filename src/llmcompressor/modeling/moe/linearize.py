@@ -1,6 +1,5 @@
 import contextlib
 from functools import wraps
-from typing import Type
 
 import torch
 import tqdm
@@ -50,7 +49,7 @@ def _patch_replace_with_fp8_linear_for_moe():
 
 
 @contextlib.contextmanager
-def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM):
+def load_quantizable_moe(model_cls: type[PreTrainedModel] = AutoModelForCausalLM):
     """
     Context manager for loading MoE models with linearized experts for
     efficient calibration and quantization.

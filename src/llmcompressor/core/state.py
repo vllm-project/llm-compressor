@@ -45,7 +45,7 @@ class Hardware:
     :param device: The current device being used for training
     :type device: Optional[str]
     :param devices: List of all devices to be used for training
-    :type devices: Optional[List[str]]
+    :type devices: Optional[list[str]]
     :param rank: The rank of the current device
     :type rank: Optional[int]
     :param world_size: The total number of devices being used
@@ -240,7 +240,7 @@ class ModifiedState:
     :type loss: Optional[Any]
     :param modifier_data: The modifier data used to modify the
         model, optimizer, and loss
-    :type modifier_data: Optional[List[Dict[str, Any]]]
+    :type modifier_data: Optional[list[dict[str, Any]]]
     """
 
     model: Any | None = None
@@ -260,7 +260,7 @@ class ModifiedState:
         :type loss: Any
         :param modifier_data: The modifier data used to modify the model, optimizer,
             and loss
-        :type modifier_data: List[Dict[str, Any]]
+        :type modifier_data: list[dict[str, Any]]
         """
         self.model = model
         self.optimizer = optimizer

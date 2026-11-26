@@ -5,7 +5,7 @@
 
 import math
 import os
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.distributed as dist
@@ -180,7 +180,7 @@ def precompute_freqs_cis(args: ModelConfig) -> torch.Tensor:
             max_seq_len (int): Maximum sequence length.
 
         Returns:
-            Tuple[int, int]: The range of correction dimensions (low, high), clamped to valid indices.
+            tuple[int, int]: The range of correction dimensions (low, high), clamped to valid indices.
         """
         low = math.floor(find_correction_dim(low_rot, dim, base, max_seq_len))
         high = math.ceil(find_correction_dim(high_rot, dim, base, max_seq_len))
@@ -603,7 +603,7 @@ class Gate(nn.Module):
     def bias(self):
         return self.e_score_correction_bias
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass for the gating mechanism.
 
@@ -611,7 +611,7 @@ class Gate(nn.Module):
             x (torch.Tensor): Input tensor.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: Routing weights and selected expert indices.
+            tuple[torch.Tensor, torch.Tensor]: Routing weights and selected expert indices.
         """
         scores = F.linear(x.float(), self.weight.float())
         if self.score_func == "softmax":

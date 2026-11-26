@@ -7,7 +7,6 @@ and config generation from ILP solutions.
 
 import re
 from collections import defaultdict
-from typing import Dict, List
 
 import numpy as np
 import torch
@@ -108,9 +107,9 @@ _TYPE_KEYWORDS = {
 
 
 def compute_heuristic_alphas(
-    layer_names: List[str],
-    layer_param_counts: Dict[str, int],
-) -> Dict[str, float]:
+    layer_names: list[str],
+    layer_param_counts: dict[str, int],
+) -> dict[str, float]:
     """Compute importance weights: log(size+1) * (1 + depth*0.05) * type_multiplier."""
     alphas = {}
     for name in layer_names:
@@ -173,9 +172,9 @@ def _collapse_expert_patterns(layer_list: list[str]) -> list[str]:
 
 
 def generate_config_groups(
-    ilp_solution: Dict[str, str],
-    candidate_schemes: Dict[str, QuantizationScheme],
-) -> Dict[str, QuantizationScheme]:
+    ilp_solution: dict[str, str],
+    candidate_schemes: dict[str, QuantizationScheme],
+) -> dict[str, QuantizationScheme]:
     """Convert ILP assignments into config groups with targets and formats."""
     scheme_to_layers: dict[str, list[str]] = defaultdict(list)
     for layer, scheme_name in ilp_solution.items():
