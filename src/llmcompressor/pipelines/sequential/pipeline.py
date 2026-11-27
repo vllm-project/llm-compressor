@@ -58,10 +58,17 @@ def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
                 cache.async_writer = None
 
 
-def _has_disk_cache(model: torch.nn.Module) -> bool:
+def _has_disk_cache(
+    model: torch.nn.Module, restructure_handler: RestructureHandler
+) -> bool:
+    # Meta targets no longer own the original offload caches. Retained sources
+    # still do, until their weights are materialized into those targets.
+    modules = list(model.modules()) + [
+        entry["source"] for entry in restructure_handler.mapping.values()
+    ]
     return any(
         isinstance(cache, DiskCache)
-        for module in model.modules()
+        for module in modules
         for cache in (module._parameters, module._buffers)
     )
 
@@ -121,6 +128,7 @@ class SequentialPipeline(CalibrationPipeline):
 
         session = active_session()
         async_writer = getattr(session.state, "async_writer", None)
+        has_disk_cache = _has_disk_cache(model, restructure_handler)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -226,7 +234,7 @@ class SequentialPipeline(CalibrationPipeline):
 
             # Keep disk serialization off the calibration thread when this model
             # has disk-backed weights or streaming checkpoint output is enabled.
-            if async_writer is not None or _has_disk_cache(model):
+            if async_writer is not None or has_disk_cache:
                 distributed_writeback_group = create_distributed_writeback_group(stack)
                 if async_writer is None:
                     async_writer = AsyncWriter(

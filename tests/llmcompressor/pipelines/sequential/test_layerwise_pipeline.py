@@ -98,7 +98,7 @@ def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_offload_modules",
-        lambda modules, offload_kwargs: events.append("offload"),
+        lambda modules, offload_kwargs, **kwargs: events.append("offload"),
     )
     monkeypatch.setattr(
         pipeline_module.IntermediatesCache,

@@ -10,7 +10,11 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    AsyncWriter,
+    get_cache_init_kwargs,
+    offload_module,
+)
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.cache.disk_utils import disk_load_context
 from compressed_tensors.offload.module import (
@@ -54,7 +58,7 @@ def subgraph_stage_modules(
     modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     pin_memory: bool = False,
-    async_writer=None,
+    async_writer: AsyncWriter | None = None,
     distributed_group=None,
 ) -> None:
     """Stage retained sources or previously materialized modules in CPU memory."""
@@ -75,7 +79,7 @@ def _submit_subgraph_staging(
     current_modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     pin_memory: bool,
-    async_writer=None,
+    async_writer: AsyncWriter | None = None,
     distributed_group=None,
 ) -> tuple[dict[str, Module], Future] | None:
     """Prefetch only when both live modules and retained sources are disjoint."""
@@ -152,7 +156,7 @@ def subgraph_offload_modules(
     modules: dict[str, Module],
     offload_kwargs: dict[str, dict],
     default: dict | None = None,
-    async_writer=None,
+    async_writer: AsyncWriter | None = None,
 ) -> None:
     """Offload exactly the supplied modules using saved or inherited settings.
 
@@ -181,7 +185,10 @@ def subgraph_offload_modules(
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 module_kwargs["offload_dir"] = str(cache_dir)
             module_kwargs["module_name"] = name
-        if async_writer is not None and str(module_kwargs.get("offload_device")) == "disk":
+        if (
+            async_writer is not None
+            and str(module_kwargs.get("offload_device")) == "disk"
+        ):
             module_kwargs["async_writer"] = async_writer
         return module_kwargs
 

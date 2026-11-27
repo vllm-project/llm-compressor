@@ -1,8 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
 
 import pytest
-import compressed_tensors.offload.module as offload_module
 import torch
 
 import llmcompressor.pipelines.sequential.offload as offload
@@ -92,7 +90,14 @@ def test_submit_subgraph_staging_respects_source_tree_ownership(
         assert calls == []
     else:
         assert result is not None
-        assert calls == [(({"0": model[0]}, handler), {"pin_memory": False})]
+        assert calls == [
+            (
+                ({"0": model[0]}, handler),
+                {"pin_memory": False, "async_writer": None, "distributed_group": None},
+            )
+        ]
+
+
 def test_stage_subgraph_modules_flushes_distributed_writes_first(monkeypatch):
     calls = []
     group = object()
@@ -102,16 +107,18 @@ def test_stage_subgraph_modules_flushes_distributed_writes_first(monkeypatch):
             assert passed_group is group
             calls.append("flush")
 
-    monkeypatch.setattr(offload_module, "OffloadCache", dict)
-    monkeypatch.setattr(offload_module, "disk_load_context", nullcontext)
+    model = torch.nn.Linear(2, 2)
+    handler = RestructureHandler(model)
+    offload.offload_module(model, onload_device="cpu", offload_device="cpu")
     monkeypatch.setattr(
-        offload_module,
+        offload,
         "stage_module_offload",
         lambda module, pin_memory=False: calls.append("stage"),
     )
 
-    pipeline.subgraph_stage_modules(
-        {"next": torch.nn.Linear(2, 2)},
+    offload.subgraph_stage_modules(
+        {"next": model},
+        handler,
         pin_memory=False,
         async_writer=FakeWriter(),
         distributed_group=group,
