@@ -303,3 +303,18 @@ def test_recipe_validate_after(modifiers, is_valid):
     else:
         with pytest.raises(ValueError):
             Recipe.create_instance(modifiers)
+
+
+def test_recipe_yaml_returns_string_when_file_path_given(tmp_path):
+    """`yaml(file_path=...)` must still return the serialised string.
+
+    `yaml.dump(stream=...)` returns None, so passing the stream and returning its
+    result hands back None whenever a file is also written.
+    """
+    recipe = Recipe(modifiers=[], stage="quantized")
+    recipe_path = tmp_path / "recipe.yaml"
+
+    returned = recipe.yaml(file_path=recipe_path)
+
+    assert returned is not None
+    assert returned == recipe_path.read_text(encoding="utf-8")
