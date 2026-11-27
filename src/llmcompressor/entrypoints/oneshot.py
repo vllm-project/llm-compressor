@@ -312,12 +312,6 @@ class Oneshot:
             # copy, and the pipelines below are run with that same copy, so such
             # adjustments take effect without mutating the user's arguments
             session.state.dataset_args = copy.copy(self.dataset_args)
-            session.state.layerwise_decompression = (
-                self.dataset_args.layerwise_decompression
-            )
-            session.state.layerwise_compression = (
-                self.dataset_args.layerwise_compression
-            )
 
             session.initialize(
                 model=self.model,

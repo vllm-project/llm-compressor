@@ -75,7 +75,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             raise ValueError(
                 "QuantizationModifier requires that quantization fields be specified"
             )
-        if not getattr(state, "layerwise_decompression", False):
+        if not getattr(state.dataset_args, "layerwise_decompression", False):
             QuantizationMixin.initialize_quantization(self, state)
 
         return True
@@ -87,7 +87,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Skipped when layerwise_decompression is enabled; per-layer calibration
         setup is handled by start_layerwise_calibration in the pipeline.
         """
-        if not getattr(state, "layerwise_decompression", False):
+        if not getattr(state.dataset_args, "layerwise_decompression", False):
             QuantizationMixin.start_calibration(self, state.model)
 
     def on_sequential_epoch_end(
@@ -123,7 +123,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
             update_qparams(rank_to_modules[rank], "weight")
             broadcast_qparams_and_cleanup(module_list, module_to_rank, _WEIGHT_Q_PARAMS)
 
-        if getattr(state, "layerwise_decompression", False):
+        if getattr(state.dataset_args, "layerwise_decompression", False):
             self.remove_hooks(self._calibration_hooks)
             for module in modules:
                 freeze_module_quantization(module)
@@ -136,7 +136,7 @@ class QuantizationModifier(Modifier, QuantizationMixin):
         Skipped when layerwise_decompression is enabled; per-layer cleanup
         is handled in on_sequential_epoch_end.
         """
-        if not getattr(state, "layerwise_decompression", False):
+        if not getattr(state.dataset_args, "layerwise_decompression", False):
             QuantizationMixin.end_calibration(self, state.model)
 
     def estimate_sequential_memory(

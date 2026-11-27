@@ -9,6 +9,7 @@ from compressed_tensors.quantization import (
 )
 from torch import nn
 
+from llmcompressor.args import DatasetArguments
 from llmcompressor.core import Event, EventType, State
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.quantization.calibration import initialize_observer
@@ -167,8 +168,9 @@ def test_nested_parent_modules_produce_valid_global_scale():
 def test_layerwise_quantization_only_initializes_and_freezes_passed_modules():
     model = nn.Sequential(nn.Linear(256, 256), nn.Linear(256, 256))
     modifier = QuantizationModifier(targets="Linear", scheme="W8A16")
-    state = State(model=model)
-    state.layerwise_decompression = True
+    state = State(
+        model=model, dataset_args=DatasetArguments(layerwise_decompression=True)
+    )
 
     modifier.on_initialize(state)
     modifier.on_calibration_start(state, None)
