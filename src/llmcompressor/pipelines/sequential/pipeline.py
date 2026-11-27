@@ -118,12 +118,7 @@ class SequentialPipeline(CalibrationPipeline):
         offload_device = torch.device(dataset_args.sequential_offload_device)
         set_onload_device(model, onload_device)
 
-        # AutoRoundModifier optimizes each layer independently using its own
-        # forward passes, so quantization error should not be propagated between
-        # layers during the calibration stage
         modifiers = session.lifecycle.recipe.modifiers
-        if any(type(m).__name__ == "AutoRoundModifier" for m in modifiers):
-            dataset_args.propagate_error = False
 
         # prepare to trace subgraphs
         sequential_targets = infer_sequential_targets(
@@ -167,16 +162,7 @@ class SequentialPipeline(CalibrationPipeline):
                 dataloader, onload_device, offload_device
             )
             activations = session.state.sequential_activations
-            # When propagate_error=True or log_sequential_error=True, the
-            # activations cache does NOT hold the current subgraph's outputs at
-            # sequential_epoch_end time (pass 1 defers or skips the update), so
-            # AutoRound must fall back to collect_reference in both cases.
-            session.state.sequential_propagate_error = (
-                dataset_args.propagate_error
-                or getattr(dataset_args, "log_sequential_error", False)
-            )
             stack.callback(setattr, session.state, "sequential_activations", None)
-            stack.callback(setattr, session.state, "sequential_propagate_error", True)
 
             # prepare error-logging cache (separate from activations so that
             # log_sequential_error does not force propagate_error=True)
