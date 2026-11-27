@@ -303,3 +303,20 @@ def test_recipe_validate_after(modifiers, is_valid):
     else:
         with pytest.raises(ValueError):
             Recipe.create_instance(modifiers)
+
+
+def test_lifecycle_initialize_returns_a_list_when_already_initialized():
+    """A repeat `initialize()` must return a list and must not touch the state.
+
+    `CompressionLifecycle.initialize` is annotated `-> list[Any]`; the early return used
+    to be bare, so a second call handed `None` to `ModifiedState.modifier_data`, and it
+    ran after `state.update()` so the kwargs landed in a state no modifier had seen.
+    """
+    from llmcompressor.core import create_session
+
+    with create_session() as session:
+        session.initialize()
+        model_before = session.state.model
+        second = session.initialize(model=object())
+        assert isinstance(second.modifier_data, list)
+        assert session.state.model is model_before
