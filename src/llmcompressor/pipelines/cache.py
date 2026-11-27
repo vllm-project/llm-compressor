@@ -7,10 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
 from typing import Any, Generator
-from weakref import WeakKeyDictionary
+from weakref import ref
 
 import torch
-from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
 
@@ -81,17 +80,22 @@ class IntermediatesCache:
     batch_intermediates: list[IntermediateValues]
     offload_device: torch.device | None
 
-    # map of onload value -> offload value
-    # used to avoid excess memory usage when shared tensors are offloaded
-    offload_values: WeakKeyDictionary[torch.Tensor, torch.Tensor] = WeakKeyDictionary()
+    # Deduplicate by source identity and destination without dispatching Tensor.__eq__.
+    offload_values: dict[
+        tuple[int, torch.device | None], tuple[ref[torch.Tensor], torch.Tensor]
+    ] = {}
 
     def __init__(
         self,
         batch_intermediates: list[IntermediateValues] | None = None,
-        offload_device: torch.device | None = "cpu",
+        offload_device: torch.device | None = torch.device("cpu"),
     ):
         self.batch_intermediates = batch_intermediates or []
-        self.offload_device = offload_device
+        self.offload_device = (
+            torch.device(offload_device)
+            if isinstance(offload_device, str)
+            else offload_device
+        )
         self._prefetch_stream = None
 
     @classmethod
@@ -128,6 +132,11 @@ class IntermediatesCache:
         :param model_device: device which values will be onloaded to when fetched
         :param offload_device: device to offload values to
         """
+        if isinstance(model_device, str):
+            model_device = torch.device(model_device)
+        if isinstance(offload_device, str):
+            offload_device = torch.device(offload_device)
+
         batch_intermediates = [
             {
                 key: cls._offload_value(value, offload_device, model_device)
@@ -452,15 +461,33 @@ class IntermediatesCache:
         kwargs = {"offload_device": offload_device, "onload_device": onload_device}
         match value:
             case torch.Tensor():
-                with OverrideEqMode():
-                    # check for cache hit between shared tensors
-                    if value in cls.offload_values:
-                        offloaded = cls.offload_values[value]
-                    else:
-                        # move to offload if no hit
-                        offloaded = value.to(device=offload_device)
-                        if offloaded is not value:  # avoid circular ref
-                            cls.offload_values[value] = offloaded
+                device = offload_device
+                # An unindexed accelerator target follows the current device.
+                if (
+                    device is not None
+                    and device.index is None
+                    and device.type not in ("cpu", "meta")
+                    and device == torch.accelerator.current_accelerator()
+                ):
+                    device = torch.device(
+                        device.type, torch.accelerator.current_device_index()
+                    )
+                key = (id(value), device)
+                offload_values = cls.offload_values
+                entry = offload_values.get(key)
+                # An id can be reused once its original tensor is gone.
+                if entry is not None and entry[0]() is value:
+                    offloaded = entry[1]
+                else:
+                    offloaded = value.to(device=device)
+                    if offloaded is not value:  # avoid retaining the source tensor
+
+                        def remove(dead_ref: ref[torch.Tensor]) -> None:
+                            current = offload_values.get(key)
+                            if current is not None and current[0] is dead_ref:
+                                del offload_values[key]
+
+                        offload_values[key] = (ref(value, remove), offloaded)
 
                 return IntermediateValue(
                     value=offloaded,
@@ -506,34 +533,3 @@ class IntermediatesCache:
                 ):
                     warnings.warn(f"Offloading not implemented for type {type(value)}.")
                 return IntermediateValue(value=value, device=None)
-
-
-class OverrideEqMode(TorchDispatchMode):
-    """
-    When using a torch.Tensor as a key in a dictionary, the equality
-    check must return a single value instead of a torch.Tensor
-    of bool values.
-    Use this override context for such cases, to swap out the torch.eq
-    equality check for a check on id
-    >>> a = torch.tensor([1,2,3])
-    >>> b = torch.tensor([1,2,3])
-    >>> a == b
-    tensor([True, True, True])
-    >>> with OverrideEqMode():
-    ...     a == b
-    tensor(True)
-    """
-
-    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
-        kwargs = kwargs or {}
-
-        # Check if the operation is equality
-        if func is torch.ops.aten.eq.Tensor:
-            # Override to use torch.equal
-            assert len(args) == 2, "Exactly 2 args must be provided"
-
-            # NOTE: Errors out without cast to torch.tensor
-            return torch.tensor(id(args[0]) == id(args[1]))
-
-        # For all other operations, just run them normally
-        return func(*args, **kwargs)

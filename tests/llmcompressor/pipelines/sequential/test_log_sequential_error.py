@@ -184,3 +184,37 @@ def test_disabled_propagate_false(
     )
 
     assert _sqnr_values(messages) == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "propagate_error,log_sequential_error,num_subgraphs",
+    [(True, False, NUM_SUBGRAPHS), (False, True, NUM_SUBGRAPHS), (True, True, 1)],
+)
+@patch(f"{_PIPELINE}.infer_sequential_targets", return_value=["Linear"])
+@patch(f"{_PIPELINE}.partition_subgraphs")
+def test_skips_propagation_for_final_subgraph(
+    mock_partition,
+    mock_targets,
+    fake_pipeline,
+    fake_subgraphs,
+    fake_dataloader,
+    propagate_error,
+    log_sequential_error,
+    num_subgraphs,
+):
+    subgraphs = fake_subgraphs[:num_subgraphs]
+    mock_partition.return_value = subgraphs
+    model, _ = fake_pipeline
+
+    SequentialPipeline()(
+        model,
+        fake_dataloader,
+        DatasetArguments(
+            propagate_error=propagate_error, log_sequential_error=log_sequential_error
+        ),
+    )
+
+    assert [subgraph._call_count for subgraph in subgraphs] == [2 * NUM_BATCHES] * (
+        num_subgraphs - 1
+    ) + [NUM_BATCHES]

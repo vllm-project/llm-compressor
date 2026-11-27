@@ -1,6 +1,7 @@
 from dataclasses import dataclass, fields, is_dataclass
 from types import SimpleNamespace
 from typing import Optional
+from weakref import ref
 
 import pytest
 import torch
@@ -9,7 +10,6 @@ from torch.utils.data import DataLoader, StackDataset
 from llmcompressor.pipelines.cache import (
     IntermediatesCache,
     IntermediateValue,
-    OverrideEqMode,
     _supports_record_stream,
 )
 
@@ -59,6 +59,25 @@ def test_initialization(sample_dataloader):
     assert isinstance(cache, IntermediatesCache)
     assert len(cache.batch_intermediates) > 0
     assert isinstance(cache.batch_intermediates[0], dict)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("offload_device", ["cpu", torch.device("cpu"), None])
+def test_cache_normalizes_device_arguments(sample_dataloader, offload_device):
+    expected_device = None if offload_device is None else torch.device("cpu")
+    cache = IntermediatesCache(offload_device=offload_device)
+    empty_cache = IntermediatesCache.empty(1, offload_device)
+    dataloader_cache = IntermediatesCache.from_dataloader(
+        sample_dataloader, model_device="cpu", offload_device=offload_device
+    )
+
+    for instance in (cache, empty_cache, dataloader_cache):
+        assert instance.offload_device == expected_device
+
+    for intermediate in dataloader_cache.batch_intermediates[0].values():
+        assert intermediate.device == torch.device("cpu")
+
+    assert IntermediatesCache().offload_device == torch.device("cpu")
 
 
 @pytest.mark.unit
@@ -222,6 +241,123 @@ def test_offload_and_onload(value):
 
 
 @pytest.mark.unit
+def test_shared_offload_uses_identity():
+    cache = IntermediatesCache.empty(1, torch.device("meta"))
+    tensor = torch.ones(2, 3)
+    cache.update(0, {"shared": [tensor, tensor], "distinct": tensor.clone()})
+
+    batch = cache.batch_intermediates[0]
+    first, second = batch["shared"].value
+    assert first.value.device.type == "meta"
+    assert first.value is second.value
+    assert first.value is not batch["distinct"].value
+
+
+@pytest.mark.unit
+def test_shared_offload_respects_each_cache_device():
+    source = torch.ones(2, 3)
+    meta_cache = IntermediatesCache.empty(1, "meta")
+    cpu_cache = IntermediatesCache.empty(1, torch.device("cpu"))
+    no_offload_cache = IntermediatesCache.empty(1, None)
+
+    for cache in (meta_cache, cpu_cache, no_offload_cache):
+        cache.update(0, {"source": source})
+
+    offloaded = meta_cache.batch_intermediates[0]["source"].value
+    assert offloaded.device.type == "meta"
+    assert cpu_cache.fetch(0)["source"] is source
+    assert no_offload_cache.fetch(0)["source"] is source
+    assert (
+        IntermediatesCache._offload_value(source, torch.device("meta")).value
+        is offloaded
+    )
+
+
+@pytest.mark.unit
+def test_unindexed_offload_tracks_current_accelerator_device(monkeypatch):
+    current_index = 0
+    transfers = []
+
+    class SourceTensor(torch.Tensor):
+        def to(self, *, device):
+            transfers.append(device)
+            return self.as_subclass(torch.Tensor).clone()
+
+    source = torch.ones(2, 3).as_subclass(SourceTensor)
+    monkeypatch.setattr(
+        torch.accelerator, "current_accelerator", lambda: torch.device("cuda")
+    )
+    monkeypatch.setattr(
+        torch.accelerator, "current_device_index", lambda: current_index
+    )
+
+    cache = IntermediatesCache.empty(1, "cuda")
+    cache.update(0, {"source": source})
+    first = cache.batch_intermediates[0]["source"].value
+    current_index = 1
+    cache.update(0, {"source": source})
+    second = cache.batch_intermediates[0]["source"].value
+    again = IntermediatesCache._offload_value(source, torch.device("cuda:0")).value
+
+    assert cache.offload_device == torch.device("cuda")
+    assert first is not second
+    assert first is again
+    assert transfers == [torch.device("cuda:0"), torch.device("cuda:1")]
+
+
+@pytest.mark.unit
+def test_offload_entry_expires_with_source():
+    source = torch.ones(2, 3)
+    meta = torch.device("meta")
+    cpu = torch.device("cpu:0")
+    keys = {(id(source), meta), (id(source), cpu)}
+    source_ref = ref(source)
+    offloaded = IntermediatesCache._offload_value(source, meta)
+    IntermediatesCache._offload_value(source, cpu)
+
+    assert keys <= IntermediatesCache.offload_values.keys()
+    del source
+    assert source_ref() is None
+    assert keys.isdisjoint(IntermediatesCache.offload_values)
+    assert offloaded.value.device.type == "meta"
+
+
+@pytest.mark.unit
+def test_offload_replaces_stale_identity_entry(monkeypatch):
+    old_source = torch.ones(2, 3)
+    old_ref = ref(old_source)
+    old_offload = old_source.to("meta")
+    del old_source
+    assert old_ref() is None
+
+    source = torch.ones(4, 5)
+    device = torch.device("meta")
+    key = (id(source), device)
+    # Simulate id reuse without depending on Python's allocator.
+    entries = {key: (old_ref, old_offload)}
+    monkeypatch.setattr(IntermediatesCache, "offload_values", entries)
+
+    offloaded = IntermediatesCache._offload_value(source, device)
+
+    assert offloaded.value.shape == source.shape
+    assert entries[key][0]() is source
+    assert entries[key][1] is offloaded.value
+
+
+@pytest.mark.unit
+def test_noop_offload_does_not_retain_source():
+    source = torch.ones(2, 3)
+    source_ref = ref(source)
+    device = torch.device("cpu")
+    offloaded = IntermediatesCache._offload_value(source, device)
+
+    assert offloaded.value is source
+    assert (id(source), device) not in IntermediatesCache.offload_values
+    del offloaded, source
+    assert source_ref() is None
+
+
+@pytest.mark.unit
 def test_device_handling(sample_dataloader):
     if not torch.accelerator.is_available():
         pytest.skip("CUDA not available")
@@ -270,18 +406,3 @@ def deep_equal(a, b) -> bool:
             return deep_equal(a_dict, b_dict)
         case _:
             return a == b
-
-
-def test_override_eq_mode():
-    a = torch.tensor([1, 2, 3])
-    b = a
-    c = torch.tensor([2, 2, 2])
-
-    with pytest.raises(RuntimeError):
-        assert a == b
-    with pytest.raises(RuntimeError):
-        assert not (a == c)
-
-    with OverrideEqMode():
-        assert a == b
-        assert not (a == c)
