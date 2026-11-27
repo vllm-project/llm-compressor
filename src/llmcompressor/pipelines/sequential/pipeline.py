@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
+from compressed_tensors.offload import AsyncWriter
+from compressed_tensors.offload.cache import DiskCache
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -20,10 +22,13 @@ from llmcompressor.pipelines.sequential.error_logging import (
 )
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
+    create_distributed_writeback_group,
     find_modules_outside_graph,
+    flush_async_writer,
     handle_sequential_oom,
     partition_subgraphs,
     trace_graph,
+    validate_streaming_checkpoint,
 )
 from llmcompressor.pipelines.sequential.offload import (
     _submit_subgraph_staging,
@@ -42,6 +47,30 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
+
+
+def _detach_async_writer(model: torch.nn.Module, writer: AsyncWriter):
+    """Remove a completed pipeline writer from caches retained by the model."""
+    for module in model.modules():
+        for name in ("_parameters", "_buffers"):
+            cache = getattr(module, name, None)
+            if getattr(cache, "async_writer", None) is writer:
+                cache.async_writer = None
+
+
+def _has_disk_cache(
+    model: torch.nn.Module, restructure_handler: RestructureHandler
+) -> bool:
+    # Meta targets no longer own the original offload caches. Retained sources
+    # still do, until their weights are materialized into those targets.
+    modules = list(model.modules()) + [
+        entry["source"] for entry in restructure_handler.mapping.values()
+    ]
+    return any(
+        isinstance(cache, DiskCache)
+        for module in modules
+        for cache in (module._parameters, module._buffers)
+    )
 
 
 def _get_batches(
@@ -98,6 +127,8 @@ class SequentialPipeline(CalibrationPipeline):
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
         session = active_session()
+        async_writer = getattr(session.state, "async_writer", None)
+        has_disk_cache = _has_disk_cache(model, restructure_handler)
 
         # prepare model for sequential onloading
         onload_device = get_main_device()
@@ -201,6 +232,18 @@ class SequentialPipeline(CalibrationPipeline):
                 dataset_args, "stage_weights_in_pinned_memory", False
             )
 
+            # Keep disk serialization off the calibration thread when this model
+            # has disk-backed weights or streaming checkpoint output is enabled.
+            if async_writer is not None or has_disk_cache:
+                distributed_writeback_group = create_distributed_writeback_group(stack)
+                if async_writer is None:
+                    async_writer = AsyncWriter(
+                        defer_errors=distributed_writeback_group is not None
+                    )
+                    stack.enter_context(async_writer)
+                    stack.callback(_detach_async_writer, model, async_writer)
+            else:
+                distributed_writeback_group = None
             # A single worker preserves staging order and bounds staged memory.
             stage_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
 
@@ -212,6 +255,8 @@ class SequentialPipeline(CalibrationPipeline):
                 {},
                 restructure_handler,
                 stage_weights_in_pinned_memory,
+                async_writer,
+                distributed_writeback_group,
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
@@ -221,6 +266,8 @@ class SequentialPipeline(CalibrationPipeline):
                         subgraph_modules,
                         restructure_handler,
                         pin_memory=stage_weights_in_pinned_memory,
+                        async_writer=async_writer,
+                        distributed_group=distributed_writeback_group,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -257,6 +304,8 @@ class SequentialPipeline(CalibrationPipeline):
                         subgraph_modules,
                         restructure_handler,
                         stage_weights_in_pinned_memory,
+                        async_writer,
+                        distributed_writeback_group,
                     )
 
                 #######################
@@ -334,7 +383,11 @@ class SequentialPipeline(CalibrationPipeline):
                     compress_subgraph_modules(subgraph_modules)
 
                 restructure_handler.restore_restructured_modules(subgraph_modules)
-                subgraph_offload_modules(subgraph_modules, offload_kwargs)
+                subgraph_offload_modules(
+                    subgraph_modules,
+                    offload_kwargs,
+                    async_writer=async_writer,
+                )
                 #######################
                 #### END OF ONLOAD ####
                 #######################
@@ -342,7 +395,18 @@ class SequentialPipeline(CalibrationPipeline):
             # Restore temporary conversions that weren't part of a traced subgraph,
             # such as persistent modules.
             restructure_handler.restore_restructured_modules(persistent_modules)
-            subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
+            subgraph_offload_modules(
+                persistent_modules,
+                persistent_offload_kwargs,
+                async_writer=async_writer,
+            )
+            # Finalization may read/update disk-backed parameters directly, so
+            # submit the final partial checkpoint shard before running callbacks.
+            if async_writer is not None:
+                flush_async_writer(async_writer, distributed_writeback_group)
 
-            # redundant, finish any remaining compression
+            # Check coverage without materializing disk-offloaded parameters.
+            if async_writer is not None:
+                validate_streaming_checkpoint(model, async_writer)
+
             LifecycleCallbacks.calibration_end()

@@ -5,11 +5,16 @@
 
 from __future__ import annotations
 
+import contextlib
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import torch
-from compressed_tensors.offload import get_cache_init_kwargs, offload_module
+from compressed_tensors.offload import (
+    AsyncWriter,
+    get_cache_init_kwargs,
+    offload_module,
+)
 from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.offload.cache.disk_utils import disk_load_context
 from compressed_tensors.offload.module import (
@@ -53,8 +58,14 @@ def subgraph_stage_modules(
     modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     pin_memory: bool = False,
+    async_writer: AsyncWriter | None = None,
+    distributed_group=None,
 ) -> None:
     """Stage retained sources or previously materialized modules in CPU memory."""
+    if distributed_group is not None:
+        if async_writer is None:
+            raise ValueError("Distributed staging requires an async disk writer")
+        async_writer.flush_distributed(distributed_group)
     with disk_load_context():
         for module in _source_modules(modules, restructure_handler).values():
             cache = module._parameters
@@ -68,6 +79,8 @@ def _submit_subgraph_staging(
     current_modules: dict[str, Module],
     restructure_handler: RestructureHandler,
     pin_memory: bool,
+    async_writer: AsyncWriter | None = None,
+    distributed_group=None,
 ) -> tuple[dict[str, Module], Future] | None:
     """Prefetch only when both live modules and retained sources are disjoint."""
     if set(modules.values()) & set(current_modules.values()):
@@ -82,6 +95,8 @@ def _submit_subgraph_staging(
         modules,
         restructure_handler,
         pin_memory=pin_memory,
+        async_writer=async_writer,
+        distributed_group=distributed_group,
     )
     return modules, future
 
@@ -141,6 +156,7 @@ def subgraph_offload_modules(
     modules: dict[str, Module],
     offload_kwargs: dict[str, dict],
     default: dict | None = None,
+    async_writer: AsyncWriter | None = None,
 ) -> None:
     """Offload exactly the supplied modules using saved or inherited settings.
 
@@ -154,11 +170,30 @@ def subgraph_offload_modules(
             offload_name = offload_name.rpartition(".")[0]
 
         if offload_name in offload_kwargs:
-            return offload_kwargs[offload_name]
-        module_kwargs = get_cache_init_kwargs(module)
-        if default is not None:
-            module_kwargs.update(default)
+            module_kwargs = offload_kwargs[offload_name].copy()
+        else:
+            module_kwargs = get_cache_init_kwargs(module)
+            if default is not None:
+                module_kwargs.update(default)
+        if async_writer is not None and async_writer.streaming_save:
+            module_kwargs["offload_device"] = "disk"
+            if module_kwargs.get("offload_dir") is None:
+                output_dir = async_writer.output_dir
+                if output_dir is None:
+                    raise ValueError("Streaming save requires an output directory")
+                cache_dir = output_dir.parent / f".{output_dir.name}-offload"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                module_kwargs["offload_dir"] = str(cache_dir)
+            module_kwargs["module_name"] = name
+        if (
+            async_writer is not None
+            and str(module_kwargs.get("offload_device")) == "disk"
+        ):
+            module_kwargs["async_writer"] = async_writer
         return module_kwargs
 
-    for name, module in modules.items():
-        offload_module(module, **get_offload_kwargs(name, module))
+    with contextlib.ExitStack() as stack:
+        if async_writer is not None:
+            stack.enter_context(async_writer.batch())
+        for name, module in modules.items():
+            offload_module(module, **get_offload_kwargs(name, module))

@@ -13,7 +13,7 @@ def test_submit_subgraph_staging_runs_for_disjoint_modules(monkeypatch):
     handler = RestructureHandler(torch.nn.Module())
     calls = []
 
-    def fake_stage(modules, restructure_handler, pin_memory=False):
+    def fake_stage(modules, restructure_handler, pin_memory=False, **kwargs):
         calls.append((modules, restructure_handler, pin_memory))
 
     monkeypatch.setattr(offload, "subgraph_stage_modules", fake_stage)
@@ -90,4 +90,38 @@ def test_submit_subgraph_staging_respects_source_tree_ownership(
         assert calls == []
     else:
         assert result is not None
-        assert calls == [(({"0": model[0]}, handler), {"pin_memory": False})]
+        assert calls == [
+            (
+                ({"0": model[0]}, handler),
+                {"pin_memory": False, "async_writer": None, "distributed_group": None},
+            )
+        ]
+
+
+def test_stage_subgraph_modules_flushes_distributed_writes_first(monkeypatch):
+    calls = []
+    group = object()
+
+    class FakeWriter:
+        def flush_distributed(self, passed_group):
+            assert passed_group is group
+            calls.append("flush")
+
+    model = torch.nn.Linear(2, 2)
+    handler = RestructureHandler(model)
+    offload.offload_module(model, onload_device="cpu", offload_device="cpu")
+    monkeypatch.setattr(
+        offload,
+        "stage_module_offload",
+        lambda module, pin_memory=False: calls.append("stage"),
+    )
+
+    offload.subgraph_stage_modules(
+        {"next": model},
+        handler,
+        pin_memory=False,
+        async_writer=FakeWriter(),
+        distributed_group=group,
+    )
+
+    assert calls == ["flush", "stage"]
