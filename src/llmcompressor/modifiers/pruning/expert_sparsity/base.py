@@ -35,6 +35,7 @@ from llmcompressor.modifiers.pruning.expert_sparsity.utils import (
     get_experts_router,
     prune_moe_layer,
 )
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import (
     getattr_fallbacks,
     numeric_sorted_names,
@@ -236,6 +237,8 @@ class ExpertPruningModifierBase(Modifier):
                 continue
 
             device = get_execution_device(experts)
+            if device.type == "meta":
+                device = get_main_device()
             self.init_moe_stats(moe_name, num_experts, hidden_dim, device)
             assert "count" in self._moe_stats[moe_name], "moe stats must use counts"
 

@@ -2,16 +2,10 @@ from __future__ import annotations
 
 import contextlib
 import warnings
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator
 
 import torch
-from compressed_tensors.offload import set_onload_device
-from compressed_tensors.offload.module import (
-    subgraph_offload_modules,
-    subgraph_onload_modules,
-    subgraph_stage_modules,
-)
 from loguru import logger
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
@@ -26,11 +20,19 @@ from llmcompressor.pipelines.sequential.error_logging import (
 )
 from llmcompressor.pipelines.sequential.helpers import (
     compress_subgraph_modules,
-    decompress_subgraph_modules,
     find_modules_outside_graph,
     handle_sequential_oom,
     partition_subgraphs,
     trace_graph,
+)
+from llmcompressor.pipelines.sequential.offload import (
+    _submit_subgraph_staging,
+    materialize_modules,
+    subgraph_offload_modules,
+    subgraph_stage_modules,
+)
+from llmcompressor.pipelines.sequential.restructure import (
+    RestructureHandler,
 )
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -40,24 +42,6 @@ if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
 
 __all__ = ["SequentialPipeline"]
-
-
-def _submit_subgraph_staging(
-    executor: ThreadPoolExecutor,
-    modules: dict[str, torch.nn.Module],
-    current_modules: dict[str, torch.nn.Module],
-    pin_memory: bool,
-) -> tuple[dict[str, torch.nn.Module], Future] | None:
-    """Stage disjoint next-subgraph modules in the background."""
-    if set(modules.values()) & set(current_modules.values()):
-        return None
-
-    future = executor.submit(
-        subgraph_stage_modules,
-        modules,
-        pin_memory=pin_memory,
-    )
-    return modules, future
 
 
 def _get_batches(
@@ -85,6 +69,7 @@ class SequentialPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        restructure_handler: RestructureHandler,
     ):
         """
         Run a sequential data pipeline according to the following steps:
@@ -108,6 +93,7 @@ class SequentialPipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param restructure_handler: handler prepared before modifier initialization
         """
         _logger = logger.patch(lambda r: r.update(function="SequentialPipeline"))
 
@@ -116,7 +102,6 @@ class SequentialPipeline(CalibrationPipeline):
         # prepare model for sequential onloading
         onload_device = get_main_device()
         offload_device = torch.device(dataset_args.sequential_offload_device)
-        set_onload_device(model, onload_device)
 
         # AutoRoundModifier optimizes each layer independently using its own
         # forward passes, so quantization error should not be propagated between
@@ -135,14 +120,20 @@ class SequentialPipeline(CalibrationPipeline):
         sample_input = next(iter(dataloader))
         graph, targets = trace_graph(model, sample_input, sequential_targets, ignore)
         persistent_modules = find_modules_outside_graph(model, graph)
-        if persistent_modules:
+        if any(name != "" for name in persistent_modules):
             warnings.warn(
                 "Found persistent modules outside of subgraphs. "
                 "This feature will be deprecated in a future release.",
                 FutureWarning,
                 stacklevel=2,
             )
-            subgraph_onload_modules(persistent_modules)
+
+        # Layerwise meta tracing leaves at least the root outside subgraphs; keep
+        # its direct state and other persistent modules onloaded across calibration.
+        # A whole-model subgraph already owns the root; empty mappings are a no-op.
+        persistent_offload_kwargs = materialize_modules(
+            persistent_modules, restructure_handler, onload_device
+        )
 
         LifecycleCallbacks.calibration_start()
 
@@ -219,14 +210,17 @@ class SequentialPipeline(CalibrationPipeline):
                 stage_executor,
                 next_subgraph_modules,
                 {},
+                restructure_handler,
                 stage_weights_in_pinned_memory,
             )
 
             for subgraph_index, subgraph in enumerate(subgraphs):
+                subgraph_modules = subgraph.submodule_dict(model)
                 if prefetched_staging is None:
-                    subgraph_modules = subgraph.submodule_dict(model)
                     subgraph_stage_modules(
-                        subgraph_modules, pin_memory=stage_weights_in_pinned_memory
+                        subgraph_modules,
+                        restructure_handler,
+                        pin_memory=stage_weights_in_pinned_memory,
                     )
                     warnings.warn(
                         "Subgraph prefetching failed for subgraphs "
@@ -236,7 +230,8 @@ class SequentialPipeline(CalibrationPipeline):
                         stacklevel=2,
                     )
                 else:
-                    subgraph_modules, stage_future = prefetched_staging
+                    _, stage_future = prefetched_staging
+                    # block until stage complete
                     stage_future.result()
                 prefetched_staging = None
 
@@ -260,22 +255,16 @@ class SequentialPipeline(CalibrationPipeline):
                         stage_executor,
                         next_subgraph_modules,
                         subgraph_modules,
+                        restructure_handler,
                         stage_weights_in_pinned_memory,
                     )
 
                 #######################
                 ### START OF ONLOAD ###
                 #######################
-                offload_kwargs = subgraph_onload_modules(subgraph_modules)
-
-                # Decompress and initialize only this subgraph after onloading it.
-                if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(subgraph_modules)
-                    for modifier in modifiers:
-                        if hasattr(modifier, "start_layerwise_calibration"):
-                            modifier.start_layerwise_calibration(
-                                session.state, model, subgraph_modules
-                            )
+                offload_kwargs = materialize_modules(
+                    subgraph_modules, restructure_handler, onload_device
+                )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -344,10 +333,16 @@ class SequentialPipeline(CalibrationPipeline):
                 if dataset_args.layerwise_compression:
                     compress_subgraph_modules(subgraph_modules)
 
+                restructure_handler.restore_restructured_modules(subgraph_modules)
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
                 #### END OF ONLOAD ####
                 #######################
+
+            # Restore temporary conversions that weren't part of a traced subgraph,
+            # such as persistent modules.
+            restructure_handler.restore_restructured_modules(persistent_modules)
+            subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
 
             # redundant, finish any remaining compression
             LifecycleCallbacks.calibration_end()

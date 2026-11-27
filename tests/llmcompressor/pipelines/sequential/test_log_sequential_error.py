@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import active_session
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 # known signal and noise for predictable SQNR
 SIGNAL = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
@@ -122,6 +123,7 @@ def test_enabled_propagate_true(
         model,
         fake_dataloader,
         DatasetArguments(log_sequential_error=True, propagate_error=True),
+        RestructureHandler(model),
     )
 
     sqnr_values = _sqnr_values(messages)
@@ -143,6 +145,7 @@ def test_enabled_propagate_false(
         model,
         fake_dataloader,
         DatasetArguments(log_sequential_error=True, propagate_error=False),
+        RestructureHandler(model),
     )
 
     sqnr_values = _sqnr_values(messages)
@@ -163,6 +166,7 @@ def test_disabled_propagate_true(
         model,
         fake_dataloader,
         DatasetArguments(log_sequential_error=False, propagate_error=True),
+        RestructureHandler(model),
     )
 
     assert _sqnr_values(messages) == []
@@ -181,6 +185,7 @@ def test_disabled_propagate_false(
         model,
         fake_dataloader,
         DatasetArguments(log_sequential_error=False, propagate_error=False),
+        RestructureHandler(model),
     )
 
     assert _sqnr_values(messages) == []

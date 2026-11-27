@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import torch
 from compressed_tensors.offload import disable_onloading, offload_module
+from compressed_tensors.offload.cache import OffloadCache
 from compressed_tensors.quantization import QuantizationStatus
 from compressed_tensors.utils import replace_direct_state_dict
 from safetensors import safe_open
@@ -492,7 +493,8 @@ def test_repack_save_conversion_emits_inkling_nested_keys():
         assert any("w13_weight" in str(item) for item in mapping)
 
 
-def test_llama4_from_experts_accepts_text_config():
+@pytest.mark.parametrize("device", ["cpu", "meta"])
+def test_llama4_from_experts_accepts_text_config(device):
     from transformers.models.llama4.configuration_llama4 import (
         Llama4Config,
         Llama4TextConfig,
@@ -507,10 +509,19 @@ def test_llama4_from_experts_accepts_text_config():
         num_local_experts=2,
         num_experts_per_tok=1,
     )
-    experts = Llama4TextExperts(text_config)
+    with torch.device(device):
+        experts = Llama4TextExperts(text_config)
     from_text = Llama4LinearExperts.from_experts_module(experts, text_config)
     assert from_text._source_config is text_config
 
     parent = Llama4Config(text_config=text_config)
     from_parent = Llama4LinearExperts.from_experts_module(experts, parent)
     assert from_parent._source_config is parent.text_config
+    for converted in (from_text, from_parent):
+        assert all(
+            parameter.device.type == device for parameter in converted.parameters()
+        )
+        assert all(
+            not isinstance(module._parameters, OffloadCache)
+            for module in converted.modules()
+        )

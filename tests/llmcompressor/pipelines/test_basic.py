@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import pytest
 import torch
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from torch.utils.data import DataLoader
 from transformers import LlamaConfig, LlamaForCausalLM
@@ -10,6 +11,7 @@ from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.core import LifecycleCallbacks, create_session
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.pipelines.basic import BasicPipeline, run_calibration
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.pytorch.utils.helpers import tensors_to_device
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization, calibration_forward_context
@@ -59,8 +61,12 @@ def test_basic_pipeline_preserves_untraced_calibration():
         ),
         create_session() as session,
     ):
+        set_onload_device(model, get_main_device())
+        handler = RestructureHandler(model)
+        handler.convert_model_to_meta()
+        handler.apply_restructuring()
         session.initialize(model=model, start=-1)
-        BasicPipeline()(model, dataloader, args)
+        BasicPipeline()(model, dataloader, args, handler)
         assert len(pre_calls) == len(outputs) == len(samples)
         for received, index in zip(pre_calls, order):
             torch.testing.assert_close(received, samples[index]["x"])
@@ -69,6 +75,7 @@ def test_basic_pipeline_preserves_untraced_calibration():
         assert torch.count_nonzero(outputs[2]) == 0
         for received, index in zip(session.state.loss_masks, order):
             torch.testing.assert_close(received.cpu(), samples[index]["loss_mask"])
+        assert not handler.mapping
         session.finalize()
 
     assert args == original_args
@@ -87,9 +94,14 @@ def test_run_calibration_without_dataset_arguments(num_batches):
         ),
         create_session() as session,
     ):
+        set_onload_device(model, get_main_device())
+        handler = RestructureHandler(model)
+        handler.convert_model_to_meta()
+        handler.apply_restructuring()
         session.initialize(model=model, start=-1)
-        run_calibration(model, dataloader)
+        run_calibration(model, dataloader, handler)
         assert len(outputs) == num_batches
+        assert not handler.mapping
         session.finalize()
 
 
@@ -129,6 +141,11 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
     )
     for candidate in (reference, model):
         with create_session() as session:
+            if candidate is model:
+                set_onload_device(candidate, device)
+                handler = RestructureHandler(candidate)
+                handler.convert_model_to_meta()
+                handler.apply_restructuring()
             session.initialize(
                 model=candidate,
                 recipe=QuantizationModifier(config_groups={"group": deepcopy(scheme)}),
@@ -146,7 +163,8 @@ def test_basic_pipeline_quantization_matches_direct_calibration():
                 LifecycleCallbacks.sequential_epoch_end(dict(candidate.named_modules()))
                 LifecycleCallbacks.calibration_end()
             else:
-                BasicPipeline()(candidate, dataloader, DatasetArguments())
+                BasicPipeline()(candidate, dataloader, DatasetArguments(), handler)
+                assert not handler.mapping
             session.finalize()
 
     expected = reference.state_dict()

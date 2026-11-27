@@ -42,6 +42,7 @@ from llmcompressor.pipelines.sequential.helpers import (
     topological_partition,
 )
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.dev import get_main_device
 from tests.testing_utils import requires_gpu
 
@@ -435,9 +436,15 @@ def _plan(
     return plan, {node.target: node for node in graph_module.graph.nodes}
 
 
-def test_plan_subgraph_memory(monkeypatch):
+@pytest.mark.parametrize("layerwise_decompression", [False, True])
+def test_plan_subgraph_memory(monkeypatch, layerwise_decompression):
     activation_memory = 1 * 8 * 4 * ACTIVATION_BYTES
-    plan, nodes = _plan(monkeypatch, budget=10_000, modifiers=[_KnownModifier()])
+    plan, nodes = _plan(
+        monkeypatch,
+        budget=10_000,
+        modifiers=[_KnownModifier()],
+        dataset_args=DatasetArguments(layerwise_decompression=layerwise_decompression),
+    )
     node_memory, max_memory = plan
 
     # every module holds a byte per token (8), and the scratch is smaller than the
@@ -474,13 +481,6 @@ def test_plan_subgraph_memory_reserves_activations_cached_on_device(
 @pytest.mark.parametrize("budget", [None, 0, 1 * 8 * 4 * ACTIVATION_BYTES])
 def test_plan_subgraph_memory_falls_back_without_budget(monkeypatch, budget):
     plan, _ = _plan(monkeypatch, budget=budget)
-    assert plan is None
-
-
-def test_plan_subgraph_memory_falls_back_with_layerwise_decompression(monkeypatch):
-    # compressed weights don't have the size or shape they'll have when calibrated
-    dataset_args = DatasetArguments(layerwise_decompression=True)
-    plan, _ = _plan(monkeypatch, budget=10_000, dataset_args=dataset_args)
     assert plan is None
 
 
@@ -599,7 +599,7 @@ def test_pipeline_traces_then_partitions(
     model, dataloader = fake_pipeline_inputs
 
     dataset_args = DatasetArguments(sequential_targets_per_subgraph="auto")
-    SequentialPipeline()(model, dataloader, dataset_args)
+    SequentialPipeline()(model, dataloader, dataset_args, RestructureHandler(model))
 
     # the graph is traced once and partitioned once, with what "auto" needs
     mock_trace.assert_called_once()

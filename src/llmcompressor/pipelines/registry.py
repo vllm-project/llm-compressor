@@ -10,6 +10,7 @@ from llmcompressor.modifiers import Modifier
 
 if TYPE_CHECKING:
     from llmcompressor.args.dataset_arguments import DatasetArguments
+    from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 __all__ = ["CalibrationPipeline"]
 
@@ -21,6 +22,7 @@ class CalibrationPipeline(ABC, RegistryMixin):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: "DatasetArguments",
+        restructure_handler: "RestructureHandler",
     ):
         raise NotImplementedError()
 

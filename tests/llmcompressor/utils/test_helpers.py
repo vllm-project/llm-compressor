@@ -1,16 +1,18 @@
 import pytest
 import torch
 from compressed_tensors.offload import dispatch_model, set_onload_device
-from compressed_tensors.offload.module import (
-    subgraph_offload_modules,
-    subgraph_onload_modules,
-    subgraph_stage_modules,
-)
 from transformers import (
     AutoModelForCausalLM,
+    LlamaConfig,
     MllamaForConditionalGeneration,
 )
 
+from llmcompressor.pipelines.sequential.offload import (
+    materialize_modules,
+    subgraph_offload_modules,
+    subgraph_stage_modules,
+)
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils import (
     DisableQuantization,
     calibration_forward_context,
@@ -137,16 +139,25 @@ def test_disable_lm_head_does_not_onload_weight(monkeypatch):
 def test_disable_lm_head_survives_subgraph_onload(stage):
     # the sequential pipeline onloads and offloads each subgraph's modules within
     # calibration_forward_context
-    with skip_weights_download():
-        model = AutoModelForCausalLM.from_pretrained("nm-testing/tinysmokeqwen3")
+    model = AutoModelForCausalLM.from_config(
+        LlamaConfig(
+            vocab_size=32,
+            hidden_size=16,
+            intermediate_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=2,
+            num_key_value_heads=2,
+        )
+    )
     set_onload_device(model, "cpu")
     modules = {"lm_head": model.lm_head}
+    handler = RestructureHandler(model)
     hidden_states = torch.zeros(1, 4, model.config.hidden_size)
 
     with disable_lm_head(model):
         if stage:
-            subgraph_stage_modules(modules)
-        offload_kwargs = subgraph_onload_modules(modules)
+            subgraph_stage_modules(modules, handler)
+        offload_kwargs = materialize_modules(modules, handler, torch.device("cpu"))
         assert model.lm_head(hidden_states).device == torch.device("meta")
 
         subgraph_offload_modules(modules, offload_kwargs)

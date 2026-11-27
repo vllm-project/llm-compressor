@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import pytest
 import torch
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.quantization import QuantizationArgs, QuantizationScheme
 from torch.utils.data import DataLoader
 from transformers import LlamaConfig, LlamaForCausalLM
@@ -18,6 +19,8 @@ from llmcompressor.modifiers.transform import (
     SpinQuantModifier,
 )
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
+from llmcompressor.utils.dev import get_main_device
 
 _MODULE_NAME = "model.layers.0.self_attn.q_proj"
 _TRANSFORMS = ("AWQ", "SmoothQuant", "QuIP", "SpinQuant")
@@ -134,6 +137,7 @@ def _make_calibration_dataloader():
 
 def _run_pipeline(transform_name, quantizer_name):
     model = _make_toy_model()
+    set_onload_device(model, get_main_device())
     target_module = model.get_submodule(_MODULE_NAME)
     dataloader = _make_calibration_dataloader()
     modifiers = [] if transform_name is None else [_make_transform(transform_name)]
@@ -197,6 +201,7 @@ def _run_pipeline(transform_name, quantizer_name):
                 pipeline=None,
                 sequential_targets=["LlamaDecoderLayer"],
             ),
+            RestructureHandler(model),
         )
         session.finalize()
 

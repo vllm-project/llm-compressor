@@ -4,6 +4,7 @@ from typing import Type
 
 import torch
 import tqdm
+from compressed_tensors.offload import disable_offloading, get_cache_init_kwargs
 from compressed_tensors.utils import patch_attr
 from loguru import logger
 from transformers import (
@@ -17,6 +18,12 @@ from transformers.conversion_mapping import (
 )
 from transformers.monkey_patching import clear_patch_mapping, register_patch_mapping
 
+from llmcompressor.modeling.decompression import DecompressionRestructure
+from llmcompressor.modeling.module_restructure import (
+    ModuleRestructure,
+    replace_module,
+    transfer_module_state,
+)
 from llmcompressor.modeling.moe.helpers import FusedExpertsProtocol
 
 from .conversion_mappings import (
@@ -31,8 +38,8 @@ def _patch_replace_with_fp8_linear_for_moe():
     """Make replace_with_fp8_linear a no-op for MoE models.
 
     MoE models with pre-quantized experts don't need FP8 linear replacement.
-    The quantized weights are already in the checkpoint and our layerwise
-    decompression code handles dequantization.
+    The quantized weights are already in the checkpoint and restructuring
+    handles dequantization.
     """
     try:
         import transformers.integrations.finegrained_fp8
@@ -107,7 +114,7 @@ def load_quantizable_moe(model_cls: Type[PreTrainedModel] = AutoModelForCausalLM
 
         for _, module in get_linearized_moes(model):
             module._source_experts_cls = experts_cls
-            module._source_config = _experts_config(module, model)
+            module._source_config = _experts_config(module, model.config)
 
         return model
 
@@ -148,24 +155,75 @@ def linearize_moe(model: PreTrainedModel):
         "https://docs.vllm.ai/projects/llm-compressor/en/latest/developer-tutorials/add-moe-support"  # noqa: E501
     )
 
-    for name, module in tqdm.tqdm(non_linearized_moes, desc="Linearizing experts"):
-        config = _experts_config(module, model)
-        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(module.__class__)
-        linear_moe = linear_experts_cls.from_experts_module(module, config)
-        model.set_submodule(name, linear_moe)
+    from llmcompressor.pipelines.sequential.offload import subgraph_offload_modules
 
+    # The standalone path owns dispatch; the converters only restructure tensors.
+    # Process one experts tree at a time, leaving other layers offloaded.
+    for _, module in non_linearized_moes:
+        offload_kwargs = get_cache_init_kwargs(module)
+        with disable_offloading():
+            target = MoELinearizationRestructure._linearize(
+                module, getattr(model, "config", None)
+            )
+        if str(offload_kwargs["offload_device"]) != "meta":
+            subgraph_offload_modules(dict(target.named_modules()), {"": offload_kwargs})
+        model = replace_module(model, module, target)
     return model
 
 
+class MoELinearizationRestructure(ModuleRestructure):
+    """Linearize supported MoE trees independently of recipe quantization targets.
+
+    Conversion requires dense tensors, so linearization decompresses its own source
+    tree on both the meta model and the onloaded real source.
+    """
+
+    def apply(
+        self,
+        model: torch.nn.Module,
+        mapping: dict[torch.nn.Module, dict],
+    ) -> torch.nn.Module:
+        self.config = getattr(model, "config", None)
+        for _, module in get_non_linearized_moes(model):
+            target = self._linearize(module, self.config)
+            entry = mapping[module]
+            entry["restructures"].append(self)
+            # Linearization consumes the entire original experts tree.
+            for old in module.modules():
+                mapping.pop(old, None)
+            mapping[target] = entry
+            model = replace_module(model, module, target)
+        return model
+
+    def restructure_sources(self, targets, device, offload_kwargs):
+        for target, entry in targets.items():
+            source = entry["source"]
+            converted = self._linearize(source, self.config)
+            for name, module in converted.named_modules():
+                transfer_module_state(target.get_submodule(name), module, device)
+            entry["materialized"] = True
+            for child in source.modules():
+                child._parameters.clear()
+                child._buffers.clear()
+
+    @staticmethod
+    def _linearize(source, config):
+        source.apply(DecompressionRestructure._decompress)
+        config = _experts_config(source, config)
+        linear_experts_cls = LinearExperts2D.get_linear_experts_cls(type(source))
+        return linear_experts_cls.from_experts_module(source, config)
+
+
 def _experts_config(
-    module: torch.nn.Module, model: PreTrainedModel
+    module: torch.nn.Module, config: PreTrainedConfig | None
 ) -> PreTrainedConfig:
     """Prefer a nested text config so fused experts construct with the right
     constructor (e.g. InklingExperts(InklingTextConfig)).
     """
-    if (config := getattr(module, "config", None)) is not None:
-        return config
-    config = model.config
+    if (module_config := getattr(module, "config", None)) is not None:
+        return module_config
+    if config is None:
+        raise TypeError("MoE linearization requires a model config")
     get_text_config = getattr(config, "get_text_config", None)
     if callable(get_text_config):
         return get_text_config()

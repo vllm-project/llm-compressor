@@ -706,6 +706,10 @@ def test_awq_raises_on_non_finite_identity_grid_loss():
     # search does not, to test this specific edge case
     def corrupt_weights_after_baseline(module, _inputs, _output):
         nonlocal forward_count
+        # Meta tracing also runs this hook; count only real forwards.
+        if module.q_proj.weight.is_meta:
+            return
+
         forward_count += 1
         if forward_count == 2:
             module.q_proj.weight.data.fill_(float("nan"))

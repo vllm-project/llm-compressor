@@ -6,6 +6,7 @@ from torch.utils.data.dataloader import DataLoader
 from llmcompressor.args.dataset_arguments import DatasetArguments
 from llmcompressor.pipelines.registry import CalibrationPipeline
 from llmcompressor.pipelines.sequential import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 __all__ = ["BasicPipeline", "run_calibration"]
 
@@ -17,6 +18,7 @@ class BasicPipeline(CalibrationPipeline):
         model: torch.nn.Module,
         dataloader: DataLoader,
         dataset_args: DatasetArguments | None,
+        restructure_handler: RestructureHandler,
     ):
         """
         Run a basic data pipeline.
@@ -27,6 +29,7 @@ class BasicPipeline(CalibrationPipeline):
         :param model: model being calibrated
         :param dataloader: loads data for calibration
         :param dataset_args: dataset arguments relevant to pipelines
+        :param restructure_handler: handler prepared before modifier initialization
         """
         dataset_args = replace(
             dataset_args if dataset_args is not None else DatasetArguments(),
@@ -35,9 +38,13 @@ class BasicPipeline(CalibrationPipeline):
             propagate_error=False,
             log_sequential_error=False,
         )
-        SequentialPipeline()(model, dataloader, dataset_args)
+        SequentialPipeline()(model, dataloader, dataset_args, restructure_handler)
 
 
-def run_calibration(model: torch.nn.Module, dataloader: DataLoader):
+def run_calibration(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    restructure_handler: RestructureHandler,
+):
     pipeline = BasicPipeline()
-    pipeline(model, dataloader, None)
+    pipeline(model, dataloader, None, restructure_handler)

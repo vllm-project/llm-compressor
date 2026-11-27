@@ -2,10 +2,13 @@ import contextlib
 from types import SimpleNamespace
 
 import torch
+from compressed_tensors.offload import set_onload_device
 
 import llmcompressor.pipelines.sequential.helpers as helpers_module
+import llmcompressor.pipelines.sequential.offload as offload_module
 import llmcompressor.pipelines.sequential.pipeline as pipeline_module
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 
 
 class _FakeActivations:
@@ -35,28 +38,22 @@ class _FakeSubgraph:
         return {}
 
 
-class _FakeModifier:
-    def __init__(self, events):
-        self.events = events
-
-    def start_layerwise_calibration(self, state, model, modules):
-        self.events.append(("start_layerwise_calibration", modules))
-
-
-def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
+def test_sequential_pipeline_restructures_and_recompresses_current_subgraph(
     monkeypatch,
 ):
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
+    set_onload_device(model, torch.device("cpu"))
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
     module = model[0]
     events = []
 
-    modifier = _FakeModifier(events)
     session = SimpleNamespace(
-        lifecycle=SimpleNamespace(recipe=SimpleNamespace(modifiers=[modifier])),
+        lifecycle=SimpleNamespace(recipe=SimpleNamespace(modifiers=[])),
         state=SimpleNamespace(),
     )
     dataset_args = SimpleNamespace(
-        layerwise_decompression=True,
         layerwise_compression=True,
         propagate_error=False,
         log_sequential_error=False,
@@ -69,7 +66,6 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
 
     monkeypatch.setattr(pipeline_module, "active_session", lambda: session)
     monkeypatch.setattr(pipeline_module, "get_main_device", lambda: torch.device("cpu"))
-    monkeypatch.setattr(pipeline_module, "set_onload_device", lambda *args: None)
     monkeypatch.setattr(
         pipeline_module,
         "calibration_forward_context",
@@ -85,7 +81,9 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         "partition_subgraphs",
         lambda *args: [_FakeSubgraph(module, events)],
     )
-    monkeypatch.setattr(pipeline_module, "find_modules_outside_graph", lambda *args: {})
+    monkeypatch.setattr(
+        pipeline_module, "find_modules_outside_graph", lambda *args: {"": model}
+    )
     monkeypatch.setattr(
         pipeline_module,
         "subgraph_stage_modules",
@@ -93,8 +91,9 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     )
     monkeypatch.setattr(
         pipeline_module,
-        "subgraph_onload_modules",
-        lambda modules: events.append("onload") or {},
+        "materialize_modules",
+        lambda modules, handler, device: events.append("onload")
+        or offload_module.materialize_modules(modules, handler, device),
     )
     monkeypatch.setattr(
         pipeline_module,
@@ -126,13 +125,13 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
         "is_module_quantized",
         lambda candidate: candidate is module,
     )
-    monkeypatch.setattr(
-        helpers_module,
-        "decompress_module",
-        lambda candidate, leave_decompressed=True: events.append(
-            ("decompress_module", candidate, leave_decompressed)
-        ),
-    )
+    transfer_state = offload_module.transfer_module_state
+
+    def materialize(target, source, device, **kwargs):
+        events.append(("restructure", [target]))
+        transfer_state(target, source, device, **kwargs)
+
+    monkeypatch.setattr(offload_module, "transfer_module_state", materialize)
     monkeypatch.setattr(
         helpers_module,
         "compress_module",
@@ -140,16 +139,18 @@ def test_sequential_pipeline_decompresses_and_recompresses_current_subgraph(
     )
     monkeypatch.setattr(helpers_module, "is_distributed", lambda: False)
 
-    SequentialPipeline.__call__(model, [{}], dataset_args)
+    SequentialPipeline.__call__(model, [{}], dataset_args, handler)
 
     assert events == [
+        "onload",
+        ("restructure", [model]),
         "calibration_start",
         "onload",
-        ("decompress_module", module, False),
-        ("start_layerwise_calibration", {"0": module}),
+        ("restructure", [module]),
         "forward",
         ("sequential_epoch_end", {"0": module}),
         ("compress_module", module),
+        "offload",
         "offload",
         "calibration_end",
     ]

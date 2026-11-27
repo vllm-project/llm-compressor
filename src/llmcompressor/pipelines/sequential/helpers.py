@@ -8,7 +8,7 @@ from types import FunctionType, MethodType
 from typing import TYPE_CHECKING, Any, Callable
 
 import torch
-from compressed_tensors.compressors import compress_module, decompress_module
+from compressed_tensors.compressors import compress_module
 from compressed_tensors.distributed import is_distributed, replace_module_parallel
 from compressed_tensors.offload import disable_onloading
 from compressed_tensors.quantization.lifecycle.initialize import _is_attention_module
@@ -69,10 +69,10 @@ class Subgraph:
         self, model: Module, recurse: bool = True
     ) -> dict[str, Module]:
         """
-        Modules keyed by their qualified names, in graph order. Owned
-        modules are `call_module` targets plus modules recorded by the tracer as having
-        run inside a node (see `INVOKED_SUBMODULES_META_KEY`), optionally including
-        their descendants. Names which do not exist in `model` raise
+        Modules keyed by their qualified names, in graph order. Owned modules are
+        `call_module` targets plus modules recorded by the tracer as having run inside
+        a node (see `INVOKED_SUBMODULES_META_KEY`), optionally including their
+        descendants. Names which do not exist in `model` raise.
         """
         modules: dict[str, Module] = {}
         seen_modules: set[Module] = set()
@@ -137,12 +137,15 @@ def collect_subgraph_modules(
 def find_modules_outside_subgraphs(
     model: Module, subgraphs: list[Subgraph], recurse: bool = True
 ) -> dict[str, Module]:
-    """Return modules that were traced but do not belong to any subgraph."""
+    """Return unowned modules, including the root when its forward is traced through.
+
+    These modules need their direct state materialized outside the subgraph loop.
+    """
     subgraph_modules = collect_subgraph_modules(model, subgraphs, recurse=recurse)
     return {
         name: module
         for name, module in model.named_modules()
-        if name and name not in subgraph_modules
+        if name not in subgraph_modules
     }
 
 
@@ -159,15 +162,6 @@ def _create_whole_model_subgraph(input_names: set[str]) -> Subgraph:
     output.meta[INVOKED_SUBMODULES_META_KEY] = [""]
     graph.output(output)
     return Subgraph(graph=graph, input_names=input_names, consumed_names=set())
-
-
-def decompress_subgraph_modules(modules: dict[str, Module]) -> None:
-    """Decompress quantized modules owned by one subgraph."""
-    compressed_modules = [
-        module for module in modules.values() if is_module_quantized(module)
-    ]
-    for module in tqdm(compressed_modules, desc="Decompressing modules"):
-        decompress_module(module, leave_decompressed=False)
 
 
 def compress_subgraph_modules(modules: dict[str, Module]) -> None:
@@ -436,6 +430,16 @@ def partition_subgraphs(
 
     subgraphs = partition_graph(model, partitions)
     trace_consumed_names(subgraphs)
+
+    # Fused observers read their siblings' weights, so the entire group must be
+    # materialized together before any member is calibrated.
+    for subgraph in subgraphs:
+        modules = subgraph.submodule_dict(model)
+        module_set = set(modules.values())
+        for name, module in modules.items():
+            observer = getattr(module, "weight_observer", None)
+            if observer is not None:
+                observer.fusion_handler.validate_subgraph(module_set, name)
 
     return subgraphs
 

@@ -2,10 +2,11 @@ import importlib
 import re
 from contextlib import contextmanager
 from copy import deepcopy
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
+from compressed_tensors.offload import set_onload_device
 from loguru import logger
 from pydantic import ValidationError
 from transformers import LlamaConfig, LlamaForCausalLM
@@ -20,6 +21,7 @@ from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.modifiers.transform.awq import AWQModifier
 from llmcompressor.pipelines.cache import IntermediatesCache, IntermediateValue
 from llmcompressor.pipelines.sequential.pipeline import SequentialPipeline
+from llmcompressor.pipelines.sequential.restructure import RestructureHandler
 from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import DisableQuantization
 
@@ -153,6 +155,15 @@ def _tiny_llama(layers=2):
     return model
 
 
+def _prepare_restructure_handler(model):
+    """Match Oneshot's model preparation before modifier initialization."""
+    set_onload_device(model, get_main_device())
+    handler = RestructureHandler(model)
+    handler.convert_model_to_meta()
+    handler.apply_restructuring()
+    return handler
+
+
 @pytest.mark.parametrize("kind", ["rtn", "gptq"])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
 def test_quantizer_then_qad_preserves_teacher_qparams_and_hooks(kind, dtype):
@@ -235,9 +246,17 @@ def test_real_llama_sequential_pipeline(kind, scheme):
     with create_session() as session:
         recipe = [AWQModifier(n_grid=4)] if kind == "awq" else []
         recipe.extend([_quantizer(kind, scheme), qad])
-        session.initialize(model=model, recipe=recipe, start=-1)
+        handler = _prepare_restructure_handler(model)
+        session.initialize(
+            model=model,
+            recipe=recipe,
+            start=-1,
+            calib_data=data,
+            sequential_targets=args.sequential_targets,
+            pipeline="sequential",
+        )
         with _capture_logs() as logs:
-            SequentialPipeline()(model, data, args)
+            SequentialPipeline()(model, data, args, handler)
         assert _logged_updates(logs) == {"model.layers.0": 3, "model.layers.1": 3}
         assert not qad._input_caches and not qad._output_caches and not qad._hooks
         session.finalize()
@@ -438,7 +457,8 @@ def test_oneshot_rejects_nonsequential_qad_before_calibration(pipeline, tmp_path
         entrypoint = Oneshot(
             model=model, recipe=[_quantizer("rtn"), qad], **pipeline_kwargs
         )
-    with create_session(), patch.object(model, "forward") as forward:
+    forward = Mock()
+    with create_session(), model.register_forward_pre_hook(forward):
         with pytest.raises(ValueError, match='requires pipeline="sequential"'):
             entrypoint.apply_recipe_modifiers(calibration_dataloader=[])
     forward.assert_not_called()
@@ -518,9 +538,17 @@ def test_subgraph_targets_train_jointly(per_subgraph, expected):
         sequential_targets_per_subgraph=per_subgraph,
     )
     with create_session() as session:
-        session.initialize(model=model, recipe=[_quantizer("rtn"), qad], start=-1)
+        handler = _prepare_restructure_handler(model)
+        session.initialize(
+            model=model,
+            recipe=[_quantizer("rtn"), qad],
+            start=-1,
+            calib_data=data,
+            sequential_targets=args.sequential_targets,
+            pipeline="sequential",
+        )
         with _capture_logs() as logs:
-            SequentialPipeline()(model, data, args)
+            SequentialPipeline()(model, data, args, handler)
         assert _logged_updates(logs) == expected
         assert (
             not qad._input_caches

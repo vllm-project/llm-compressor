@@ -223,6 +223,15 @@ class DatasetArguments(CustomDatasetArguments):
             ),
         },
     )
+    lazy_linearization: bool = field(
+        default=True,
+        metadata={
+            "help": "Linearize MoE experts when their subgraph is onloaded. "
+            "Sequential targets must keep each experts block intact. "
+            "Set False to linearize upfront and allow expert-level targets. "
+            "Default True."
+        },
+    )
     # --- pipeline arguments --- #
     pipeline: str | None = field(
         default="independent",
@@ -344,9 +353,10 @@ class DatasetArguments(CustomDatasetArguments):
     layerwise_decompression: bool = field(
         default=False,
         metadata={
-            "help": "When True, each layer is decompressed before calibrating in "
-            "the sequential pipeline. Use when loading a pre-compressed model "
-            "that needs recalibration. Default False."
+            "help": "Allow decompression of compressed-tensors modules during "
+            "restructuring. Default False; remaining modules that need this "
+            "operation raise an error. MoE linearization decompresses its own "
+            "expert weights independently of this flag."
         },
     )
     layerwise_compression: bool = field(

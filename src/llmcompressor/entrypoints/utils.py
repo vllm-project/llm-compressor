@@ -12,6 +12,7 @@ from pathlib import PosixPath
 
 from compressed_tensors.offload import from_accelerate, is_distributed
 from loguru import logger
+from torch.nn import Module
 from transformers import (
     AutoConfig,
     AutoModelForCausalLM,
@@ -27,12 +28,15 @@ from llmcompressor.args import (
 )
 from llmcompressor.core import reset_session
 from llmcompressor.logger import configure_distributed_logger
+from llmcompressor.modeling.moe.linearize import MoELinearizationRestructure
+from llmcompressor.pipelines.sequential.helpers import _resolve_sequential_targets
 from llmcompressor.pytorch.model_load.helpers import parse_dtype
 from llmcompressor.transformers.compression.compressed_tensors_utils import (
     modify_save_pretrained,
 )
 from llmcompressor.typing import Processor
 from llmcompressor.utils import untie_word_embeddings
+from llmcompressor.utils.pytorch.module import infer_sequential_targets
 
 
 def pre_process(
@@ -91,6 +95,32 @@ def pre_process(
 
     # wrap model.save_pretrained
     modify_save_pretrained(model_args.model)
+
+
+def has_sequential_targets_across_moes(
+    model: Module,
+    sequential_targets: list[str] | None,
+    mapping: dict[Module, dict],
+) -> bool:
+    """Check whether effective sequential targets split a lazily linearized MoE."""
+    lazy_experts = [
+        module
+        for module, entry in mapping.items()
+        if any(
+            isinstance(restructure, MoELinearizationRestructure)
+            for restructure in entry["restructures"]
+        )
+    ]
+    if not lazy_experts:
+        return False
+    targets = _resolve_sequential_targets(
+        model, infer_sequential_targets(model, sequential_targets)
+    )
+    return any(
+        child in targets
+        for experts in lazy_experts
+        for child in list(experts.modules())[1:]
+    )
 
 
 def post_process(

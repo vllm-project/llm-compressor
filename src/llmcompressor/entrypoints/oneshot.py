@@ -22,6 +22,7 @@ from compressed_tensors.base import (
     QUANTIZATION_METHOD_NAME,
 )
 from compressed_tensors.distributed import is_distributed
+from compressed_tensors.offload import set_onload_device
 from compressed_tensors.utils import getattr_chain, match_named_modules
 from loguru import logger
 from torch.utils.data import DataLoader
@@ -35,20 +36,28 @@ from transformers import (
 from llmcompressor.args import parse_args
 from llmcompressor.core.session_functions import active_session
 from llmcompressor.datasets import get_calibration_dataloader
-from llmcompressor.entrypoints.utils import post_process, pre_process
+from llmcompressor.entrypoints.utils import (
+    has_sequential_targets_across_moes,
+    post_process,
+    pre_process,
+)
 from llmcompressor.modeling.moe.context import moe_calibration_context
 from llmcompressor.modeling.moe.linearize import get_non_linearized_moes, linearize_moe
-from llmcompressor.modeling.offset_norm import norm_calibration_context
 from llmcompressor.modifiers.quantization.quantization.mixin import QuantizationMixin
 from llmcompressor.pipelines import CalibrationPipeline
+from llmcompressor.pipelines.sequential.restructure import (
+    RestructureHandler,
+)
 from llmcompressor.recipe import Recipe
 from llmcompressor.transformers.compression.mtp import (
     has_mtp_in_checkpoint,
     validate_mtp_copy_source,
 )
+from llmcompressor.utils.dev import get_main_device
 from llmcompressor.utils.helpers import use_eager_attention
 
 __all__ = ["Oneshot", "oneshot"]
+
 
 if TYPE_CHECKING:
     from datasets import Dataset, DatasetDict
@@ -227,10 +236,7 @@ class Oneshot:
         self.processor = self.model_args.processor
         self.recipe = self.recipe_args.recipe
 
-        # Skip model validation if using layerwise decompression
-        # for pre-quantized models
-        if not getattr(self.dataset_args, "layerwise_decompression", False):
-            self.validate_model(self.model)
+        self.validate_model(self.model)
 
     @handle_error
     def __call__(self):
@@ -289,7 +295,10 @@ class Oneshot:
         session = active_session()
         session.reset()
 
-        if len(get_non_linearized_moes(self.model)) > 0:
+        if (
+            not self.dataset_args.lazy_linearization
+            and len(get_non_linearized_moes(self.model)) > 0
+        ):
             logger.warning(
                 "Detected an MoE model which has not been linearized. First load "
                 "model `with llmcompressor.modeling.moe.linearize.load_quantizable_moe`"
@@ -297,18 +306,34 @@ class Oneshot:
             )
             linearize_moe(self.model)
 
+        # Dispatch real weights once; meta conversion retains these caches on sources.
+        set_onload_device(self.model, get_main_device())
+        restructure_handler = RestructureHandler(
+            self.model,
+            layerwise_decompression=self.dataset_args.layerwise_decompression,
+        )
+        restructure_handler.convert_model_to_meta()
+        restructure_handler.apply_restructuring()
+
+        if has_sequential_targets_across_moes(
+            self.model,
+            self.dataset_args.sequential_targets,
+            restructure_handler.mapping,
+        ):
+            raise ValueError(
+                "Sequential targets split a lazily linearized experts block. "
+                "Set lazy_linearization=False to linearize upfront, or select "
+                "the entire experts block or an enclosing layer."
+            )
+
         # (Helen INFERENG-661): validate recipe modifiers before initialization
         # Apply calibration contexts for the entire calibration process
         with ExitStack() as stack:
-            stack.enter_context(norm_calibration_context(self.model))
             if self.dataset_args.moe_calibrate_all_experts:
                 stack.enter_context(moe_calibration_context())
             if self.use_eager_attention:
                 stack.enter_context(use_eager_attention(self.model))
 
-            session.state.layerwise_decompression = (
-                self.dataset_args.layerwise_decompression
-            )
             session.state.layerwise_compression = (
                 self.dataset_args.layerwise_compression
             )
@@ -333,6 +358,7 @@ class Oneshot:
                 self.model,
                 calibration_dataloader,
                 self.dataset_args,
+                restructure_handler=restructure_handler,
             )
 
         session.finalize()
@@ -340,7 +366,7 @@ class Oneshot:
     def validate_model(self, model: PreTrainedModel):
         """
         Validate that oneshot can be applied to model.
-        Raise warning if model is quantized with compressed-tensors quant method.
+        Report decompression requirements for compressed-tensors checkpoints.
         Raise error if model is quantized with any other quant method.
         """
         if has_mtp_in_checkpoint(model) and not hasattr(model, "mtp"):
@@ -395,9 +421,10 @@ class Oneshot:
 
         elif quant_method == QUANTIZATION_METHOD:
             logger.warning(
-                "oneshot has limited support for models already quantized in the "
-                "`compressed-tensors` format. If the recipe targets layers that have "
-                f"already been quantized, oneshot will likely fail. {resolution}"
+                "Detected a model already quantized in the `compressed-tensors` "
+                "format. Modules requiring the general decompression transform "
+                "require layerwise_decompression=True. MoE linearization "
+                "decompresses its own expert weights independently of this flag."
             )
         else:
             raise ValueError(
@@ -441,6 +468,7 @@ def oneshot(
     dataloader_num_workers: int = 0,
     min_tokens_per_module: float | None = None,
     moe_calibrate_all_experts: bool = True,
+    lazy_linearization: bool = True,
     pipeline: str | None = "independent",
     use_eager_attention: bool = False,
     tracing_ignore: list[str] = [
@@ -462,6 +490,7 @@ def oneshot(
     sequential_offload_device: str = "cpu",
     quantization_aware_calibration: bool = True,
     stage_weights_in_pinned_memory: bool = False,
+    layerwise_decompression: bool = False,
     log_sequential_error: bool = False,
     # Miscellaneous arguments
     output_dir: str | None = None,
@@ -539,6 +568,10 @@ def oneshot(
         model calibration. When True, all experts will see all tokens during
         calibration, ensuring proper quantization statistics. When False, only
         routed experts will be used. Only relevant for MoE models. Default is True.
+    :param lazy_linearization: Whether to linearize MoE experts when their subgraph
+        is onloaded. Sequential targets must keep each lazily linearized experts block
+        intact. Set False to linearize upfront and allow expert-level targets.
+        Default is True.
     :param pipeline: Calibration pipeline used to calibrate model Options:
         ['basic', 'datafree', 'sequential', 'independent']
     :param use_eager_attention: Whether to force eager attention during tracing and
@@ -558,6 +591,10 @@ def oneshot(
     :param stage_weights_in_pinned_memory: When using the sequential pipeline, stage
         offloaded module tensors in pinned CPU memory before onloading them to the
         execution device. Default False.
+    :param layerwise_decompression: Allow decompression of compressed-tensors modules
+        during restructuring. If False, restructuring raises when a module still
+        needs decompression. MoE linearization decompresses its own expert weights
+        independently of this flag. Default False.
     :param log_sequential_error: Only relevant for the sequential pipeline. If True,
         compute and log the SQNR between each subgraph's pre-compression
         and post-compression outputs, independent of propagate_error.

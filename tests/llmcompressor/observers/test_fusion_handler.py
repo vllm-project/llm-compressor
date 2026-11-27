@@ -95,6 +95,25 @@ class TestFusionHandlerFuse:
 
 
 @pytest.mark.unit
+class TestValidateSubgraph:
+    def test_complete_group(self):
+        observers, modules = _make_fused_group(3)
+        for observer in observers:
+            observer.fusion_handler.validate_subgraph(set(modules), "projection")
+
+    @pytest.mark.parametrize("observed", [False, True])
+    def test_split_group(self, observed):
+        observers, modules = _make_fused_group(3)
+        if observed:
+            observers[0](modules[0].weight)
+        with pytest.raises(ValueError, match="projection.*same subgraph"):
+            observers[0].fusion_handler.validate_subgraph({modules[0]}, "projection")
+
+    def test_unfused(self):
+        _make_observer().fusion_handler.validate_subgraph(set(), "projection")
+
+
+@pytest.mark.unit
 class TestGetStatistics:
     def test_get_statistics_returns_dict(self):
         obs = _make_observer()

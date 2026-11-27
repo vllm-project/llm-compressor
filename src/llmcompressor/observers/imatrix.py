@@ -16,6 +16,7 @@ from llmcompressor.observers.grid_search import (
     _resolve_grid_type,
 )
 from llmcompressor.observers.helpers import flatten_for_calibration
+from llmcompressor.utils.dev import get_main_device
 
 __all__ = ["IMatrixMSEObserver"]
 
@@ -86,7 +87,7 @@ class IMatrixMSEObserver(Observer):
         self.grid_type = _resolve_grid_type(kw.get("grid_type"), self.args)
 
         self._imatrix_sum: torch.Tensor | None = None
-        self._imatrix_count: torch.Tensor = torch.tensor(0, dtype=torch.int64)
+        self._imatrix_count = torch.tensor(0, dtype=torch.int64, device="cpu")
         self._imatrix_hook: RemovableHandle | None = None
 
         if self.grid <= 0:
@@ -122,7 +123,12 @@ class IMatrixMSEObserver(Observer):
 
         in_features = module.in_features
         param = next(module.parameters(), None)
-        device = param.device if param is not None else None
+        device = (
+            param.device
+            if param is not None and not param.is_meta
+            else get_main_device()
+        )
+        # Statistics stay real even when the owning module initializes on meta.
         self._imatrix_sum = torch.zeros(
             in_features, dtype=IMATRIX_PRECISION, device=device
         )

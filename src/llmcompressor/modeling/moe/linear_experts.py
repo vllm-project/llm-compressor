@@ -306,10 +306,8 @@ class LinearExperts2D(torch.nn.ModuleList):
     def from_experts_module(
         cls, experts: FusedExpertsProtocol, config: PreTrainedConfig
     ):
-        # Offloaded parameters are represented by meta tensors while onloading is
-        # disabled. Construct on the module's execution device instead of using a
-        # parameter's storage device so copying from the source works reliably.
-        construction_device = get_execution_device(experts)
+        """Convert source tensors on their current device without changing dispatch."""
+        construction_device = next(experts.parameters()).device
         with torch.device(construction_device), skip_weights_initialize():
             self = cls(config)
 
@@ -320,11 +318,6 @@ class LinearExperts2D(torch.nn.ModuleList):
         # Needed by :meth:`to_experts_module` / ``repack_moe`` to restore the native
         # fused experts class and config (see issue #2699).
         self._record_source_metadata(experts, config)
-
-        # copy offloading from original
-        offload_kwargs = get_cache_init_kwargs(experts)
-        for module in self.modules():
-            offload_module(module, **offload_kwargs)
 
         return self
 
