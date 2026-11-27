@@ -145,7 +145,7 @@ class Recipe(BaseModel):
         else:
             logger.info(f"Loading recipe from file {path_or_modifiers}")
 
-        with open(path_or_modifiers, "r") as file:
+        with open(path_or_modifiers, "r", encoding="utf-8") as file:
             content = file.read().strip()
             if path_or_modifiers.lower().endswith(".md"):
                 content = _parse_recipe_from_md(path_or_modifiers, content)
@@ -257,7 +257,7 @@ class Recipe(BaseModel):
         # Load the other recipe from file, if given
         existing_dict = {}
         if existing_recipe_path:
-            with open(existing_recipe_path, "r") as f:
+            with open(existing_recipe_path, "r", encoding="utf-8") as f:
                 existing_recipe_str = f.read()
             existing_dict = _load_json_or_yaml_string(existing_recipe_str)
 
@@ -270,19 +270,20 @@ class Recipe(BaseModel):
         # Deep merge — keep both recipe contents
         merged_dict = append_recipe_dict(existing_dict, self_dict)
 
-        # Dump YAML
-        file_stream = None if file_path is None else open(file_path, "w")
+        # Dump YAML. Serialise first so the return value is the string even when
+        # a file is also written (`yaml.dump(stream=...)` returns None), and use
+        # a context manager so a serialisation error cannot leak the handle.
         yaml_str = yaml.dump(
             merged_dict,
-            stream=file_stream,
             allow_unicode=True,
             sort_keys=False,
             default_flow_style=None,
             width=88,
         )
 
-        if file_stream:
-            file_stream.close()
+        if file_path is not None:
+            with open(file_path, "w", encoding="utf-8") as file_stream:
+                file_stream.write(yaml_str)
 
         return yaml_str
 
