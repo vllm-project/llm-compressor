@@ -10,7 +10,6 @@ from typing import Any, Generator
 from weakref import ref
 
 import torch
-from torch.utils._python_dispatch import TorchDispatchMode
 from tqdm import tqdm
 
 
@@ -89,10 +88,14 @@ class IntermediatesCache:
     def __init__(
         self,
         batch_intermediates: list[IntermediateValues] | None = None,
-        offload_device: torch.device | None = "cpu",
+        offload_device: torch.device | None = torch.device("cpu"),
     ):
         self.batch_intermediates = batch_intermediates or []
-        self.offload_device = offload_device
+        self.offload_device = (
+            torch.device(offload_device)
+            if isinstance(offload_device, str)
+            else offload_device
+        )
         self._prefetch_stream = None
 
     @classmethod
@@ -129,6 +132,11 @@ class IntermediatesCache:
         :param model_device: device which values will be onloaded to when fetched
         :param offload_device: device to offload values to
         """
+        if isinstance(model_device, str):
+            model_device = torch.device(model_device)
+        if isinstance(offload_device, str):
+            offload_device = torch.device(offload_device)
+
         batch_intermediates = [
             {
                 key: cls._offload_value(value, offload_device, model_device)
@@ -438,7 +446,7 @@ class IntermediatesCache:
     def _offload_value(
         cls,
         value: Any,
-        offload_device: torch.device | str | None,
+        offload_device: torch.device | None,
         onload_device: torch.device | None = None,
     ) -> IntermediateValue:
         """
@@ -454,18 +462,16 @@ class IntermediatesCache:
         match value:
             case torch.Tensor():
                 device = offload_device
-                if device is not None:
-                    if not isinstance(device, torch.device):
-                        device = torch.device(device)
-                    # An unindexed accelerator target follows the current device.
-                    if (
-                        device.index is None
-                        and device.type not in ("cpu", "meta")
-                        and device == torch.accelerator.current_accelerator()
-                    ):
-                        device = torch.device(
-                            device.type, torch.accelerator.current_device_index()
-                        )
+                # An unindexed accelerator target follows the current device.
+                if (
+                    device is not None
+                    and device.index is None
+                    and device.type not in ("cpu", "meta")
+                    and device == torch.accelerator.current_accelerator()
+                ):
+                    device = torch.device(
+                        device.type, torch.accelerator.current_device_index()
+                    )
                 key = (id(value), device)
                 offload_values = cls.offload_values
                 entry = offload_values.get(key)
@@ -527,34 +533,3 @@ class IntermediatesCache:
                 ):
                     warnings.warn(f"Offloading not implemented for type {type(value)}.")
                 return IntermediateValue(value=value, device=None)
-
-
-class OverrideEqMode(TorchDispatchMode):
-    """
-    When using a torch.Tensor as a key in a dictionary, the equality
-    check must return a single value instead of a torch.Tensor
-    of bool values.
-    Use this override context for such cases, to swap out the torch.eq
-    equality check for a check on id
-    >>> a = torch.tensor([1,2,3])
-    >>> b = torch.tensor([1,2,3])
-    >>> a == b
-    tensor([True, True, True])
-    >>> with OverrideEqMode():
-    ...     a == b
-    tensor(True)
-    """
-
-    def __torch_dispatch__(self, func, _types, args=(), kwargs=None):
-        kwargs = kwargs or {}
-
-        # Check if the operation is equality
-        if func is torch.ops.aten.eq.Tensor:
-            # Override to use torch.equal
-            assert len(args) == 2, "Exactly 2 args must be provided"
-
-            # NOTE: Errors out without cast to torch.tensor
-            return torch.tensor(id(args[0]) == id(args[1]))
-
-        # For all other operations, just run them normally
-        return func(*args, **kwargs)

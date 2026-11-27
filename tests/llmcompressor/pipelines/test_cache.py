@@ -10,7 +10,6 @@ from torch.utils.data import DataLoader, StackDataset
 from llmcompressor.pipelines.cache import (
     IntermediatesCache,
     IntermediateValue,
-    OverrideEqMode,
     _supports_record_stream,
 )
 
@@ -60,6 +59,25 @@ def test_initialization(sample_dataloader):
     assert isinstance(cache, IntermediatesCache)
     assert len(cache.batch_intermediates) > 0
     assert isinstance(cache.batch_intermediates[0], dict)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("offload_device", ["cpu", torch.device("cpu"), None])
+def test_cache_normalizes_device_arguments(sample_dataloader, offload_device):
+    expected_device = None if offload_device is None else torch.device("cpu")
+    cache = IntermediatesCache(offload_device=offload_device)
+    empty_cache = IntermediatesCache.empty(1, offload_device)
+    dataloader_cache = IntermediatesCache.from_dataloader(
+        sample_dataloader, model_device="cpu", offload_device=offload_device
+    )
+
+    for instance in (cache, empty_cache, dataloader_cache):
+        assert instance.offload_device == expected_device
+
+    for intermediate in dataloader_cache.batch_intermediates[0].values():
+        assert intermediate.device == torch.device("cpu")
+
+    assert IntermediatesCache().offload_device == torch.device("cpu")
 
 
 @pytest.mark.unit
@@ -223,11 +241,7 @@ def test_offload_and_onload(value):
 
 
 @pytest.mark.unit
-def test_shared_offload_uses_identity_without_dispatch_mode(monkeypatch):
-    def unexpected_mode():
-        pytest.fail("offloading a tensor must not enter OverrideEqMode")
-
-    monkeypatch.setattr("llmcompressor.pipelines.cache.OverrideEqMode", unexpected_mode)
+def test_shared_offload_uses_identity():
     cache = IntermediatesCache.empty(1, torch.device("meta"))
     tensor = torch.ones(2, 3)
     cache.update(0, {"shared": [tensor, tensor], "distinct": tensor.clone()})
@@ -277,11 +291,15 @@ def test_unindexed_offload_tracks_current_accelerator_device(monkeypatch):
         torch.accelerator, "current_device_index", lambda: current_index
     )
 
-    first = IntermediatesCache._offload_value(source, "cuda").value
+    cache = IntermediatesCache.empty(1, "cuda")
+    cache.update(0, {"source": source})
+    first = cache.batch_intermediates[0]["source"].value
     current_index = 1
-    second = IntermediatesCache._offload_value(source, "cuda").value
+    cache.update(0, {"source": source})
+    second = cache.batch_intermediates[0]["source"].value
     again = IntermediatesCache._offload_value(source, torch.device("cuda:0")).value
 
+    assert cache.offload_device == torch.device("cuda")
     assert first is not second
     assert first is again
     assert transfers == [torch.device("cuda:0"), torch.device("cuda:1")]
@@ -388,18 +406,3 @@ def deep_equal(a, b) -> bool:
             return deep_equal(a_dict, b_dict)
         case _:
             return a == b
-
-
-def test_override_eq_mode():
-    a = torch.tensor([1, 2, 3])
-    b = a
-    c = torch.tensor([2, 2, 2])
-
-    with pytest.raises(RuntimeError):
-        assert a == b
-    with pytest.raises(RuntimeError):
-        assert not (a == c)
-
-    with OverrideEqMode():
-        assert a == b
-        assert not (a == c)
