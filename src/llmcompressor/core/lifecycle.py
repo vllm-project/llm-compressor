@@ -85,10 +85,14 @@ class CompressionLifecycle:
         :rtype: List[Any]
         """
 
-        self.state.update(**kwargs)
         if self.initialized_:  # TODO: do not initialize twice
-            return
+            # nothing is re-initialized, so do not touch the state either: the
+            # modifiers that would consume these kwargs are skipped, and writing
+            # them here leaves the state describing a model nothing prepared.
+            # The annotated return type is list[Any], so give back an empty list.
+            return []
 
+        self.state.update(**kwargs)
         logger.debug("Initializing compression lifecycle")
         if not recipe:
             self.recipe = Recipe()
