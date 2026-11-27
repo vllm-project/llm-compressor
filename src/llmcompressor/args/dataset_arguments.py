@@ -321,7 +321,8 @@ class DatasetArguments(CustomDatasetArguments):
             "help": "Whether to use the 'loss_mask' field from the batch during "
             "calibration. When True, only tokens where loss_mask=1 contribute "
             "to the AWQ optimization objective, to the GPTQ Hessian, and to "
-            "the REAP expert saliency statistics."
+            "the REAP expert saliency statistics and HOPE expert interaction "
+            "statistics."
         },
     )
     dataloader_num_workers: int = field(
