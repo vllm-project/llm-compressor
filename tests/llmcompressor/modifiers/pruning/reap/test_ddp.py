@@ -222,7 +222,7 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
     _layer_names: list = PrivateAttr(default_factory=list)
     _model_device_map: dict | None = PrivateAttr(default=None)
 
-    def experts_block_hook(self, layer_name, module, args, output):
+    def experts_block_hook(self, layer_name, moe, module, args, output):
         indices = args[1].detach().to(device="cpu").clone()
         weights = args[2].detach().to(device="cpu", dtype=torch.float32).clone()
         self._routing_trace.setdefault(layer_name, []).append(
@@ -232,7 +232,7 @@ class _DiagnosticREAPPruningModifier(REAPPruningModifier):
                 "output": _tensor_fingerprint(_first_tensor(output)),
             }
         )
-        return super().experts_block_hook(layer_name, module, args, output)
+        return super().experts_block_hook(layer_name, moe, module, args, output)
 
     def router_forward_hook(self, layer_name, module, args, output):
         router_input = _tensor_fingerprint(args[0] if args else None)

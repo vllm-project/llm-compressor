@@ -3,6 +3,7 @@ from datasets import load_dataset
 from transformers import Llama4ForConditionalGeneration, Llama4Processor
 
 from llmcompressor import oneshot
+from llmcompressor.modeling.patch.llama4_patch import patch_llama4_image_outputs
 from llmcompressor.modifiers.quantization import QuantizationModifier
 from llmcompressor.utils import load_context
 
@@ -73,16 +74,19 @@ recipe = QuantizationModifier(
 
 # Apply algorithms.
 # due to the large size of Llama4, we specify sequential targets such that
-# only one MLP is loaded into GPU memory at a time
-oneshot(
-    model=model,
-    dataset=ds,
-    recipe=recipe,
-    max_seq_length=MAX_SEQUENCE_LENGTH,
-    num_calibration_samples=NUM_CALIBRATION_SAMPLES,
-    sequential_targets=["Llama4TextMLP"],
-    data_collator=data_collator,
-)
+# only one MLP is loaded into GPU memory at a time.
+# `patch_llama4_image_outputs` works around a transformers>=5.24.0 bug where the
+# Llama4 multimodal forward crashes reading a missing `image_outputs` attribute.
+with patch_llama4_image_outputs():
+    oneshot(
+        model=model,
+        dataset=ds,
+        recipe=recipe,
+        max_seq_length=MAX_SEQUENCE_LENGTH,
+        num_calibration_samples=NUM_CALIBRATION_SAMPLES,
+        sequential_targets=["Llama4TextMLP"],
+        data_collator=data_collator,
+    )
 
 
 # Save to disk compressed.

@@ -110,11 +110,29 @@ def get_use_experts_implementation_args(experts_cls: type) -> dict[str, bool] | 
     return None
 
 
+# Routers of these models apply an activation that their published configs do
+# not declare, and transformers hard-codes it in the router module itself
+# (Glm4MoeTopkRouter, Glm4vMoeTextTopkRouter, Glm4MoeLiteTopkRouter all call
+# `.sigmoid()`), so the plain softmax default is wrong for them.
+DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE = {
+    "glm4_moe": "sigmoid",
+    "glm4_moe_lite": "sigmoid",
+    # glm4v_moe is the multimodal wrapper; its MoE lives in the text model,
+    # whose config is what get_text_config() returns and what the modifiers use.
+    # Both are listed so a caller holding either object resolves the same way.
+    "glm4v_moe": "sigmoid",
+    "glm4v_moe_text": "sigmoid",
+}
+
+
 @dataclass
 class MoEConfig:
     # experts routing
     num_experts: int
     num_experts_per_tok: int
+
+    # router scoring
+    score_function: str
 
     # group-limited routing
     n_group: int | None
@@ -138,11 +156,21 @@ class MoEConfig:
 
     @classmethod
     def from_config(cls, config: PreTrainedConfig):
+        # special case: qwen3_5_moe does not specify scoring func in config
+        if config.model_type == "qwen3_5_moe_text":
+            config.scoring_func = "softmax"
+
         self = cls(
             num_experts=_getattr_fallbacks(config, NUM_EXPERTS_CONFIG_KEYS),
             num_experts_per_tok=_getattr_fallbacks(
                 config,
                 ["top_k_experts", "num_experts_per_tok", "num_experts_per_token"],
+            ),
+            score_function=_getattr_fallbacks(
+                config,
+                ["scoring_func", "score_func", "moe_router_activation_func"],
+                DEFAULT_SCORE_FUNCTION_BY_MODEL_TYPE.get(config.model_type, "softmax"),
+                warn_on_default=True,
             ),
             n_group=_getattr_fallbacks(config, ["n_group"], None),
             top_k_group=_getattr_fallbacks(config, ["topk_group", "top_k_group"], None),
@@ -210,13 +238,22 @@ def import_or_none(paths: str | list[str]) -> object | None:
 
 
 def _getattr_fallbacks(
-    target: object, attrs: list[str], default: Any = Sentinel("None")
+    target: object,
+    attrs: list[str],
+    default: Any = Sentinel("None"),
+    warn_on_default: bool = False,
 ) -> Any:
     for attr in attrs:
         if hasattr(target, attr):
             return getattr(target, attr)
 
     if default is not Sentinel("None"):
+        if warn_on_default:
+            logger.warning(
+                f"{target.__class__.__name__} does not have any of {attrs} attributes. "
+                f"Defaulting to {default}",
+                log_once=True,
+            )
         return default
 
     raise AttributeError(f"{target} does not have any of {attrs} attributes")
