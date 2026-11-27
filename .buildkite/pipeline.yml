@@ -1,5 +1,5 @@
 steps:
-  - label: ":gear: llm-compressor GPU Tests"
+  - label: ":gear: llm-compressor Tests"
     command: |
       RUNNER=$$(buildkite-agent meta-data get "test-runner" --default "H100")
       echo "╔══════════════════════════════════════════╗"
@@ -12,7 +12,14 @@ steps:
       echo "║ PR            : $${BUILDKITE_PULL_REQUEST:-none}"
       echo "║ GPU Runner    : $${RUNNER}"
       echo "╚══════════════════════════════════════════╝"
-      buildkite-agent pipeline upload .buildkite/gpu-tests/gpu-tests-$${RUNNER}.yml
+
+      if [[ "$${BUILDKITE_SOURCE}" == "schedule" ]]; then
+        echo "--- Uploading nightly tests pipeline"
+        buildkite-agent pipeline upload .buildkite/nightly/nightly.yml
+      else
+        echo "--- Uploading development tests pipeline"
+        buildkite-agent pipeline upload .buildkite/gpu-tests/gpu-tests-$${RUNNER}.yml
+      fi
   
   # Test check pipeline on XPU (only when relevant paths changed)
   - label: ":gear: llm-compressor XPU Tests"
