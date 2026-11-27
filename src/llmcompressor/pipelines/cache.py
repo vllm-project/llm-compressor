@@ -66,7 +66,7 @@ def _onload_device_types(intermediates: Iterable[IntermediateValue]) -> set[str]
             stack.extend(node.values())
         elif is_dataclass(node):
             stack.extend(getattr(node, f.name) for f in fields(node))
-    return {torch.device(device).type for device in devices}
+    return {device.type for device in devices}
 
 
 class IntermediatesCache:
