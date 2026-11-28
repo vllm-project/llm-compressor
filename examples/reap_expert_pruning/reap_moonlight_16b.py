@@ -6,11 +6,11 @@ from llmcompressor import oneshot
 from llmcompressor.modifiers.pruning import REAPPruningModifier
 
 # Select model and load it.
-# Note: for the Moonlight model, you may need to install the
-# `tiktoken` package for the tokenizer.
+# Note: the Moonlight tokenizer requires the `tiktoken` package and
+# trust_remote_code=True.
 model_id = "moonshotai/Moonlight-16B-A3B-Instruct"
 model = AutoModelForCausalLM.from_pretrained(model_id)
-tokenizer = AutoTokenizer.from_pretrained(model_id)
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
 # Prune 25% of the experts in each MoE layer, based on saliency.
 # You can adjust this value to prune more or less aggressively.
@@ -19,6 +19,7 @@ recipe = REAPPruningModifier(sparsity=0.25)
 # Apply algorithms.
 oneshot(
     model=model,
+    tokenizer=tokenizer,
     dataset="perfectblend",
     splits="train[:512]",
     recipe=recipe,
@@ -34,7 +35,7 @@ dispatch_model(model)
 sample = tokenizer("Hello my name is", return_tensors="pt")
 sample = {key: value.to(model.device) for key, value in sample.items()}
 output = model.generate(**sample, max_new_tokens=100)
-print(tokenizer.decode(output[0]))
+print(tokenizer.decode(output[0].tolist()))
 print("==========================================\n\n")
 
 # Save to disk compressed.
