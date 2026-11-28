@@ -8,8 +8,9 @@ HOPE's own behavior: the pairwise interaction statistics
 sparse and calibrate-all execution paths; the prune-set quadratic program,
 which must recover REAP's independent ranking when interactions are zeroed
 and must account for cooperative expert pairs when they are not; full-model
-pruning with real routing; and distributed calibration with unevenly
-distributed data.
+pruning with real routing; token masking, which leaves masked-out tokens out
+of every statistic; and distributed calibration with unevenly distributed
+data.
 """
 
 import json
@@ -18,7 +19,7 @@ import pytest
 import torch
 from torch import distributed as dist
 
-from llmcompressor.core import Event, EventType
+from llmcompressor.core import Event, EventType, active_session, reset_session
 from llmcompressor.modeling.moe import context as moe_context
 from llmcompressor.modeling.moe.helpers import MoEConfig
 from llmcompressor.modeling.moe.linear_experts import ExpertMLP
@@ -397,6 +398,229 @@ def test_hope_full_lifecycle(tmp_path):
         out = model(torch.randn(2, 4, config.hidden_size))
     assert out.shape == (2, 4, config.hidden_size)
     assert not torch.isnan(out).any()
+
+
+# ---------------------------------------------------------------------------
+# Tests: token masking
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("calibrate_all", [False, True])
+@pytest.mark.parametrize("kept_tokens", [(1, 0), (0, 1)])
+def test_interaction_statistics_drop_masked_tokens(
+    calibrate_all, kept_tokens, monkeypatch
+):
+    """The loss mask keeps masked-out tokens out of every statistic.
+
+    A kept token contributes to ``sum_products``, ``pair_count`` and
+    ``count``. A masked-out token contributes to none of them, so ``F`` is
+    the mean over the kept tokens only. Both execution paths must behave
+    this way."""
+    monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+    modifier = _stats_modifier(num_experts=4)
+
+    # the loss mask of the current batch keeps one of the 2 tokens
+    session_state = active_session().state
+    session_state.loss_masks = [torch.tensor(kept_tokens, dtype=torch.long)]
+    session_state.current_batch_idx = 0
+
+    # 2 tokens, top-2 routing: token 0 selects experts (0, 1), token 1
+    # selects experts (0, 2); expert 3 is never routed
+    topk_indices = torch.tensor([[0, 1], [0, 2]])
+    topk_weights = torch.tensor([[0.6, 0.4], [0.5, 0.5]])
+
+    if calibrate_all:
+        # dense execution: every expert runs on every token
+        outputs = {
+            0: torch.tensor([[3.0], [1.0]]),
+            1: torch.tensor([[2.0], [5.0]]),
+            2: torch.tensor([[6.0], [4.0]]),
+            3: torch.tensor([[7.0], [8.0]]),
+        }
+    else:
+        # sparse execution: experts run on their routed tokens only
+        outputs = {
+            0: torch.tensor([[3.0], [1.0]]),
+            1: torch.tensor([[2.0]]),
+            2: torch.tensor([[4.0]]),
+            3: torch.empty(0, 1),
+        }
+    _run_batch(modifier, outputs, topk_indices, topk_weights)
+
+    if kept_tokens == (1, 0):
+        # only token 0 counts: gate-weighted norms (1.8, 0.8) routed to
+        # experts (0, 1), so expert 2 never co-selects with either although
+        # token 1 would have paired it with expert 0
+        expected = torch.tensor(
+            [
+                [3.24, 1.44, 0.0, 0.0],
+                [1.44, 0.64, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ]
+        )
+        expected_pairs = [
+            [1, 1, 0, 0],
+            [1, 1, 0, 0],
+            [0, 0, 0, 0],
+            [0, 0, 0, 0],
+        ]
+        expected_count = [1, 1, 0, 0]
+    else:
+        # only token 1 counts: gate-weighted norms (0.5, 2.0) routed to
+        # experts (0, 2)
+        expected = torch.tensor(
+            [
+                [0.25, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+                [1.0, 0.0, 4.0, 0.0],
+                [0.0, 0.0, 0.0, 0.0],
+            ]
+        )
+        expected_pairs = [
+            [1, 0, 1, 0],
+            [0, 0, 0, 0],
+            [1, 0, 1, 0],
+            [0, 0, 0, 0],
+        ]
+        expected_count = [1, 0, 1, 0]
+
+    torch.testing.assert_close(
+        modifier._interaction_matrix("layer"), expected, rtol=0, atol=1e-6
+    )
+    assert modifier._moe_stats["layer"]["pair_count"].tolist() == expected_pairs
+    assert modifier._moe_stats["layer"]["count"].tolist() == expected_count
+
+
+@pytest.mark.unit
+def test_hope_masked_statistics_agree_between_execution_paths(monkeypatch):
+    """Both execution paths give the same statistics under a loss mask.
+
+    The same model and inputs run on the sparse path and on the
+    calibrate-all path. Both runs use the same loss mask. ``saliency``,
+    ``F`` and ``count`` must match between the two runs.
+
+    The calibrate-all path keeps the router weights and the expert norms in
+    two tables, one row per token. The loss mask must drop the same rows
+    from both, or a token gets another token's norms."""
+    torch.manual_seed(42)
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    reference_model = FakeMoEModel(config)
+    reference_model.eval()
+    reference_state = reference_model.state_dict()
+
+    inputs = [torch.randn(2, 8, config.hidden_size) for _ in range(5)]
+    masks = [torch.ones(2, 8, dtype=torch.long) for _ in inputs]
+    for mask in masks:
+        mask[:, :4] = 0
+
+    stats_by_mode = {}
+    for calibrate_all in (False, True):
+        reset_session()
+        monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+        model = FakeMoEModel(config)
+        model.load_state_dict(reference_state)
+        model.eval()
+
+        modifier = HOPEPruningModifier(sparsity=0.5)
+        state = make_state(model)
+        modifier.initialize(state)
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+        session_state = active_session().state
+        session_state.loss_masks = masks
+        with torch.no_grad():
+            for batch_idx, x in enumerate(inputs):
+                session_state.current_batch_idx = batch_idx
+                model(x)
+
+        stats_by_mode[calibrate_all] = {
+            layer_name: (
+                modifier.saliency(layer_name).clone(),
+                modifier._interaction_matrix(layer_name).clone(),
+                modifier._moe_stats[layer_name]["count"].clone(),
+            )
+            for layer_name in modifier._moe_stats
+        }
+        reset_session()
+
+    # the two paths sum the same contributions in a different order, so
+    # allow for float32 reduction-order noise
+    for layer_name, (saliency, interaction, count) in stats_by_mode[False].items():
+        dense_saliency, dense_interaction, dense_count = stats_by_mode[True][layer_name]
+        torch.testing.assert_close(saliency, dense_saliency, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(interaction, dense_interaction, rtol=1e-5, atol=1e-6)
+        assert count.tolist() == dense_count.tolist()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("calibrate_all", [False, True])
+def test_hope_loss_mask_read_from_state(tmp_path, calibrate_all, monkeypatch):
+    """The experts-block hook reads the current batch's loss mask from the
+    session state; only unmasked tokens contribute to the statistics.
+
+    The same model and inputs are calibrated twice (identical routing): once
+    without masks and once with the first half of each sequence masked out.
+    Every expert's selection count can then only shrink."""
+    monkeypatch.setattr(moe_context, "_CALIBRATE_ALL_EXPERTS", calibrate_all)
+    torch.manual_seed(42)
+
+    config = FakeMoEConfig(
+        num_experts=8, hidden_size=16, intermediate_size=32, num_hidden_layers=2
+    )
+    model = FakeMoEModel(config)
+    model.eval()
+    inputs = [torch.randn(2, 8, config.hidden_size) for _ in range(5)]
+
+    def collect_report(loss_masks, report_path):
+        reset_session()
+        modifier = HOPEPruningModifier(sparsity=0.0, report_path=str(report_path))
+        state = make_state(model)
+        modifier.initialize(state)
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_START))
+
+        session_state = active_session().state
+        session_state.loss_masks = loss_masks
+        with torch.no_grad():
+            for batch_idx, x in enumerate(inputs):
+                session_state.current_batch_idx = batch_idx
+                model(x)
+
+        modifier.update_event(state, Event(type_=EventType.SEQUENTIAL_EPOCH_END))
+        modifier.update_event(state, Event(type_=EventType.CALIBRATION_END))
+        modifier.finalize(state)
+        reset_session()
+
+        with open(report_path) as f:
+            return json.load(f)
+
+    # unmasked baseline; the same inputs are reused below, so routing
+    # decisions are identical across the masked runs
+    report_unmasked = collect_report(None, tmp_path / "unmasked.json")
+
+    # first half of each sequence masked out: with identical routing, every
+    # expert's count can only shrink, and the total strictly does
+    masks = [torch.ones(2, 8, dtype=torch.long) for _ in inputs]
+    for mask in masks:
+        mask[:, :4] = 0
+    report_masked = collect_report(masks, tmp_path / "masked.json")
+    for counts_unmasked, counts_masked in zip(
+        report_unmasked["count"], report_masked["count"]
+    ):
+        assert sum(counts_masked) < sum(counts_unmasked)
+        assert all(
+            c <= u for c, u in zip(counts_masked, counts_unmasked)
+        ), f"{counts_masked} vs {counts_unmasked}"
+
+    # an all-zero mask leaves every layer without samples: its statistics
+    # are recorded as None in the report
+    zero_masks = [torch.zeros(2, 8, dtype=torch.long) for _ in inputs]
+    report_zero = collect_report(zero_masks, tmp_path / "zero.json")
+    for counts in report_zero["count"]:
+        assert counts is None
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from llmcompressor.modifiers.pruning.expert_sparsity.base import (
     ExpertPruningModifierBase,
 )
 from llmcompressor.modifiers.pruning.hope.utils import _require_scipy, solve_hope_qp
+from llmcompressor.modifiers.utils.pytorch_helpers import get_current_loss_mask
 
 __all__ = ["HOPEPruningModifier"]
 
@@ -69,6 +70,14 @@ class HOPEPruningModifier(ExpertPruningModifierBase):
         one inner list per MoE layer (ordered by layer). Required when
         ``sparsity`` is ``0.0``, since the report is then the modifier's only
         output.
+
+    Token masking: when the calibration data is loaded with
+    ``use_loss_mask=True`` and provides a ``loss_mask`` field, only tokens
+    where the mask is nonzero contribute to the interaction statistics (e.g.
+    only assistant responses). Masked-out tokens still flow through the model;
+    they are simply excluded from the accumulated statistics, exactly like
+    the masking applied to the AWQ activation statistics, the GPTQ Hessian
+    and the REAP saliency statistics.
 
     Example recipe::
 
@@ -194,6 +203,9 @@ class HOPEPruningModifier(ExpertPruningModifierBase):
         top-k index; otherwise indices are flattened in (slot, token) order
         to match the ``torch.where`` scatter order of ``LinearExperts2D``.
 
+        Only tokens selected by the current batch's loss mask (if any)
+        contribute to the statistics.
+
         :param moe_name: Name of the MoE layer the block belongs to
         :param moe: The MoE layer the hooked experts block belongs to
         :param module: The experts block the hook is attached to
@@ -211,12 +223,33 @@ class HOPEPruningModifier(ExpertPruningModifierBase):
         topk_indices: torch.Tensor = args[1].to(torch.long)
         topk_weights: torch.Tensor = args[2].to(self.precision)
 
+        token_mask = get_current_loss_mask()
+        if token_mask is not None:
+            token_mask = token_mask.to(
+                device=topk_indices.device, dtype=torch.bool
+            ).reshape(-1)
+            if token_mask.numel() != topk_indices.shape[0]:
+                raise ValueError(
+                    f"Token mask of {token_mask.numel()} tokens cannot be aligned "
+                    f"with the {topk_indices.shape[0]} tokens seen by the MoE "
+                    "layer. Token masking requires a loss mask covering exactly "
+                    "the tokens of the batch"
+                )
+
         sum_products = self._moe_stats[moe_name]["sum_products"]
         pair_count = self._moe_stats[moe_name]["pair_count"]
         count = self._moe_stats[moe_name]["count"]
 
         with local_torch_dtype(self.precision):
             if get_calibrate_all_experts_flag():
+                if token_mask is not None:
+                    topk_indices = topk_indices[token_mask]
+                    topk_weights = topk_weights[token_mask]
+                    # filter norm rows to stay aligned with the topk rows
+                    self._expert_norms[moe_name] = {
+                        idx: norm[token_mask]
+                        for idx, norm in self._expert_norms[moe_name].items()
+                    }
                 # every expert ran on every token, so stack their per-token
                 # norms into a [num_tokens, num_experts] matrix ordered by
                 # expert index, then gather each token's routed experts
@@ -243,6 +276,10 @@ class HOPEPruningModifier(ExpertPruningModifierBase):
                 weighted_norms = (
                     (flat_weights * flat_norms).reshape(top_k, num_tokens).T
                 )
+
+                if token_mask is not None:
+                    topk_indices = topk_indices[token_mask]
+                    weighted_norms = weighted_norms[token_mask]
 
             # Accumulate each token's outer product of gate-weighted norms
             # over its pairs of routed slots: the (a, b) slot pair adds
