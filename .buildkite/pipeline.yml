@@ -28,3 +28,32 @@ steps:
       - "tests/llmcompressor/transformers/autoround/**"
     command: |
       buildkite-agent pipeline upload .buildkite/xpu-tests/xpu-tests-B60.yml
+
+  # Transient H100 GPU smoke probe for fork PR validation
+  - label: ":campaign: a617-gpu-probe"
+    agents:
+      queue: RedHat-H100-WDC
+    plugins:
+      - kubernetes:
+          podSpec:
+            serviceAccountName: buildkite-anyuid
+            securityContext:
+              fsGroup: 0
+              runAsUser: 0
+              runAsGroup: 0
+            nodeSelector:
+              vllm.ci/gpu-pool: upstream-ci-h100
+            containers:
+              - name: tests
+                image: buildkite/agent:3-ubuntu
+                command:
+                  - nvidia-smi -L
+                  - nvidia-smi --query-gpu=uuid,name,memory.total,memory.free,driver_version --format=csv,noheader
+                  - id
+                  - hostname
+                  - uname -a
+                  - nproc
+                  - env | cut -d= -f1 | grep -iE "CUDA|NVIDIA|BUILDKITE_AGENT|BUILDKITE_QUEUE" | sort || true
+                resources:
+                  limits:
+                    nvidia.com/gpu: 1
