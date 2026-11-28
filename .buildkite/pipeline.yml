@@ -57,3 +57,5 @@ steps:
                 resources:
                   limits:
                     nvidia.com/gpu: 1
+
+# a617 synchronize trigger
